@@ -13,7 +13,7 @@ cp tools/tests/JSCallEditorWebTests.swift "$out/main.swift"
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/js-call-editor-web-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Bridge/WebViewBridge.swift MarkView/Models/Appearance/WebThemeArguments.swift \
     MarkView/Bridge/DataFileSchemeHandler.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
-    MarkView/Models/Workspace/EditorWindowPrefs.swift MarkView/Models/Insight/SemanticModels.swift \
+    MarkView/Models/Workspace/EditorWindowPrefs.swift MarkView/Models/Shared/SemanticModels.swift \
     MarkView/Models/Insight/InsightModels.swift MarkView/Models/Appearance/AppFontScale.swift \
     tools/tests/BridgeContractSupport.swift "$out/main.swift"
 "$out/js-call-editor-web-tests" "$PWD/MarkView/Resources/Editor"
@@ -23,15 +23,13 @@ rm -f "$out/main.swift"
 python3 - "$out" <<'PY'
 import pathlib, sys
 out = pathlib.Path(sys.argv[1])
-source = pathlib.Path('MarkView/Models/Workspace/DocumentState.swift').read_text()
-(out / 'FileType.swift').write_text(source.split('/// Represents a table of contents heading entry')[0])
 (out / 'main.swift').write_text(pathlib.Path('tools/tests/JSCallTerminalWebTests.swift').read_text())
 (out / 'fixtures').mkdir()
 PY
 swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/js-call-terminal-web-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Models/Appearance/AppFontScale.swift \
-    MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift MarkView/Models/Remote/RemoteConnectionState.swift \
+    MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift MarkView/Models/Terminal/RemoteConnectionState.swift \
     MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Appearance/WebThemeArguments.swift MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Terminal/TerminalChildProcess.swift \
-    MarkView/Models/Terminal/TerminalBrowserBridge.swift MarkView/Models/Terminal/PTYWriter.swift "$out/FileType.swift" \
-    MarkView/Models/Workspace/ArchiveSupport.swift "$out/main.swift"
+    MarkView/Models/Terminal/TerminalBrowserBridge.swift MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/Shared/FileType.swift \
+    MarkView/Models/Shared/ArchiveSupport.swift "$out/main.swift"
 "$out/js-call-terminal-web-tests" "$PWD/MarkView/Resources/Editor/terminal.html" "$out/fixtures"

@@ -536,7 +536,7 @@ struct EditorView: NSViewRepresentable {
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self, weak webView, weak store] _ in
                         guard let self, let webView, let store else { return }
-                        self.bridge.showArchitecture(store.payloadJSON(mode: TabKind.architectureMode(scope: scope)), in: webView)
+                        self.bridge.showArchitecture(store.payloadJSON(mode: XRayScope.mode(scope: scope)), in: webView)
                     }
                 // Analysis progress changes with every file the assistant reads: send it
                 // on its own, at most a few times a second.
@@ -556,7 +556,7 @@ struct EditorView: NSViewRepresentable {
                     content.cancel(); progress.cancel(); operationChanges?.cancel()
                 }
             } else {
-                bridge.showArchitecture(store.payloadJSON(mode: TabKind.architectureMode(scope: scope)), in: webView)
+                bridge.showArchitecture(store.payloadJSON(mode: XRayScope.mode(scope: scope)), in: webView)
                 if let operations { bridge.setProjectOperations(operations.payloadJSON(), in: webView) }
             }
         }
@@ -858,8 +858,18 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didReceiveResearchMapAction action: String, payload: [String: Any], documentID: UUID?) {
+    /// Runs what answers a request of the page (a picture for a node, a translation, a selection action) in the window's task bag: closing
+    /// the window cancels it, and the bag lets it go when it ends (`AR-19`). Requests of one kind may overlap, so each run has a key of its own.
+    private func startReply(_ kind: String, _ work: @escaping @MainActor () async -> Void) {
+        // task: hops onto the main actor to put the run in the window's bag; this task itself never suspends
         Task { @MainActor in
+            self.parent.workspaceManager.taskBag.store(Task { await work() }, for: "editor-\(kind):\(UUID().uuidString)")
+        }
+    }
+
+    func bridge(_ bridge: WebViewBridge, didReceiveResearchMapAction action: String, payload: [String: Any], documentID: UUID?) {
+        startReply("research-map") { [weak self] in
+            guard let self else { return }
             // A picture for a node is written off the main thread first; the page then gets the map as it is.
             var carried = ""
             var handled = action
@@ -947,7 +957,8 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String) {
-        Task { @MainActor in
+        startReply("translation") { [weak self] in
+            guard let self else { return }
             let error = await self.parent.workspaceManager.translator.translate(markdown: markdown, targetLang: targetLang)
             // Only failures need reporting — success is visible as a new tab
             // filling in progressively.
@@ -965,10 +976,11 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String) {
-        Task { @MainActor in
+        startReply("selection-action") { [weak self] in
+            guard let self else { return }
             let wm = self.parent.workspaceManager
-            await wm.codeXRay.handleSelectionAction(action: action, text: text) { title, result in
-                if let webView = self.webView,
+            await wm.codeXRay.handleSelectionAction(action: action, text: text) { [weak self] title, result in
+                if let webView = self?.webView,
                    let script = JS.call("window.showSelectionResult", args: [title, result]) {
                     webView.evaluateJavaScript(script) { _, _ in }
                 }

@@ -128,6 +128,11 @@ final class FeatureFlowCoordinator: ObservableObject {
 
     // MARK: - Showing a feature
 
+    /// Shows `url` in a tab of the window: the document that a feature, a bug, an object or an issue row points at.
+    func open(_ url: URL) {
+        tabs.openFile(url)
+    }
+
     /// Keep the selected task visible beside its documents in the right column.
     func showFeatureContext(_ slug: String?) {
         if let slug {
@@ -282,6 +287,40 @@ final class FeatureFlowCoordinator: ObservableObject {
     func startResearch(fromFolder folder: URL) {
         requests.intake = IntakeRequest(kind: .research, text: "Review the documents in \(project.relativePath(of: folder)) and its subfolders: ", targets: [folder])
     }
+
+    /// The sheet's "Create" for a feature or a bug: the assistant makes it from `input`, then the window shows what it made and the sheet
+    /// closes (`intakeFinished`). One at a time per window; closing the folder ends it. `finished` is told once, with why nothing was
+    /// made, or with nil when something was made or the work ended with the folder.
+    func submitIntake(_ kind: IntakeKind, from input: String, attachments: [URL], linkedIssue: Int?, commentOnIssue: Bool,
+                      finished: @escaping @MainActor (String?) -> Void) {
+        guard !tasks.contains(key: "intake") else {
+            finished("A new feature or bug is already being made — wait for it to finish.")
+            return
+        }
+        tasks.store(Task { [weak self] in
+            guard let self else { return }
+            let assistant = self.features.assistant
+            let outcome: FeatureAssistant.IntakeOutcome?
+            switch kind {
+            case .feature: outcome = await assistant.newFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
+            case .quickFeature: outcome = await assistant.newQuickFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
+            case .bug: outcome = await assistant.newBug(from: input, attachments: attachments, linkedIssue: linkedIssue, commentOnIssue: commentOnIssue)
+            case .understand, .research: outcome = nil
+            }
+            guard !Task.isCancelled else { return finished(nil) }
+            guard let outcome else { return finished(assistant.error ?? "The assistant did not answer.") }
+            self.requests.intake = nil
+            self.intakeFinished(kind, outcome: outcome)
+            finished(nil)
+        }, for: "intake")
+    }
+
+    /// The open folder, for the sheets that suggest paths in it; nil while nothing is open.
+    var projectRoot: URL? { project.root }
+
+    /// Whether the assistant's terminal is working: a batch of bugs is not handed to it then. Read when the view draws; the terminal's
+    /// activity is not observed.
+    var assistantIsBusy: Bool { assistants.assistantIsBusy }
 
     /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
     var researchDefaultTargets: [URL] {

@@ -228,6 +228,8 @@ final class StudioLog: ObservableObject {
     private let file: StudioLogFile?
     private let queue: DispatchQueue
     private var next = 1
+    /// Set once the session has closed (`seal`).
+    private var sealed = false
 
     /// `root` nil keeps the log in memory only.
     init(root: URL?, redactor: StudioRedactor, queue: DispatchQueue, capacity: Int = StudioLogRing.capacity) {
@@ -241,7 +243,12 @@ final class StudioLog: ObservableObject {
     var problems: Int { ring.problems }
     var fileURL: URL? { file?.url }
 
+    /// The session has closed: nothing is added any more, in the view or in the file. The answer of work that was cancelled, or a page event
+    /// that arrives late, must not write into the file the next session of the project appends to.
+    func seal() { sealed = true }
+
     func add(_ kind: StudioLogEntry.Kind, problem: Bool = false, errorKey: String? = nil, _ text: String) {
+        guard !sealed else { return }
         let shown = StudioLogFormat.clean(StudioLogFormat.redact(text, redactor: redactor, hashes: secretHashes))
         guard !shown.isEmpty else { return }
         // A message of an earlier page generation is what a reload leaves behind (REQ-019): kept in the log, never a problem.

@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// App-lifetime home endpoint. Hosting is explicitly enabled by the person and lasts only until
 /// explicit revocation. Transport sessions can restart without replacing the saved pairing.
@@ -18,6 +21,9 @@ final class RemoteHostController: ObservableObject {
     private var heartbeat: Task<Void, Never>?
     private var outputBuffer = Data()
     private var outputTask: Task<Void, Never>?
+    /// The short jobs of one transport (telling the work Mac the terminal exited, closing a channel that failed, the teardown): `suspend()`
+    /// ends them, and a new one of a kind replaces the one before it (`AR-19`).
+    private let transportTasks = TaskBag()
 
     func start(code: String) {
         guard !isHosting else { return }
@@ -143,12 +149,12 @@ final class RemoteHostController: ObservableObject {
         }
         terminal.onExit = { [weak self] code in
             let drain = self?.outputTask
-            Task { await drain?.value; try? await channel.send(RemoteMessage("exited", .int(Int(code)))) }
+            self?.transportTasks.store(Task { await drain?.value; try? await channel.send(RemoteMessage("exited", .int(Int(code)))) }, for: "send-exited")
             self?.setState(.offline, "\(tool.displayName) exited (\(code)). Reconnect to continue the saved connection.")
         }
         terminal.onLaunchFailure = { [weak self] _ in
             self?.setState(.reconnecting, "Could not start the home assistant.")
-            Task { await channel.close() }
+            self?.transportTasks.store(Task { await channel.close() }, for: "close-channel")
         }
         terminal.resizeForConnection(cols: payload["cols"].integer ?? 120, rows: payload["rows"].integer ?? 30)
         terminal.start()
@@ -158,7 +164,7 @@ final class RemoteHostController: ObservableObject {
 
     private func sendOutput(_ data: Data, channel: RemoteChannel) {
         outputBuffer.append(data)
-        guard outputBuffer.count <= 8 * 1024 * 1024 else { setState(.reconnecting, "Remote terminal paused · reconnecting"); Task { await channel.close() }; return }
+        guard outputBuffer.count <= 8 * 1024 * 1024 else { setState(.reconnecting, "Remote terminal paused · reconnecting"); transportTasks.store(Task { await channel.close() }, for: "close-channel"); return }
         guard outputTask == nil else { return }
         outputTask = Task { [weak self] in
             guard let self else { return }
@@ -183,6 +189,7 @@ final class RemoteHostController: ObservableObject {
     /// App exit and temporary failures preserve the saved pairing. Only the store revokes access.
     func suspend() {
         isHosting = false; task?.cancel(); task = nil
-        Task { await clearTransport() }
+        transportTasks.cancelAll()
+        transportTasks.store(Task { await clearTransport() }, for: "teardown")
     }
 }

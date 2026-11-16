@@ -9,8 +9,7 @@ struct BuildStageView: View {
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
-    @EnvironmentObject var workspaceManager: WorkspaceManager
-
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
 
     var body: some View {
         let approved = feature.list(.requirement).filter { $0.status == "approved" }
@@ -26,14 +25,14 @@ struct BuildStageView: View {
                     Working(text: "Planning…")
                 } else {
                     SmallButton(title: issues.isEmpty ? "Propose plan" : "Re-plan", icon: "sparkles", prominent: issues.isEmpty) {
-                        Task { await assistant.decompose(feature.slug) }
+                        assistant.start("decompose:" + feature.slug) { await $0.decompose(feature.slug) }
                     }
                 }
             }
             HStack {
                 Text("Hand the specification to the AI terminal to implement.").uiFont(size: 10).foregroundColor(palette.textDim)
                 Spacer()
-                SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.flow.implementWithAI(feature.folder) }
+                SmallButton(title: "Implement with AI", icon: "hammer") { flow.implementWithAI(feature.folder) }
             }
             let unapproved = feature.activeRequirements.filter { ["draft", "review"].contains($0.status) }
             if !unapproved.isEmpty {
@@ -66,7 +65,7 @@ struct BuildStageView: View {
                         Working(text: "Creating GitHub issues…")
                     } else if issues.contains(where: { $0.github == nil }) {
                         SmallButton(title: "Approve & create GitHub issues", icon: "arrow.up.forward.square", prominent: true) {
-                            Task { await assistant.createIssues(feature.slug) }
+                            assistant.start("issues:" + feature.slug) { await $0.createIssues(feature.slug) }
                         }
                         .disabled(!missing.isEmpty && !approved.isEmpty)
                         .help(missing.isEmpty ? "Create the issues and the epic on GitHub" : "Cover every approved requirement first")
@@ -103,6 +102,8 @@ struct IssuePlanCard: View {
     let issue: PlannedIssue
     @State private var targeted = false
     @State private var pulls: [(number: Int, title: String, url: String)] = []
+    /// Raised by "Pull requests": the read for each request is the card's own `.task`, and ends with the card.
+    @State private var pullRequestAsks = 0
 
     var body: some View {
         FeatureCard {
@@ -124,9 +125,9 @@ struct IssuePlanCard: View {
                     Text(id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.purple)
                 }
             }
-            if let number = issue.github {
+            if issue.github != nil {
                 if pulls.isEmpty {
-                    Button("Pull requests") { Task { pulls = await assistant.pullRequests(closing: number) } }
+                    Button("Pull requests") { pullRequestAsks += 1 }
                         .buttonStyle(.link).uiFont(size: 9)
                 }
                 ForEach(pulls, id: \.number) { pr in
@@ -134,6 +135,10 @@ struct IssuePlanCard: View {
                         .buttonStyle(.link).uiFont(size: 9)
                 }
             }
+        }
+        .task(id: pullRequestAsks) {
+            guard pullRequestAsks > 0, let number = issue.github else { return }
+            pulls = await assistant.pullRequests(closing: number)
         }
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(targeted ? palette.blue : Color.clear, lineWidth: 2))
         .onDrop(of: [UTType.plainText], isTargeted: $targeted) { providers in

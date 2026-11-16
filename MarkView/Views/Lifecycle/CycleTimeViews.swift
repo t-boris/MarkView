@@ -10,12 +10,12 @@ import SwiftUI
 /// One line in a feature or bug panel that opens the cycle-time window at that item.
 struct CycleTimeLink: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject private var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var requests: WindowRequests
     let kind: IssueKind
     let issue: String
 
     var body: some View {
-        Button(action: { workspaceManager.requests.cycleTimeItem = kind.rawValue + ":" + issue }) {
+        Button(action: { requests.cycleTimeItem = kind.rawValue + ":" + issue }) {
             HStack(spacing: 4) {
                 Image(systemName: "timer").uiFont(size: 9).foregroundColor(palette.textDim)
                 Text("Cycle time and timeline").uiFont(size: 10).foregroundColor(palette.textDim)

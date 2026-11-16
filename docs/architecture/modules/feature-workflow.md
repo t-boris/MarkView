@@ -49,9 +49,9 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 **Does NOT own**
 
 - Running the CLI, parsing its output and usage accounting: `CLICompletion` ([ai-assistants-and-dictation](ai-assistants-and-dictation.md)).
-- The YAML subset parser and writer: `MarkView/Models/Workspace/FrontMatter.swift`. This module consumes it.
+- The YAML subset parser and writer: `MarkView/Models/Shared/FrontMatter.swift`. This module consumes it.
 - GitHub API calls (`GitHubClient`, `GitHubStore`), git execution, the lifecycle event log file (`LifecycleLog`), lifecycle analytics and the lifecycle views ([git-github-terminal-lifecycle-usage](git-github-terminal-lifecycle-usage.md)).
-- Handing a spec or bug to the Terminal assistant (`FeatureFlowCoordinator.implementWithAI` / `fixBugWithAI`, `Models/Lifecycle/FeatureFlowCoordinator.swift`).
+- Handing a spec or bug to the Terminal assistant (`FeatureFlowCoordinator.implementWithAI` / `fixBugWithAI`, `Models/Workspace/FeatureFlowCoordinator.swift`).
 - The "I Need to Understand" answer. It is delegated to the X-Ray temporary filter (`CodeAndXRayCoordinator.swift`, [architecture-and-xray](architecture-and-xray.md)).
 - Whisper transcription and dictation (`WhisperClient`, `DictationController`).
 - `ImportanceRater` (`MarkView/Models/Architecture/ImportanceRater.swift`). It is listed here on request, but belongs to the X-Ray / Architecture filters: the callers are `ArchitectureStore.swift`, `CodeExplainer.swift` and `CodeAndXRayCoordinator.swift`. See section 3.6. (Its live-CLI check script `tools/importance-check.sh` was removed in 6.26.0.)
@@ -68,12 +68,13 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | `MarkView/Models/Lifecycle/FeatureIngest.swift` | `FeatureAssistant` extension: `SourceOrigin`, `ingest`, `extractFacts`, `setFact`, `readableText` (PDFKit, Whisper), `fetchText` (HTML to text) |
 | `MarkView/Models/Lifecycle/FeatureIntake.swift` | `IntakeKind`, `IntakeRequest`; `FeatureAssistant` extension: `newFeature`, `newBug`, `answerBug`, `investigateBug`, bug section helpers, `nextNumbered` |
 | `MarkView/Models/Architecture/ImportanceRater.swift` | X-Ray rating filters (not part of this workflow; see 3.6) |
-| `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` | `LeftPanelView` (Files/Issues switch), `IssuesListView`, `IssueLinks`, `FeatureNavigatorView`, `FeatureStatusMenu`, `ReadinessBar`, `FeatureStatusDot`, `IntakeSheet` |
+| `MarkView/Views/Workspace/LeftPanelView.swift` | `LeftPanelView` (Files/Issues switch; it is in Workspace because it composes the file tree with the Issues list) |
+| `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` | `IssuesListView`, `IssueLinks`, `FeatureNavigatorView`, `FeatureStatusMenu`, `ReadinessBar`, `FeatureStatusDot`, `IntakeSheet` |
 | `MarkView/Models/Lifecycle/IssueSync.swift` | Sync to GitHub (issue #36), Foundation only: `IssueSyncItem`, `IssueSyncLinks` (explicit references), `IssueSyncPlan` (pairs, unique lookups, shared-issue rule), `IssueSyncRemote`, `IssueSyncReport`, `IssueSyncPreflight`; tested by `tools/tests/issue-sync-tests.sh` |
 | `MarkView/Models/Lifecycle/IssueSyncRun.swift` | `IssueSyncRun` (`@MainActor`, owned by `FeatureStore.issueSync`): preflight, per-issue lookup and close; `IssueSyncLoader` reads items from disk off the main thread |
 | `MarkView/Views/Lifecycle/IssueSyncViews.swift` | `IssueSyncButton` and `IssueSyncReportView` in the Issues list header |
 | `MarkView/Views/Lifecycle/FeaturePanelView.swift` | `FeatureStage`, `FeaturePanelView` and the stage views: `ExploreStageView`, `ReviewStageView` (with `BeforeBuildSection`), `BuildStageView`. Also the question, bug, source, finding and plan cards, `ObjectContextView` (trace, impact, history), `FeatureCleanupSheet`, `FlowLayout` |
-| `MarkView/Models/Workspace/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift`) |
+| `MarkView/Models/Shared/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift`) |
 | `docs/features/*/`, `docs/bugs/*.md` | Real files produced by this module (examples in section 6) |
 
 ---
@@ -169,7 +170,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 ### 3.5 Views
 
-- `LeftPanelView`: switches between Files and Issues, showing Issues only when `hasIssues`. It opens a feature in `FeatureNavigatorView` (`FeatureNavigatorView.swift`).
+- `LeftPanelView` (`Views/Workspace/LeftPanelView.swift`): switches between Files and Issues, showing Issues only when `hasIssues`. It opens a feature in `FeatureNavigatorView` (`FeatureNavigatorView.swift`).
 - `IssuesListView` lists features and bugs. The `+` buttons open the intake.
 - `IntakeSheet` offers:
   - dictation, shown only when an OpenAI key is set
@@ -196,14 +197,14 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 | Caller | Call |
 |---|---|
-| `WorkspaceManager.openFolder` → `FeatureFlowCoordinator.setUp(at:)` | `features.setup(root:)` and `features.assistant.project = project` (`Models/Lifecycle/FeatureFlowCoordinator.swift`) |
+| `WorkspaceManager.openFolder` → `FeatureFlowCoordinator.setUp(at:)` | `features.setup(root:)` and `features.assistant.project = project` (`Models/Workspace/FeatureFlowCoordinator.swift`) |
 | `WorkspaceManager.closeFolder` | `flow.reset()`, which resets the features (`WorkspaceManager.swift`, `FeatureFlowCoordinator`) |
 | `GitHubStore.polls` (a publisher) | `features.syncLifecycle(with:)`, subscribed in `FeatureFlowCoordinator.setUpGitHub` |
-| Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift`) → `EditorView` delegate (`Views/Workspace/EditorView.swift`) → `FeatureFlowCoordinator.runFeatureAction` (`Models/Lifecycle/FeatureFlowCoordinator.swift`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
+| Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift`) → `EditorView` delegate (`Views/Workspace/EditorView.swift`) → `FeatureFlowCoordinator.runFeatureAction` (`Models/Workspace/FeatureFlowCoordinator.swift`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
 | Toolbar "New" menu (`Views/Workspace/ContentView.swift`), issue and PR menus (`FeatureFlowCoordinator.startIntake`) | Set `requests.intake` (`WindowRequests`) and present `IntakeSheet` (`ContentView.swift`) |
-| `IntakeSheet.submit` → `FeatureFlowCoordinator.intakeFinished` | Opens the result, switches the left panel to Issues and the right panel to the Feature tab (`Models/Lifecycle/FeatureFlowCoordinator.swift`) |
+| `IntakeSheet.submit` → `FeatureFlowCoordinator.intakeFinished` | Opens the result, switches the left panel to Issues and the right panel to the Feature tab (`Models/Workspace/FeatureFlowCoordinator.swift`) |
 | `BuildStageView` "Implement with AI" → `FeatureFlowCoordinator.implementWithAI` | Chooses the receiving terminal first, then sends its goal handoff: `/goal` for Claude Code and Codex, `/autopilot` for Copilot, or an explicit Cline task goal. The assistant reads the whole folder; recorded answers (answered questions, accepted decisions, resolved findings, discussion.md) are binding and not asked again, and new answers are written back (BUG-011). Then `features.markImplementing` (status `ready/resolving/review/draft/exploring` → `implementing`, BUG-008) and `features.recordImplementationStarted` (`FeatureFlowCoordinator.swift`) run. |
-| `BugPanelView` "Fix with AI" → `FeatureFlowCoordinator.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends `HandoffPrompt.bug` (answered report questions and `## Clarifications` are binding; new answers go to `## Clarifications`) (`Models/Lifecycle/FeatureFlowCoordinator.swift`) |
+| `BugPanelView` "Fix with AI" → `FeatureFlowCoordinator.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends `HandoffPrompt.bug` (answered report questions and `## Clarifications` are binding; new answers go to `## Clarifications`) (`Models/Workspace/FeatureFlowCoordinator.swift`) |
 | `TOCView` | Shows `FeaturePanelView` when `hasIssues` (`Views/Workspace/TOCView.swift`) |
 | `IssueLifecycleSection`, `CycleTimeViews` | Read `store.features` and `lifecycleEvents` (`Views/Lifecycle/`) |
 | `ArchitectureStore` | Reuses `FeatureAssistant.nextNumbered("RES", …)` and `FeatureStore.today` for saved X-Ray answers (`ArchitectureStore.swift`) |

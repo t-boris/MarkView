@@ -2034,3 +2034,13 @@ I told Boris to press "Confirm “Installed on mac”…" in the Lifecycle secti
 - Rule: before any app-probe run, the suites that guard what the probe loads must pass (`bridge-contract-tests`,
   `bridge-contract-web-tests`); after each run, look at `ls -t ~/Library/Logs/DiagnosticReports | head -3` for a new
   `MarkView*.ips` and fix its cause before running again.
+
+## 2026-11-15: a moved or re-wired file broke three gui suites that no agent ran
+
+The Remote/Terminal commit made `TerminalSession` call `WhisperClient.stopRecording`; three gui suites (`js-call-web-tests`,
+`terminal-layout-tests`, `terminal-link-tests`) compile `TerminalSession` against a one-line `WhisperClient` stand-in in their Swift
+test file, so they stopped building. The pure tier and `--changed` of the pure tier did not show it, and the agent ran no gui suite.
+- A change to a file that a test script compiles needs that suite run, whatever its tier: `./tools/tests/run.sh --changed` without
+  `--tier`, then name the gui suites it lists.
+- A stand-in class in a test file (`final class X {}`) is a second copy of the type; when the shipping type gains a member the
+  shipping code calls, the stand-in needs it too. Run the gui tier once on the integration tip before a release, not only the pure tier.

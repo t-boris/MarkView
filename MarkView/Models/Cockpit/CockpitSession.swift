@@ -3,14 +3,21 @@ import AppKit
 import Combine
 import MarkViewCore
 
-/// What the Cockpit needs of the window it runs in: the window, its assistants, its QA model and bug features, and its tabs (which tab is
-/// shown, opening a file). `ToolTabsRouter` is the one implementation, built from the window's parts (`AR-14` step 10).
+/// What the Cockpit needs of the window it runs in: the window, its assistants, its QA model and bug features, and its tabs (whether the
+/// Cockpit's own is shown, bringing it forward, opening a file). `CockpitHost` is the one implementation, built from the window's parts
+/// (`AR-14` step 10).
 @MainActor
-protocol CockpitWindow: CockpitQAWindow, TabsProviding {
+protocol CockpitWindow: CockpitQAWindow {
     var hostWindow: NSWindow? { get }
     func showAIConsole()
     var assistants: any AssistantProviding { get }
     var features: FeatureStore { get }
+    /// Whether the tab the person is looking at is the Cockpit's own.
+    var cockpitTabIsActive: Bool { get }
+    /// Brings the Cockpit's own tab forward.
+    func showCockpitTool()
+    /// Shows `url` in a tab of the window.
+    func openFile(_ url: URL)
 }
 
 @MainActor
@@ -49,8 +56,6 @@ final class CockpitSession: ObservableObject {
     private var qaLogins: Set<QALoginReference> = []
     @Published private(set) var startingExecution = false
     private weak var workspace: (any CockpitWindow)?
-    /// What the Cockpit needs of the window's tabs: which one is shown, and to open a file.
-    private weak var tabs: TabsProviding?
     private let notifier = CockpitNotifier()
     /// The reads, the replan and the controls that are running, keyed so that a new one replaces the old; closing the project cancels them (`AR-19`).
     private let tasks = TaskBag()
@@ -68,7 +73,7 @@ final class CockpitSession: ObservableObject {
     private var task: Task<Void, Never>?
 
     init(root: URL, workspace: any CockpitWindow) {
-        self.root = root; self.workspace = workspace; self.tabs = workspace
+        self.root = root; self.workspace = workspace
         let key = ProjectAIChoice.key(root)
         plannerAgent = Settings.standard.stored(Setting.cockpitPlannerAgent(project: key))
         plannerModel = Settings.standard.stored(Setting.cockpitPlannerModel(project: key))
@@ -92,7 +97,7 @@ final class CockpitSession: ObservableObject {
     /// A notification was clicked: bring this window forward and open the run it was about.
     private func showRun(_ id: UUID?) {
         workspace?.hostWindow?.makeKeyAndOrderFront(nil)
-        workspace?.openTool(.cockpit)
+        workspace?.showCockpitTool()
         if let id { screen = execution?.runID == id ? .live : .saved(id) }
     }
 
@@ -100,7 +105,7 @@ final class CockpitSession: ObservableObject {
 
     /// Whether the person is looking at the Cockpit right now: then the screen says it and a notification would only repeat it.
     private var watching: Bool {
-        guard NSApp.isActive, let workspace, workspace.hostWindow?.isKeyWindow == true, case .cockpit? = tabs?.activeTab?.kind else { return false }
+        guard NSApp.isActive, let workspace, workspace.hostWindow?.isKeyWindow == true, workspace.cockpitTabIsActive else { return false }
         return true
     }
 
@@ -403,7 +408,7 @@ final class CockpitSession: ObservableObject {
 
     func openQAResult(scenarioID: String, runID: String) {
         guard let workspace else { return }
-        workspace.openTool(.qa)
+        workspace.showQATool()
         let qa = workspace.qa
         qa.reload()
         tasks.store(Task { [weak self, weak qa] in
@@ -425,13 +430,13 @@ final class CockpitSession: ObservableObject {
     }
 
     func openBug(_ key: String) {
-        guard let workspace, let tabs else { return }
-        if let bug = workspace.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
+        guard let workspace else { return }
+        if let bug = workspace.features.bugs.first(where: { $0.key == key }) { workspace.openFile(bug.url); return }
         workspace.features.reload()
-        tasks.store(Task { [weak self, weak workspace, weak tabs] in
+        tasks.store(Task { [weak self, weak workspace] in
             for _ in 0..<100 {
-                guard let workspace, let tabs else { return }
-                if let bug = workspace.features.bugs.first(where: { $0.key == key }) { tabs.openFile(bug.url); return }
+                guard let workspace else { return }
+                if let bug = workspace.features.bugs.first(where: { $0.key == key }) { workspace.openFile(bug.url); return }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
             self?.error = "The linked bug is no longer available: \(key)"
@@ -439,9 +444,9 @@ final class CockpitSession: ObservableObject {
     }
 
     func openBuildLog(_ path: String) {
-        guard let tabs, !path.isEmpty else { return }
+        guard let workspace, !path.isEmpty else { return }
         let root = root
-        tasks.store(Task { [weak self, weak tabs] in
+        tasks.store(Task { [weak self, weak workspace] in
             let candidate = await Task.detached { () -> URL? in
                 let project = root.standardizedFileURL.resolvingSymlinksInPath()
                 let candidate = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : project.appendingPathComponent(path)).standardizedFileURL.resolvingSymlinksInPath()
@@ -449,7 +454,7 @@ final class CockpitSession: ObservableObject {
                 return candidate
             }.value
             guard let candidate else { self?.error = "The linked build log is unavailable inside this project."; return }
-            tabs?.openFile(candidate)
+            workspace?.openFile(candidate)
         }, for: "open-build-log")
     }
 

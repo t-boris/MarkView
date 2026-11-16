@@ -4,7 +4,8 @@ import Foundation
 @MainActor
 protocol CockpitQAWindow: AnyObject {
     var qa: QAModel { get }
-    func openTool(_ id: ToolID)
+    /// Brings the QA tool's tab forward.
+    func showQATool()
 }
 
 /// Runs only the exact QA scenario and target approved with this cockpit plan.
@@ -63,7 +64,7 @@ final class CockpitQAAttempt {
             qa.startRun(cockpitToken: reservation)
             guard qa.run.isRunning else { return failure("QA could not start; check the scenario and application permissions.") }
             activeQAID = qa.run.activeRunID
-            workspace.openTool(.qa)
+            workspace.showQATool()
             return try await withTaskCancellationHandler {
                 var previousActivity = "", previousCoverage: [String] = [], previousBlockers: [String] = []
                 var finalProgress = previous.result.progress ?? CockpitProgress(passNumber: 1, activity: "", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)

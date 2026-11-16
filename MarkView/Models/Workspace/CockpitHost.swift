@@ -52,8 +52,12 @@ final class CockpitHost: CockpitWindow {
     // MARK: CockpitWindow
 
     var hostWindow: NSWindow? { window?.hostWindow }
-    var activeTab: OpenTab? { tabs.activeTab }
+    var cockpitTabIsActive: Bool {
+        if case .cockpit? = tabs.activeTab?.kind { return true }
+        return false
+    }
     func openFile(_ url: URL) { window?.openFile(url) }
     func showAIConsole() { window?.showAIConsole() }
-    func openTool(_ id: ToolID) { tools?.open(id) }
+    func showCockpitTool() { tools?.open(.cockpit) }
+    func showQATool() { tools?.open(.qa) }
 }

@@ -22,28 +22,6 @@ struct PanelSection<Content: View>: View {
     }
 }
 
-struct SmallButton: View {
-    @Environment(\.palette) private var palette
-    let title: String
-    var icon: String? = nil
-    var prominent = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 3) {
-                if let icon { Image(systemName: icon).uiFont(size: 9) }
-                Text(title).uiFont(size: 10, weight: prominent ? .semibold : .regular)
-            }
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .foregroundColor(prominent ? .white : palette.text)
-            .background(prominent ? palette.badge : palette.bgInput)
-            .cornerRadius(3)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 struct Working: View {
     @Environment(\.palette) private var palette
     let text: String
@@ -117,7 +95,7 @@ struct ResultCard: View {
     @ObservedObject var store: FeatureStore
     let result: FeatureResult
     let feature: Feature
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
 
     var body: some View {
         FeatureCard {
@@ -135,7 +113,7 @@ struct ResultCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let diagram = result.diagram {
                 SmallButton(title: "Save diagram to feature", icon: "square.and.arrow.down") {
-                    if let url = assistant.saveDiagram(diagram, title: "Diagram", in: feature.slug) { workspaceManager.openFile(url) }
+                    if let url = assistant.saveDiagram(diagram, title: "Diagram", in: feature.slug) { flow.open(url) }
                 }
             }
             if let decision = result.decision {
@@ -192,7 +170,7 @@ struct DiscussionInput: View {
     private func send() {
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
-        text = ""
-        Task { await assistant.chat(feature.slug, message: message) }
+        let started = assistant.start("chat:" + feature.slug) { await $0.chat(feature.slug, message: message) }
+        if started { text = "" }
     }
 }

@@ -4,9 +4,11 @@ import MarkViewCore
 #endif
 
 /// The one piece of work a session does at a time (the assistant's answer, a repair, a restore, an export): its title and detail for the
-/// busy banner, the conversation turn it answers, and the task to wait for or cancel.
+/// busy banner, the conversation turn it answers, and the task to wait for or cancel. It also starts every task the session's parts
+/// start, so that none outlives its session (`startPartTask`).
 @MainActor
 final class StudioWork: ObservableObject {
+    /// Unowned: the session owns this part. A task a part starts holds the session through `startPartTask`, so it is never read after it is gone.
     unowned let session: StudioSession
 
     /// The turn the assistant is answering; nil once it is in `history`, and after a failure or Stop.
@@ -16,6 +18,25 @@ final class StudioWork: ObservableObject {
     /// What the work is doing now.
     @Published var busyDetail = ""
     private(set) var workTask: Task<Void, Never>?
+    /// Every task a part of the session started and that has not ended; `close()` of the session cancels them.
+    private let tasks = TaskBag()
+
+    /// The one way a part of the session starts a task that goes on after the call (the lifetime rule of the parts, AR-16): the parts hold
+    /// their session `unowned`, and a continuation that reads it after an `await` traps once the session has been released, so the task
+    /// holds the session until it ends. The session closes with `close()`, which cancels every task started here; a task that ignores its
+    /// cancellation keeps the session alive for as long as it runs, and nothing else does. The closure gets the session it holds.
+    @discardableResult
+    func startPartTask(_ body: @escaping @MainActor (StudioSession) async -> Void) -> Task<Void, Never> {
+        // task: the one place a part's task starts; it is kept in `tasks`, which close() cancels
+        let task = Task { [session] in await body(session) }
+        tasks.store(task, for: UUID().uuidString)
+        // A task started once the session has closed has nothing left to do: it starts cancelled, so that it ends at its first check.
+        if session.closed { task.cancel() }
+        return task
+    }
+
+    /// Cancels every task a part started (the session closes).
+    func cancelPartTasks() { tasks.cancelAll() }
 
     /// Waits for the work `runWork` started.
     func awaitWork() async { await workTask?.value }
@@ -33,8 +54,7 @@ final class StudioWork: ObservableObject {
         busy = title
         busyDetail = ""
         pendingTurn = pending
-        workTask = Task { [weak self, session] in
-            guard let self else { return }
+        workTask = startPartTask { session in
             await work(session)
             self.busy = nil
             self.busyDetail = ""

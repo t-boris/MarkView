@@ -11,7 +11,7 @@ import MarkViewCore
 /// the handle in the header drags the file out to Finder or another app.
 struct ImageViewerView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
     @EnvironmentObject private var tabs: TabsController
     let url: URL
     @StateObject private var canvas = ImageCanvasController()
@@ -31,7 +31,7 @@ struct ImageViewerView: View {
             Divider().background(palette.border)
             if let image = canvas.image {
                 ImageCanvasRepresentable(image: image, controller: canvas, openFiles: { urls in
-                    urls.forEach { workspaceManager.openFile($0) }
+                    urls.forEach { window?.openFile($0) }
                 }, step: { go($0, wrap: playing) }, togglePlay: { togglePlay() })
                 .overlay(alignment: .leading) { arrow("chevron.left", target: previous, step: -1) }
                 .overlay(alignment: .trailing) { arrow("chevron.right", target: next, step: 1) }

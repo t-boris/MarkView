@@ -142,6 +142,7 @@ enum ToolTabsRouterChecks {
         check(router.discussions.store.root == root, "the Discussions store reads the project")
         check(router.qa.attachedRoot == root, "the QA model is attached to the project")
         check(router.qa.run.bugFiler != nil && router.qa.run.bugFiler === router.qa.archive.bugFiler, "QA files its bugs through one filer")
+        check(router.qa.run.runLinks is CockpitRunLinks && router.qa.archive.runLinks is CockpitRunLinks, "QA cleanup is given the Cockpit's links to runs")
 
         guard case .uiStudio(let studio)? = rig.tabs(of: .uiStudio).first?.kind else { return check(false, "UI Studio tab carries a session") }
         check(studio.started && studio.root == root, "the UI Studio session of the tab was started on the project")
@@ -351,7 +352,7 @@ enum ToolTabsRouterChecks {
         // An answer: streamed, parsed, and kept as a turn with its decisions and open questions.
         let spy = Spy()
         let notes = "\n```discussion-notes\n{\"decisions\": [\"Documents only\"], \"open_questions\": [\"Sync back?\"]}\n```"
-        let host = DiscussionsHost(project: project, tabs: tools, runner: answering(spy, text: "Offline works for documents." + notes))
+        let host = DiscussionsHost(project: project, showTab: { tools.open(.discussions) }, runner: answering(spy, text: "Offline works for documents." + notes))
         host.projectOpened(root)
         let slug = host.store.create(title: "Offline mode", scope: "Sources")!
         host.ask(slug, question: "   ")
@@ -379,12 +380,12 @@ enum ToolTabsRouterChecks {
         check(last?.readableFolder == outside && last?.extraReadableFolders == [root], "a conversation outside the project reads that folder and the project")
 
         // The assistant says nothing, or fails.
-        let silent = DiscussionsHost(project: project, tabs: tools, runner: answering(Spy(), text: "  \n"))
+        let silent = DiscussionsHost(project: project, showTab: { tools.open(.discussions) }, runner: answering(Spy(), text: "  \n"))
         silent.projectOpened(root)
         silent.ask(slug, question: "Anything?")
         check(await waitUntil { silent.store.asking == nil }, "an empty answer ends")
         check(silent.store.lastError == "The assistant gave no answer." && silent.store.discussions.first { $0.slug == slug }?.turns.count == 1, "an empty answer is an error, not a turn")
-        let broken = DiscussionsHost(project: project, tabs: tools, runner: { _, _, _ in throw NSError(domain: "assistant", code: 7, userInfo: [NSLocalizedDescriptionKey: "boom"]) })
+        let broken = DiscussionsHost(project: project, showTab: { tools.open(.discussions) }, runner: { _, _, _ in throw NSError(domain: "assistant", code: 7, userInfo: [NSLocalizedDescriptionKey: "boom"]) })
         broken.projectOpened(root)
         broken.ask(slug, question: "Anything?")
         check(await waitUntil { broken.store.asking == nil }, "a failed answer ends")
@@ -392,7 +393,7 @@ enum ToolTabsRouterChecks {
 
         // Stop: what was written is dropped, no turn is added.
         let stopSpy = Spy()
-        let stopping = DiscussionsHost(project: project, tabs: tools, runner: lingering(stopSpy))
+        let stopping = DiscussionsHost(project: project, showTab: { tools.open(.discussions) }, runner: lingering(stopSpy))
         stopping.projectOpened(root)
         stopping.ask(slug, question: "Long one")
         check(await waitUntil { stopping.store.live?.text == "Partial " }, "a part of the answer shows while it is written")
@@ -411,7 +412,7 @@ enum ToolTabsRouterChecks {
 
         // The window closes under the answer.
         let spyClosing = Spy()
-        let closing = DiscussionsHost(project: project, tabs: tools, runner: lingering(spyClosing))
+        let closing = DiscussionsHost(project: project, showTab: { tools.open(.discussions) }, runner: lingering(spyClosing))
         closing.projectOpened(root)
         closing.ask(slug, question: "Long one")
         check(await waitUntil { closing.store.live?.text == "Partial " }, "an answer is being written when the window closes")
@@ -419,7 +420,7 @@ enum ToolTabsRouterChecks {
         check(await waitUntil { spyClosing.wasCancelled }, "closing the window cancels the answer being written")
 
         // Discuss: a discussion about a file or a folder, in the Discussions tab.
-        let discuss = DiscussionsHost(project: project, tabs: tools, runner: answering(Spy(), text: "x"))
+        let discuss = DiscussionsHost(project: project, showTab: { tools.open(.discussions) }, runner: answering(Spy(), text: "x"))
         discuss.projectOpened(root)
         let file = root.appendingPathComponent("Sources/App.swift")
         discuss.discuss(about: file)
@@ -430,7 +431,7 @@ enum ToolTabsRouterChecks {
         check(discuss.store.discussions.count == count, "a discussion that has no turns yet is reused")
         discuss.discuss(about: outside)
         check(discuss.store.selected?.scope == outside.path, "a folder outside the project is discussed by its full path")
-        let noProject = DiscussionsHost(project: FakeProject(root: nil), tabs: tools, runner: answering(Spy(), text: "x"))
+        let noProject = DiscussionsHost(project: FakeProject(root: nil), showTab: { tools.open(.discussions) }, runner: answering(Spy(), text: "x"))
         let opened = tools.opened.count
         noProject.discuss(about: file)
         check(tools.opened.count == opened, "nothing is discussed without a project")

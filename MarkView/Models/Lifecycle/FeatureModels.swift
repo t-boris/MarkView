@@ -93,6 +93,11 @@ struct FeatureObject: Identifiable, Hashable {
         return out
     }
 
+    /// The body of a requirement file: its statement and its criteria, none of them done yet. `acceptanceCriteria(in:)` reads it back.
+    static func requirementBody(statement: String, criteria: [String]) -> String {
+        "## Statement\n\n\(statement)\n\n## Acceptance Criteria\n\n" + criteria.map { "- [ ] \($0)" }.joined(separator: "\n") + "\n"
+    }
+
     /// `- [ ]` / `- [x]` lines under "## Acceptance Criteria".
     var acceptanceCriteria: [(text: String, done: Bool)] { Self.acceptanceCriteria(in: body) }
 

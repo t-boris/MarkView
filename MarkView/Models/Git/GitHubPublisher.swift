@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Connects a local project to GitHub (REQ-003): the signed-in account and its owners, an
 /// explicit name and visibility (DEC-010, DEC-017), checks of the target, the local origin and
@@ -30,6 +33,9 @@ final class GitHubPublisher: ObservableObject {
     }
 
     let root: URL
+    /// The look at GitHub, the check of the target and the publishing the dialog's buttons start: one at a time, a new one replaces the one
+    /// in flight, and the dialog going away ends it (`AR-19`). The record in `.dde/github-connection.json` keeps what already happened.
+    private let tasks = TaskBag()
     @Published private(set) var phase: Phase = .loading
     @Published private(set) var account = ""
     @Published private(set) var owners: [String] = []
@@ -68,6 +74,21 @@ final class GitHubPublisher: ObservableObject {
     private var recordURL: URL { GitHubConnectionRecord.url(root: root) }
 
     // MARK: Preparing
+
+    /// Starts `prepare` for a button.
+    func startPrepare() {
+        tasks.store(Task { [weak self] in await self?.prepare() }, for: "step")
+    }
+
+    /// Starts `check`: the confirmation of the chosen target, also after a failure (the record keeps what happened, so nothing is created twice).
+    func startCheck() {
+        tasks.store(Task { [weak self] in await self?.check() }, for: "step")
+    }
+
+    /// Starts `publish`.
+    func startPublish() {
+        tasks.store(Task { [weak self] in await self?.publish() }, for: "step")
+    }
 
     func prepare() async {
         phase = .loading
@@ -299,12 +320,6 @@ final class GitHubPublisher: ObservableObject {
     /// Back from the confirmation to the choices.
     func back() {
         phase = .choose
-    }
-
-    /// After a failure: check again and show the confirmation (with the files as they are now);
-    /// the record keeps what already happened, so nothing is created twice.
-    func retry() async {
-        await check()
     }
 
     private func fail(_ message: String) {

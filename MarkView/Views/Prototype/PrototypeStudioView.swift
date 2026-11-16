@@ -11,7 +11,11 @@ import MarkViewCore
 struct PrototypeStudioView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: PrototypeSession
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
+    /// The window's terminals (the hand-off sheet sends its brief to one) and browser ("Open in browser"); the window does not publish
+    /// them, so the tab that shows this view hands them over.
+    let terminals: AITerminalsController
+    let browser: BrowserHost
     @State private var draft = ""
     @WindowStorage(Setting.prototypeChatWidth) private var chatWidth: Double
     /// What Point sends about the element: its HTML, or its HTML and a screenshot of it.
@@ -48,6 +52,13 @@ struct PrototypeStudioView: View {
         }
         .background(palette.bg)
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
+        // "Copied" goes after a moment; the wait follows the flag and ends with the view.
+        .task(id: referenceCopied) {
+            guard referenceCopied else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            referenceCopied = false
+        }
         // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened; one saved before
         // MarkView owned the page structure gets the structure (BUG-060).
         .task {
@@ -141,7 +152,7 @@ struct PrototypeStudioView: View {
             .help("Click an element in the preview to say what should change about it")
             if session.manifest.mode == .code {
                 // Existing code is no longer reconstructed again: the current interface opens in UI Studio (DEC-005).
-                Button { workspaceManager.openTool(.uiStudio) } label: {
+                Button { window?.openTool(.uiStudio) } label: {
                     Label("Sync from code", systemImage: "macwindow.and.cursorarrow")
                 }
                 .controlSize(.small).fixedSize()
@@ -183,7 +194,7 @@ struct PrototypeStudioView: View {
             }
             .controlSize(.small).fixedSize()
             .help("Copy \(PrototypeReference.string(slug: session.slug)) — for an AI agent with access to this project; always resolves to the latest saved version")
-            Button { workspaceManager.browser.openHTML(session.siteIndex) } label: {
+            Button { browser.openHTML(session.siteIndex) } label: {
                 Image(systemName: "globe")
             }
             .buttonStyle(.plain).foregroundColor(palette.textDim).disabled(!session.hasSite)
@@ -312,7 +323,7 @@ struct PrototypeStudioView: View {
         Group {
             if let handoff = session.handoff {
                 if let run = session.handoffRun {
-                    PrototypeHandoffDraftView(run: run) { session.handoff = nil }
+                    PrototypeHandoffDraftView(run: run, terminals: terminals) { session.handoff = nil }
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(palette.text)
@@ -384,7 +395,7 @@ struct PrototypeStudioView: View {
                     Text(session.checkingSync ? "Comparing the code with the last sync…" : "Not checked yet.").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
                 HStack {
-                    Button { Task { await session.refreshSyncStatus() } } label: { Label("Check again", systemImage: "arrow.clockwise") }
+                    Button { session.startSyncStatusCheck() } label: { Label("Check again", systemImage: "arrow.clockwise") }
                         .controlSize(.small).disabled(session.checkingSync)
                     Spacer()
                 }
@@ -471,7 +482,7 @@ struct PrototypeStudioView: View {
     private func componentActions(_ path: String) -> some View {
         HStack(spacing: 8) {
             Button("Open source") {
-                if let url = session.sourceURL(of: path) { workspaceManager.openFile(url, line: nil) }
+                if let url = session.sourceURL(of: path) { window?.openFile(url, line: nil) }
             }
             .disabled(session.sourceURL(of: path) == nil)
             .help(session.sourceURL(of: path) == nil ? "\(path) is not in the project any more" : "Open \(path) in an editor tab")
@@ -491,10 +502,6 @@ struct PrototypeStudioView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(PrototypeReference.string(slug: session.slug), forType: .string)
         referenceCopied = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            referenceCopied = false
-        }
     }
 
     private var placeholder: some View {

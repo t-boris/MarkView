@@ -36,7 +36,8 @@ struct IssueSyncButton: View {
 struct IssueSyncReportView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var sync: IssueSyncRun
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var layout: PanelLayout
     @State private var expanded = true
     @State private var showUnlinked = false
     /// Items changed from this report: their rows say so until Sync runs again.
@@ -166,21 +167,21 @@ struct IssueSyncReportView: View {
 
     /// The feature in the Issues panel, or the bug report in the editor.
     private func openItem(_ item: IssueSyncItem) {
-        let store = workspaceManager.flow.features
+        let store = flow.features
         switch item.kind {
         case .feature:
             guard store.feature(item.id) != nil else { return }
-            workspaceManager.layout.leftPanel = "issues"
-            workspaceManager.layout.issuesFeature = item.id
+            layout.leftPanel = "issues"
+            layout.issuesFeature = item.id
             store.activeSlug = item.id
         case .bug:
-            if let bug = store.bugs.first(where: { $0.key == item.id }) { workspaceManager.openFile(bug.url) }
+            if let bug = store.bugs.first(where: { $0.key == item.id }) { flow.open(bug.url) }
         }
     }
 
     /// Set the status that counts as done: a feature implemented, a bug fixed.
     private func markDone(_ item: IssueSyncItem) {
-        let store = workspaceManager.flow.features
+        let store = flow.features
         let kind: IssueKind = item.kind == .feature ? .feature : .bug
         // Where finished work goes from the item's status in this project's workflow (REQ-002).
         guard let target = store.lifecycle.lifecycle(kind, of: item.id).finishTarget(from: store.lifecycle.storedStatus(kind, item.id) ?? item.status) else {
@@ -188,11 +189,7 @@ struct IssueSyncReportView: View {
             return
         }
         // Through the lifecycle: evidence decides; without it the person is asked for a reason (Q-002 B).
-        Task {
-            if await LifecycleStatusChange.perform(store: store, kind: kind, issue: item.id, to: target) {
-                changed.insert(item.id)
-            }
-        }
+        LifecycleStatusChange.start(store: store, kind: kind, issue: item.id, to: target) { changed.insert(item.id) }
     }
 
     /// Ask for the GitHub issue (a number or its URL) and write it into the item's `issues`.
@@ -208,7 +205,7 @@ struct IssueSyncReportView: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let digits = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).split(whereSeparator: { !$0.isNumber }).last
         guard let number = digits.flatMap({ Int($0) }), number > 0 else { return }
-        let store = workspaceManager.flow.features
+        let store = flow.features
         let add: (inout FrontMatter) -> Void = { front in
             let existing = front.strings("issues") + front.strings("issue")
             let known = existing.compactMap { Int($0.filter(\.isNumber)) }
@@ -225,7 +222,7 @@ struct IssueSyncReportView: View {
 
     private func open(_ target: IssueSyncTarget, inProject: Bool) {
         if inProject {
-            workspaceManager.flow.openGitHubIssue(target.number)
+            flow.openGitHubIssue(target.number)
         } else if let url = URL(string: "https://github.com/\(target.repo)/issues/\(target.number)") {
             NSWorkspace.shared.open(url)
         }

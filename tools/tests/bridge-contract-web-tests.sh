@@ -10,7 +10,7 @@ cp tools/tests/BridgeContractWebTests.swift "$out/main.swift"
 swiftc -O -o "$out/bridge-contract-web-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift Packages/MarkViewCore/Sources/MarkViewCore/JS.swift Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift MarkView/Models/Appearance/WebThemeArguments.swift MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Bridge/PageMessages.swift MarkView/Bridge/WebViewBridge.swift \
     MarkView/Bridge/DataFileSchemeHandler.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
-    MarkView/Models/Workspace/EditorWindowPrefs.swift MarkView/Models/Insight/SemanticModels.swift \
+    MarkView/Models/Workspace/EditorWindowPrefs.swift MarkView/Models/Shared/SemanticModels.swift \
     MarkView/Models/Insight/InsightModels.swift MarkView/Models/Appearance/AppFontScale.swift \
     MarkView/Views/Discussion/DiscussionThreadView.swift tools/tests/BridgeContractSupport.swift "$out/main.swift"
 "$out/bridge-contract-web-tests" "$PWD/MarkView/Resources/Editor"

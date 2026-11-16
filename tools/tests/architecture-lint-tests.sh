@@ -173,16 +173,16 @@ try:
 
     # --- semantic-database-actor
     root = fresh()
-    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "// @MainActor in a comment does not count\nactor SemanticDatabase {\n    func search() {}\n}\n")
+    write(root, "MarkView/Models/Shared/SemanticDatabase.swift", "// @MainActor in a comment does not count\nactor SemanticDatabase {\n    func search() {}\n}\n")
     project(root, app_swift(root))
     code, out = run(root)
     check(code == 0, "a SemanticDatabase declared as an actor passes")
     root = fresh()
-    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "@MainActor\nclass SemanticDatabase {\n    func search() {}\n}\n")
+    write(root, "MarkView/Models/Shared/SemanticDatabase.swift", "@MainActor\nclass SemanticDatabase {\n    func search() {}\n}\n")
     project(root, app_swift(root))
     code, out = run(root)
-    check(code == 1 and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift: `SemanticDatabase` must be declared as an `actor`" in out
-          and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift:1: `@MainActor` in the database" in out,
+    check(code == 1 and "[semantic-database-actor] MarkView/Models/Shared/SemanticDatabase.swift: `SemanticDatabase` must be declared as an `actor`" in out
+          and "[semantic-database-actor] MarkView/Models/Shared/SemanticDatabase.swift:1: `@MainActor` in the database" in out,
           "a SemanticDatabase that is a @MainActor class fails with both reasons")
 
     # --- process ratchet
@@ -338,6 +338,9 @@ try:
         "        // task: a Finder hand-off that finishes in one call and touches nothing of this window\n"
         "        Task { await Shared.open(url) }\n"
         "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Shared.tick() } // task: process-wide, no window state\n"
+        "    }\n"
+        "    func started() -> Task<Void, Never> {\n"                              # a return type is not a start; the returned task is owned
+        "        return Task { await work() }\n"
         "    }\n"
         "    func hops() {\n"
         "        Task { @MainActor in self.apply(data) }\n"                              # no await: it finishes in one turn
@@ -642,6 +645,54 @@ try:
           "an @unchecked Sendable or nonisolated(unsafe) with no `// unchecked Sendable: <reason>` on the same or the previous line fails unchecked-sendable with file and line")
     check("GoodBoxes.swift" not in out and "GoodBox.swift" not in out, "the justified file is not reported")
 
+    # --- studio-part-tasks (AR-16)
+    root = fresh()
+    write(root, "MarkView/Models/UIStudio/UIStudioGoodPart.swift", (
+        "@MainActor\n"
+        "final class StudioGoodPart {\n"
+        "    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`.\n"
+        "    unowned let session: StudioSession\n"
+        "    private(set) var pickTask: Task<Void, Never>?\n"                                      # a property type is not a start
+        "    func start() {\n"
+        "        pickTask = session.startPartTask { session in await session.awaitWork() }\n"
+        "        let hashes = await Task.detached { heavy() }.value\n"                              # detached work holds values only
+        "        Task { @MainActor in lastError = message } // task: one hop that never suspends and holds nothing of the session\n"
+        "        // task: a callback's hop onto the main actor; it finishes in one turn\n"
+        "        Task { @MainActor in session.progress(activity) }\n"
+        "        // Task { await self.work() } in a comment, and \"Task { }\" in a string, are not code\n"
+        "        let text = \"Task { await work() } DispatchQueue.main.asyncAfter(\"\n"
+        "    }\n"
+        "}\n"))
+    write(root, "MarkView/Models/UIStudio/UIStudioNotAPart.swift", (
+        "final class StudioNotAPart {\n"
+        "    private var run: Task<Void, Never>?\n"
+        "    func start() { run = Task { await work() } }\n"                                        # no `unowned let session`: not a part
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "studio-part-tasks" in out,
+          "a part that starts its tasks with session.startPartTask, a justified hop, a detached task and a property type, and a file that is not a part, pass studio-part-tasks")
+    write(root, "MarkView/Models/UIStudio/UIStudioBadPart.swift", (
+        "@MainActor\n"
+        "final class StudioBadPart {\n"
+        "    unowned let session: StudioSession\n"                                                  # 3: no `/// Unowned:` line above
+        "    func start() {\n"
+        "        Task { [weak self] in await self?.run() }\n"                                       # 5: holds the part, not the session
+        "        Task(priority: .utility) { await self.run() }\n"                                   # 6
+        "        Task @MainActor { self.apply() }\n"                                                # 7
+        "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.tick() }\n"             # 8
+        "        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in self.tick() }\n"   # 9
+        "        // task:\n"
+        "        Task { await self.run() }\n"                                                       # 11: a reason is required
+        "    }\n"
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [studio-part-tasks]")}
+    check(code == 1 and reported == {f"MarkView/Models/UIStudio/UIStudioBadPart.swift:{n}:" for n in (3, 5, 6, 7, 8, 9, 11)},
+          "a part with a bare Task, Timer, asyncAfter or DispatchQueue.main start, an empty `// task:` and an `unowned let session` without its `/// Unowned:` line fails studio-part-tasks with file and line")
+    check("GoodPart.swift" not in out and "NotAPart.swift" not in out, "the good part and the file that is not a part are not reported")
+
     # --- domain-cycles ratchet (AR-21)
     def domain_files(root, models=None, views=None):
         """Write the given {domain: swift text} to MarkView/Models/<domain>/Files.swift (and Views), then refresh the project."""
@@ -653,24 +704,24 @@ try:
     ALPHA = "struct AlphaOne {}\nstruct AlphaTwo {}\nstruct AlphaThree {}\n"
     BETA = "struct BetaOne {}\nstruct BetaTwo {}\n"
     root = fresh()
-    check("domain-cycles: 0 in 0 pair(s), 0 allowed" in run(root)[1], "a tree without a cycle reports domain-cycles 0")
+    check("domain-cycles: 0 in 0 back-edge(s), 0 allowed" in run(root)[1], "a tree without a cycle reports domain-cycles 0")
     domain_files(root, models={"Alpha": ALPHA + "let b = BetaOne()\n", "Beta": BETA + "let a = [AlphaOne(), AlphaTwo()]\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 1 type(s) named back across a cycle, 0 allowed (new sites)" in out and out.count("[domain-cycles]") == 1,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 1 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out and out.count("[domain-cycles]") == 1,
           "two domains that name each other's types are a cycle: the lighter direction is the back-edge and a new one fails, named")
     write(root, "tools/lint/domain-cycles-allowlist.txt", "1 Models/Alpha -> Models/Beta  # Alpha shows a Beta type\n")
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 1 in 1 pair(s), 1 allowed" in out, "a listed back-edge passes while it does not grow")
+    check(code == 0 and "domain-cycles: 1 in 1 back-edge(s), 1 allowed" in out, "a listed back-edge passes while it does not grow")
     domain_files(root, models={"Beta": BETA + "let a = [AlphaOne(), AlphaTwo(), AlphaThree()]\n"})
     code, out = run(root)
     check(code == 0, "the forward direction may grow: only the back-edge is limited")
     domain_files(root, models={"Alpha": ALPHA + "let b = [BetaOne(), BetaTwo()]\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 2 type(s) named back across a cycle, 1 allowed (more sites)" in out,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 2 type(s) named against the layering or across a cycle, 1 allowed (more sites)" in out,
           "a back-edge that names one more type fails")
     domain_files(root, models={"Alpha": ALPHA + "let b = 1\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 0 type(s) named back across a cycle, 1 allowed; the count fell" in out,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 0 type(s) named against the layering or across a cycle, 1 allowed; the count fell" in out,
           "a cycle that is gone fails until the allowance is lowered (no slack)")
     code, out = run(root, "--tighten")
     check(code == 0 and "Alpha -> Models/Beta" not in (root / "tools/lint/domain-cycles-allowlist.txt").read_text(), "--tighten drops the entry of a cycle that is gone")
@@ -680,7 +731,7 @@ try:
                "struct Local {\n    struct BetaTwo {}\n}\nlet u = Local.BetaTwo()\nlet w = AlphaTwo()\n")
     domain_files(root, models={"Alpha": ALPHA + ignored, "Beta": BETA + "let a = AlphaOne()\n"})
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 0 in 0 pair(s)" in out,
+    check(code == 0 and "domain-cycles: 0 in 0 back-edge(s)" in out,
           "a type named in a comment, in a string, as a member, or that is also declared nested in the domain does not count as a dependency")
     domain_files(root, models={"Alpha": ALPHA + "let line = \"count: \\(BetaOne().id)\"\n"})
     code, out = run(root)
@@ -691,25 +742,47 @@ try:
                  views={"Alpha": "struct AlphaView {}\nlet m = BetaOne()\n", "Beta": "struct BetaView {}\n"})
     write(root, "tools/lint/domain-cycles-allowlist.txt", "1 Models/Alpha -> Models/Beta\n")
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 1 in 1 pair(s), 1 allowed" in out, "a view that names a model is not a cycle: Models and Views are separate graphs")
+    check(code == 0 and "domain-cycles: 1 in 1 back-edge(s), 1 allowed" in out, "a view that names a model is not a cycle: Models and Views are separate graphs")
     domain_files(root, views={"Beta": "struct BetaView { let a = AlphaView() }\n"})
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 1 in 1 pair(s), 1 allowed" in out, "a view domain that names a view of another domain, which names only models back, is not a cycle")
+    check(code == 0 and "domain-cycles: 1 in 1 back-edge(s), 1 allowed" in out, "a view domain that names a view of another domain, which names only models back, is not a cycle")
     domain_files(root, views={"Alpha": "struct AlphaView {}\nlet b = BetaView()\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Views/Alpha -> Views/Beta: 1 type(s) named back across a cycle, 0 allowed (new sites)" in out,
+    check(code == 1 and "[domain-cycles] Views/Alpha -> Views/Beta: 1 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
           "two view domains that name each other are a cycle of the Views graph")
 
     root = fresh()
     domain_files(root, models={"Alpha": ALPHA + "let w = [WorkspaceOne(), WorkspaceTwo()]\n", "Workspace": "struct WorkspaceOne {}\nstruct WorkspaceTwo {}\nlet a = AlphaOne()\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Workspace: 2 type(s) named back across a cycle, 0 allowed (new sites)" in out,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Workspace: 2 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
           "in a pair with Workspace, the composition domain, the back-edge points at it even when it is the heavier direction")
+
+    # The layering (AR-20): Appearance < Shared < AI < feature domains < Workspace. An edge that points up is a back-edge although nothing points back.
+    root = fresh()
+    domain_files(root, models={"Alpha": ALPHA + "let w = [WorkspaceOne(), WorkspaceTwo()]\n", "Workspace": "struct WorkspaceOne {}\nstruct WorkspaceTwo {}\n"})
+    code, out = run(root)
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Workspace: 2 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
+          "a feature domain that names a Workspace type fails although Workspace names nothing back: no feature domain names Workspace")
+    root = fresh()
+    domain_files(root, models={"Alpha": ALPHA + "let s = SharedOne()\n", "Shared": "struct SharedOne {}\nstruct SharedTwo {}\n",
+                               "Workspace": "struct WorkspaceOne {}\nlet a = AlphaOne()\nlet s = [SharedOne(), SharedTwo()]\n"})
+    code, out = run(root)
+    check(code == 0 and "domain-cycles: 0 in 0 back-edge(s)" in out, "naming a lower domain is no back-edge: a feature names Shared, Workspace names both")
+    domain_files(root, models={"Shared": "struct SharedOne {}\nstruct SharedTwo {}\nlet a = [AlphaOne(), AlphaTwo()]\n"})
+    code, out = run(root)
+    check(code == 1 and "[domain-cycles] Models/Shared -> Models/Alpha: 2 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out
+          and out.count("[domain-cycles]") == 1,
+          "Shared naming a feature domain is the back-edge of their cycle even when it is the heavier direction: Shared is the lower layer")
+    root = fresh()
+    domain_files(root, models={"Appearance": "struct LookOne {}\nlet a = SharedOne()\n", "Shared": "struct SharedOne {}\n"})
+    code, out = run(root)
+    check(code == 1 and "[domain-cycles] Models/Appearance -> Models/Shared: 1 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
+          "Appearance, the lowest layer, names nothing above it")
     root = fresh()
     domain_files(root, models={"Alpha": ALPHA + "let b = BetaOne()\n", "Beta": BETA + "let a = [AlphaOne(), AlphaTwo()]\n"})
     write(root, "tools/lint/domain-cycles-allowlist.txt", "2 Models/Beta -> Models/Alpha  # the allow-list names the direction\n")
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 2 in 1 pair(s), 2 allowed" in out, "the direction an allow-list entry names is the back-edge, whatever the weights")
+    check(code == 0 and "domain-cycles: 2 in 1 back-edge(s), 2 allowed" in out, "the direction an allow-list entry names is the back-edge, whatever the weights")
     write(root, "tools/lint/domain-cycles-allowlist.txt", "2 Models/Beta -> Models/Alpha  # the allow-list names the direction\n1 Models/Zeta -> Models/Eta  # gone\n")
     run(root, "--tighten")
     check((root / "tools/lint/domain-cycles-allowlist.txt").read_text().endswith("2 Models/Beta -> Models/Alpha  # the allow-list names the direction\n"),

@@ -28,7 +28,7 @@ overwritten as if it were empty.
 | `.dde/cockpit/{runs,results,temporal}/` | JSON | `CockpitRunStore`, `CockpitResults`, `CockpitRuntime` | Cockpit plans and runs, their results, temporal state |
 | `.dde/discussions/` | JSON | `Discussion` | Discussion threads |
 | `.dde/prototypes/` (legacy), `.dde/exports/prototypes/` | files | `PrototypeFiles` | Prototypes made before DEC-006 move to `docs/prototypes` once, when the folder opens; exports stay under `.dde/exports` |
-| `.dde/github-connection.json` | JSON | `NewProject` (`GitHubConnectionRecord`) | Target, visibility, created/committed/pushed; deleted once connected |
+| `.dde/github-connection.json` | JSON | `NewProject` (`GitHubConnectionRecord`, `Models/Git/GitHubConnection.swift`) | Target, visibility, created/committed/pushed; deleted once connected |
 | `.markview-insight/` (`nodes/<UUID>.html`, `manifest.json`, `snapshot.json`, `_assets/**`) | HTML/JSON + copied vendor JS | `InsightCache` | Kept after the tab closes. The root id is the SHA-256 of the folder path, so moving the folder orphans it |
 | `docs/features/<slug>/` | Markdown + YAML front matter | `FeatureStore` | `overview.md`, `discussion.md`, `requirements/REQ-nnn.md`, `questions/Q-nnn.md`, `decisions/DEC-nnn.md`, `findings/F-nnn.md`, `research/R-nnn.md`, `references/SRC-nnn*.md`, `implementation/plan.md`, `diagrams/*.md`. Schema: [feature-workflow §6](./modules/feature-workflow.md#62-front-matter-fields) |
 | `docs/bugs/BUG-nnn-<slug>.md`, `docs/bugs/assets/` | Markdown + YAML | `FeatureStore` | Bug reports with `BQ-n` questions |

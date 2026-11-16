@@ -9,14 +9,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-# A few real declarations are compiled without the files around them: the GitHub tab discriminator, the intake request, the hand-off
-# resume and the GitHub settings keys.
+# A few real declarations are compiled without the files around them: the intake request, the hand-off resume and the GitHub settings keys.
 python3 - "$out" <<'PY'
 import pathlib, sys
 out = pathlib.Path(sys.argv[1])
-document = pathlib.Path('MarkView/Models/Workspace/DocumentState.swift').read_text()
-item = document.split('enum GitHubItem:')[1].split('/// Represents an open tab')[0]
-(out / 'GitHubItem.swift').write_text('import Foundation\nenum GitHubItem:' + item)
 intake = pathlib.Path('MarkView/Models/Lifecycle/FeatureIntake.swift').read_text()
 requests = intake.split('enum IntakeKind:')[1].split('extension FeatureAssistant {')[0]
 (out / 'IntakeRequest.swift').write_text('import Foundation\nenum IntakeKind:' + requests)
@@ -30,18 +26,18 @@ PY
 cp tools/tests/FeatureFlowCoordinatorTests.swift "$out/FeatureFlowCoordinatorTests.swift"
 swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/feature-flow-coordinator-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Lifecycle/FeatureFlowCoordinator.swift MarkView/Models/Lifecycle/BugBasket.swift MarkView/Models/Lifecycle/HandoffPrompt.swift \
+    MarkView/Models/Workspace/FeatureFlowCoordinator.swift MarkView/Models/Lifecycle/BugBasket.swift MarkView/Models/Lifecycle/HandoffPrompt.swift \
     MarkView/Models/Lifecycle/DefinitionOfDone.swift MarkView/Models/Lifecycle/IssueListing.swift MarkView/Models/Lifecycle/EvidenceTimings.swift \
     MarkView/Models/Lifecycle/LifecycleCapture.swift MarkView/Models/Git/GitHubClient.swift MarkView/Models/Git/GitStatusModel.swift \
     MarkView/Models/Git/ConflictPrompt.swift \
     MarkView/Models/Terminal/AssistantProviding.swift MarkView/Models/Terminal/TerminalProfile.swift \
-    MarkView/Models/Workspace/ProjectProviding.swift \
+    MarkView/Models/Shared/ProjectProviding.swift \
     MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
     MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
-    MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Workspace/SchemaVersionedStore.swift MarkView/Models/Workspace/ToolRegistry.swift \
+    MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Shared/SchemaVersionedStore.swift MarkView/Models/Workspace/ToolRegistry.swift \
     MarkView/Models/Workspace/WindowSession.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift \
-    "$out/GitHubItem.swift" "$out/IntakeRequest.swift" "$out/HandoffResume.swift" "$out/GitHubSettings.swift" \
+    MarkView/Models/Git/GitHubItem.swift "$out/IntakeRequest.swift" "$out/HandoffResume.swift" "$out/GitHubSettings.swift" \
     tools/tests/FeatureFlowCoordinatorStubs.swift "$out/FeatureFlowCoordinatorTests.swift" 2>&1 | head -80
 cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/feature-flow-coordinator-tests"

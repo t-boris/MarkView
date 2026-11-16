@@ -40,7 +40,7 @@ struct NewProjectSheet: View {
         .frame(minHeight: 460)
         .confirmationDialog("Discard this project draft?", isPresented: $confirmingDiscard) {
             Button("Discard Draft", role: .destructive) {
-                Task { await flow.discard(); dismiss() }
+                flow.startDiscard { dismiss() }
             }
         } message: {
             Text("The idea and everything clarified so far are deleted. No project folder was created.")
@@ -90,17 +90,17 @@ struct NewProjectSheet: View {
             switch flow.step {
             case .idea:
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Start") { Task { await flow.start(idea: idea, attachments: attachments) } }
+                Button("Start") { flow.startIdea(idea, attachments: attachments) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(flow.working || idea.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             case .clarify:
                 Button("Continue Later") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Confirm Brief") { Task { await flow.confirm() } }
+                Button("Confirm Brief") { flow.startConfirm() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!flow.canConfirm || flow.working || assistantBusy)
                     .help(flow.canConfirm ? "The brief is clear: choose where to create the project" : "Answer the blocking questions first")
             case .destination:
-                Button("Back to Clarification") { Task { await flow.reopenClarification() } }
+                Button("Back to Clarification") { flow.startReopenClarification() }
                     .disabled(flow.working || flow.creationLocked)
                 Button("Continue Later") { dismiss() }.keyboardShortcut(.cancelAction).disabled(flow.working)
                 Button(flow.creationLocked ? "Retry" : "Create Project") { create() }
@@ -206,8 +206,7 @@ struct NewProjectSheet: View {
     }
 
     private func create() {
-        Task {
-            guard let slug = flow.draft?.slug, let url = await flow.create() else { return }
+        flow.startCreate { url, slug in
             let features = workspaceManager.flow
             workspaceManager.openFolder(url) { features.showCreatedProject(url, specification: slug) }
         }
@@ -240,7 +239,7 @@ struct NewProjectSheet: View {
                         return await manager.flow.activateGitHub(expecting: slug, in: url)
                     }
                     self.publisher = publisher
-                    Task { await publisher.prepare() }
+                    publisher.startPrepare()
                 }
             }
             Spacer(minLength: 0)
@@ -273,7 +272,7 @@ private struct ClarifyStep: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("The idea is saved, but it has not been analyzed yet.").uiFont(.caption)
                 Text(flow.draft?.idea ?? "").uiFont(.caption).foregroundColor(palette.textDim).lineLimit(6)
-                Button("Analyze Again") { Task { await flow.analyze() } }
+                Button("Analyze Again") { flow.startAnalyze() }
                 Spacer()
             }
         }
@@ -424,7 +423,7 @@ struct GitHubPublishView: View {
                 Text(message).uiFont(.caption).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button("Sign In to GitHub…") { GitHubSettingsSection.openLoginInTerminal(root: publisher.root) }
-                    Button("Check Again") { Task { await publisher.prepare() } }
+                    Button("Check Again") { publisher.startPrepare() }
                     Spacer()
                     Button("Close", action: close)
                 }
@@ -456,7 +455,7 @@ struct GitHubPublishView: View {
                 HStack {
                     Spacer()
                     Button("Close", action: close)
-                    Button("Retry") { Task { await publisher.retry() } }.keyboardShortcut(.defaultAction)
+                    Button("Retry") { publisher.startCheck() }.keyboardShortcut(.defaultAction)
                 }
             }
         }
@@ -497,7 +496,7 @@ struct GitHubPublishView: View {
                 if publisher.phase == .checking { ProgressView().scaleEffect(0.6); Text("Checking \(publisher.slug)…").uiFont(.caption) }
                 Spacer()
                 Button("Close", action: close)
-                Button("Continue") { Task { await publisher.check() } }
+                Button("Continue") { publisher.startCheck() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(publisher.phase == .checking || publisher.name.isEmpty)
             }
@@ -562,7 +561,7 @@ struct GitHubPublishView: View {
                 Button("Back") { publisher.back() }
                 Spacer()
                 Button("Close", action: close)
-                Button("Publish") { Task { await publisher.publish() } }.keyboardShortcut(.defaultAction)
+                Button("Publish") { publisher.startPublish() }.keyboardShortcut(.defaultAction)
             }
         }
     }
@@ -628,7 +627,7 @@ struct ProjectDraftList: View {
             .confirmationDialog("Discard “\(discarding?.displayTitle ?? "")”?", isPresented: Binding(
                 get: { discarding != nil }, set: { if !$0 { discarding = nil } })) {
                 Button("Discard Draft", role: .destructive) {
-                    if let id = discarding?.id { Task { await drafts.remove(id) } }
+                    if let id = discarding?.id { drafts.startRemove(id) }
                     discarding = nil
                 }
             } message: {

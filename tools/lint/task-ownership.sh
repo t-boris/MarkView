@@ -153,8 +153,8 @@ def classify(code, raw_lines, match, kind, line):
     """'stored', 'awaited', 'justified' or None (unowned) for the site that `match` found at 1-based `line`."""
     line_start = code.rfind("\n", 0, match.start()) + 1
     prefix = code[line_start:match.start()]
-    if kind in ("task", "detached") and TYPE_DECLARATION.search(prefix):
-        return "skip"
+    if kind in ("task", "detached") and (TYPE_DECLARATION.search(prefix) or prefix.rstrip().endswith("->")):
+        return "skip"                              # a type's own declaration, or a function's return type (`-> Task<Void, Never> {`)
     # justified: `// task: why` on the line or on the comment line right above
     if MARKER.search(raw_lines[line - 1]) or (line >= 2 and raw_lines[line - 2].lstrip().startswith("//") and MARKER.search(raw_lines[line - 2])):
         return "justified"

@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 struct BugPanelView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject private var assistant: FeatureAssistant
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @ObservedObject var store: FeatureStore
     let bug: BugReport
     @State private var showAnswered = false
@@ -31,7 +31,7 @@ struct BugPanelView: View {
                     Menu {
                         ForEach(store.lifecycle.workflow.bug.statuses) { status in
                             Button((status.id == IssueStatus.normalize(bug.status) ? "✓ " : "") + status.title) {
-                                Task { await LifecycleStatusChange.perform(store: store, kind: .bug, issue: bug.key, to: status.id) }
+                                LifecycleStatusChange.start(store: store, kind: .bug, issue: bug.key, to: status.id)
                             }
                         }
                     } label: {
@@ -63,13 +63,13 @@ struct BugPanelView: View {
                 FlowButtons {
                     if bug.readyToFix && bug.status == "open" {
                         SmallButton(title: "Confirm handoff", icon: "checkmark.circle", prominent: true) {
-                            workspaceManager.flow.fixBugWithAI(bug.url)
+                            flow.fixBugWithAI(bug.url)
                         }
                         .help("Confirm the AI's readiness proposal and hand this bug to implementation")
                     }
-                    SmallButton(title: "Fix with AI", icon: "hammer", prominent: true) { workspaceManager.flow.fixBugWithAI(bug.url) }
+                    SmallButton(title: "Fix with AI", icon: "hammer", prominent: true) { flow.fixBugWithAI(bug.url) }
                         .help("The report goes to the assistant in the Terminal tab: reproduce, find the root cause, fix, verify. Status becomes Fixing.")
-                    SmallButton(title: "Investigate", icon: "magnifyingglass") { Task { await assistant.investigateBug(bug.url) } }
+                    SmallButton(title: "Investigate", icon: "magnifyingglass") { assistant.start("bug:" + bug.key) { await $0.investigateBug(bug.url) } }
                         .disabled(busy)
                         .help("First checks whether the bug still exists on main (an already fixed bug is closed). Otherwise the AI reads the code again with the answers so far, rewrites the report and asks what is still missing")
                 }
@@ -151,9 +151,11 @@ struct BugDiscussionInput: View {
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !attachments.isEmpty else { return }
         let files = attachments
-        text = ""
-        attachments = []
-        Task { await assistant.discussBug(bug.url, message: message, attachments: files) }
+        let started = assistant.start("discuss:bug:" + bug.key) { await $0.discussBug(bug.url, message: message, attachments: files) }
+        if started {
+            text = ""
+            attachments = []
+        }
     }
 }
 
@@ -251,6 +253,8 @@ struct BugQuestionCard: View {
     private func send(_ text: String) {
         let files = attachments
         attachments = []
-        Task { await assistant.answerBug(bug.url, question: question.id, answer: text, attachments: files) }
+        assistant.start("answer:bug:" + bug.key + ":" + question.id) {
+            await $0.answerBug(bug.url, question: question.id, answer: text, attachments: files)
+        }
     }
 }

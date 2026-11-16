@@ -79,8 +79,20 @@ final class DeploymentStore: ObservableObject {
         var updated: Date?
     }
 
+    /// What the log reader, the "Run a command" box and the install button of one environment show. The store keeps it, so the command
+    /// that fills it belongs to the store and ends with the window or the folder.
+    struct ConsoleState: Equatable {
+        /// A command of this environment is running (a second one waits for the first: the buttons are off meanwhile).
+        var running = false
+        /// What the command box and the install button last printed.
+        var output: String?
+        /// What the log reader last fetched.
+        var log = ""
+    }
+
     @Published private(set) var environments: [DeploymentEnvironment] = []
     @Published private(set) var servicesStates: [String: ServicesState] = [:]
+    @Published private(set) var consoles: [String: ConsoleState] = [:]
     @Published private(set) var states: [String: State] = [:]
     @Published private(set) var suggestions: [DeploymentSuggestion] = []
     @Published private(set) var scanning = false
@@ -118,7 +130,8 @@ final class DeploymentStore: ObservableObject {
         tasks.cancelAll()
         scanning = false
         root = url
-        environments = []; states = [:]; suggestions = []; log = []; selected = nil; hasScanned = false
+        environments = []; states = [:]; servicesStates = [:]; consoles = [:]; databaseStates = [:]
+        suggestions = []; log = []; selected = nil; hasScanned = false
         defer { loadLog() }
         guard let file else { return }
         // A file that cannot be read leaves the list empty and the file as it is: the next save copies it to a backup first.
@@ -217,14 +230,22 @@ final class DeploymentStore: ObservableObject {
 
     /// Looks at every environment; a look still running at one is replaced by the new one.
     func refreshAll() {
-        for env in environments {
-            let id = env.id
-            tasks.store(Task { await refresh(id) }, for: "refresh:" + id)
-        }
+        for env in environments { startRefresh(env.id) }
+    }
+
+    /// Looks at one environment; a look still running at it is replaced by this one.
+    func startRefresh(_ id: String) {
+        tasks.store(Task { await refresh(id) }, for: "refresh:" + id)
+    }
+
+    /// Reads the things a cloud place runs; a read still running for it is replaced by this one.
+    func startServices(_ id: String) {
+        tasks.store(Task { await loadServices(id) }, for: "services:" + id)
     }
 
     func refresh(_ id: String) async {
-        guard let env = environment(id) else { return }
+        // A look that was replaced, or whose window closed, before it began does not even mark the environment as being looked at.
+        guard !Task.isCancelled, let env = environment(id) else { return }
         var state = states[id] ?? State()
         if let problem = env.problems.first { state.phase = .failed; state.problem = .other(problem); states[id] = state; return }
         state.phase = .loading
@@ -242,6 +263,8 @@ final class DeploymentStore: ObservableObject {
             }
             for command in env.cloudCommands where CommandPolicy.classify(command.command).isReadOnly {
                 let output = await exec.run(command.command, stdin: nil, timeout: 60)
+                // A look that was replaced, or whose window closed, notes nothing and keeps nothing.
+                guard !Task.isCancelled else { return }
                 result.cloud[command.id] = CloudOutput(command: command.command, result: output, at: Date())
                 note(CommandLogEntry(time: Date(), environment: env.id, command: command.command, origin: "Refresh", outcome: "ran", status: output.status))
             }
@@ -267,7 +290,7 @@ final class DeploymentStore: ObservableObject {
     /// The things a cloud place runs: the provider's own list commands (read-only, JSON), then a reachability look at the
     /// public sites. The list keeps what it had while it loads.
     func loadServices(_ id: String) async {
-        guard let env = environment(id), env.kind == .cloud, env.problems.isEmpty else { return }
+        guard !Task.isCancelled, let env = environment(id), env.kind == .cloud, env.problems.isEmpty else { return }
         let scope = CloudServices.scope(of: env.cloudCommands)
         let queries = CloudServices.queries(provider: env.provider, scope: scope)
         guard !queries.isEmpty else { return }
@@ -306,6 +329,7 @@ final class DeploymentStore: ObservableObject {
             items[index].level = result.level
             items[index].state = result.state
         }
+        guard !Task.isCancelled else { return }
         servicesStates[id] = ServicesState(items: items, problems: problems, loading: false, updated: Date())
     }
 
@@ -382,6 +406,60 @@ final class DeploymentStore: ObservableObject {
         if approval?.id == id { answer(false) }
         else if let index = queue.firstIndex(where: { $0.id == id }) { queue.remove(at: index).answer(false) }
     }
+
+    // MARK: The command box, the log reader and the installer of an environment
+
+    private func console(_ id: String, _ change: (inout ConsoleState) -> Void) {
+        var state = consoles[id] ?? ConsoleState()
+        change(&state)
+        consoles[id] = state
+    }
+
+    private enum ConsoleFill { case log(String), output(String) }
+
+    /// Starts one command of an environment's console. A command already running there is not replaced: the buttons are off while it runs
+    /// (a replaced one would leave its approval waiting), so a second start is dropped. The answer fills the log or the output; a
+    /// command that was not a read-only look, or an install, is followed by a look at the environment.
+    private func startConsole(on id: String, clearOutput: Bool = false, _ work: @escaping () async -> (fill: ConsoleFill, thenRefresh: Bool)) {
+        guard consoles[id]?.running != true else { return }
+        console(id) { $0.running = true; if clearOutput { $0.output = nil } }
+        tasks.store(Task { [weak self] in
+            let (fill, thenRefresh) = await work()
+            guard !Task.isCancelled, let self else { return }
+            self.console(id) { state in
+                state.running = false
+                switch fill {
+                case .log(let text): state.log = text
+                case .output(let text): state.output = text
+                }
+            }
+            if thenRefresh { self.startRefresh(id) }
+        }, for: "console:" + id)
+    }
+
+    /// Fetches a log of an environment into its log reader (a read-only command, so it runs at once).
+    func startLogFetch(_ command: String, on id: String) {
+        startConsole(on: id) { [self] in
+            (.log(await run(command, on: id, origin: "You").summary), false)
+        }
+    }
+
+    /// Runs what the person typed in the command box; one that is not read-only waits for the person's yes and is followed by a look.
+    func startCommand(_ command: String, on id: String) {
+        startConsole(on: id, clearOutput: true) { [self] in
+            (.output(await run(command, on: id, origin: "You").summary), CommandPolicy.classify(command).isReadOnly == false)
+        }
+    }
+
+    /// Installs a provider's command-line tool after the person approved the exact command, then looks at the environment again.
+    func startInstall(_ command: String, purpose: String, on id: String) {
+        startConsole(on: id) { [self] in
+            (.output(await run(command, on: id, origin: "You", purpose: purpose, timeout: 900).summary), true)
+        }
+    }
+
+    /// Puts a line in the command box's output (what to do next after a sign-in command was copied).
+    func showOutput(_ text: String, on id: String) { console(id) { $0.output = text } }
 
     /// The window closes: the auto-refresh, the looks, the scan and the waits end, and a command still waiting for a yes counts as no.
     func close() {

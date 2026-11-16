@@ -275,18 +275,7 @@ struct QARunsList: View {
     let scenarioID: String
     let phase: QARunModel.Phase
 
-    /// What the person is asked before runs are deleted.
-    private struct DeleteQuestion: Identifiable {
-        let id = UUID()
-        var title: String
-        var action: String
-        var plan: QARunCleanup.Plan
-    }
-
-    @State private var question: DeleteQuestion?
-    /// True while the size of the runs is worked out or they are being deleted.
-    @State private var busy = false
-    @State private var problem: String?
+    private var busy: Bool { archive.cleaning }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -318,7 +307,7 @@ struct QARunsList: View {
                     }
                 }
             }
-            if let problem { Text(problem).uiFont(size: 10.5).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true) }
+            if let problem = archive.cleanupProblem { Text(problem).uiFont(size: 10.5).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true) }
             if !endedRuns.isEmpty {
                 Button("Delete all runs of this scenario…") {
                     ask(endedRuns.map(\.id), title: "Delete \(endedRuns.count == 1 ? "the run" : "all \(endedRuns.count) runs") of this scenario?", action: endedRuns.count == 1 ? "Delete run" : "Delete all runs")
@@ -329,8 +318,8 @@ struct QARunsList: View {
         .onAppear { archive.reload(scenarioID: scenarioID) }
         .onChange(of: scenarioID) { archive.reload(scenarioID: $0) }
         .onChange(of: phase) { if $0 == .finished { archive.reload(scenarioID: scenarioID) } }
-        .confirmationDialog(question?.title ?? "", isPresented: Binding(get: { question != nil }, set: { if !$0 { question = nil } }), titleVisibility: .visible, presenting: question) { asked in
-            Button(asked.action, role: .destructive) { delete(asked) }
+        .confirmationDialog(archive.deleteQuestion?.title ?? "", isPresented: Binding(get: { archive.deleteQuestion != nil }, set: { if !$0 { archive.dismissDeleteQuestion() } }), titleVisibility: .visible, presenting: archive.deleteQuestion) { asked in
+            Button(asked.action, role: .destructive) { archive.startDeletion(asked) }
             Button("Cancel", role: .cancel) {}
         } message: { asked in
             Text(message(asked.plan))
@@ -340,29 +329,8 @@ struct QARunsList: View {
     /// The runs that can be deleted: those that have ended.
     private var endedRuns: [QARunRecord] { archive.runs.filter { $0.finishedAt != nil } }
 
-    /// Works out what deleting `ids` removes, off the main thread, then asks.
-    @MainActor private func ask(_ ids: [String], title: String, action: String) {
-        guard let root = archive.root, !ids.isEmpty, !busy else { return }
-        busy = true
-        problem = nil
-        Task {
-            let plan = await QARunCleanup.plan(deleting: ids, root: root, filer: archive.bugFiler)
-            question = DeleteQuestion(title: title, action: action, plan: plan)
-            busy = false
-        }
-    }
-
-    @MainActor private func delete(_ asked: DeleteQuestion) {
-        guard let root = archive.root, !busy else { return }
-        busy = true
-        Task {
-            let result = await QARunCleanup.delete(asked.plan, root: root)
-            archive.reload(scenarioID: scenarioID)
-            if result.failed > 0 {
-                problem = "\(result.failed) of \(asked.plan.runIDs.count) \(asked.plan.runIDs.count == 1 ? "run" : "runs") could not be deleted. " + (result.firstFailure ?? "")
-            }
-            busy = false
-        }
+    private func ask(_ ids: [String], title: String, action: String) {
+        archive.startDeletionPlan(ids, title: title, action: action)
     }
 
     /// What the dialog says under its title: how much goes, that it goes for good, and whether a filed bug names any of the runs.

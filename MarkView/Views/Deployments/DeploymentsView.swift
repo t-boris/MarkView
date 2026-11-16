@@ -3,6 +3,8 @@ import SwiftUI
 /// Deployments: the places the project runs, and how each one is doing.
 struct DeploymentsView: View {
     @Environment(\.palette) private var palette
+    /// The one declaration the tab keeps: the project's operations are a published part that only the manager offers (the bar above the
+    /// tab redraws when the folder's operations change), and "Open a terminal" for the provider sign-in is a window command.
     @EnvironmentObject var workspaceManager: WorkspaceManager
     let host: DeploymentsHost
     @ObservedObject var store: DeploymentStore
@@ -20,7 +22,8 @@ struct DeploymentsView: View {
                 }
                 Group {
                 if let id = store.selected, let env = store.environment(id) {
-                    EnvironmentDetail(host: host, store: store, env: env, edit: { editing = env })
+                    EnvironmentDetail(host: host, store: store, env: env, edit: { editing = env },
+                                      openTerminal: { workspaceManager.openTerminal(in: $0) })
                         .id(id)
                 } else {
                     emptyState
@@ -253,22 +256,26 @@ private struct BuildDeploymentOperationBar: View {
 
 private struct EnvironmentDetail: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     let host: DeploymentsHost
     @ObservedObject var store: DeploymentStore
     let env: DeploymentEnvironment
     let edit: () -> Void
+    /// The window's command that opens a terminal in a folder; the sign-in of a provider's CLI happens there.
+    let openTerminal: (URL) -> Void
     @State private var command = ""
-    @State private var output: String?
-    @State private var running = false
     @State private var logSource: String = ""
-    @State private var logText = ""
     @State private var logFilter = ""
     @State private var trusting: (lines: [String], fingerprints: [String])?
+    /// Asks for a look at the server's host key; the `.task` that follows it ends with the view.
+    @State private var hostKeyRequest: UUID?
     @State private var question = ""
     @FocusState private var questionFocused: Bool
 
     private var state: DeploymentStore.State { store.states[env.id] ?? DeploymentStore.State() }
+    private var console: DeploymentStore.ConsoleState { store.consoles[env.id] ?? DeploymentStore.ConsoleState() }
+    private var running: Bool { console.running }
+    private var output: String? { console.output }
+    private var logText: String { console.log }
 
     var body: some View {
         ScrollView {
@@ -288,7 +295,13 @@ private struct EnvironmentDetail: View {
             }
             .padding(18)
         }
-        .task { if state.phase == .idle { await store.refresh(env.id) } }
+        .onAppear { if state.phase == .idle { store.startRefresh(env.id) } }
+        .task(id: hostKeyRequest) {
+            guard hostKeyRequest != nil else { return }
+            let scan = await HostKeys.scan(host: env.host, port: env.port)
+            guard !Task.isCancelled else { return }
+            trusting = scan ?? ([], ["The server did not give a key. Is it reachable?"])
+        }
         .sheet(isPresented: Binding(get: { trusting != nil }, set: { if !$0 { trusting = nil } })) { trustSheet }
     }
 
@@ -304,7 +317,7 @@ private struct EnvironmentDetail: View {
             Text(env.kind == .ssh ? "\(env.destination):\(env.port)" : env.kind == .local ? "This Mac" : env.provider)
                 .uiFont(size: 11, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
             HStack(spacing: 8) {
-                Button { Task { await store.refresh(env.id) } } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(state.phase == .loading)
+                Button { store.startRefresh(env.id) } label: { Label("Refresh", systemImage: "arrow.clockwise") }.disabled(state.phase == .loading)
                 Button("Edit", action: edit)
                 if state.phase == .loading { ProgressView().controlSize(.small) }
                 if let updated = state.updated { Text("looked at \(updated.formatted(date: .omitted, time: .standard))").uiFont(size: 10).foregroundColor(palette.textDim).lineLimit(1) }
@@ -326,7 +339,7 @@ private struct EnvironmentDetail: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(problem.message).uiFont(size: 11).foregroundColor(palette.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 if problem == .hostKeyUnknown {
-                    Button("Check the host key…") { Task { trusting = await HostKeys.scan(host: env.host, port: env.port) ?? ([], ["The server did not give a key. Is it reachable?"]) } }
+                    Button("Check the host key…") { hostKeyRequest = UUID() }
                         .controlSize(.small)
                 }
             }
@@ -346,7 +359,7 @@ private struct EnvironmentDetail: View {
                 Spacer()
                 Button("Cancel") { trusting = nil }
                 Button("Trust and connect") {
-                    if let lines = trusting?.lines, !lines.isEmpty, HostKeys.trust(lines: lines) { Task { await store.refresh(env.id) } }
+                    if let lines = trusting?.lines, !lines.isEmpty, HostKeys.trust(lines: lines) { store.startRefresh(env.id) }
                     trusting = nil
                 }.buttonStyle(.borderedProminent).disabled((trusting?.lines ?? []).isEmpty)
             }
@@ -607,12 +620,7 @@ private struct EnvironmentDetail: View {
 
     private func fetchLog() {
         guard let source = store.logSources(env.id).first(where: { $0.id == logSource }) else { return }
-        running = true
-        Task {
-            let outcome = await store.run(source.command, on: env.id, origin: "You")
-            logText = outcome.summary
-            running = false
-        }
+        store.startLogFetch(source.command, on: env.id)
     }
 
     private var commandBox: some View {
@@ -642,32 +650,21 @@ private struct EnvironmentDetail: View {
 
     /// Install a provider's CLI: the person sees the exact command and approves it, then it runs here and the state is read again.
     private func install(_ hint: ProviderHints.Hint) {
-        running = true
-        Task {
-            output = await store.run(hint.installCommand, on: env.id, origin: "You", purpose: "Install \(hint.tool), the command-line tool of \(env.provider.isEmpty ? "this service" : env.provider)", timeout: 900).summary
-            running = false
-            await store.refresh(env.id)
-        }
+        store.startInstall(hint.installCommand, purpose: "Install \(hint.tool), the command-line tool of \(env.provider.isEmpty ? "this service" : env.provider)", on: env.id)
     }
 
     /// Signing in opens a browser and waits for it: do it in a terminal. The command is copied.
     private func signIn(_ hint: ProviderHints.Hint) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(hint.login.components(separatedBy: "   (").first ?? hint.login, forType: .string)
-        if let root = store.root { workspaceManager.openTerminal(in: root) }
-        output = "Copied: \(hint.login). Paste it in the terminal that opened, finish signing in, then press Refresh."
+        if let root = store.root { openTerminal(root) }
+        store.showOutput("Copied: \(hint.login). Paste it in the terminal that opened, finish signing in, then press Refresh.", on: env.id)
     }
 
     private func runCommand() {
         let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !running else { return }
-        running = true
-        output = nil
-        Task {
-            output = await store.run(text, on: env.id, origin: "You").summary
-            running = false
-            if CommandPolicy.classify(text).isReadOnly == false { await store.refresh(env.id) }
-        }
+        store.startCommand(text, on: env.id)
     }
 
     private var activity: some View {
@@ -843,7 +840,7 @@ private struct EnvironmentEditor: View {
                 Spacer()
                 Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
                 Button(isNew ? "Add" : "Save") {
-                    if isNew { store.add(env); if let id = store.selected { Task { await store.refresh(id) } } } else { store.update(env); Task { await store.refresh(env.id) } }
+                    if isNew { store.add(env); if let id = store.selected { store.startRefresh(id) } } else { store.update(env); store.startRefresh(env.id) }
                     close()
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(!env.problems.isEmpty)
             }.padding(12)

@@ -25,6 +25,7 @@ enum StudioFixResult: Equatable {
 /// this open's repairs, the last fix for Undo, the sign-in page the application sent the page to, and the debounced automatic look.
 @MainActor
 final class StudioRepair: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     /// What came of this open's repairs, so that nothing loops (REQ-020).
@@ -106,8 +107,9 @@ final class StudioRepair: ObservableObject {
         session.busyDetail = "The assistant is reading the error and the code"
         let answer: DataFixAnswer
         do {
-            answer = try await fixing.execute([], onActivity: { [weak self] activity in
-                Task { @MainActor in self?.session.progress(activity) }
+            answer = try await fixing.execute([], onActivity: { [session] activity in
+                // task: a hop onto the main actor from the assistant's callback; it never suspends and holds the session itself
+                Task { @MainActor in session.progress(activity) }
             }).output
         } catch is CancellationError {
             return .cancelled
@@ -247,15 +249,14 @@ final class StudioRepair: ObservableObject {
             session.notice = "Nothing on this page is something Studio can repair: code errors and blocked services are only reported."
             return
         }
-        Task { [weak self, session] in
-            guard let self else { return }
+        session.startPartTask { session in
             var tried: Set<String> = [first.id]
             await session.awaitWork()
-            if case .cancelled? = finishRepair(first, box: box, automatic: false) { return }
+            if case .cancelled? = self.finishRepair(first, box: box, automatic: false) { return }
             for _ in 0..<4 {
-                guard let item = repairItems(automatic: false).first(where: { !tried.contains($0.id) }) else { break }
+                guard let item = self.repairItems(automatic: false).first(where: { !tried.contains($0.id) }) else { break }
                 tried.insert(item.id)
-                if case .cancelled? = await repair(item, automatic: false) { break }
+                if case .cancelled? = await self.repair(item, automatic: false) { break }
             }
         }
     }
@@ -263,9 +264,9 @@ final class StudioRepair: ObservableObject {
     /// The action of one problem row. The work starts at once (the busy banner is up when this returns).
     func repairProblem(_ item: StudioProblem.Item) {
         guard let box = startRepair(item, automatic: false) else { return }
-        Task { [weak self] in
-            await self?.session.awaitWork()
-            self?.finishRepair(item, box: box, automatic: false)
+        session.startPartTask { session in
+            await session.awaitWork()
+            self.finishRepair(item, box: box, automatic: false)
         }
     }
 
@@ -276,9 +277,9 @@ final class StudioRepair: ObservableObject {
     func scheduleAutoRepair(delay: TimeInterval = 2) {
         guard session.spec.repairsAutomatically else { return }
         autoRepairTask?.cancel()
-        autoRepairTask = Task { [weak self] in
+        autoRepairTask = session.startPartTask { _ in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled else { return }
             await self.runAutomaticRepair()
         }
     }

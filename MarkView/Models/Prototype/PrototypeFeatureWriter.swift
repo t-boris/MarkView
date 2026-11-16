@@ -68,7 +68,7 @@ enum PrototypeFeatureWriter {
         var written = 0
         for requirement in plan.requirements {
             let pictures = attached[requirement.unitID] ?? []
-            let body = ProjectAgentTools.requirementBody(statement: requirement.statement, criteria: requirement.criteria)
+            let body = FeatureObject.requirementBody(statement: requirement.statement, criteria: requirement.criteria)
                 + PrototypeHandoff.screenshotsSection(pictures.map { (title: $0.title, link: $0.link) })
             if store.create(.requirement, in: slug, title: requirement.title,
                             fields: [("status", .string("approved")), ("req_type", .string("functional")),

@@ -143,7 +143,41 @@ final class GitHubStore: ObservableObject {
         runWorkflow = nil
         loadingPRs = false; loadingIssues = false; loadingRuns = false
         loadingBranchRuns = false; loadingMetadata = false
+        jobs = [:]
     }
+
+    // MARK: Jobs the views start (`AR-19`)
+
+    /// A piece of work the person started from a list, a sheet or a tab ("pr-12", "create-issue"): the words its row shows while it
+    /// runs, and how it ended.
+    struct Job: Equatable {
+        enum End: Equatable { case done, failed(String) }
+        var label: String
+        /// What an alert about its failure says first.
+        var title: String
+        /// nil while the work runs.
+        var end: End?
+
+        var isRunning: Bool { end == nil }
+        var failure: String? { if case .failed(let message) = end { return message } else { return nil } }
+    }
+
+    /// The jobs of the selected repository by key; a repository change or a reset ends them and forgets them.
+    @Published private(set) var jobs: [String: Job] = [:]
+
+    /// Starts `work` under `key`; a job with the same key that is still running is replaced by this one. `work` returns the error to
+    /// show, nil when it went through.
+    func start(_ key: String, label: String, title: String = "GitHub", _ work: @escaping () async -> String?) {
+        jobs[key] = Job(label: label, title: title)
+        repoTasks.store(Task {
+            let error = await work()
+            guard !Task.isCancelled else { return }
+            jobs[key] = Job(label: label, title: title, end: error.map(Job.End.failed) ?? .done)
+        }, for: "job:" + key)
+    }
+
+    /// The view that started `key` has taken its outcome.
+    func clearJob(_ key: String) { jobs[key] = nil }
 
     func loadAccount() {
         guard let root else { return }

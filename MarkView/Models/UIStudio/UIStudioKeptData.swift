@@ -9,6 +9,7 @@ import MarkViewCore
 /// test user the browser data was last restored for.
 @MainActor
 final class StudioKeptData: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     /// What the last "Keep" left out of the kept cookies and storage, and why (names only, never values).

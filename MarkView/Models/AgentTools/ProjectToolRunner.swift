@@ -413,7 +413,7 @@ enum ProjectToolRunner {
                                         fields: [("status", .string(status)), ("req_type", .string(type)),
                                                  ("depends_on", .list(depends.map { .string($0) })), ("decisions", .list(decisions.map { .string($0) })),
                                                  ("sources", .list([])), ("issues", .list([]))],
-                                        body: ProjectAgentTools.requirementBody(statement: statement, criteria: criteria),
+                                        body: FeatureObject.requirementBody(statement: statement, criteria: criteria),
                                         provenance: provenance(source)) else {
             return .error(store.lastError ?? "The requirement could not be written.")
         }

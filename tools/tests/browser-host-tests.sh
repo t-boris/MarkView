@@ -12,15 +12,15 @@ trap 'rm -rf "$out"' EXIT
 cp tools/tests/BrowserHostTests.swift "$out/BrowserHostTests.swift"
 swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/browser-host-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Browser/BrowserHost.swift MarkView/Models/Browser/BrowserAgentTabs.swift MarkView/Models/AgentTools/AgentToolWindow.swift MarkView/Models/Browser/WebPreview.swift MarkView/Models/Browser/BrowserElementPick.swift \
-    MarkView/Models/Workspace/WebAppPreview.swift MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Workspace/ProjectProviding.swift \
-    MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \
+    MarkView/Models/Workspace/BrowserHost.swift MarkView/Models/Browser/BrowserAgentTabs.swift MarkView/Models/AgentTools/AgentToolWindow.swift MarkView/Models/Browser/WebPreview.swift MarkView/Models/Browser/BrowserElementPick.swift \
+    MarkView/Models/Browser/WebAppPreview.swift MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Shared/ProjectProviding.swift \
+    MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Architecture/XRayScope.swift MarkView/Models/Git/GitHubItem.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \
     MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
     MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift \
     MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
     MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
-    MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Workspace/SchemaVersionedStore.swift \
+    MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Shared/SchemaVersionedStore.swift \
     MarkView/Models/Workspace/WindowSession.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift \
     tools/tests/BrowserHostStubs.swift "$out/BrowserHostTests.swift" 2>&1 | { grep -E "error:" -A3 || true; } | head -60
 cp -R MarkView/Resources/Themes "$out/Themes"

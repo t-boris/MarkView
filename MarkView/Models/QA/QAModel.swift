@@ -93,6 +93,7 @@ final class QAModel: ObservableObject {
         generation?.cancel()
         summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         root = newRoot
+        archive.end()
         archive.root = newRoot
         archive.close()
         scenarios = []
@@ -138,6 +139,7 @@ final class QAModel: ObservableObject {
 
     func close() {
         tasks.cancelAll()
+        archive.end()
         summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         flush()
         current = nil
@@ -172,6 +174,7 @@ final class QAModel: ObservableObject {
         guard let root else { return }
         if current?.id == id { current = nil; saveTask?.cancel(); saveTask = nil }
         scenarios.removeAll { $0.id == id }
+        // task: the scenario's files go off the main thread; once the person asked, the deletion runs to its end, whatever closes meanwhile
         Task.detached { QAStore.deleteScenario(id, root: root) }
     }
 

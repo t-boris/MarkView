@@ -22,9 +22,9 @@ enum ACPAssistant {
 SWIFT
 swiftc -o "$out/research-map-controller-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Research/*.swift MarkView/Models/Workspace/ProjectProviding.swift \
-    MarkView/Models/Insight/SemanticDatabase.swift MarkView/Models/Architecture/SemanticDatabase+Architecture.swift MarkView/Models/Insight/SemanticUsage.swift MarkView/Models/Insight/SemanticSchema.swift MarkView/Models/Insight/SemanticModels.swift \
-    MarkView/Models/Workspace/FrontMatter.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift \
+    MarkView/Models/Research/*.swift MarkView/Models/Shared/ProjectProviding.swift \
+    MarkView/Models/Shared/SemanticDatabase.swift MarkView/Models/Architecture/SemanticDatabase+Architecture.swift MarkView/Models/Insight/SemanticUsage.swift MarkView/Models/Shared/SemanticSchema.swift MarkView/Models/Shared/SemanticModels.swift \
+    MarkView/Models/Shared/FrontMatter.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift \
     MarkView/Models/Appearance/ProjectColor.swift \
     MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \

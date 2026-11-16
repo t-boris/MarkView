@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 // The terminal's unrelated assistant/dictation dependencies are not exercised here.
-final class WhisperClient {}
+final class WhisperClient { func stopRecording() async -> String? { nil } }
 
 /// What the window does with the files and web addresses a terminal hands it; the test decides what each does.
 @MainActor final class LinkWindow: TerminalLinkTarget {

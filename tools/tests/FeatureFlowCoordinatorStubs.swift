@@ -251,6 +251,26 @@ final class FeatureAssistant: ObservableObject {
     }
     weak var project: (any ProjectProviding)?
     func gitHubClient() -> GitHubClient? { store.gitHub?.client }
+    /// What the assistant says went wrong with its last step.
+    var error: String?
+    /// The new feature, quick feature or bug the assistant is asked for: what it was given, how long it takes and what it makes.
+    var intakes: [(kind: IntakeKind, input: String, attachments: [URL], linkedIssue: Int?, commentOnIssue: Bool)] = []
+    var intakeDelay: UInt64 = 0
+    var intakeOutcome: IntakeOutcome?
+    func newFeature(from input: String, attachments: [URL], linkedIssue: Int?) async -> IntakeOutcome? {
+        await intake(.feature, input, attachments, linkedIssue, false)
+    }
+    func newQuickFeature(from input: String, attachments: [URL], linkedIssue: Int?) async -> IntakeOutcome? {
+        await intake(.quickFeature, input, attachments, linkedIssue, false)
+    }
+    func newBug(from input: String, attachments: [URL], linkedIssue: Int?, commentOnIssue: Bool) async -> IntakeOutcome? {
+        await intake(.bug, input, attachments, linkedIssue, commentOnIssue)
+    }
+    private func intake(_ kind: IntakeKind, _ input: String, _ attachments: [URL], _ linkedIssue: Int?, _ comment: Bool) async -> IntakeOutcome? {
+        intakes.append((kind, input, attachments, linkedIssue, comment))
+        if intakeDelay > 0 { try? await Task.sleep(nanoseconds: intakeDelay) }
+        return intakeOutcome
+    }
     var performed: [(action: FeatureAction, selection: String, document: String?, question: String, feature: String?)] = []
     func perform(_ action: FeatureAction, selection: String, document: String?, question: String = "", feature slug: String?) async {
         performed.append((action, selection, document, question, slug))

@@ -3,12 +3,12 @@ import SwiftUI
 /// VS Code-style status bar at the bottom of the editor
 struct DiagnosticsBarView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var project: ProjectContext
 
     var body: some View {
         HStack(spacing: 0) {
             // Indexing progress (out-of-process structural index)
-            if let progress = workspaceManager.project.structuralIndexProgress {
+            if let progress = project.structuralIndexProgress {
                 HStack(spacing: 5) {
                     ProgressView()
                         .controlSize(.mini)

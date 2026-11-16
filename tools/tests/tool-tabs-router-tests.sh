@@ -12,11 +12,11 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/tool-tab
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
     MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
-    MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \
+    MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Architecture/XRayScope.swift MarkView/Models/Git/GitHubItem.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \
     MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
     MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift \
-    MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Workspace/SchemaVersionedStore.swift MarkView/Models/Workspace/WindowSession.swift \
-    MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift MarkView/Models/Workspace/ProjectProviding.swift \
+    MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Shared/SchemaVersionedStore.swift MarkView/Models/Workspace/WindowSession.swift \
+    MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift MarkView/Models/Shared/ProjectProviding.swift \
     MarkView/Models/Workspace/ToolOpener.swift MarkView/Models/Workspace/ToolTabsRouter.swift MarkView/Models/Terminal/AssistantProviding.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/AIOperation.swift \
     MarkView/Models/AI/CommandPolicy.swift MarkView/Models/Deployments/DeploymentModels.swift MarkView/Models/Deployments/SystemProbe.swift \
@@ -26,7 +26,7 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/tool-tab
     MarkView/Models/Deployments/DatabaseExplorer.swift MarkView/Models/Deployments/DatabaseKeychain.swift \
     MarkView/Models/Deployments/DeploymentAdvisor.swift MarkView/Models/Deployments/DeploymentPrompt.swift MarkView/Models/Deployments/DeploymentsHost.swift \
     MarkView/Models/Discussion/Discussion.swift MarkView/Models/Discussion/DiscussionPrompt.swift MarkView/Models/Discussion/DiscussionsHost.swift \
-    MarkView/Models/UIStudio/UIStudioHost.swift MarkView/Models/Cockpit/CockpitHost.swift \
-    MarkView/Models/Prototype/PrototypeFiles.swift MarkView/Models/Prototype/PrototypeStudioHost.swift \
+    MarkView/Models/Workspace/UIStudioHost.swift MarkView/Models/Workspace/CockpitHost.swift \
+    MarkView/Models/Prototype/PrototypeFiles.swift MarkView/Models/Workspace/PrototypeStudioHost.swift \
     tools/tests/ToolTabsRouterStubs.swift tools/tests/ToolTabsRouterTests.swift
 "$out/tool-tabs-router-tests"

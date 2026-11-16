@@ -196,16 +196,21 @@ struct ContentView: View {
 }
 
 extension View {
-    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
-    /// the translation in progress): `@EnvironmentObject` for each.
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, the project, its
+    /// folder tree, Git, the translation in progress, the feature flow, the code analysis): `@EnvironmentObject` for each. And the window's
+    /// own commands, which a view reads as `@Environment(\.windowCommands)` (`WindowCommands`).
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
             .environmentObject(workspace.chrome)
             .environmentObject(workspace.requests)
+            .environmentObject(workspace.project)
             .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
             .environmentObject(workspace.translator)
+            .environmentObject(workspace.flow)
+            .environmentObject(workspace.codeXRay)
+            .environment(\.windowCommands, workspace)
     }
 }
 
@@ -391,7 +396,7 @@ private struct WorkspaceWindow: View {
             }
         }
         .sheet(item: $requests.intake) { request in
-            IntakeSheet(request: request, workspaceManager: workspaceManager)
+            IntakeSheet(request: request, flow: workspaceManager.flow, research: workspaceManager.research, codeXRay: workspaceManager.codeXRay)
         }
         .sheet(item: $requests.newProject) { request in
             NewProjectSheet(request: request, workspaceManager: workspaceManager)
@@ -605,7 +610,7 @@ private struct WorkspaceWindow: View {
     private var layoutMenu: some View {
         Menu {
             LayoutMenuItems(library: layouts.library, enabled: workspaceManager.rootNode != nil,
-                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { layouts.startReload() })
         } label: {
             toolbarIcon("rectangle.3.group", width: toolbarIconWidth)
         }
@@ -701,7 +706,7 @@ private struct WorkspaceWindow: View {
 
     private var workspaceCenter: some View {
         VStack(spacing: 0) {
-            TabBarView().environmentObject(workspaceManager)
+            TabBarView(browser: workspaceManager.browser)
             filesCenter
         }
         .background(palette.bg)
@@ -714,7 +719,7 @@ private struct WorkspaceWindow: View {
             }
             if let resume = requests.handoffResume,
                layout.workspaceArea == .files {
-                HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
+                HandoffResumeBar(resume: resume)
             }
             if tabs.openTabs.indices.contains(tabs.activeTabIndex) {
                 let activeTab = tabs.openTabs[tabs.activeTabIndex]
@@ -735,7 +740,6 @@ private struct WorkspaceWindow: View {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .pdf(let reader) = activeTab.kind {
                         PDFReaderView(url: activeTab.url, reader: reader)
@@ -745,15 +749,13 @@ private struct WorkspaceWindow: View {
                             .id(activeTab.id)
                     } else if case .archive = activeTab.kind {
                         ArchiveTabView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .browser(let session) = activeTab.kind {
-                        BrowserTabView(session: session)
+                        BrowserTabView(session: session, browser: workspaceManager.browser)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .prototype(let session) = activeTab.kind {
-                        PrototypeStudioView(session: session)
-                            .environmentObject(workspaceManager)
+                        PrototypeStudioView(session: session, terminals: workspaceManager.terminals, browser: workspaceManager.browser)
                             .id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
@@ -762,7 +764,7 @@ private struct WorkspaceWindow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                DiagnosticsBarView().environmentObject(workspaceManager)
+                DiagnosticsBarView()
             } else {
                 welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
@@ -817,13 +819,13 @@ private struct WorkspaceWindow: View {
     private func attachWindowSession() {
         guard let window = hostWindow, !sessionAttached else { return }
         sessionAttached = true
-        Task { @MainActor in
+        workspaceManager.taskBag.store(Task { @MainActor in
             await WindowSessionController.shared.attach(id: windowSessionID, window: window, workspace: workspaceManager) { id in
                 openWindow(id: WindowSessionController.sceneID, value: id)
             }
             restorationComplete = true
             drainPendingOpens(trigger: "restorationComplete")
-        }
+        }, for: "attach-session")
     }
 
     /// True when this view's window should receive "open in active window"
@@ -890,7 +892,6 @@ private struct WorkspaceWindow: View {
                       perform: performWelcomeAction) {
             if fileTree.rootNode != nil {
                 HandoffStartList(store: workspaceManager.flow.features)
-                    .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
             } else {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
@@ -1047,175 +1048,6 @@ private struct WindowAccessor: NSViewRepresentable {
     ContentView()
 }
 
-/// The one toolbar menu of the AI: the assistant CLI and its model for this window's project (BUG-021; other projects keep theirs), the model
-/// that X-Ray and the other large structured answers use, and the AI tools (diagrams, prototypes, analyses). A window showing a single file
-/// edits the defaults, as DDE Settings does. The bar shows the assistant and its model; the X-Ray model is named in the menu.
-struct AIToolbarMenu: View {
-    let workspaceManager: WorkspaceManager
-    /// Passed in: toolbar content does not get the window's environment objects.
-    let fileTree: WorkspaceFileTreeStore
-    var compact = false
-    /// The models each tool offers, as loaded (Codex's list is read from disk, so off the main thread).
-    @State private var catalog: [CLITool: [AIModelOption]] = [:]
-    @State private var availability: [CLITool: Bool] = [:]
-    /// Bumped when any choice changes, so the menu shows the stored values.
-    @State private var refresh = 0
-    @State private var seenSnapshot = ""
-
-    private var choice: AssistantChoice { AssistantChoice(project: workspaceManager.aiProject) }
-    private var tool: CLITool { choice.tool }
-    private var backend: Binding<String> {
-        Binding(get: { choice.tool.rawValue }, set: { choice.setTool($0) })
-    }
-    private var model: Binding<String> {
-        let tool = tool
-        return Binding(get: { choice.model(for: tool) }, set: { choice.setModel($0, for: tool) })
-    }
-    private var xrayModel: Binding<String> {
-        let tool = tool
-        return Binding(get: { choice.xrayModel(for: tool) }, set: { choice.setXRayModel($0, for: tool) })
-    }
-
-    /// The assistant's models. A model saved earlier stays selectable, but the list says that the CLI does not offer it
-    /// (Codex rejects models its catalog dropped or the account cannot use).
-    private var assistantOptions: [AIModelOption] {
-        let id = model.wrappedValue
-        guard let loaded = catalog[tool] else {
-            return [AIModelOption(id: id, name: id.isEmpty ? "Default" : id, detail: "")]
-        }
-        return loaded.contains { $0.id == id } ? loaded
-            : loaded + [AIModelOption(id: id, name: "\(id) — not in \(tool.displayName)'s list", detail: "")]
-    }
-
-    var body: some View {
-        let _ = refresh
-        let unavailable = availability[tool] == false
-        let xrayRecommended = AIAssistantPreferences.defaultXRayModel(for: tool)
-        let xrayListed = (catalog[tool] ?? []).filter { !$0.id.isEmpty }
-        let xrayName = xrayModel.wrappedValue.isEmpty ? "assistant's model" : xrayModel.wrappedValue
-        Menu {
-            if unavailable {
-                Text("Assistant unavailable. Set its CLI path in Settings.")
-                Button("Open AI Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
-                Button("Check Again") {
-                    let selected = tool
-                    Task { availability[selected] = await CLIToolLocator.resolveThorough(selected) != nil }
-                }
-                Divider()
-            }
-            Picker("Assistant", selection: backend) {
-                ForEach(CLITool.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
-            }
-            .pickerStyle(.inline)
-            Picker("Model", selection: model) {
-                ForEach(assistantOptions) { Text($0.name).tag($0.id) }
-            }
-            .pickerStyle(.inline)
-            Divider()
-            // X-Ray, operations discovery, filters and explanations write large structured answers, where a fast model matters more than raw
-            // capability: the fast default is marked as recommended.
-            Menu("X-Ray model · " + xrayName) {
-                Picker("X-Ray model", selection: xrayModel) {
-                    Text("Same as the assistant's model").tag("")
-                    ForEach(xrayListed) { option in
-                        Text(option.id == xrayRecommended ? "\(option.name) (Recommended)" : option.name).tag(option.id)
-                    }
-                    if !xrayModel.wrappedValue.isEmpty, !xrayListed.contains(where: { $0.id == xrayModel.wrappedValue }) {
-                        Text(xrayModel.wrappedValue).tag(xrayModel.wrappedValue)
-                    }
-                }
-                .pickerStyle(.inline)
-                Text("Used by X-Ray, operations discovery, filters and explanations.")
-            }
-            AIToolsMenuItems(workspaceManager: workspaceManager, fileTree: fileTree)
-        } label: {
-            if compact {
-                Image(systemName: unavailable ? "exclamationmark.triangle" : "cpu")
-            } else {
-                Label(AIAssistantPreferences.summary(tool: tool, model: model.wrappedValue),
-                      systemImage: unavailable ? "exclamationmark.triangle" : "cpu")
-            }
-        }
-        // An icon-only menu has no room for the chevron: it would reach into the button beside it.
-        .menuIndicator(compact ? .hidden : .automatic)
-        .help(unavailable ? "Assistant unavailable. Set its CLI path in Settings." :
-              (workspaceManager.aiProject == nil ? "Default assistant and model" : "Assistant and model for this project")
-              + " — the AI terminal, features and research. X-Ray model: \(xrayName). The menu also holds the AI tools.")
-        .onAppear { seenSnapshot = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject) }
-        .onReceive(SettingsObserver.changes(of: AIAssistantPreferences.observedKeys)) { _ in
-            let next = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject)
-            if next != seenSnapshot {
-                seenSnapshot = next
-                refresh += 1
-            }
-        }
-        .task(id: tool) {
-            let current = tool
-            availability[current] = await CLIToolLocator.resolveThorough(current) != nil
-            guard catalog[current] == nil else { return }
-            catalog[current] = await Self.loadOptions(for: current)
-        }
-    }
-}
-
-extension AIToolbarMenu {
-    /// The models `tool` offers. ACP assistants list the account's models only over ACP:
-    /// they are fetched the first time.
-    static func loadOptions(for tool: CLITool) async -> [AIModelOption] {
-        var loaded = await Task.detached { AIAssistantPreferences.modelOptions(for: tool) }.value
-        if tool.usesACP, loaded.count <= 1, let path = CLIToolLocator.resolve(tool),
-           let models = try? await ACPAssistant.refreshModels(tool, toolPath: path) {
-            loaded = [loaded.first].compactMap { $0 } + models
-        }
-        return loaded
-    }
-}
-
-/// The AI tools, as submenus of the AI menu: diagrams (Graph Creator), prototypes and the analyses that work.
-private struct AIToolsMenuItems: View {
-    // Passed in: toolbar content does not get the window's environment objects.
-    @ObservedObject var workspaceManager: WorkspaceManager
-    @ObservedObject var fileTree: WorkspaceFileTreeStore
-
-    var body: some View {
-        Menu("Diagrams") {
-            Button("System Architecture") { workspaceManager.runAITool(named: "architecture") }
-            Button("Data Flow") { workspaceManager.runAITool(named: "dataflow") }
-            Button("Pipeline") { workspaceManager.runAITool(named: "pipeline") }
-            Button("Deployment") { workspaceManager.runAITool(named: "deployment") }
-            Button("Sequence") { workspaceManager.runAITool(named: "sequence") }
-            Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
-        }
-        Menu("Prototype") {
-            Button("New Prototype…") { workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements) }
-                .disabled(fileTree.rootNode == nil)
-            // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
-            Button("UI Studio (Existing Code)") { workspaceManager.openTool(.uiStudio) }
-                .disabled(fileTree.rootNode == nil)
-            let saved = workspaceManager.toolTabs.prototypes.saved()
-            Menu("Open Prototype (\(saved.count))") {
-                if saved.isEmpty {
-                    Text("No prototypes in this project yet")
-                } else {
-                    ForEach(saved) { prototype in
-                        Button(prototype.label) { workspaceManager.toolTabs.prototypes.openSaved(prototype.slug) }
-                    }
-                }
-            }
-            .disabled(fileTree.rootNode == nil || saved.isEmpty)
-        }
-        Menu("Analysis") {
-            Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
-            // Superseded by New Research, which saves a report (DEC-010).
-            Button("Deep Research…") { workspaceManager.flow.newResearch() }
-            Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
-            Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
-            Button("Recursive Insight") { workspaceManager.insight.start() }
-                .disabled(fileTree.rootNode == nil || !fileTree.hasMarkdownFiles)
-        }
-    }
-}
-
 /// A resizable surface over the workspace, independent of the right panel.
 private struct FloatingAgentsView: View {
     @ObservedObject var workspaceManager: WorkspaceManager
@@ -1250,8 +1082,7 @@ private struct FloatingAgentsView: View {
         let height = maximized ? available.height : (minimized ? min(headerHeight, available.height) : normalHeight)
         let x = maximized ? 0 : min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
         let y = maximized ? 0 : min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
-        return ModuleExplorerView()
-            .environmentObject(workspaceManager)
+        return ModuleExplorerView(terminals: workspaceManager.terminals)
             .accessibilityHidden(minimized)
             .allowsHitTesting(!minimized)
             .opacity(minimized ? 0 : 1)

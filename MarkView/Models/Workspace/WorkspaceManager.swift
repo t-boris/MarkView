@@ -33,7 +33,7 @@ enum WorkspaceAITool: String {
 /// protocols the parts ask of their window, and carries the window's own commands: open or close a folder, open a file in its ways,
 /// remove the folder's metadata.
 @MainActor
-class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, WindowSessionWindow, ToolTabsWindow {
+class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, ToolTabsWindow {
     /// The parts of this window. The one late binding of the window: each part is given this object through its own narrow protocol.
     private(set) lazy var composition = WindowComposition(host: self)
 
@@ -354,6 +354,12 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
             ["url": url, "line": line, "endLine": endLine ?? line])
     }
 
+    /// Open the PDF at `url` at `page`.
+    func openPDF(_ url: URL, page: Int) {
+        openFile(url)
+        if case .pdf(let reader)? = tabs.activeTab?.kind { reader.openPageWhenReady(page) }
+    }
+
     /// Show a key of a JSON / YAML file picked in the Contents panel: the file's tab comes forward and
     /// its tree viewer scrolls to the node (a source view to the line).
     func revealStructure(_ url: URL, item: StructureOutline.Item) {
@@ -520,12 +526,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     }
 
 
-    /// Show the file tree at `url`'s folder with `url` highlighted.
-    func revealInFileTree(url: URL) {
-        chrome.showFileTree = true
-        requests.fileTreeRevealRequest = url.standardizedFileURL
-    }
-
     // MARK: - File tree and graph tools
 
     /// Reload the file tree from disk. Kept for the regions of this file that other decompositions still move out (`AR-14` steps 2-7).
@@ -604,6 +604,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
 
 /// What the terminals read of the window: the browser agents drive, and the editor (`AITerminalsController`).
 extension WorkspaceManager: FileOperationsHost {}
+
+/// The commands a view of this window asks of the window as a whole (`AR-14`): the window puts itself in its views' environment.
+extension WorkspaceManager: WindowCommands {}
 
 extension WorkspaceManager: AITerminalsHost {
     var browserControlID: UUID { browser.controlID }
@@ -705,7 +708,10 @@ extension WorkspaceManager: ProjectOperationsPresenter {
 
 /// What `CodeAndXRayCoordinator` needs of this window; the coordinator holds no other reference to it (`AR-14` step 11).
 extension WorkspaceManager: CodeXRayHost {
-    var activeTabKind: TabKind? { tabs.activeTab?.kind }
+    var activeXRayScope: String? {
+        if case .architecture(let scope)? = tabs.activeTab?.kind { return scope }
+        return nil
+    }
     var activeTabURL: URL? { tabs.activeTab?.url }
     var gitBranch: String { gitClient.branch }
     var defaultAuthor: String { flow.features.defaultOwner }

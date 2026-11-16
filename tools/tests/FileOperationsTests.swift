@@ -59,6 +59,8 @@ enum FileOperationsChecks {
         let root: URL
         let host = Host()
         let tabs = TabsController()
+        /// The window's background tasks, which the controller's unpackings run in.
+        let tasks = TaskBag()
         let project: FakeProject
         let files: FileOperationsController
         /// What the Trash stand-in received, in order.
@@ -69,7 +71,7 @@ enum FileOperationsChecks {
             project = FakeProject(root: root)
             let trashed = self.trashed
             trashed.tabs = tabs
-            files = FileOperationsController(host: host, tabs: tabs, project: project, trash: { url in try trashed.take(url) })
+            files = FileOperationsController(host: host, tabs: tabs, project: project, tasks: tasks, trash: { url in try trashed.take(url) })
         }
 
         @discardableResult
@@ -99,11 +101,12 @@ enum FileOperationsChecks {
         await renaming()
         await trashing()
         await creating()
+        await archives()
         if failures > 0 {
             FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
             exit(1)
         }
-        print("FileOperationsController: move, copy, drop, rename, trash, create, tabs and refreshes passed")
+        print("FileOperationsController: move, copy, drop, rename, trash, create, archives, tabs and refreshes passed")
     }
 
     @MainActor
@@ -237,6 +240,64 @@ enum FileOperationsChecks {
                   "the tabs of an item close just before it goes to the Trash: \(w.trashed.tabsAtTheTime)")
             check(w.tabs.openTabs.map { $0.url.lastPathComponent } == ["stay.md"], "the tabs of trashed items closed, the others stay: \(w.tabs.openTabs.map { $0.url.lastPathComponent })")
             check(w.exists("stay.md") && w.host.refreshes == 1, "an untouched file stays, and the tree is read once")
+        }
+    }
+
+    /// Waits for the one answer a `start...` method gives to its `finished` closure.
+    @MainActor
+    static func answer(_ start: (@escaping (Result<URL, Error>) -> Void) -> Void) async -> Result<URL, Error> {
+        await withCheckedContinuation { continuation in start { continuation.resume(returning: $0) } }
+    }
+
+    /// A task leaves the bag a moment after it ends: waits (at most a second) until the bag holds no running task.
+    @MainActor
+    static func settle(_ tasks: TaskBag) async {
+        for _ in 0..<100 where tasks.activeCount > 0 { try? await Task.sleep(nanoseconds: 10_000_000) }
+    }
+
+    @MainActor
+    static func archives() async {
+        await window { w in
+            try w.make("pack/inner.md", "# Inner\n")
+            try w.make("pack/deep/more.md", "# More\n")
+
+            // A zip is made off the main thread next to its items, and the file tree is read again.
+            let pack = w.root.appendingPathComponent("pack")
+            let zipped = await answer { w.files.startCompress([pack], finished: $0) }
+            guard case .success(let zip) = zipped else { return check(false, "compressing a folder failed: \(zipped)") }
+            check(zip == w.root.appendingPathComponent("pack.zip") && FileManager.default.fileExists(atPath: zip.path), "the zip is next to the folder")
+            check(w.host.refreshes == 1, "a finished zip asks for one refresh, got \(w.host.refreshes)")
+            await settle(w.tasks)
+            check(w.tasks.activeCount == 0, "a finished zip leaves the window's task bag")
+
+            // Unpacking makes a new folder named after the archive, with everything in it.
+            let unpacked = await answer { w.files.startExtract(zip, into: nil, finished: $0) }
+            guard case .success(let folder) = unpacked else { return check(false, "unpacking failed: \(unpacked)") }
+            check(folder == w.root.appendingPathComponent("pack 2") || folder == w.root.appendingPathComponent("pack"), "the folder is named after the archive: \(folder.lastPathComponent)")
+            check(FileManager.default.fileExists(atPath: folder.appendingPathComponent("pack/deep/more.md").path)
+                  || FileManager.default.fileExists(atPath: folder.appendingPathComponent("deep/more.md").path), "the nested file is in the folder")
+            check(w.host.refreshes == 2, "a finished unpacking asks for one refresh, got \(w.host.refreshes)")
+
+            // A second unpacking of the same archive replaces the first one: the first is told it stopped, the second finishes.
+            var first: Result<URL, Error>?
+            var second: Result<URL, Error>?
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                w.files.startExtract(zip, into: nil) { first = $0; if second != nil { done.resume() } }
+                w.files.startExtract(zip, into: nil) { second = $0; if first != nil { done.resume() } }
+            }
+            if case .failure(let error)? = first { check(error is CancellationError, "the replaced unpacking ends in CancellationError, got \(error)") }
+            else { check(false, "the replaced unpacking was not told it stopped: \(String(describing: first))") }
+            if case .success? = second {} else { check(false, "the replacing unpacking did not finish: \(String(describing: second))") }
+            check(w.host.refreshes == 3, "only the finished unpacking asks for a refresh, got \(w.host.refreshes)")
+
+            // Closing the folder or the window cancels what the window runs: the answer is the stop, and the tree is not read.
+            let stopped = await withCheckedContinuation { (continuation: CheckedContinuation<Result<URL, Error>, Never>) in
+                w.files.startCompress([pack]) { continuation.resume(returning: $0) }
+                w.tasks.cancelAll()
+            }
+            if case .failure(let error) = stopped { check(error is CancellationError, "a cancelled zip ends in CancellationError, got \(error)") }
+            else { check(false, "a cancelled zip still reported success: \(stopped)") }
+            check(w.host.refreshes == 3, "a cancelled zip does not read the file tree, got \(w.host.refreshes)")
         }
     }
 

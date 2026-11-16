@@ -4,7 +4,12 @@ import SwiftUI
 struct GitView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var git: GitClient
-    let workspaceManager: WorkspaceManager
+    let flow: FeatureFlowCoordinator
+    let codeXRay: CodeAndXRayCoordinator
+    let requests: WindowRequests
+    /// The window's commands the tab issues: showing a file of the repository in a tab, and opening another working copy as the project.
+    let openFile: (URL) -> Void
+    let openFolder: (URL) -> Void
     @State private var commitMessage = ""
     @State private var selectedFile: String?
     @State private var diffText = ""
@@ -18,16 +23,31 @@ struct GitView: View {
     @State private var selectedCommitFile: String?
     @State private var historyDiff = ""
     @State private var historySearch = ""
+    /// The diff the status list asks for; the `.task` that follows it ends the read before it and ends with the view.
+    @State private var diffRequest: DiffRequest?
+
+    private struct DiffRequest: Equatable {
+        let id = UUID()
+        let selection: String
+        let path: String
+        let staged: Bool
+        let untracked: Bool
+    }
     /// GitHub sections, shown only when the integration is on and the folder is on GitHub.
     @ObservedObject var gitHub: GitHubStore
     /// This window's Git section (BUG-004: not shared between windows).
     @ObservedObject var layout: PanelLayout
 
+    /// Takes the parts of `workspaceManager` the tab uses and keeps nothing else of it.
     init(git: GitClient, workspaceManager: WorkspaceManager) {
         self.git = git
-        self.workspaceManager = workspaceManager
-        self.gitHub = workspaceManager.flow.gitHub
-        self.layout = workspaceManager.layout
+        flow = workspaceManager.flow
+        codeXRay = workspaceManager.codeXRay
+        requests = workspaceManager.requests
+        gitHub = workspaceManager.flow.gitHub
+        layout = workspaceManager.layout
+        openFile = { workspaceManager.openFile($0) }
+        openFolder = { workspaceManager.openFolder($0) }
     }
 
     var body: some View {
@@ -44,9 +64,9 @@ struct GitView: View {
                     Divider().background(palette.border)
                     switch layout.gitSection {
                     case .changes: localChanges
-                    case .pullRequests: GitHubPullRequestsView(gitHub: gitHub, workspaceManager: workspaceManager)
-                    case .issues: GitHubIssuesView(gitHub: gitHub, workspaceManager: workspaceManager)
-                    case .actions: GitHubActionsView(gitHub: gitHub, workspaceManager: workspaceManager)
+                    case .pullRequests: GitHubPullRequestsView(gitHub: gitHub, flow: flow, codeXRay: codeXRay, gitClient: git)
+                    case .issues: GitHubIssuesView(gitHub: gitHub, flow: flow)
+                    case .actions: GitHubActionsView(gitHub: gitHub, flow: flow, openFile: { openFile($0) })
                     }
                 } else {
                     localChanges
@@ -54,7 +74,12 @@ struct GitView: View {
             }
         }
         .background(palette.bgSidebar)
-        .onAppear { Task { await git.refresh() } }
+        .onAppear { git.startRefresh() }
+        .task(id: diffRequest) { await loadDiff() }
+        .onChange(of: git.lastCommit) { receipt in
+            // The bar clears its draft once the commit it started is made, unless the person has typed something else meanwhile.
+            if receipt?.message == commitMessage { commitMessage = "" }
+        }
         .onChange(of: git.branch) { _ in
             selectedCommit = nil
             selectedCommitFile = nil
@@ -143,9 +168,7 @@ struct GitView: View {
             Spacer()
             Image(systemName: "arrow.triangle.branch").uiFont(size: 24).foregroundColor(palette.textDim)
             Text("Not a Git repository").uiFont(size: 12).foregroundColor(palette.textDim)
-            Button("Initialize Git Repo") {
-                Task { await git.initRepo() }
-            }
+            Button("Initialize Git Repo") { git.startInit() }
             .buttonStyle(.borderedProminent).tint(palette.blue)
             Spacer()
         }.frame(maxWidth: .infinity)
@@ -156,7 +179,7 @@ struct GitView: View {
     private var branchHeader: some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.branch").uiFont(size: 10).foregroundColor(palette.blue)
-            GitBranchMenu(git: git, workspaceManager: workspaceManager)
+            GitBranchMenu(git: git, flow: flow, codeXRay: codeXRay, openFolder: { openFolder($0) })
             if gitHub.isAvailable {
                 GitHubBranchStatus(gitHub: gitHub) {
                     gitHub.runBranch = git.branch
@@ -167,20 +190,20 @@ struct GitView: View {
             if !gitHub.isAvailable {
                 // Not connected (no GitHub remote, or the integration is off): create or connect
                 // a repository and publish (REQ-003).
-                Button(action: { workspaceManager.requests.gitHubPublishRequested = true }) {
+                Button(action: { requests.gitHubPublishRequested = true }) {
                     Image(systemName: "icloud.and.arrow.up").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Publish to GitHub…")
             }
             if git.isOperating {
                 ProgressView().scaleEffect(0.4)
             }
-            Button(action: { Task { await git.refresh() } }) {
+            Button(action: { git.startRefresh() }) {
                 Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(palette.textDim)
             }.buttonStyle(.plain)
-            Button(action: { Task { await git.pull() } }) {
+            Button(action: { git.startPull() }) {
                 Image(systemName: "arrow.down.circle").uiFont(size: 10).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help("Pull")
-            Button(action: { Task { await git.push() } }) {
+            Button(action: { git.startPush() }) {
                 Image(systemName: "arrow.up.circle").uiFont(size: 10).foregroundColor(palette.textDim)
             }.buttonStyle(.plain).help("Push")
         }
@@ -314,7 +337,7 @@ struct GitView: View {
             }
             if group == .conflicts && !list.isEmpty {
                 HStack(spacing: 6) {
-                    Button(action: { workspaceManager.flow.resolveConflictsWithAI() }) {
+                    Button(action: { flow.resolveConflictsWithAI() }) {
                         Label("Resolve with AI", systemImage: "sparkles").uiFont(size: 10, weight: .medium)
                     }
                     .buttonStyle(.borderedProminent).tint(palette.blue).controlSize(.small)
@@ -402,12 +425,7 @@ struct GitView: View {
                 selectedFile = selection
                 diffText = ""
                 if group == .staged || group == .changes || (group == .untracked && !entry.isDirectory) {
-                    Task {
-                        let diff: String
-                        if group == .untracked { diff = await git.untrackedDiff(file: entry.path) }
-                        else { diff = await git.diff(file: entry.path, staged: group == .staged) }
-                        if selectedFile == selection { diffText = diff.isEmpty ? "No text diff available." : diff }
-                    }
+                    diffRequest = DiffRequest(selection: selection, path: entry.path, staged: group == .staged, untracked: group == .untracked)
                 } else if !entry.isDirectory {
                     openFile(entry.path)
                 }
@@ -446,27 +464,27 @@ struct GitView: View {
         case .untracked:
             Button("Stage (Track)") { git.stage([path]) }
             Button("Commit This \(isDirectory ? "Folder" : "File")…") { commitPaths([path]) }
-            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+            Button("Add to .gitignore") { git.startIgnore(path, isDirectory: isDirectory) }
         case .changes:
             Button("Stage") { git.stage([path]) }
             Button("Commit This File…") { commitPaths([path]) }
             Button("Discard Changes", role: .destructive) { git.discardChanges(path) }
             Divider()
             Button("Stop Tracking (Keep File)") { git.untrack(path) }
-            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+            Button("Add to .gitignore") { git.startIgnore(path, isDirectory: isDirectory) }
         case .staged:
             Button("Unstage") { git.unstage([path]) }
             Button("Commit This File…") { commitPaths([path]) }
             Divider()
             Button("Stop Tracking (Keep File)") { git.untrack(path) }
-            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+            Button("Add to .gitignore") { git.startIgnore(path, isDirectory: isDirectory) }
         case .conflicts:
             Button("Mark as Resolved (Stage)") { git.stage([path]) }
-            Button("Take Ours") { Task { await git.resolve(path, taking: "ours") } }
-            Button("Take Theirs") { Task { await git.resolve(path, taking: "theirs") } }
+            Button("Take Ours") { git.startResolve(path, taking: "ours") }
+            Button("Take Theirs") { git.startResolve(path, taking: "theirs") }
         case .tracked:
             Button("Stop Tracking (Keep File)") { git.untrack(path) }
-            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+            Button("Add to .gitignore") { git.startIgnore(path, isDirectory: isDirectory) }
         case .ignored:
             Text("Ignored by .gitignore")
         }
@@ -497,7 +515,7 @@ struct GitView: View {
         } catch {
             git.lastError = "Couldn't move to the Trash: \(error.localizedDescription)"
         }
-        Task { await git.refresh() }
+        git.startRefresh()
     }
 
     /// Ask for a message, then stage and commit just these paths.
@@ -515,7 +533,7 @@ struct GitView: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let message = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
-        Task { _ = await git.commit(paths: paths, message: message) }
+        git.startCommit(message: message, paths: paths)
     }
 
     // MARK: - Diff
@@ -555,11 +573,7 @@ struct GitView: View {
 
             let staged = git.changedFiles.filter { $0.isStaged }.count
             HStack(spacing: 8) {
-                Button(action: {
-                    Task {
-                        if await git.commit(message: commitMessage) { commitMessage = "" }
-                    }
-                }) {
+                Button(action: { git.startCommit(message: commitMessage) }) {
                     HStack(spacing: 3) {
                         Image(systemName: "checkmark.circle").uiFont(size: 10)
                         Text("Commit (\(staged))").uiFont(size: 10)
@@ -568,14 +582,7 @@ struct GitView: View {
                 .buttonStyle(.plain)
                 .disabled(commitMessage.isEmpty || staged == 0)
 
-                Button(action: {
-                    Task {
-                        if await git.commit(message: commitMessage) {
-                            commitMessage = ""
-                            _ = await git.push()
-                        }
-                    }
-                }) {
+                Button(action: { git.startCommit(message: commitMessage, thenPush: true) }) {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.up.circle").uiFont(size: 10)
                         Text("Commit & Push").uiFont(size: 10)
@@ -697,7 +704,7 @@ struct GitView: View {
                     }
                     if git.hasMoreCommits {
                         Button(git.loadingHistory ? "Loading…" : "Load more commits") {
-                            Task { await git.loadMoreHistory() }
+                            git.startLoadMoreHistory()
                         }.disabled(git.loadingHistory).padding(8)
                     }
                 }
@@ -757,8 +764,16 @@ struct GitView: View {
 
     private func openFile(_ relativePath: String) {
         guard let root = git.workingDirectory else { return }
-        let url = root.appendingPathComponent(relativePath)
-        workspaceManager.openFile(url)
+        openFile(root.appendingPathComponent(relativePath))
+    }
+
+    /// Reads the diff of the file the list selected; a newer request, or the end of the view, ends the read.
+    private func loadDiff() async {
+        guard let request = diffRequest else { return }
+        let diff = request.untracked ? await git.untrackedDiff(file: request.path)
+                                     : await git.diff(file: request.path, staged: request.staged)
+        guard !Task.isCancelled, selectedFile == request.selection else { return }
+        diffText = diff.isEmpty ? "No text diff available." : diff
     }
 }
 
@@ -768,12 +783,29 @@ struct GitView: View {
 struct GitBranchMenu: View {
     @Environment(\.palette) private var palette
     @ObservedObject var git: GitClient
-    let workspaceManager: WorkspaceManager
+    let flow: FeatureFlowCoordinator
+    let codeXRay: CodeAndXRayCoordinator
+    /// Opens another working copy of the repository as the window's project; the window's command.
+    let openFolder: (URL) -> Void
     var fontSize: CGFloat = 11
     @State private var creating = false
     @State private var choosing = false
     @State private var branchSearch = ""
-    @State private var error: String?
+
+    init(git: GitClient, flow: FeatureFlowCoordinator, codeXRay: CodeAndXRayCoordinator, openFolder: @escaping (URL) -> Void,
+         fontSize: CGFloat = 11) {
+        self.git = git
+        self.flow = flow
+        self.codeXRay = codeXRay
+        self.openFolder = openFolder
+        self.fontSize = fontSize
+    }
+
+    /// Takes the parts of `workspaceManager` the menu uses and keeps nothing else of it.
+    init(git: GitClient, workspaceManager: WorkspaceManager, fontSize: CGFloat = 11) {
+        self.init(git: git, flow: workspaceManager.flow, codeXRay: workspaceManager.codeXRay,
+                  openFolder: { workspaceManager.openFolder($0) }, fontSize: fontSize)
+    }
 
     var body: some View {
         HStack(spacing: 5) {
@@ -816,7 +848,7 @@ struct GitBranchMenu: View {
                             ForEach(git.worktrees) { copy in
                                 Button(copy.branchLabel + " — " + copy.folderName) {
                                     choosing = false
-                                    workspaceManager.openFolder(URL(fileURLWithPath: copy.path))
+                                    openFolder(URL(fileURLWithPath: copy.path))
                                 }.disabled(sameFolder(copy.path) || copy.isBare)
                             }
                         }
@@ -827,12 +859,12 @@ struct GitBranchMenu: View {
         .sheet(isPresented: $creating) {
             GitNewBranchForm(git: git) { name, base in
                 creating = false
-                run { await workspaceManager.flow.createBranch(name, from: base) }
+                git.startBranchOperation { await flow.createBranch(name, from: base) }
             }
         }
-        .alert("Branch", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("Branch", isPresented: Binding(get: { git.branchFailure != nil }, set: { if !$0 { git.dismissBranchFailure() } })) {
             Button("OK", role: .cancel) {}
-        } message: { Text(error ?? "") }
+        } message: { Text(git.branchFailure ?? "") }
     }
 
     @ViewBuilder private func branchRows(_ branches: [String], heading: String) -> some View {
@@ -843,8 +875,8 @@ struct GitBranchMenu: View {
                 let elsewhere = git.worktrees.first { $0.branch == name && !sameFolder($0.path) }
                 Button {
                     choosing = false
-                    if let elsewhere { workspaceManager.openFolder(URL(fileURLWithPath: elsewhere.path)) }
-                    else { run { await workspaceManager.flow.switchBranch(name) } }
+                    if let elsewhere { openFolder(URL(fileURLWithPath: elsewhere.path)) }
+                    else { git.startBranchOperation { await flow.switchBranch(name) } }
                 } label: {
                     HStack {
                         Image(systemName: name == git.branch ? "checkmark" : "arrow.triangle.branch")
@@ -858,10 +890,6 @@ struct GitBranchMenu: View {
         }
     }
 
-    private func run(_ operation: @escaping () async -> String?) {
-        Task { error = await operation() }
-    }
-
     private func sameFolder(_ path: String) -> Bool {
         guard let open = git.workingDirectory else { return false }
         return open.resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
@@ -872,12 +900,12 @@ struct GitBranchMenu: View {
     private func compareList(reverse: Bool) -> some View {
         let others = git.localBranches.filter { $0 != git.branch }
         ForEach(others, id: \.self) { name in
-            Button(name) { workspaceManager.codeXRay.compareBranch(name, reverse: reverse) }
+            Button(name) { codeXRay.compareBranch(name, reverse: reverse) }
         }
         if !git.remoteBranches.isEmpty {
             Menu("Remote Branches") {
                 ForEach(git.remoteBranches, id: \.self) { name in
-                    Button(name) { workspaceManager.codeXRay.compareBranch(name, reverse: reverse) }
+                    Button(name) { codeXRay.compareBranch(name, reverse: reverse) }
                 }
             }
         }

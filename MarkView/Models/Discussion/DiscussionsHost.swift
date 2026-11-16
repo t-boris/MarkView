@@ -10,7 +10,8 @@ import MarkViewCore
 final class DiscussionsHost {
     let store = DiscussionStore()
     private let project: any ProjectProviding
-    private weak var tabs: (any ToolOpening)?
+    /// Brings the Discussions tab forward (the window's own way to open a tool).
+    private let showTab: () -> Void
     private let tasks = TaskBag()
     private let runner: AIOperation<CLICompletion.Request, CLICompletion.Result>.Runner
 
@@ -23,16 +24,14 @@ final class DiscussionsHost {
         case failed(String)
     }
 
-    init(project: any ProjectProviding, tabs: any ToolOpening, runner: @escaping AIOperation<CLICompletion.Request, CLICompletion.Result>.Runner = AIAssistantRunner.run) {
+    init(project: any ProjectProviding, showTab: @escaping () -> Void, runner: @escaping AIOperation<CLICompletion.Request, CLICompletion.Result>.Runner = AIAssistantRunner.run) {
         self.project = project
-        self.tabs = tabs
+        self.showTab = showTab
         self.runner = runner
     }
 
     /// What opening the Discussions tab does: the store reads the project's folder.
-    var opener: ToolOpener {
-        ToolOpener(prepare: { [store] root in store.setRoot(root) })
-    }
+    func prepare(_ root: URL) { store.setRoot(root) }
 
     /// The folder finished opening. An answer being written for another folder is dropped.
     func projectOpened(_ root: URL) {
@@ -97,7 +96,7 @@ final class DiscussionsHost {
     /// File tree → "Discuss…": a discussion about this file or folder.
     func discuss(about url: URL) {
         guard let root = project.root else { return }
-        tabs?.open(.discussions)
+        showTab()
         let rel = project.relativePath(of: url)
         let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
         if let existing = store.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {

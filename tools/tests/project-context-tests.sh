@@ -10,10 +10,10 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/project-context-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Workspace/ProjectContext.swift MarkView/Models/Workspace/ProjectProviding.swift MarkView/Models/Workspace/WorkspaceFileTreeStore.swift MarkView/Models/Workspace/FileNode.swift \
-    MarkView/Models/Workspace/ExcludedFolders.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift MarkView/Models/Workspace/SchemaVersionedStore.swift \
+    MarkView/Models/Workspace/ProjectContext.swift MarkView/Models/Shared/ProjectProviding.swift MarkView/Models/Workspace/WorkspaceFileTreeStore.swift MarkView/Models/Workspace/FileNode.swift \
+    MarkView/Models/Workspace/ExcludedFolders.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/Shared/SchemaVersionedStore.swift \
     MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/BackgroundFileScans.swift \
-    MarkView/Models/Insight/SemanticDatabase.swift MarkView/Models/Insight/SemanticSchema.swift MarkView/Models/Insight/SemanticModels.swift \
+    MarkView/Models/Shared/SemanticDatabase.swift MarkView/Models/Shared/SemanticSchema.swift MarkView/Models/Shared/SemanticModels.swift \
     MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \
     MarkView/Models/Architecture/CodePathTags.swift MarkView/Models/Architecture/AutoAnalysisScheduler.swift \
     MarkView/Models/AI/DiagramAI.swift MarkView/Models/AI/AIOperation.swift tools/tests/DiagramCLIStub.swift tools/tests/SemanticDatabaseTestSupport.swift \

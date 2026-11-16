@@ -50,6 +50,9 @@ final class PrototypeHandoffRun: ObservableObject {
     /// Units whose text the person edited: a later description never replaces it.
     private var edited: Set<String> = []
     private var task: Task<Void, Never>?
+    /// The write of the feature the person asked for; it runs to its end (a feature half written is worse than one that came late), and
+    /// a second press while it runs is refused by `create`.
+    private var creation: Task<Void, Never>?
     private var started = false
 
     init(context: Context, record: @escaping PrototypeAI.Record) {
@@ -94,6 +97,7 @@ final class PrototypeHandoffRun: ObservableObject {
     func close() {
         task?.cancel()
         let folder = scratch
+        // task: the scratch folder is removed off the main thread; once asked, the removal runs to its end, whatever closes meanwhile
         Task.detached { try? FileManager.default.removeItem(at: folder) }
     }
 
@@ -195,6 +199,15 @@ final class PrototypeHandoffRun: ObservableObject {
         } catch {
             createFailure = error.localizedDescription
             return nil
+        }
+    }
+
+    /// Writes the feature as `create` does (which refuses a second write while one runs) and tells `whenCreated` once it exists, so the
+    /// window can show it. The run keeps the write.
+    func startCreate(into store: FeatureStore, whenCreated: @escaping (PrototypeFeatureWriter.Created) -> Void) {
+        creation = Task { [weak self] in
+            guard let created = await self?.create(into: store) else { return }
+            whenCreated(created)
         }
     }
 

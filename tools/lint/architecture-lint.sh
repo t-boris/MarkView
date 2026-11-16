@@ -7,7 +7,7 @@
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
 #   target-membership    every MarkView/**/*.swift on disk is a file reference and a Sources build file of the Xcode target in
 #                        MarkView.xcodeproj/project.pbxproj, and every Swift file the project references exists on disk
-#   semantic-database-actor  MarkView/Models/Insight/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
+#   semantic-database-actor  MarkView/Models/Shared/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
 #                        none of its sqlite3 calls can run on the main thread (AR-37)
 #   bridge-no-bypass     (AR-28) the editor page's scripts send through mvBridge.send only: no `messageHandlers` in
 #                        Editor/js/*.js (except mv-kit.js, the one sender, and markview-ui-studio-*.js, a different host) or in
@@ -36,6 +36,12 @@
 #   unchecked-sendable   (AR-43) every `@unchecked Sendable` and `nonisolated(unsafe)` in MarkView/ and Packages/ says what guards it, in a
 #                        `// unchecked Sendable: <what guards it>` comment on the same or the previous line; a type that can be
 #                        checked says `Sendable` and a value behind a lock is an OSAllocatedUnfairLock, so the escape hatch stays rare
+#   studio-part-tasks    (AR-16) a part of a UI Studio session (a file under MarkView/Models/UIStudio with `unowned let session: StudioSession`)
+#                        starts no `Task { }`, `Timer`, `.asyncAfter` or `DispatchQueue.main` of its own, and says why its `unowned` is safe:
+#                        the task it starts holds the part but not the session, and a read of `session` after an `await` traps once the
+#                        session is released, so a part starts every task with `session.startPartTask { session in ... }` (the task holds the
+#                        session until it ends and `close()` cancels it). A site that needs none says `// task: <why>` on the same or the
+#                        previous line; each `unowned let session` has a `/// Unowned: ...` line above it
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -50,10 +56,12 @@
 #   unowned-task         (AR-19) a `Task { }`, `Task.detached`, `Timer`, or `.asyncAfter` that is not stored (TaskBag or a task property), not
 #                        awaited in place and not justified by a `// task: <why it needs no owner>` comment: work that nothing cancels
 #                        when its window, folder or tool tab closes. Classified by tools/lint/task-ownership.sh  tools/lint/unowned-task-allowlist.txt
-#   domain-cycles        (AR-21) a back-edge between two domain folders of Models (or of Views) that depend on each other: the count is the
-#                        number of types the back-edge names (tools/lint/domain-dependencies.py measures it; `--why A B` lists them).
-#                        `<count> Models/<from> -> Models/<to>  # why it stays` in tools/lint/domain-cycles-allowlist.txt; a pair that
-#                        becomes a cycle is a new entry the lint refuses until a person writes it down with its reason
+#   domain-cycles        (AR-20, AR-21) a back-edge between domain folders of Models (or of Views): a domain naming a type of a higher layer
+#                        (Appearance < Shared < AI < feature domains < Workspace; Workspace is named by no feature domain), or one side of two
+#                        feature domains that name each other. The count is the number of types the back-edge names
+#                        (tools/lint/domain-dependencies.py measures it; `--why A B` lists them).
+#                        `<count> Models/<from> -> Models/<to>  # why it stays` in tools/lint/domain-cycles-allowlist.txt; a new back-edge
+#                        is a new entry the lint refuses until a person writes it down with its reason
 #   window-wiring        (AR-17) three lists: closure `var` hooks of Models classes and protocols (window-wiring-hooks.txt), Models that hold
 #                        the whole WorkspaceManager or a back-reference set after construction (window-wiring-backrefs.txt), and hooks that a
 #                        view writes into the window's models (window-wiring-views.txt)
@@ -333,8 +341,9 @@ else:
 
 # --- domain-cycles (AR-21)
 def domain_back_edges():
-    """{`<layer>/<from> -> <layer>/<to>`: types} for the back-edge of every pair of domain folders that depend on each other.
-    The direction an allow-list entry names stays the back-edge; a new pair gets the heuristic of domain-dependencies.py."""
+    """{`<layer>/<from> -> <layer>/<to>`: types} for every back-edge between domain folders: an edge that points up the layering of
+    domain-dependencies.py (Appearance < Shared < AI < feature domains < Workspace), and one side of two feature domains that name
+    each other. The direction an allow-list entry names stays the back-edge of such a pair; a new pair gets the lighter side."""
     spec = importlib.util.spec_from_file_location("domain_dependencies", lint_dir / "domain-dependencies.py")
     measuring = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(measuring)
@@ -346,18 +355,19 @@ def domain_back_edges():
             preferred.setdefault(found.group(1), set()).add((found.group(2), found.group(4)))
     counts = {}
     for layer, measured in measuring.measure(root).items():
-        for pair in measured["pairs"]:
-            source, target, weight, _ = measuring.back_edge(pair, preferred.get(layer, set()))
+        for source, target, weight, _ in measuring.back_edges(measured, preferred.get(layer, set())):
             counts[f"{layer}/{source} -> {layer}/{target}"] = weight
     return counts
 
-ratchet("domain-cycles", "domain-cycles-allowlist.txt", "type(s) named back across a cycle", domain_back_edges(),
-        "# Back-edges between domain folders that depend on each other (AR-21): `<types> <layer>/<from> -> <layer>/<to>  # why it stays`. The\n"
-        "# types are the ones <from> names that <to> declares (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them).\n"
-        "# A ratchet that only falls: remove the dependency (a protocol in the lower domain, or move the type) and run --tighten; the goal is an\n"
-        "# empty list. The back-edge points away from `Workspace`, which composes the others; a pair that is not listed gets the lighter\n"
-        "# direction. A new cycle is written here by a person, with the reason it stays.",
-        unit="pair(s)")
+ratchet("domain-cycles", "domain-cycles-allowlist.txt", "type(s) named against the layering or across a cycle", domain_back_edges(),
+        "# Back-edges between domain folders (AR-20, AR-21): `<types> <layer>/<from> -> <layer>/<to>  # why it stays`. The layering, lowest\n"
+        "# first, is Appearance, Shared, AI, the feature domains, Workspace (tools/lint/domain-dependencies.py): a domain may name its own\n"
+        "# rank and the ranks below, so an edge up the layering is a back-edge, and so is one side of two feature domains that name each\n"
+        "# other (the lighter one, or the one named here). The types are the ones <from> names that <to> declares\n"
+        "# (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them). A ratchet that only falls: remove the dependency\n"
+        "# (a protocol in the lower domain, or move the type) and run --tighten; the goal is an empty list. A new back-edge is written here\n"
+        "# by a person, with the reason it stays.",
+        unit="back-edge(s)")
 
 # --- window-wiring (AR-17)
 # A window's object graph is built in one place (WindowComposition). A feature gets what it needs of the window through a narrow
@@ -439,7 +449,7 @@ ratchet("window-wiring", "window-wiring-views.txt", "hook(s) a view writes into 
         label="window-wiring (views)")
 
 # --- semantic-database-actor
-database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
+database = root / "MarkView" / "Models" / "Shared" / "SemanticDatabase.swift"
 if database.is_file():
     if not any(re.match(r"\s*actor\s+SemanticDatabase\b", line) for _, line in code_lines(database)):
         violations.append(("semantic-database-actor", f"{rel(database)}: `SemanticDatabase` must be declared as an `actor`; its SQLite calls must not run on the main thread"))
@@ -675,6 +685,25 @@ for path in app_swift + package_swift:
             continue
         violations.append(("unchecked-sendable", f"{rel(path)}:{number}: `@unchecked Sendable` or `nonisolated(unsafe)` without a `// unchecked Sendable: <what guards it>` comment on the same or the previous line"))
 
+# --- studio-part-tasks (AR-16)
+part_session = re.compile(r"\bunowned\s+let\s+session\s*:\s*StudioSession\b")
+part_task = re.compile(r"(?<![A-Za-z0-9_.])Task\s*(?:\(\s*priority[^)]*\)\s*)?(?:@\w+\s*)?\{|(?<![A-Za-z0-9_.])Timer\s*(?:\.|\()|\.asyncAfter\s*\(|DispatchQueue\.main\b")
+part_reason = re.compile(r"//\s*task:\s*\S")
+for path in swift_files("MarkView/Models/UIStudio"):
+    source = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not any(part_session.search(line) for line in source):
+        continue
+    for number, line in code_lines(path):
+        text = re.split(r"\s//", re.sub(r'"(?:[^"\\]|\\.)*"', '""', line))[0]
+        before = source[number - 2].strip() if number >= 2 else ""
+        if part_session.search(text):
+            if not before.startswith("///") or "Unowned:" not in before:
+                violations.append(("studio-part-tasks", f"{rel(path)}:{number}: `unowned let session` without a `/// Unowned: <why it is safe>` line above it"))
+        elif part_task.search(text):
+            if part_reason.search(line) or (before.startswith("//") and part_reason.search(before)):
+                continue
+            violations.append(("studio-part-tasks", f"{rel(path)}:{number}: a part starts a task that holds it but not its session; use `session.startPartTask {{ session in ... }}`, or say `// task: <why>`"))
+
 # --- tabs-direct
 tab_read = re.compile(r"\b(?:workspaceManager|manager|workspace|wm)\??\.(?:openTabs|activeTab|activeTabIndex|lastSaveError)\b")
 for path in swift_files("MarkView/Views"):
@@ -689,7 +718,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

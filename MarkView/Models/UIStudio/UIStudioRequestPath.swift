@@ -8,6 +8,7 @@ import MarkViewCore
 /// channels, the answers the simulation gave (for Fix data), and the rules that arrive after their page rendered.
 @MainActor
 final class StudioRequestPath: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     @Published private(set) var requests: [StudioSession.RequestRecord] = []
@@ -160,7 +161,7 @@ final class StudioRequestPath: ObservableObject {
     private func pushChanges(since before: [String: [StudioJSON]]) {
         let changes = StudioEntityChange.diff(before: before, after: session.simulator.state, spec: session.simulator.spec)
         guard !changes.isEmpty else { return }
-        Task { [weak self] in self?.channels.entitiesChanged(changes) }
+        session.startPartTask { _ in self.channels.entitiesChanged(changes) }
     }
 
     /// A page WebSocket or EventSource on a simulated channel. One to a gateway port (a public variable inlined in the
@@ -216,11 +217,11 @@ final class StudioRequestPath: ObservableObject {
             let generation = self.session.simulator.generation
             let values = frames.map(\.bridgeValue)
             let previous = self.channelDeliveries
-            self.channelDeliveries = Task { [weak self] in
+            self.channelDeliveries = self.session.startPartTask { session in
                 await previous?.value
-                guard let self, !self.session.closed, self.session.simulator.generation == generation else { return }
-                _ = try? await self.session.call("return window.__markviewStudio ? window.__markviewStudio.deliver(id, frames) : false;",
-                                         ["id": pageID, "frames": values])
+                guard !session.closed, session.simulator.generation == generation else { return }
+                _ = try? await session.call("return window.__markviewStudio ? window.__markviewStudio.deliver(id, frames) : false;",
+                                            ["id": pageID, "frames": values])
             }
         }
     }
@@ -241,12 +242,11 @@ final class StudioRequestPath: ObservableObject {
         let generation = session.simulator.generation
         let preparer = makePreparer()
         session.updateReadiness()
-        Task { [weak self] in
-            guard let self else { return done(.refused("The session is closed.")) }
-            let outcome = await self.session.preparation.resolve(context, generation: generation, preparer: preparer,
-                                                         currentGeneration: { [weak self] in self?.session.simulator.generation ?? -1 },
-                                                         commit: { [weak self] proposal in self?.session.commit(proposal) ?? ["The session is closed."] })
-            guard !self.session.closed else { return done(.refused("The session is closed.")) }
+        session.startPartTask { session in
+            let outcome = await session.preparation.resolve(context, generation: generation, preparer: preparer,
+                                                            currentGeneration: { session.simulator.generation },
+                                                            commit: { session.commit($0) })
+            guard !session.closed else { return done(.refused("The session is closed.")) }
             var reason: String?
             switch outcome {
             case .registered:
@@ -254,21 +254,21 @@ final class StudioRequestPath: ObservableObject {
                                                shown: shown, sink: sink)
                 if case .unknown = again { reason = "the rules registered for it do not answer this connection." } else { done(again) }
             case .unsupported(let why):
-                self.session.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: why))
+                session.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: why))
                 self.noteUnsupportedChannel(contract: contract, reason: why)
-                self.session.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unsupported: \(why)")
+                session.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unsupported: \(why)")
                 done(.refused("MarkView UI Studio does not simulate \(contract): \(why)"))
             case .stale:
                 done(.refused("The simulation was reset."))
             default:
-                reason = self.session.preparation.records[contract]?.message ?? "it could not be prepared."
+                reason = session.preparation.records[contract]?.message ?? "it could not be prepared."
             }
             if let reason {
-                self.session.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
-                self.session.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unresolved: \(reason)")
+                session.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
+                session.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unresolved: \(reason)")
                 done(.refused("MarkView UI Studio has no simulation rule for \(contract): \(reason)"))
             }
-            self.session.updateReadiness()
+            session.updateReadiness()
         }
     }
 
@@ -357,18 +357,17 @@ final class StudioRequestPath: ObservableObject {
         let preparer = makePreparer()
         let asked = Date()
         session.updateReadiness()
-        Task { [weak self] in
-            guard let self else { return reply(.dropped("closed")) }
+        session.startPartTask { session in
             var context = baseContext
             // A page's request answers within `provisionalAfter` seconds, whatever the preparation needs (BUG-089); the rule that
             // arrives later loads the page again once. Requests of the development server keep waiting: it renders from them.
             let answer = StudioReplyOnce(reply)
-            let provisionalTimer: Task<Void, Never>? = source.variable == nil ? Task { [weak self] in
+            let provisionalTimer: Task<Void, Never>? = source.variable == nil ? session.startPartTask { session in
                 try? await Task.sleep(nanoseconds: UInt64(Self.provisionalAfter * 1_000_000_000))
-                guard !Task.isCancelled, let self, !self.session.closed, self.session.simulator.generation == generation, answer.reply(.respond(.preparing(contract))) else { return }
+                guard !Task.isCancelled, !session.closed, session.simulator.generation == generation, answer.reply(.respond(.preparing(contract))) else { return }
                 self.provisional[generation, default: []].insert(contract)
                 self.log(StudioSession.RequestRecord(method: http.method, url: shown, contract: contract, outcome: "preparing", status: 503, transport: source.transport))
-                self.session.sessionLog.add(.notice, "\(contract) has no rule yet: the page got a 503 \"preparing\" after \(Int(Self.provisionalAfter)) s and is loaded again when the rule is ready")
+                session.sessionLog.add(.notice, "\(contract) has no rule yet: the page got a 503 \"preparing\" after \(Int(Self.provisionalAfter)) s and is loaded again when the rule is ready")
             } : nil
             defer { provisionalTimer?.cancel() }
             if source.variable == nil, let hint = await self.handlerHint(for: http) {
@@ -376,31 +375,31 @@ final class StudioRequestPath: ObservableObject {
                 context.handlerText = hint.text
             }
             // A request whose endpoint a group of the application's map is preparing waits for that group (REQ-014).
-            await self.session.mapping.waitForEndpoint(http.method, url: http.url)
+            await session.mapping.waitForEndpoint(http.method, url: http.url)
             // A request to a service that is being prepared waits for it: that preparation often registers this rule too.
             if let group {
-                await self.session.preparation.waitForGroup(group)
-                guard !self.session.closed else { return answer(.dropped("closed")) }
-                if self.session.simulator.generation == generation, case .respond(let response, _) = self.simulate(http) {
+                await session.preparation.waitForGroup(group)
+                guard !session.closed else { return answer(.dropped("closed")) }
+                if session.simulator.generation == generation, case .respond(let response, _) = self.simulate(http) {
                     self.log(StudioSession.RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
                                            transport: source.transport))
                     answer(.respond(response))
                     self.noteLateRules(source: source, asked: asked)
-                    return self.session.updateReadiness()
+                    return session.updateReadiness()
                 }
             }
             // A rule belongs to the environment: it is registered even when the scenario changed while it was prepared (BUG-089).
-            let outcome = await self.session.preparation.resolve(context, generation: generation, preparer: preparer,
-                                                         currentGeneration: { generation },
-                                                         commit: { [weak self] proposal in self?.session.commit(proposal) ?? ["The session is closed."] })
-            guard !self.session.closed else { return answer(.dropped("closed")) }
+            let outcome = await session.preparation.resolve(context, generation: generation, preparer: preparer,
+                                                            currentGeneration: { generation },
+                                                            commit: { session.commit($0) })
+            guard !session.closed else { return answer(.dropped("closed")) }
             var registered = false
             switch outcome {
             case .registered:
                 registered = true
                 if answer.delivered {
                     // The page was answered "preparing": it is loaded again below and then served from this rule.
-                } else if self.session.simulator.generation != generation {
+                } else if session.simulator.generation != generation {
                     answer(.dropped("stale"))
                 } else if case .respond(let response, _) = self.simulate(http) {
                     self.log(StudioSession.RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
@@ -411,19 +410,19 @@ final class StudioRequestPath: ObservableObject {
                 }
                 self.noteLateRules(source: source, asked: asked)
             case .unsupported(let reason):
-                self.session.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason))
+                session.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason))
                 answer(.respond(.unsupported(contract, reason: reason)))
             case .stale:
                 answer(.dropped("stale"))
             default:
-                let reason = self.session.preparation.records[contract]?.message ?? "it could not be prepared."
-                self.session.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
+                let reason = session.preparation.records[contract]?.message ?? "it could not be prepared."
+                session.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
                 answer(.respond(.unresolved(contract, reason: reason)))
             }
             if self.provisional[generation]?.contains(contract) == true {
                 self.provisionalEnded(contract, generation: generation, registered: registered)
             }
-            self.session.updateReadiness()
+            session.updateReadiness()
         }
     }
 
@@ -458,16 +457,15 @@ final class StudioRequestPath: ObservableObject {
         guard provisional[generation]?.isEmpty ?? true, provisionalReady.contains(generation), session.simulator.generation == generation,
               !session.closed, session.appURL != nil else { return }
         provisionalReady.remove(generation)
-        Task { [weak self] in
-            guard let self else { return }
-            let typed = (try? await self.session.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
-            guard !self.session.closed, self.session.simulator.generation == generation else { return }
+        session.startPartTask { session in
+            let typed = (try? await session.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
+            guard !session.closed, session.simulator.generation == generation else { return }
             if typed {
-                self.session.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
+                session.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
                 self.rulesArrivedLate = true
             } else {
-                self.session.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; the page is loaded again once to render with them")
-                self.session.reloadPage()
+                session.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; the page is loaded again once to render with them")
+                session.reloadPage()
             }
         }
     }
@@ -503,6 +501,7 @@ final class StudioRequestPath: ObservableObject {
         let relative = session.appFolder.standardizedFileURL.path.dropFirst(session.root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let usage = session.recordUsage
         return StudioCLIPreparer(project: session.root, appFolder: relative, spec: session.simulator.spec) { input, output, cost in
+            // task: a hop onto the main actor from the preparer's callback; it never suspends and touches only the usage closure it holds
             Task { @MainActor in usage(input, output, cost) }
         }
     }
@@ -527,17 +526,16 @@ final class StudioRequestPath: ObservableObject {
         let generation = session.simulator.generation
         guard reloadedForRules != generation else { return }
         reloadedForRules = generation
-        Task { [weak self] in
-            guard let self else { return }
-            let typed = (try? await self.session.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
-            guard !self.session.closed, self.session.simulator.generation == generation else { return }
+        session.startPartTask { session in
+            let typed = (try? await session.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
+            guard !session.closed, session.simulator.generation == generation else { return }
             let late = "Rules for a request of the server arrived after its page had rendered without them"
             if typed {
-                self.session.sessionLog.add(.notice, late + "; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
+                session.sessionLog.add(.notice, late + "; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
                 self.rulesArrivedLate = true
             } else {
-                self.session.sessionLog.add(.notice, late + "; the page is loaded again once to render with them")
-                self.session.reloadPage()
+                session.sessionLog.add(.notice, late + "; the page is loaded again once to render with them")
+                session.reloadPage()
             }
         }
     }

@@ -6,7 +6,9 @@ struct BugBasketView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var batch: BugBatch
     @ObservedObject var assistant: FeatureAssistant
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var chrome: WindowChrome
+    @EnvironmentObject private var layout: PanelLayout
     @State private var expanded = true
 
     var body: some View {
@@ -48,7 +50,7 @@ struct BugBasketView: View {
             .buttonStyle(.plain)
             Spacer()
             if !batch.basket.isEmpty {
-                Button(action: { Task { await batch.suggestSimilar(using: assistant) } }) {
+                Button(action: { assistant.start(BugBatch.suggestKey) { await batch.suggestSimilar(using: $0) } }) {
                     Image(systemName: "sparkles").uiFont(size: 10)
                         .foregroundColor(suggesting ? palette.textDim : palette.text)
                 }
@@ -150,7 +152,7 @@ struct BugBasketView: View {
     private var footer: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             let eligible = batch.eligible
-            let busy = workspaceManager.terminals.assistantIsBusy
+            let busy = flow.assistantIsBusy
             VStack(alignment: .leading, spacing: 4) {
                 if eligible.count == 1, let only = eligible.first {
                     HStack(spacing: 4) {
@@ -160,7 +162,7 @@ struct BugBasketView: View {
                             .help("Its panel has Fix with AI for a single bug")
                     }
                 }
-                SmallButton(title: "Fix \(eligible.count) with AI", icon: "hammer", prominent: true) { workspaceManager.flow.fixBasketWithAI() }
+                SmallButton(title: "Fix \(eligible.count) with AI", icon: "hammer", prominent: true) { flow.fixBasketWithAI() }
                     .disabled(eligible.count < BugBasket.minimumBatch || busy)
                     .opacity(eligible.count < BugBasket.minimumBatch || busy ? 0.5 : 1)
                     .help(fixHelp(eligible: eligible.count, busy: busy))
@@ -178,8 +180,8 @@ struct BugBasketView: View {
     /// The report in the editor, with its Bug panel in the Feature tab.
     private func open(_ path: String) {
         guard let url = batch.url(path) else { return }
-        workspaceManager.openFile(url)
-        workspaceManager.chrome.showTOC = true
-        workspaceManager.layout.navigatorTab = .feature
+        flow.open(url)
+        chrome.showTOC = true
+        layout.navigatorTab = .feature
     }
 }

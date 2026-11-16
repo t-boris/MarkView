@@ -8,6 +8,7 @@ import MarkViewCore
 /// that marks a package whose files changed since. Owns the packages the Evidence panel lists.
 @MainActor
 final class StudioPackages: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     @Published private(set) var packages: [StudioPackage] = []
