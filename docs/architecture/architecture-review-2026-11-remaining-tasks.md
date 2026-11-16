@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+A clean complete-checking build on 6.30.65 succeeded with 60 distinct Swift warning lines in 25 files, versus 75 in 32 in the previous audit and 232 in 77 initially. The zero-warning acceptance remains open.
+
 UI Studio scenario saving captures the Sendable scenario by value. The session and lifetime GUI suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `UIStudioSession+Screens.swift` (one before). The manifest now records this source for both automatic suites and the manual live suite.
 
 QA generation callbacks and their immutable captured values are Sendable. All 18 changed-file pure and two gui suites passed; the QA suite was rerun after its attempt recorder was made lock-owned. Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `QAModel.swift` (two before).
