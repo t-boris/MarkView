@@ -142,7 +142,7 @@ enum XRaySearch {
     }
 
     /// One place the AI found: a file, a line range and what it does for the query.
-    struct Place: Hashable {
+    struct Place: Hashable, Sendable {
         var path: String
         var start: Int
         var end: Int

@@ -95,12 +95,21 @@ enum CLICompletion {
         var xrayModel: String? { "fast" }
     }
 
-    struct Result {
+    struct Result: Sendable {
         let text: String
-        let structured: Any?
+        private let json: Data?
+        var structured: Any? { json.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) } }
         let inputTokens: Int
         let outputTokens: Int
         var costUSD: Double? = nil
+
+        init(text: String, structured: Any?, inputTokens: Int, outputTokens: Int, costUSD: Double? = nil) {
+            self.text = text
+            self.json = structured.map { try! JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) }
+            self.inputTokens = inputTokens
+            self.outputTokens = outputTokens
+            self.costUSD = costUSD
+        }
     }
 
     enum Activity: Sendable {

@@ -14,6 +14,25 @@ private actor DraftCheckpointRecorder {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    func testAssistantJSONSearchPlacesAcrossTask() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-places-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try "one\ntwo\n".write(to: folder.appendingPathComponent("file.swift"), atomically: true, encoding: .utf8)
+        let json: [String: Any] = ["steps": [["title": "Trace", "places": [
+            ["path": "file.swift", "start": 1, "end": 99],
+            ["path": "../outside", "start": 1],
+        ]]]]
+        let result = try CLICompletion.Result(text: "", structured: json, inputTokens: 0, outputTokens: 0, costUSD: nil)
+        let places = await Task.detached {
+            XRaySearch.places(from: (result.structured as? [String: Any])?["steps"], root: folder)
+        }.value
+        XCTAssertEqual(places.count, 1)
+        XCTAssertEqual(places.first?.path, "file.swift")
+        XCTAssertEqual(places.first?.start, 1)
+        XCTAssertEqual(places.first?.end, 3)
+    }
+
     func testAssistantResultOwnsValidatedJSON() throws {
         let original = NSMutableDictionary(dictionary: ["items": [1, 2, 3], "flag": true, "label": "Пример"])
         let result = try CLICompletion.Result(text: "answer", structured: original, inputTokens: 3, outputTokens: 4, costUSD: nil)

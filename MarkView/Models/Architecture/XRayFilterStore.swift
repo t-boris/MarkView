@@ -379,7 +379,9 @@ final class XRayFilterStore {
                 guard understandingTokens[id] == token else { return }
                 result.record(in: db)
                 let object = result.structured as? [String: Any]
-                let places = await Task.detached { XRaySearch.places(from: object?["steps"], root: root) }.value
+                let places = await Task.detached {
+                    XRaySearch.places(from: (result.structured as? [String: Any])?["steps"], root: root)
+                }.value
                 guard understandingTokens[id] == token else { return }
                 understandingRatings[id, default: [:]].merge(XRayFilterStore.searchTable(places, sections: sections, confirmed: true)) { _, confirmed in confirmed }
                 // Keep these even if the explanatory part is empty or invalid.
@@ -529,7 +531,9 @@ final class XRayFilterStore {
                 result.record(in: db)
                 liveSearch[filterId] = nil
                 let object = result.structured as? [String: Any]
-                let places = await Task.detached { XRaySearch.places(from: object?["steps"], root: root) }.value
+                let places = await Task.detached {
+                    XRaySearch.places(from: (result.structured as? [String: Any])?["steps"], root: root)
+                }.value
                 guard var done = host.snapshot else { return }
                 var final = XRayFilterStore.searchTable(places, sections: sections, confirmed: true)
                 // Logical components and deployment nodes the AI named (besides those containing its files).
