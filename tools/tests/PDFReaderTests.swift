@@ -125,7 +125,8 @@ enum PDFReaderTests {
         check(widgets.count == 1 && widgets[0].isReadOnly, "form fields are read-only")
         check(reader.outline.count == 1 && reader.outline[0].children?.count == 1, "hierarchical outline is preserved")
 
-        let view = PDFReaderPDFView(frame: NSRect(x: 170, y: 0, width: 750, height: 560))
+        var opened: [URL] = []
+        let view = PDFReaderPDFView(frame: NSRect(x: 170, y: 0, width: 750, height: 560), openExternal: { opened.append($0) })
         view.document = pdf
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 560),
                               styleMask: [.borderless], backing: .buffered, defer: false)
@@ -189,8 +190,6 @@ enum PDFReaderTests {
         reader.search("")
         check(reader.matches.isEmpty && !reader.searching, "empty query clears search")
 
-        var opened: [URL] = []
-        view.openExternal = { opened.append($0) }
         for address in ["https://example.com/reference", "http://localhost:8080/a", "mailto:reader@example.com"] {
             let addressURL = URL(string: address)!
             check(PDFReaderLinks.allows(addressURL), "normal external link is permitted")

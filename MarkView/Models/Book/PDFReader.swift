@@ -283,11 +283,22 @@ final class PDFReaderPDFView: PDFView {
     enum FitMode { case page, width, manual }
     var fitMode: FitMode = .page
     weak var findDelegate: (any PDFReaderFindDelegate)?
-    var openExternal: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    let openExternal: (URL) -> Void
     private var fittedSize = CGSize.zero
 
     override init(frame: NSRect) {
+        openExternal = { NSWorkspace.shared.open($0) }
         super.init(frame: frame)
+        configure()
+    }
+
+    init(frame: NSRect, openExternal: @escaping (URL) -> Void) {
+        self.openExternal = openExternal
+        super.init(frame: frame)
+        configure()
+    }
+
+    private func configure() {
         displayMode = .singlePageContinuous
         displayDirection = .vertical
         autoScales = false
