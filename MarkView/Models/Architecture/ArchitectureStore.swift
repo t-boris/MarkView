@@ -726,6 +726,14 @@ final class ArchitectureStore: ObservableObject {
         return ["type": "object", "properties": properties, "required": required]
     }
 
+    private func nameClusterChunk(prompt: String, system: String, single: Bool, root: URL,
+                                  db: SemanticDatabase?, index: Int) async throws -> AIRawJSONObject {
+        var request = CLICompletion.Request(project: project, prompt: prompt, systemPrompt: system,
+                                            jsonSchema: Self.clusterNamingSchema(single: single))
+        request.timeout = 240
+        return try AIRawJSONObject(await xrayCall(request, root: root, db: db, call: index))
+    }
+
     /// Name every cluster (in parallel chunks), then group them into subsystems. The
     /// structure on screen is updated as each answer lands.
     private func nameClusters(_ clusters: [XRayCluster.Cluster], plan: XRayDigest.Plan, base: ArchitectureSnapshot,
@@ -752,11 +760,8 @@ final class ArchitectureStore: ObservableObject {
         try await withThrowingTaskGroup(of: AIRawJSONObject.self) { group in
             for (index, chunk) in chunks.enumerated() {
                 let prompt = plan.overview + "\n\nClusters:\n" + chunk.map { LogicalView.clusterLine($0, plan: plan) }.joined(separator: "\n")
-                group.addTask { @MainActor in
-                    var request = CLICompletion.Request(project: self.project, prompt: prompt, systemPrompt: system,
-                                                        jsonSchema: Self.clusterNamingSchema(single: single))
-                    request.timeout = 240
-                    return try AIRawJSONObject(await self.xrayCall(request, root: root, db: db, call: index))
+                group.addTask {
+                    try await self.nameClusterChunk(prompt: prompt, system: system, single: single, root: root, db: db, index: index)
                 }
             }
             for try await answered in group {
