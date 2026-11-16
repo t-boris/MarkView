@@ -3995,7 +3995,7 @@
         "MarkView/Models/Workspace/EditorWindowPrefs.swift",
         "MarkView/Models/Workspace/ExcludedFolders.swift",
         "MarkView/Models/Workspace/WindowUIState.swift",
-        "MarkView/Views/Workspace/WindowStorage.swift",
+        "MarkView/Views/Shared/WindowStorage.swift",
         "tools/tests/WindowUIStateTests.swift",
         "tools/tests/window-ui-state-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",

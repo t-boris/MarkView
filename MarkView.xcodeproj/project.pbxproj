@@ -112,6 +112,7 @@
 		32C4F78110B5EE395C72E2B5 /* DiagramAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */; };
 		32D260F63092277E130CA096 /* GitHubPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01DB1D3BC3146A00A3212838 /* GitHubPublisher.swift */; };
 		32DF2292CC64688344D3A07B /* ContentsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */; };
+		40470AECD1004F6E0CEF3D2D /* FactRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE284CD5CF4560BD893DC55 /* FactRows.swift */; };
 		32F37CA5A1ABDF262C564C78 /* RemoteHostController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14124D16ECA72DA14417C7DB /* RemoteHostController.swift */; };
 		33134280169E08459FF88E35 /* FeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */; };
 		338234E5DEFD98BF198314CE /* ThemePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2CF44CC95B89F36E5E818D7 /* ThemePickerView.swift */; };
@@ -356,6 +357,7 @@
 		B211EE606042BA037C7F4B0A /* DeploymentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57161F0EEBCA49DC3B68FE77 /* DeploymentsView.swift */; };
 		B237AD4A0A5D93A4F161E5CB /* ImageViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C20CCECAE81DAC301D96C3 /* ImageViewerView.swift */; };
 		B3CD83BBB6B21765A1064042 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5216E2466E79A0507BEAE8 /* ContentView.swift */; };
+		8CF01A17C959A87716FB40B3 /* AIToolbarMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F8B45DEA25A624579F00CB /* AIToolbarMenu.swift */; };
 		B424447F3E566D10E4FED971 /* DiscussionAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6499309EBBD52CAA265A206 /* DiscussionAgentTools.swift */; };
 		B442742D59A52CE38F5FC022 /* UIStudioEnvironmentMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD36C8EC6805326FE6D91574 /* UIStudioEnvironmentMap.swift */; };
 		B5C2538AA47AD3CD46B16F31 /* RemoteWorkspaceTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D3978C9FF22D2B5514E8DC /* RemoteWorkspaceTools.swift */; };
@@ -479,6 +481,7 @@
 		C22AB2CD25562FC5F5A0419E /* FeaturePanelBugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90634D996140207FAD07D0A5 /* FeaturePanelBugViews.swift */; };
 		3402AA128EFCCBC934A34A5C /* FeaturePanelExploreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861DEB9403F92B3C7FA90E74 /* FeaturePanelExploreViews.swift */; };
 		9293AC26A8046D8DCAF6DC1D /* FeaturePanelShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246C034D6E7093C0B7C35574 /* FeaturePanelShared.swift */; };
+		DCFCBCB81EB0C55371E742FD /* SmallButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF68EA0255A72C4227D325BA /* SmallButton.swift */; };
 		EEF940F8CC7452E5B0D011FD /* ProjectOperationDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B88089F2E7416767D42721 /* ProjectOperationDiscoveryService.swift */; };
 		EF42F54310EC6FE4C1EC5A64 /* CockpitAgentAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761D2F74CBAC26745235692C /* CockpitAgentAttempt.swift */; };
 		EF49456C7DDBE5A38F1CC431 /* ResearchMapRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115DC67845659B28A4FE3E34 /* ResearchMapRun.swift */; };
@@ -507,6 +510,7 @@
 		1FE5E52DD02881452A07F341 /* SemanticSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C295E57029BBB9E5280963B /* SemanticSchema.swift */; };
 		FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */; };
 		FAB93630CB9184D60154A8D0 /* FeatureNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */; };
+		38109F2A7C50C945C0D04E36 /* LeftPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD4D19C521D395FC6AA8C52 /* LeftPanelView.swift */; };
 		FB092FDCEDD667D3EE210E28 /* QACredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399EBF61F1B6CF2281DB2205 /* QACredentials.swift */; };
 		FB40340557344688F8F7D01C /* ResearchMapTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B9738A5C165C2A1B58ADDD /* ResearchMapTranslation.swift */; };
 		FB4C3294DDBD10B97E20E36A /* IntakeAttachmentBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8E82029CBD23F4C986B612 /* IntakeAttachmentBar.swift */; };
@@ -860,6 +864,7 @@
 		90634D996140207FAD07D0A5 /* FeaturePanelBugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelBugViews.swift; sourceTree = "<group>"; };
 		861DEB9403F92B3C7FA90E74 /* FeaturePanelExploreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelExploreViews.swift; sourceTree = "<group>"; };
 		246C034D6E7093C0B7C35574 /* FeaturePanelShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelShared.swift; sourceTree = "<group>"; };
+		FF68EA0255A72C4227D325BA /* SmallButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmallButton.swift; sourceTree = "<group>"; };
 		77B9738A5C165C2A1B58ADDD /* ResearchMapTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapTranslation.swift; sourceTree = "<group>"; };
 		78E7E3873B311E1D57458AEB /* RemoteToolBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteToolBridge.swift; sourceTree = "<group>"; };
 		795FD366C1490B12B6E18DD4 /* markdown-it.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it.min.js"; sourceTree = "<group>"; };
@@ -1035,6 +1040,7 @@
 		BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAPlan.swift; sourceTree = "<group>"; };
 		BC4F236A394AFAFFCD86CAED /* CockpitHostBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHostBridge.swift; sourceTree = "<group>"; };
 		BC5216E2466E79A0507BEAE8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C7F8B45DEA25A624579F00CB /* AIToolbarMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolbarMenu.swift; sourceTree = "<group>"; };
 		BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueGitHubSync.swift; sourceTree = "<group>"; };
 		BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFiles.swift; sourceTree = "<group>"; };
 		BCFD48E5B70D7745B61B76D4 /* ArchiveTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTabView.swift; sourceTree = "<group>"; };
@@ -1135,6 +1141,7 @@
 		E8D80AC90FE5EF26207BAA3E /* BackdropLayerBuilders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackdropLayerBuilders.swift; sourceTree = "<group>"; };
 		E908A064B54D4D4B3B8EE6EE /* WorkflowTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTabView.swift; sourceTree = "<group>"; };
 		EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentsPanelView.swift; sourceTree = "<group>"; };
+		1CE284CD5CF4560BD893DC55 /* FactRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FactRows.swift; sourceTree = "<group>"; };
 		EA5359172A93CF061733031F /* BrowserPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopup.swift; sourceTree = "<group>"; };
 		EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFeatureWriter.swift; sourceTree = "<group>"; };
 		EA88118ECF6D4FADB320FA0B /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
@@ -1203,6 +1210,7 @@
 		FEF4614EF60F2106DE512B32 /* GitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitClient.swift; sourceTree = "<group>"; };
 		FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBackdrop.swift; sourceTree = "<group>"; };
 		FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureNavigatorView.swift; sourceTree = "<group>"; };
+		8AD4D19C521D395FC6AA8C52 /* LeftPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftPanelView.swift; sourceTree = "<group>"; };
 		FFEF7847F3AAA59FC62971D9 /* chart-4.4.9.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "chart-4.4.9.min.js"; sourceTree = "<group>"; };
 		8481AD7D0786783E89B0C11E /* markview-book-md.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-book-md.js"; sourceTree = "<group>"; };
 		AF4999B5DE274BA1571F8ADA /* markview-terminal.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-terminal.js"; sourceTree = "<group>"; };
@@ -1866,6 +1874,7 @@
 				3F1056937343F57E558663BD /* AgentModelMenu.swift */,
 				2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */,
 				45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */,
+				C7F8B45DEA25A624579F00CB /* AIToolbarMenu.swift */,
 				A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */,
 			);
 			path = AI;
@@ -2079,11 +2088,10 @@
 				3A5536B20A2DD735F6BA815A /* EditorView.swift */,
 				65D86A9B539851AC6A595356 /* FileBrowserViews.swift */,
 				26726FF62649B52BE2384159 /* FileTreeView.swift */,
-				C1352CCA937A85BB9BD45E31 /* ImageAttachmentViews.swift */,
 				65C20CCECAE81DAC301D96C3 /* ImageViewerView.swift */,
 				7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */,
+				8AD4D19C521D395FC6AA8C52 /* LeftPanelView.swift */,
 				5B43997D8A629734399B2640 /* NewProjectSheet.swift */,
-				3F11B5789897E966C65CC52B /* PanelTabButton.swift */,
 				BD72F5E6622A4D7E9B1E74C5 /* ProjectWelcomeScreen.swift */,
 				8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */,
 				9F4B562671D5CF6D08403DAE /* SelectionActionBar.swift */,
@@ -2092,7 +2100,6 @@
 				0202423797414BA585158FB6 /* ToolTabViews.swift */,
 				AF17AE946068A72B32FC239E /* TOCView.swift */,
 				0052CFE2D3165B88302550CA /* WelcomeView.swift */,
-				4F6DABFBF3290CB74F684C7E /* WindowStorage.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -2116,6 +2123,7 @@
 				657EC311025C13DA25FD0688 /* QA */,
 				504EADC1F327AB8AD4C888A0 /* Remote */,
 				4E636FB8D563FEA24B0307BE /* Research */,
+				EDEB68C729DDFCA7DB072183 /* Shared */,
 				62E0EA34FBB3EEB06C1D39BB /* Terminal */,
 				7D1E9D1F835BF7EA0FE50C2D /* UIStudio */,
 				92E9F320F82573AFA3EFE642 /* Workspace */,
@@ -2369,6 +2377,18 @@
 				234669AA71D7061108B72B97 /* SemanticModels.swift */,
 				1C295E57029BBB9E5280963B /* SemanticSchema.swift */,
 				237DD0835DF06F9CC7A08573 /* WikiLinkResolver.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		EDEB68C729DDFCA7DB072183 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				1CE284CD5CF4560BD893DC55 /* FactRows.swift */,
+				C1352CCA937A85BB9BD45E31 /* ImageAttachmentViews.swift */,
+				3F11B5789897E966C65CC52B /* PanelTabButton.swift */,
+				FF68EA0255A72C4227D325BA /* SmallButton.swift */,
+				4F6DABFBF3290CB74F684C7E /* WindowStorage.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -2660,7 +2680,9 @@
 				8F5FCEEFA0561053601D0F52 /* CommandPolicy.swift in Sources */,
 				6FB910979981EED49A926F3F /* ConflictPrompt.swift in Sources */,
 				B3CD83BBB6B21765A1064042 /* ContentView.swift in Sources */,
+				8CF01A17C959A87716FB40B3 /* AIToolbarMenu.swift in Sources */,
 				32DF2292CC64688344D3A07B /* ContentsPanelView.swift in Sources */,
+				40470AECD1004F6E0CEF3D2D /* FactRows.swift in Sources */,
 				694B7765ECEC80DC6F6629A5 /* ControlAgentTools.swift in Sources */,
 				9E23615DDB835FE6E9DC2B37 /* ControlToolRunner+Agents.swift in Sources */,
 				313EE15AC17827AE8BCE7D36 /* ControlToolRunner+Flow.swift in Sources */,
@@ -2715,6 +2737,7 @@
 				776FEA1861EAEFBF60D2630B /* FeatureIntake.swift in Sources */,
 				3A7797858C429A08562B496E /* FeatureModels.swift in Sources */,
 				FAB93630CB9184D60154A8D0 /* FeatureNavigatorView.swift in Sources */,
+				38109F2A7C50C945C0D04E36 /* LeftPanelView.swift in Sources */,
 				EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */,
 				D9DC74A14ACC0C348260C0EF /* FeaturePanelObjectViews.swift in Sources */,
 				346028A5272E7B1BF4E649F9 /* FeaturePanelBuildViews.swift in Sources */,
@@ -2723,6 +2746,7 @@
 				C22AB2CD25562FC5F5A0419E /* FeaturePanelBugViews.swift in Sources */,
 				3402AA128EFCCBC934A34A5C /* FeaturePanelExploreViews.swift in Sources */,
 				9293AC26A8046D8DCAF6DC1D /* FeaturePanelShared.swift in Sources */,
+				DCFCBCB81EB0C55371E742FD /* SmallButton.swift in Sources */,
 				01824FCE6C8423DDB049E120 /* FeatureReviewGate.swift in Sources */,
 				3F1214BEB25E69D8AE45FCCF /* FeatureStore+Lifecycle.swift in Sources */,
 				33134280169E08459FF88E35 /* FeatureStore.swift in Sources */,

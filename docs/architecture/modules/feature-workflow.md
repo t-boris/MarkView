@@ -68,7 +68,8 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | `MarkView/Models/Lifecycle/FeatureIngest.swift` | `FeatureAssistant` extension: `SourceOrigin`, `ingest`, `extractFacts`, `setFact`, `readableText` (PDFKit, Whisper), `fetchText` (HTML to text) |
 | `MarkView/Models/Lifecycle/FeatureIntake.swift` | `IntakeKind`, `IntakeRequest`; `FeatureAssistant` extension: `newFeature`, `newBug`, `answerBug`, `investigateBug`, bug section helpers, `nextNumbered` |
 | `MarkView/Models/Architecture/ImportanceRater.swift` | X-Ray rating filters (not part of this workflow; see 3.6) |
-| `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` | `LeftPanelView` (Files/Issues switch), `IssuesListView`, `IssueLinks`, `FeatureNavigatorView`, `FeatureStatusMenu`, `ReadinessBar`, `FeatureStatusDot`, `IntakeSheet` |
+| `MarkView/Views/Workspace/LeftPanelView.swift` | `LeftPanelView` (Files/Issues switch; it is in Workspace because it composes the file tree with the Issues list) |
+| `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` | `IssuesListView`, `IssueLinks`, `FeatureNavigatorView`, `FeatureStatusMenu`, `ReadinessBar`, `FeatureStatusDot`, `IntakeSheet` |
 | `MarkView/Models/Lifecycle/IssueSync.swift` | Sync to GitHub (issue #36), Foundation only: `IssueSyncItem`, `IssueSyncLinks` (explicit references), `IssueSyncPlan` (pairs, unique lookups, shared-issue rule), `IssueSyncRemote`, `IssueSyncReport`, `IssueSyncPreflight`; tested by `tools/tests/issue-sync-tests.sh` |
 | `MarkView/Models/Lifecycle/IssueSyncRun.swift` | `IssueSyncRun` (`@MainActor`, owned by `FeatureStore.issueSync`): preflight, per-issue lookup and close; `IssueSyncLoader` reads items from disk off the main thread |
 | `MarkView/Views/Lifecycle/IssueSyncViews.swift` | `IssueSyncButton` and `IssueSyncReportView` in the Issues list header |
@@ -169,7 +170,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 ### 3.5 Views
 
-- `LeftPanelView`: switches between Files and Issues, showing Issues only when `hasIssues`. It opens a feature in `FeatureNavigatorView` (`FeatureNavigatorView.swift`).
+- `LeftPanelView` (`Views/Workspace/LeftPanelView.swift`): switches between Files and Issues, showing Issues only when `hasIssues`. It opens a feature in `FeatureNavigatorView` (`FeatureNavigatorView.swift`).
 - `IssuesListView` lists features and bugs. The `+` buttons open the intake.
 - `IntakeSheet` offers:
   - dictation, shown only when an OpenAI key is set

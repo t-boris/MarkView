@@ -57,7 +57,7 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 - The JS side of the code viewer (`markview-code.js`) and the bridge transport — see
   [editor-and-bridge](editor-and-bridge.md).
 - The toolbar assistant menu `AIToolbarMenu` lives in
-  `MarkView/Views/Workspace/ContentView.swift` but edits the same keys documented here.
+  `MarkView/Views/AI/AIToolbarMenu.swift` but edits the same keys documented here.
 
 ---
 
@@ -188,7 +188,7 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 | `TerminalSession.dictation` (`TerminalSession.swift`), `SessionDictationButton` (`TerminalView.swift`) | `WhisperClient` | Pasted at the prompt, not submitted |
 | Intake sheet (`FeatureNavigatorView.swift`) | `DictationController`, `DictationButton`, `DictationInsertion`, `DictationStatusView` | Mic shown only when key set |
 | `DDESettingsView` (`DDESettingsView.swift`) | key save, `AIAssistantPickerView`, probes, login, Whisper self-test | |
-| `AIToolbarMenu` (`ContentView.swift`) | same `@AppStorage` keys, `modelOptions`, `ACPAssistant.refreshModels` | |
+| `AIToolbarMenu` (`Views/AI/AIToolbarMenu.swift`) | same `@AppStorage` keys, `modelOptions`, `ACPAssistant.refreshModels` | |
 | `AgentUsageTracker` (`AgentUsageTracker.swift`) | `CLIToolLocator.resolve/run` | |
 
 ### What it calls
@@ -491,7 +491,7 @@ In-memory only: `CodeNavigationStore.back/forward` (≤100), answer tasks; `Code
 3. Add argv construction in `CLICompletion.run`'s `switch tool` (`CLICompletion.swift`)
    and an event parser in `Invocation.consume`/`handle<Tool>`.
 4. Add `@AppStorage` bindings in `AIAssistantPickerView` (`AIAssistantPickerView.swift`),
-   `AIToolbarMenu` (`ContentView.swift`) and `AITerminalPanel` (`TerminalView.swift`).
+   `AIToolbarMenu` (`AIToolbarMenu.swift`) and `AITerminalPanel` (`TerminalView.swift`).
 5. Add the startup command case in `WorkspaceManager.startupCommand` (`WorkspaceManager.swift`)
    and a `TerminalProfile` (`TerminalSession.swift`).
 

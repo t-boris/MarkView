@@ -46,8 +46,8 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | `MarkView/Models/Workspace/WorkspaceFileTreeStore.swift`, `FileNode.swift` | The folder tree (`FileNode`, built from a `FileTree` value), exclusions, sort order, the root watcher |
 | `MarkView/Models/Workspace/FileBrowserModel.swift`, `Views/Workspace/FileBrowserViews.swift`, `FileTreeView.swift` | How Files shows a folder (views, filters, selection) |
 | `MarkView/Models/Workspace/FileOperationsController.swift`, `FileTransfer.swift` | File operations of the project; non-overwriting move and copy |
-| `MarkView/Models/Workspace/DocumentState.swift` | `FileType`, `HeadingItem`, `TabKind`, `GitHubItem`, `OpenTab` |
-| `MarkView/Models/Workspace/PanelLayout.swift`, `WindowChrome.swift`, `WindowRequests.swift`, `WindowUIState.swift`, `Views/Workspace/WindowStorage.swift` | Per-window panel selection, panels shown, requests for sheets and popovers, interface state (`@WindowStorage`) |
+| `MarkView/Models/Workspace/DocumentState.swift` | `HeadingItem`, `TabKind`, `OpenTab` (`FileType` is in `Models/Shared/FileType.swift`, `GitHubItem` in `Models/Git/GitHubItem.swift`) |
+| `MarkView/Models/Workspace/PanelLayout.swift`, `WindowChrome.swift`, `WindowRequests.swift`, `WindowUIState.swift`, `Views/Shared/WindowStorage.swift` | Per-window panel selection, panels shown, requests for sheets and popovers, interface state (`@WindowStorage`) |
 | `MarkView/Models/Workspace/WindowSessionController.swift`, `WindowSession.swift`, `WindowSessionSnapshotter.swift` | Saving and restoring the windows (`windowSessions.json`) |
 | `MarkView/Models/Workspace/FinderOpenRequests.swift` | The Finder Quick Action hand-off, a job of `PollingScheduler` |
 | `MarkView/Models/Workspace/ToolRegistry.swift`, `ToolTabsRouter.swift`, `ToolOpener.swift`, `Views/Workspace/ToolTabViews.swift` | The tools that have a tab per window: identity, opening, view |
@@ -58,6 +58,7 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | `MarkView/Models/Workspace/EditorDocumentRouting.swift`, `EditorPage.swift`, `EditorWindowPrefs.swift`, `DocumentFiles.swift` | Which tab an editor message belongs to; the editor page and its CSP; the page's per-window preferences; the `markview-doc:///` rule for files next to a document |
 | `MarkView/Models/Shared/SchemaVersionedStore.swift` | Versioned JSON stores (`AR-36`) |
 | `MarkView/Models/Appearance/AppTheme.swift`, `WindowTheme.swift`, `MarkView/Views/Appearance/*` | Themes: one `WindowTheme` per window |
+| `MarkView/Views/Shared/PanelTabButton.swift`, `WindowStorage.swift`, `ImageAttachmentViews.swift`, `FactRows.swift`, `SmallButton.swift` | Small views every feature's screens use (`Views/Shared` names no feature domain) |
 | `MarkView/Views/Workspace/TabBarView.swift`, `TOCView.swift`, `ContentsPanelView.swift`, `ImageViewerView.swift`, `DDESettingsView.swift` | Tab strip, right panel, image tab, settings window |
 | `MarkView/Info.plist`, `MarkView.entitlements`, `MarkViewDebug.entitlements` | Document types and usage strings; sandbox off |
 
