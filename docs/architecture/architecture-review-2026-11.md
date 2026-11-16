@@ -326,6 +326,8 @@ One commit ever (the initial release, 2026-03-31) out of 1,247. About 1,700 line
 
 Recommendation: delete `EditorWeb/` and `EDITOR_IMPLEMENTATION.md` and the `CLAUDE.md` text about them. Adopting it would mean rewriting the editor; AR-29 modernises the code that actually ships.
 
+Status (2026-11-15): done. `EditorWeb/`, `EDITOR_IMPLEMENTATION.md` and `QUICKSTART.md` are absent (0 of 3 present); `CLAUDE.md` mentions `EditorWeb` 0 times.
+
 ## 7. Extensibility: registries, data files, and whether to build plugins
 
 The owner asked whether themes, welcome screens and layouts should become a plugin system. Measured cost of adding one more of each today:
