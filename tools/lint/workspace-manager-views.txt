@@ -7,7 +7,6 @@
 2 MarkView/Views/Deployments/DeploymentsView.swift
 5 MarkView/Views/Git/GitHubViews.swift
 1 MarkView/Views/Lifecycle/CycleTimeViews.swift
-4 MarkView/Views/Lifecycle/HandoffViews.swift
 1 MarkView/Views/Lifecycle/IssueSyncViews.swift
 1 MarkView/Views/ProjectOps/ProjectOperationsView.swift
 1 MarkView/Views/Prototype/PrototypeHandoffDraftView.swift

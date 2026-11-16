@@ -34,7 +34,7 @@ struct TOCView: View {
                 VStack(spacing: 0) {
                     if let tab = tabs.activeTab,
                        let feature = workspaceManager.flow.features.locate(tab.url)?.feature {
-                        HandoffPanelView(feature: feature).environmentObject(workspaceManager)
+                        HandoffPanelView(feature: feature)
                     }
                     FeaturePanelView(store: workspaceManager.flow.features, layout: layout)
                 }

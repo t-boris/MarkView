@@ -42,7 +42,6 @@
 8 MarkView/Views/Deployments/DeploymentsView.swift
 11 MarkView/Views/Git/GitHubViews.swift
 18 MarkView/Views/Git/GitView.swift
-4 MarkView/Views/Lifecycle/HandoffViews.swift
 4 MarkView/Views/Lifecycle/IssueLifecycleSection.swift
 1 MarkView/Views/Lifecycle/IssueSyncViews.swift
 1 MarkView/Views/Lifecycle/WorkflowFlowPicker.swift

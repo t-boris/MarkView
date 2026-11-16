@@ -715,7 +715,7 @@ private struct WorkspaceWindow: View {
             }
             if let resume = requests.handoffResume,
                layout.workspaceArea == .files {
-                HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
+                HandoffResumeBar(resume: resume)
             }
             if tabs.openTabs.indices.contains(tabs.activeTabIndex) {
                 let activeTab = tabs.openTabs[tabs.activeTabIndex]
@@ -891,7 +891,6 @@ private struct WorkspaceWindow: View {
                       perform: performWelcomeAction) {
             if fileTree.rootNode != nil {
                 HandoffStartList(store: workspaceManager.flow.features)
-                    .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
             } else {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
