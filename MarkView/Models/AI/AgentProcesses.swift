@@ -1,4 +1,5 @@
 import Foundation
+import os
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -7,34 +8,32 @@ import MarkViewCore
 /// They are children of the app but not of its terminal tabs, so quitting the app left them running with no
 /// one to take their answer (a prototype build kept spending tokens for half an hour). The app stops them on quit.
 enum AgentProcesses {
-    private static let lock = NSLock()
-    private static var running: [ObjectIdentifier: SubprocessChild] = [:]
-    private static var stopHandlers: [ObjectIdentifier: () -> Void] = [:]
+    private struct State: Sendable {
+        var running: [ObjectIdentifier: SubprocessChild] = [:]
+        var stopHandlers: [ObjectIdentifier: @Sendable () -> Void] = [:]
+    }
+    private static let state = OSAllocatedUnfairLock(initialState: State())
 
-    static func add(_ child: SubprocessChild, stop: (() -> Void)? = nil) {
-        lock.lock(); defer { lock.unlock() }
-        running[ObjectIdentifier(child)] = child
-        stopHandlers[ObjectIdentifier(child)] = stop
+    static func add(_ child: SubprocessChild, stop: (@Sendable () -> Void)? = nil) {
+        state.withLock {
+            $0.running[ObjectIdentifier(child)] = child
+            $0.stopHandlers[ObjectIdentifier(child)] = stop
+        }
     }
 
     static func remove(_ child: SubprocessChild) {
-        lock.lock(); defer { lock.unlock() }
-        running[ObjectIdentifier(child)] = nil
-        stopHandlers[ObjectIdentifier(child)] = nil
+        state.withLock {
+            $0.running[ObjectIdentifier(child)] = nil
+            $0.stopHandlers[ObjectIdentifier(child)] = nil
+        }
     }
 
-    static var count: Int {
-        lock.lock(); defer { lock.unlock() }
-        return running.count
-    }
+    static var count: Int { state.withLock { $0.running.count } }
 
     /// Asks every running assistant to stop, and kills those still running after `grace` seconds. Blocks, so
     /// it is for quitting only.
     static func terminateAll(grace: TimeInterval = 1.0) {
-        lock.lock()
-        let children = Array(running.values)
-        let handlers = stopHandlers
-        lock.unlock()
+        let (children, handlers) = state.withLock { (Array($0.running.values), $0.stopHandlers) }
         let live = children.filter { $0.isRunning }
         live.forEach { child in
             if let stop = handlers[ObjectIdentifier(child)] { stop() }

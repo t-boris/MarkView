@@ -22,6 +22,11 @@ check(finishedExit.wait(timeout: .now() + 5) == .success, "the short process end
 Thread.sleep(forTimeInterval: 0.3)
 check(AgentProcesses.count == 2, "finished process is forgotten")
 check(polite.isRunning && stubborn.isRunning, "both running before quit")
+DispatchQueue.concurrentPerform(iterations: 200) { _ in
+    AgentProcesses.add(polite)
+    AgentProcesses.add(stubborn)
+}
+check(AgentProcesses.count == 2, "concurrent registration retains both processes")
 
 let began = Date()
 AgentProcesses.terminateAll(grace: 0.5)
