@@ -62,7 +62,7 @@ extension WindowCommands {
 }
 
 private struct WindowCommandsKey: EnvironmentKey {
-    static let defaultValue: (any WindowCommands)? = nil
+    static var defaultValue: (any WindowCommands)? { nil }
 }
 
 extension EnvironmentValues {

@@ -132,7 +132,7 @@ struct DictationStatusView: View {
 /// Opens DDE Settings for the window that shows a dictation field (its key, model or language needs a fix). ContentView sets it
 /// for its window, so a sheet or panel needs no workspace of its own; outside any window the settings open without a project.
 private struct OpenDictationSettingsKey: EnvironmentKey {
-    static let defaultValue: () -> Void = { Task { @MainActor in DDESettingsWindow.show(workspace: nil) } }
+    static var defaultValue: () -> Void { { Task { @MainActor in DDESettingsWindow.show(workspace: nil) } } }
 }
 
 extension EnvironmentValues {
