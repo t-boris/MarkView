@@ -1,5 +1,7 @@
 # Configuration
 
+Checked against the code at `ac3001ba` (2026-11-15).
+
 MarkView has no config file. Configuration is split across UserDefaults (set through the DDE
 Settings window and UI toggles), web view `localStorage`, command-line flags, the environment of
 child processes, and build-time settings.
@@ -84,6 +86,11 @@ Keys declared in `SettingsKeys.swift` that the tables above do not cover (the ty
 | Flag | Effect |
 |---|---|
 | `--dde-index <folder>` | Headless structural indexer child process, used internally by `runStructuralIndex` |
+| `--mcp-browser` | MCP stdio server with the browser tools, started by an agent's MCP configuration (`BrowserAgentTools.runServer`); never returns |
+| `--mcp-project` | MCP stdio server with the project tools (`ProjectAgentTools.profile`); never returns |
+| `--mcp-control` | MCP stdio server with the control tools (`ControlAgentTools.profile`); never returns |
+| `--project-call` | Runs one project tool call from the command line and exits (`ProjectAgentTools.runCall`) |
+| `--remote-workspace-mcp`, `--remote-workspace-guard` | The remote-workspace MCP server and its command guard (`RemoteUnixRPC.runMCP`, `runGuard`); never return |
 
 ## 4. Environment
 

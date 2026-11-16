@@ -1,5 +1,7 @@
 # Operations Runbook
 
+Checked against the code at `ac3001ba` (2026-11-15). The commands were read, not run, in that check.
+
 Day-to-day procedures for building, running, debugging and releasing MarkView. For how the
 build system is designed, see [build-release-testing](modules/build-release-testing.md). Other
 modules: [app-shell-and-workspace](modules/app-shell-and-workspace.md) ·
