@@ -413,6 +413,8 @@ Several windows, agent command line tools and MCP helper processes write the sam
 
 Fix: typed repositories per feature returning `.ok / .damaged(reason) / .unsupported(schema)` exactly as `ProjectWorkflowStore` does, built on the `AtomicFile` helper of AR-24, and a `schema:` key in front matter.
 
+Status (2026-11-15): partial. `SchemaVersionedStore` users 1 -> 14 files (17 sites); `try? decode` 98 -> 93 sites (a regex count). File locking is still in exactly one file (`CockpitResults.swift`: `flock` and `NSFileCoordinator` sites 2 -> 2), so there is still no cross-process coordination of `docs/` and `.dde/`. `FeatureStore.update` and the other read-modify-write paths were not re-read.
+
 ### AR-37 SQLite runs entirely on the main actor (high, M; recorded, still true)
 
 `SemanticDatabase` is `@MainActor` with 53 methods and 35 tables. Open, pragmas and DDL run on main; `busy_timeout = 5000` means the main thread can wait up to five seconds on the indexer process; `saveArchitecture` deletes and reinserts five tables; full-text search is called from a view (`TOCView.swift:188`). Only one read path is off the main thread.
