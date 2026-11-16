@@ -7,8 +7,12 @@ import AppKit
 struct PrototypeHandoffDraftView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var run: PrototypeHandoffRun
+    /// The parts of the window the sheet uses: the terminals for "Send to the agent", the feature flow that gets the feature it creates, and
+    /// the project whose assistant is offered.
+    let terminals: AITerminalsController
+    let flow: FeatureFlowCoordinator
+    let project: ProjectContext
     let onClose: () -> Void
-    @EnvironmentObject private var workspaceManager: WorkspaceManager
 
     private enum Tab: String, CaseIterable, Identifiable {
         case feature = "Feature", brief = "Brief for an agent"
@@ -40,7 +44,7 @@ struct PrototypeHandoffDraftView: View {
         }
         .padding(16)
         .frame(width: 760)
-        .onAppear { agent = TerminalProfile(AIAssistantPreferences.backend(project: workspaceManager.aiProject)) }
+        .onAppear { agent = TerminalProfile(AIAssistantPreferences.backend(project: project.aiProject)) }
         .onChange(of: tab) { newTab in
             if newTab == .brief, !briefEdited { brief = run.brief() }
         }
@@ -181,17 +185,15 @@ struct PrototypeHandoffDraftView: View {
                 .disabled(currentBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Send to \(agent.title)") {
                     let text = currentBrief
-                    let terminal = workspaceManager.terminals.openAITerminal(agent)
-                    workspaceManager.terminals.sendToAssistant(submit: true, to: terminal) { _ in text }
+                    let terminal = terminals.openAITerminal(agent)
+                    terminals.sendToAssistant(submit: true, to: terminal) { _ in text }
                     onClose()
                 }
                 .disabled(currentBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || run.progress.running)
                 Button(run.creating ? "Creating…" : "Create feature") {
-                    Task {
-                        if let created = await run.create(into: workspaceManager.flow.features) {
-                            workspaceManager.flow.featureWritten(created.slug, overview: created.overview)
-                            onClose()
-                        }
+                    run.startCreate(into: flow.features) { created in
+                        flow.featureWritten(created.slug, overview: created.overview)
+                        onClose()
                     }
                 }
                 .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)

@@ -11,6 +11,8 @@ import MarkViewCore
 struct PrototypeStudioView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: PrototypeSession
+    /// The one declaration the tab keeps: opening UI Studio (`openTool`) and a source file (`openFile`) are window commands only the
+    /// manager offers; the hand-off sheet below gets its parts (terminals, flow, project) from it instead of declaring its own.
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var draft = ""
     @WindowStorage(Setting.prototypeChatWidth) private var chatWidth: Double
@@ -48,6 +50,13 @@ struct PrototypeStudioView: View {
         }
         .background(palette.bg)
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
+        // "Copied" goes after a moment; the wait follows the flag and ends with the view.
+        .task(id: referenceCopied) {
+            guard referenceCopied else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            referenceCopied = false
+        }
         // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened; one saved before
         // MarkView owned the page structure gets the structure (BUG-060).
         .task {
@@ -312,7 +321,8 @@ struct PrototypeStudioView: View {
         Group {
             if let handoff = session.handoff {
                 if let run = session.handoffRun {
-                    PrototypeHandoffDraftView(run: run) { session.handoff = nil }
+                    PrototypeHandoffDraftView(run: run, terminals: workspaceManager.terminals, flow: workspaceManager.flow,
+                                              project: workspaceManager.project) { session.handoff = nil }
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(palette.text)
@@ -384,7 +394,7 @@ struct PrototypeStudioView: View {
                     Text(session.checkingSync ? "Comparing the code with the last sync…" : "Not checked yet.").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
                 HStack {
-                    Button { Task { await session.refreshSyncStatus() } } label: { Label("Check again", systemImage: "arrow.clockwise") }
+                    Button { session.startSyncStatusCheck() } label: { Label("Check again", systemImage: "arrow.clockwise") }
                         .controlSize(.small).disabled(session.checkingSync)
                     Spacer()
                 }
@@ -491,10 +501,6 @@ struct PrototypeStudioView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(PrototypeReference.string(slug: session.slug), forType: .string)
         referenceCopied = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            referenceCopied = false
-        }
     }
 
     private var placeholder: some View {

@@ -19,7 +19,6 @@
 4 MarkView/Views/Lifecycle/HandoffViews.swift
 1 MarkView/Views/Lifecycle/IssueSyncViews.swift
 1 MarkView/Views/ProjectOps/ProjectOperationsView.swift
-1 MarkView/Views/Prototype/PrototypeHandoffDraftView.swift
 1 MarkView/Views/Prototype/PrototypeStudioView.swift
 1 MarkView/Views/UIStudio/UIStudioTrackingLine.swift
 3 MarkView/Views/UIStudio/UIStudioView.swift

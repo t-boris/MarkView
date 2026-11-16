@@ -116,6 +116,8 @@ final class QARunModel: ObservableObject {
     private var runTask: Task<Void, Never>?
     private var consumer: Task<Void, Never>?
     private var reviewer: Task<Void, Never>?
+    /// The deletion of the older runs the retention rule gives up, started with a run; a newer run's replaces it, and the model going away ends it.
+    private var pruning: Task<Void, Never>?
     private var sink: QAEventSink?
     private var assistant: QACLIAssistant?
     private var selectedAssistant: CLICompletion.Assistant?
@@ -160,6 +162,7 @@ final class QARunModel: ObservableObject {
 
     deinit {
         runTask?.cancel()
+        pruning?.cancel()
         control?.stop()
         let retained = sessions
         // task: the browser sessions close after the run is gone; cancelling it would leave them open
@@ -215,7 +218,8 @@ final class QARunModel: ObservableObject {
         let runID = QAStore.newRunID(at: Date())
         self.runID = runID
         // The older runs of this scenario that the retention rule gives up are deleted in the background (Q-010); the new run is never one.
-        Task.detached(priority: .utility) { [filer = self.bugFiler, scenarioID = scenario.id] in
+        pruning?.cancel()
+        pruning = Task.detached(priority: .utility) { [filer = self.bugFiler, scenarioID = scenario.id] in
             await QARunCleanup.prune(root: root, scenarioID: scenarioID, runInProgress: runID, filer: filer)
         }
         let (events, continuation) = AsyncStream.makeStream(of: QARunEvent.self)

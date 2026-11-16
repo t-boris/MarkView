@@ -162,6 +162,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var codeScope = PrototypeAI.CodeScope()
 
     private var task: Task<Void, Never>?
+    /// What the session started besides its run: the hand-off, the sync preview and the checks of the code against the last sync. Keyed, so
+    /// a newer one replaces an older one; the session going away (its tab closed) ends them with the bag.
+    private let tasks = TaskBag()
     /// Runs of the assistant that fix reported errors by themselves, per request.
     private static let autoFixRounds = 1
 
@@ -380,7 +383,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
     func prepareHandoff() {
         guard manifest.mode == .code, manifest.version > 0, !preparingHandoff else { return }
         preparingHandoff = true
-        Task { [self] in
+        tasks.store(Task { [weak self] in
+            guard let self else { return }
             defer { preparingHandoff = false }
             await refreshSyncStatus()
             let status = syncStatus ?? PrototypeBaseline.status(record: nil, scope: [:], site: [:])
@@ -391,6 +395,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                     return PrototypeFiles.componentMarkers(in: text)
                 })
             }.value
+            guard !Task.isCancelled else { return }
             let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
             let brief = changes.isEmpty ? "" : PrototypeHandoff.brief(title: manifest.title, reference: PrototypeReference.string(slug: slug),
                                                                       version: manifest.version, siteRelative: relative, changes: changes)
@@ -407,7 +412,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 run.start()
             }
             handoff = Handoff(changes: changes, brief: brief)
-        }
+        }, for: "handoff")
     }
 
     /// "Sync from code" (REQ-010, REQ-011): compares the code with the baseline and offers what a sync would do before anything runs.
@@ -416,14 +421,16 @@ final class PrototypeSession: ObservableObject, Identifiable {
     func previewSync() {
         guard !isBusy, canSyncFromCode, !preparingSync else { return }
         preparingSync = true
-        Task { [self] in
+        tasks.store(Task { [weak self] in
+            guard let self else { return }
             defer { preparingSync = false }
             await refreshSyncStatus()
             let folder = self.folder, version = manifest.version
             let baseline = await Task.detached { PrototypeBaseline.load(folder: folder, version: version) }.value
+            guard !Task.isCancelled else { return }
             let status = syncStatus ?? PrototypeBaseline.status(record: nil, scope: [:], site: [:])
             syncPreview = SyncPreview(plan: PrototypeBaseline.syncPlan(status: status, record: baseline), status: status, version: version)
-        }
+        }, for: "sync-preview")
     }
 
     /// Incremental sync: writes again only the screens and components whose source files changed, with the stored plan, and records
@@ -728,7 +735,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
         try PrototypeFiles.snapshot(folder: folder, version: manifest.version)
         try PrototypeFiles.saveManifest(manifest, in: folder)
         archive = nil
-        if manifest.mode == .code { Task { await refreshSyncStatus() } }
+        if manifest.mode == .code { startSyncStatusCheck() }
         // An isolated page this version removed cannot stay on screen: the screens come back.
         if let page = shownPage, !FileManager.default.fileExists(atPath: siteFolder.appendingPathComponent(page).path) {
             shownPage = nil
@@ -968,6 +975,11 @@ final class PrototypeSession: ObservableObject, Identifiable {
         await refreshSyncStatus()
     }
 
+    /// Starts the check below for the status panel; a check still running is replaced by this one.
+    func startSyncStatusCheck() {
+        tasks.store(Task { [weak self] in await self?.refreshSyncStatus() }, for: "sync-status")
+    }
+
     /// Compares the code and the prototype as they are now with the baseline of the live version: no assistant run, no network (REQ-014).
     /// Safe to call at any time.
     func refreshSyncStatus() async {
@@ -986,7 +998,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                                             site: PrototypeBaseline.siteFingerprints(site: site))
         }.value
         // The latest check wins: an older one that finishes late must not replace a newer answer.
-        guard generation == syncCheckGeneration else { return }
+        guard generation == syncCheckGeneration, !Task.isCancelled else { return }
         syncStatus = status
         checkingSync = false
     }

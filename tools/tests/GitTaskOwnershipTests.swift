@@ -75,7 +75,10 @@ func makeRepository(_ name: String) -> (repo: URL, origin: URL, base: URL) {
     let ignored = (try? String(contentsOf: ignore, encoding: .utf8)) ?? ""
     check(ignored.contains("/one.txt") && ignored.contains("/two.txt"), "an operation asked for later does not end the one before it")
 
-    // The commit bar: the client commits what is staged, tells the bar through a receipt, and pushes when asked.
+    // The commit bar: the client commits what is staged, tells the bar through a receipt, and pushes when asked. The looks the operations
+    // above ended with are over first: a look and a commit both want git's index lock.
+    check(await waitFor { !client.isOperating && client.activity == nil }, "the operations are over")
+    try? await Task.sleep(nanoseconds: 1_500_000_000)
     try? "two\n".write(to: repo.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
     git(["add", "b.txt"], in: repo)
     client.startCommit(message: "second", thenPush: true)

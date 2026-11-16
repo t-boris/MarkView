@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 213,
+  "suiteCount": 215,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2305,6 +2305,50 @@
       ]
     },
     {
+      "name": "prototype-ownership-tests",
+      "script": "tools/tests/prototype-ownership-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Prototype/PrototypeFiles.swift",
+        "MarkView/Models/Prototype/PrototypeStyles.swift",
+        "MarkView/Models/Prototype/PrototypeShellStructure.swift",
+        "MarkView/Models/Prototype/PrototypeEmbedded.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/Prototype/PrototypeAI.swift",
+        "MarkView/Models/Prototype/PrototypePrompts.swift",
+        "MarkView/Models/Prototype/PrototypeSchemas.swift",
+        "MarkView/Models/Prototype/PrototypePlan.swift",
+        "MarkView/Models/Prototype/PrototypeProgress.swift",
+        "MarkView/Models/Prototype/PrototypeExport.swift",
+        "MarkView/Models/Prototype/PrototypeAI+Handoff.swift",
+        "MarkView/Models/Prototype/PrototypeRuntime.swift",
+        "MarkView/Models/Prototype/PrototypeAudit.swift",
+        "MarkView/Models/Prototype/PrototypeThemes.swift",
+        "MarkView/Models/Prototype/PrototypeBaseline.swift",
+        "MarkView/Models/Prototype/PrototypeTailwind.swift",
+        "MarkView/Models/Prototype/PrototypeHandoff.swift",
+        "MarkView/Models/Prototype/PrototypeHandoffDraft.swift",
+        "MarkView/Models/Workspace/ImageAttachments.swift",
+        "MarkView/Models/Prototype/PrototypeImages.swift",
+        "MarkView/Bridge/PrototypeScreenshots.swift",
+        "MarkView/Bridge/PrototypeSchemeHandler.swift",
+        "tools/tests/PrototypeCLIStub.swift",
+        "MarkView/Models/Prototype/PrototypeSession.swift",
+        "MarkView/Models/Prototype/PrototypeHandoffRun.swift",
+        "MarkView/Models/Prototype/PrototypeFidelity.swift",
+        "MarkView/Models/Prototype/PrototypeReference.swift",
+        "MarkView/Models/Workspace/WebAppPreview.swift",
+        "tools/tests/PrototypeOwnershipStubs.swift",
+        "tools/tests/PrototypeOwnershipTests.swift",
+        "tools/tests/prototype-ownership-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift"
+      ]
+    },
+    {
       "name": "prototype-handoff-live-run",
       "script": "tools/tests/prototype-handoff-live-run.sh",
       "tier": "live",
@@ -2739,6 +2783,36 @@
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QARetentionChecks.swift",
         "tools/tests/qa-retention-tests.sh"
+      ]
+    },
+    {
+      "name": "qa-run-archive-ownership-tests",
+      "script": "tools/tests/qa-run-archive-ownership-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/QA/QAAPI.swift",
+        "MarkView/Models/QA/QAScenario.swift",
+        "MarkView/Models/QA/QARun.swift",
+        "MarkView/Models/QA/QAEffort.swift",
+        "MarkView/Models/QA/QATriage.swift",
+        "MarkView/Models/QA/QAStore.swift",
+        "MarkView/Models/QA/QABugs.swift",
+        "MarkView/Models/QA/QABugFiler.swift",
+        "MarkView/Models/Workspace/FrontMatter.swift",
+        "MarkView/Models/Lifecycle/BugReportWriter.swift",
+        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
+        "MarkView/Models/QA/QARunRetention.swift",
+        "MarkView/Models/QA/QARunCleanup.swift",
+        "MarkView/Models/Cockpit/CockpitPlan.swift",
+        "MarkView/Models/Cockpit/CockpitResults.swift",
+        "MarkView/Models/QA/QARunArchive.swift",
+        "MarkView/Models/QA/QATriageService.swift",
+        "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "tools/tests/QARunArchiveOwnershipTests.swift",
+        "tools/tests/qa-run-archive-ownership-tests.sh"
       ]
     },
     {

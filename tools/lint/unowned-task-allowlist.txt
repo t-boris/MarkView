@@ -19,10 +19,6 @@
 1 MarkView/Models/Lifecycle/IssueSyncRun.swift
 1 MarkView/Models/Lifecycle/WorkflowEditorModel.swift
 8 MarkView/Models/ProjectOps/ProjectOperationsStore.swift
-1 MarkView/Models/Prototype/PrototypeHandoffRun.swift
-3 MarkView/Models/Prototype/PrototypeSession.swift
-1 MarkView/Models/QA/QAModel.swift
-1 MarkView/Models/QA/QARunModel.swift
 4 MarkView/Models/Remote/RemoteHostController.swift
 2 MarkView/Models/Terminal/TerminalSession.swift
 1 MarkView/Models/UIStudio/UIStudioCaptures.swift
@@ -50,10 +46,6 @@
 1 MarkView/Views/Lifecycle/IssueSyncViews.swift
 1 MarkView/Views/Lifecycle/WorkflowFlowPicker.swift
 5 MarkView/Views/Lifecycle/WorkflowTemplatesSettings.swift
-1 MarkView/Views/Prototype/PrototypeHandoffDraftView.swift
-2 MarkView/Views/Prototype/PrototypeStudioView.swift
-2 MarkView/Views/QA/QARunReportViews.swift
-1 MarkView/Views/QA/QAViews.swift
 5 MarkView/Views/Remote/RemoteConnectionsView.swift
 1 MarkView/Views/Terminal/TerminalView.swift
 2 MarkView/Views/Workspace/ArchiveTabView.swift
