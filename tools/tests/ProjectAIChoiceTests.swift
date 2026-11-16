@@ -143,6 +143,14 @@ do {
 }
 
 print(failures == 0 ? "All project AI choice checks passed" : "\(failures) check(s) failed")
+// Simultaneous project choices must not lose one another.
+let pickProjects = (0..<100).map { fixedHome.appendingPathComponent("pick-\($0)") }
+let pickDate = Date(timeIntervalSince1970: 2_524_608_000)
+DispatchQueue.concurrentPerform(iterations: pickProjects.count) { index in
+    ModelPickLog.record(tool: .codex, project: pickProjects[index], at: pickDate)
+}
+let picksIntact = pickProjects.allSatisfy { ModelPickLog.lastPick(tool: .codex, project: $0) == pickDate }
+check("concurrent model picks remain independent", picksIntact ? "yes" : "no", "yes")
 exit(failures == 0 ? 0 : 1)
 
 // The suite names the assistants by their stored identity; the app names none outside its providers.

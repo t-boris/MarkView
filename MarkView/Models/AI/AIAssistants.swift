@@ -1,4 +1,5 @@
 import Foundation
+import os
 import AppKit
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -41,19 +42,19 @@ struct ProjectAIChoice: Codable, Equatable {
 /// from a session (BUG-048). In memory only: after a relaunch every assistant starts with the stored
 /// model.
 enum ModelPickLog {
-    private static var picks: [String: Date] = [:]
+    private static let picks = OSAllocatedUnfairLock(initialState: [String: Date]())
 
     private static func key(_ tool: CLITool, _ project: URL?) -> String {
         tool.rawValue + "|" + (project.map(ProjectAIChoice.key) ?? "default")
     }
 
     static func record(tool: CLITool, project: URL?, at date: Date = Date()) {
-        picks[key(tool, project)] = date
+        picks.withLock { $0[key(tool, project)] = date }
     }
 
     /// The latest pick that decides `project`'s model: its own, or the defaults'.
     static func lastPick(tool: CLITool, project: URL?) -> Date? {
-        [picks[key(tool, project)], picks[key(tool, nil)]].compactMap { $0 }.max()
+        picks.withLock { [$0[key(tool, project)], $0[key(tool, nil)]].compactMap { $0 }.max() }
     }
 }
 
