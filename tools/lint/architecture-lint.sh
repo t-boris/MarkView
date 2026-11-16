@@ -7,7 +7,7 @@
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
 #   target-membership    every MarkView/**/*.swift on disk is a file reference and a Sources build file of the Xcode target in
 #                        MarkView.xcodeproj/project.pbxproj, and every Swift file the project references exists on disk
-#   semantic-database-actor  MarkView/Models/Insight/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
+#   semantic-database-actor  MarkView/Models/Shared/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
 #                        none of its sqlite3 calls can run on the main thread (AR-37)
 #   bridge-no-bypass     (AR-28) the editor page's scripts send through mvBridge.send only: no `messageHandlers` in
 #                        Editor/js/*.js (except mv-kit.js, the one sender, and markview-ui-studio-*.js, a different host) or in
@@ -439,7 +439,7 @@ ratchet("window-wiring", "window-wiring-views.txt", "hook(s) a view writes into 
         label="window-wiring (views)")
 
 # --- semantic-database-actor
-database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
+database = root / "MarkView" / "Models" / "Shared" / "SemanticDatabase.swift"
 if database.is_file():
     if not any(re.match(r"\s*actor\s+SemanticDatabase\b", line) for _, line in code_lines(database)):
         violations.append(("semantic-database-actor", f"{rel(database)}: `SemanticDatabase` must be declared as an `actor`; its SQLite calls must not run on the main thread"))

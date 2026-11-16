@@ -8,5 +8,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/DefinitionOfDoneTests.swift "$out/main.swift"
-swiftc -O -o "$out/definition-of-done-tests" Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Lifecycle/DefinitionOfDone.swift MarkView/Models/Workspace/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Lifecycle/HandoffPrompt.swift tools/tests/StoreTestSupport.swift MarkView/Models/AI/Providers/*.swift "$out/main.swift"
+swiftc -O -o "$out/definition-of-done-tests" Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Lifecycle/DefinitionOfDone.swift MarkView/Models/Shared/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Lifecycle/HandoffPrompt.swift tools/tests/StoreTestSupport.swift MarkView/Models/AI/Providers/*.swift "$out/main.swift"
 "$out/definition-of-done-tests"

@@ -9,7 +9,7 @@ enum TabClosingStoreTests {
         let pdfTabs = TabsController()
         pdfTabs.openDocument(URL(fileURLWithPath: "/tmp/doc.pdf"))
         let documents = [tab("a.md", .file), tab("b.png", .image), pdfTabs.openTabs[0], tab("c.zip", .archive), tab("d.csv", .data)]
-        let tools = [tab("t", .terminal(UUID())), tab("x", .architecture(scope: "")), tab("pr", .architecture(scope: TabKind.pullRequestScope)),
+        let tools = [tab("t", .terminal(UUID())), tab("x", .architecture(scope: "")), tab("pr", .architecture(scope: XRayScope.pullRequest)),
                      tab("i", .insight(InsightSession())), tab("dep", .tool(.deployments)), tab("dis", .tool(.discussions)), tab("wf", .tool(.workflow)), tab("g", .tool(.git)),
                      tab("rev", .tool(.changeReview)), tab("gh", .github(.run(id: 1, repo: "o/r", title: "Run"))), tab("br", .browser(BrowserSession())),
                      tab("p", .prototype(PrototypeSession(slug: "p"))), tab("ui", .uiStudio(StudioSession())), tab("ck", .cockpit(CockpitSession())),

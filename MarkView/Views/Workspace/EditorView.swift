@@ -536,7 +536,7 @@ struct EditorView: NSViewRepresentable {
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self, weak webView, weak store] _ in
                         guard let self, let webView, let store else { return }
-                        self.bridge.showArchitecture(store.payloadJSON(mode: TabKind.architectureMode(scope: scope)), in: webView)
+                        self.bridge.showArchitecture(store.payloadJSON(mode: XRayScope.mode(scope: scope)), in: webView)
                     }
                 // Analysis progress changes with every file the assistant reads: send it
                 // on its own, at most a few times a second.
@@ -556,7 +556,7 @@ struct EditorView: NSViewRepresentable {
                     content.cancel(); progress.cancel(); operationChanges?.cancel()
                 }
             } else {
-                bridge.showArchitecture(store.payloadJSON(mode: TabKind.architectureMode(scope: scope)), in: webView)
+                bridge.showArchitecture(store.payloadJSON(mode: XRayScope.mode(scope: scope)), in: webView)
                 if let operations { bridge.setProjectOperations(operations.payloadJSON(), in: webView) }
             }
         }

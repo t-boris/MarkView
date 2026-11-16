@@ -123,7 +123,7 @@ struct TabBarView: View {
     private func icon(for tab: OpenTab) -> String {
         switch tab.kind {
         case .terminal: return "terminal"
-        case .architecture(let scope): return scope == TabKind.pullRequestScope ? "arrow.triangle.pull" : "viewfinder"
+        case .architecture(let scope): return scope == XRayScope.pullRequest ? "arrow.triangle.pull" : "viewfinder"
         case .insight: return "sparkles"
         case .image: return "photo"
         case .pdf: return "doc.richtext"

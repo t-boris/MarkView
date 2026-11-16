@@ -76,15 +76,18 @@ final class CockpitSession {
 @MainActor
 protocol CockpitQAWindow: AnyObject {
     var qa: QAModel { get }
-    func openTool(_ id: ToolID)
+    func showQATool()
 }
 
 @MainActor
-protocol CockpitWindow: CockpitQAWindow, TabsProviding {
+protocol CockpitWindow: CockpitQAWindow {
     var hostWindow: NSWindow? { get }
     func showAIConsole()
     var assistants: any AssistantProviding { get }
     var features: FeatureStore { get }
+    var cockpitTabIsActive: Bool { get }
+    func showCockpitTool()
+    func openFile(_ url: URL)
 }
 
 @MainActor

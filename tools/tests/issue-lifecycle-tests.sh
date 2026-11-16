@@ -23,10 +23,10 @@ run() {  # name, checks file, extra sources...
 run_suite() {
     local suite=$1
     case $suite in
-        workflow)   run workflow ProjectWorkflowChecks.swift tools/tests/StoreTestSupport.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift ;;
+        workflow)   run workflow ProjectWorkflowChecks.swift tools/tests/StoreTestSupport.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Shared/SchemaVersionedStore.swift ;;
         events)     run events WorkflowEventChecks.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
         description) run description WorkflowDescriptionChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" ;;
-        proposal)   run proposal WorkflowProposalChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" "$M/Lifecycle/WorkflowProposal.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift ;;
+        proposal)   run proposal WorkflowProposalChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" "$M/Lifecycle/WorkflowProposal.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Shared/SchemaVersionedStore.swift ;;
         policy)     run policy IssueLifecyclePolicyChecks.swift ;;
         log)        run log IssueTransitionLogChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
         evidence)   run evidence IssueEvidenceChecks.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" ;;

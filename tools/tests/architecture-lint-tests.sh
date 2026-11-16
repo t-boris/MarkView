@@ -173,16 +173,16 @@ try:
 
     # --- semantic-database-actor
     root = fresh()
-    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "// @MainActor in a comment does not count\nactor SemanticDatabase {\n    func search() {}\n}\n")
+    write(root, "MarkView/Models/Shared/SemanticDatabase.swift", "// @MainActor in a comment does not count\nactor SemanticDatabase {\n    func search() {}\n}\n")
     project(root, app_swift(root))
     code, out = run(root)
     check(code == 0, "a SemanticDatabase declared as an actor passes")
     root = fresh()
-    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "@MainActor\nclass SemanticDatabase {\n    func search() {}\n}\n")
+    write(root, "MarkView/Models/Shared/SemanticDatabase.swift", "@MainActor\nclass SemanticDatabase {\n    func search() {}\n}\n")
     project(root, app_swift(root))
     code, out = run(root)
-    check(code == 1 and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift: `SemanticDatabase` must be declared as an `actor`" in out
-          and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift:1: `@MainActor` in the database" in out,
+    check(code == 1 and "[semantic-database-actor] MarkView/Models/Shared/SemanticDatabase.swift: `SemanticDatabase` must be declared as an `actor`" in out
+          and "[semantic-database-actor] MarkView/Models/Shared/SemanticDatabase.swift:1: `@MainActor` in the database" in out,
           "a SemanticDatabase that is a @MainActor class fails with both reasons")
 
     # --- process ratchet

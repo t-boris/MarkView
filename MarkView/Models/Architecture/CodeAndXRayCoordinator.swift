@@ -8,8 +8,8 @@ import MarkViewCore
 /// reference to it beyond this.
 @MainActor
 protocol CodeXRayHost: AnyObject {
-    /// Kind and file of the tab on show.
-    var activeTabKind: TabKind? { get }
+    /// The scope of the X-Ray tab on show (`XRayScope`); nil when the tab on show is not an X-Ray.
+    var activeXRayScope: String? { get }
     var activeTabURL: URL? { get }
     /// The text the open tab for `url` holds (unsaved edits included); nil when the file is not open.
     func openTabContent(for url: URL) -> String?
@@ -42,7 +42,7 @@ protocol CodeXRayHost: AnyObject {
 /// (`AR-14` step 11, `AR-19`); `WorkspaceManager` holds one and no longer holds any X-Ray state or dispatches X-Ray requests.
 @MainActor
 final class CodeAndXRayCoordinator: ObservableObject {
-    /// The project's X-Ray (scope "") and the pull-request X-Ray (`TabKind.pullRequestScope`).
+    /// The project's X-Ray (scope "") and the pull-request X-Ray (`XRayScope.pullRequest`).
     let architecture = ArchitectureStore()
     /// AI margin notes for code files (code viewer → Explain).
     let codeExplain = CodeExplainStore()
@@ -369,7 +369,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
 
     /// The store behind an X-Ray tab.
     func xrayStore(for scope: String) -> ArchitectureStore {
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return architecture }
+        if scope.isEmpty || scope == XRayScope.pullRequest { return architecture }
         if let store = folderXRays[scope] { return store }
         let store = ArchitectureStore()
         store.projectRoot = project.root
@@ -391,7 +391,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// Root folder and database of an X-Ray scope (folder X-Rays keep no database).
     private func xrayContext(_ scope: String) -> (root: URL, db: SemanticDatabase?)? {
         guard let root = project.root else { return nil }
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return (root, project.database) }
+        if scope.isEmpty || scope == XRayScope.pullRequest { return (root, project.database) }
         return (root.appendingPathComponent(scope), nil)
     }
 
@@ -417,7 +417,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// the links it adds or removes, and the AI's architectural reading of it.
     func openPRXRay(source: String?) {
         guard let root = project.root else { return }
-        openXRayTab(scope: TabKind.pullRequestScope)
+        openXRayTab(scope: XRayScope.pullRequest)
         if let source, !source.isEmpty {
             architecture.review.refreshPRSources(root: root)
             // A comparison with an earlier commit can span months of work: it is shown, and analysed when asked.
@@ -446,7 +446,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         let current = branch.isEmpty ? "this checkout" : branch
         let title = reverse ? "\(ref) vs \(current): what \(ref) adds"
                             : "\(current) vs \(ref) (commits + uncommitted)"
-        openXRayTab(scope: TabKind.pullRequestScope)
+        openXRayTab(scope: XRayScope.pullRequest)
         // No AI run until asked: Analyze and Review are buttons in the view.
         architecture.review.showComparison(id: (reverse ? "rev:" : "cmp:") + ref, title: title, root: root, db: project.database)
         architecture.review.refreshPRSources(root: root)
@@ -491,8 +491,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     /// Carries out `command` on the X-Ray of the active tab (the project's when the active tab is not an X-Ray).
     func perform(_ command: XRayCommand) {
         // The X-Ray the active tab shows; nil when the active tab is not an X-Ray at all.
-        var activeScope: String?
-        if case .architecture(let s) = host?.activeTabKind { activeScope = s }
+        let activeScope = host?.activeXRayScope
         let scope = activeScope ?? ""
         guard command.isAllowed(inScope: activeScope), let (root, db) = xrayContext(scope) else { return }
         let architecture = xrayStore(for: scope)
@@ -532,7 +531,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         case .compareWithCommit(let sha):
             // The comparison with a date opens in the comparison view, like a branch comparison, from the project's X-Ray
             // as well as from the PR X-Ray (BUG-110): it needs no pull request.
-            if scope.isEmpty { openXRayTab(scope: TabKind.pullRequestScope) }
+            if scope.isEmpty { openXRayTab(scope: XRayScope.pullRequest) }
             architecture.review.compareWithCommit(sha: sha, root: root, db: db)
         case .prFileDiff(let path):
             architecture.review.showFileDiff(path: path)

@@ -8,13 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-python3 - "$out/filetype.swift" <<'PY'
-from pathlib import Path
-import sys
-source = Path('MarkView/Models/Workspace/DocumentState.swift').read_text().split('/// Represents a table of contents heading entry')[0]
-Path(sys.argv[1]).write_text(source)
-PY
 cp tools/tests/FileBrowserTests.swift "$out/main.swift"
-swiftc -o "$out/file-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift "$out/filetype.swift" MarkView/Models/Workspace/ArchiveSupport.swift \
+swiftc -o "$out/file-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Shared/ArchiveSupport.swift \
     MarkView/Models/Workspace/FileNode.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/FileBrowserModel.swift "$out/main.swift"
 "$out/file-browser-tests"

@@ -17,11 +17,11 @@ enum SemanticDatabase {
 }
 SWIFT
 swiftc -parse-as-library -o "$out/workspace-redesign-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Workspace/FrontMatter.swift \
+    MarkView/Models/Shared/FrontMatter.swift \
     MarkView/Models/Lifecycle/SpecificationHandoff.swift \
-    MarkView/Models/Workspace/ProjectSearch.swift \
-    MarkView/Models/Workspace/ArchiveSupport.swift \
-    MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift \
+    MarkView/Models/Shared/ProjectSearch.swift \
+    MarkView/Models/Shared/ArchiveSupport.swift \
+    MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift \
     MarkView/Models/Appearance/ProjectColor.swift \
     "$out/Stubs.swift" \
     MarkView/Models/Architecture/ProjectChangeReview.swift \

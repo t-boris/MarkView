@@ -107,7 +107,7 @@ Each line is the number of places to edit; a new Swift file also needs its entri
 - **A bridge message**: 4. Its entry in `Resources/Editor/js/bridge-contract.json`, its payload type in `Bridge/PageMessages.swift`, its
   `messages.on` handler in `Bridge/WebViewBridge.swift`, and the page's `mvBridge.send(...)` call. A page never posts through
   `messageHandlers` itself (`bridge-no-bypass` lint), and `bridge-contract-tests.sh` runs a sample of every message through the types.
-- **A SQLite migration**: 1. A new `SQLiteMigration` at the end of `SemanticSchema.migrations` (`Models/Insight/SemanticSchema.swift`);
+- **A SQLite migration**: 1. A new `SQLiteMigration` at the end of `SemanticSchema.migrations` (`Models/Shared/SemanticSchema.swift`);
   a released step is never edited.
 - **A JSON store**: 1. Use `SchemaVersionedStore<T>` (`Models/Workspace/`); it separates missing, corrupted and newer-schema files.
   Writes go through `AtomicFile`; paths under `.dde/` come from `ProjectPaths`.

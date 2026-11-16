@@ -86,7 +86,7 @@ let splitFilesExist = [
     "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
     "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
     "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
-    "MarkView/Models/Workspace/SchemaVersionedStore.swift",
+    "MarkView/Models/Shared/SchemaVersionedStore.swift",
     "MarkView/Models/AI/AIOperation.swift",
     "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
 ].allSatisfy { fm.fileExists(atPath: root.appendingPathComponent($0).path) }

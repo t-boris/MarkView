@@ -134,12 +134,12 @@ SWIFT
 swiftc -o "$out/ai-terminals-controller-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Terminal/AITerminalsController.swift MarkView/Models/Terminal/AssistantProviding.swift MarkView/Models/Terminal/TerminalProfile.swift \
-    MarkView/Models/Workspace/ProjectProviding.swift \
+    MarkView/Models/Shared/ProjectProviding.swift \
     MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/Remote/RemoteProtocol.swift \
     MarkView/Models/Remote/RemoteConnectionState.swift \
     MarkView/Models/Terminal/AgentActivityMonitor.swift \
     MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
-    MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift MarkView/Models/Appearance/ProjectColor.swift \
+    MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/Appearance/ProjectColor.swift \
     "$out/Stub.swift" "$out/main.swift"
 "$out/ai-terminals-controller-tests"

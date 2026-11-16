@@ -286,7 +286,7 @@ struct TabFactsPanel: View {
             case .run(let id, let repo, let title): return [("Tab", "GitHub Actions run"), ("Repository", repo), ("Run", String(id)), ("Title", title)]
             }
         case .architecture(let scope):
-            return [("Tab", "X-Ray"), ("Scope", scope.isEmpty ? "Whole project" : scope == TabKind.pullRequestScope ? "Pull request" : scope)]
+            return [("Tab", "X-Ray"), ("Scope", scope.isEmpty ? "Whole project" : scope == XRayScope.pullRequest ? "Pull request" : scope)]
         default:
             return [("Tab", tab.displayName)]
         }

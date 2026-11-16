@@ -33,7 +33,7 @@ enum WorkspaceAITool: String {
 /// protocols the parts ask of their window, and carries the window's own commands: open or close a folder, open a file in its ways,
 /// remove the folder's metadata.
 @MainActor
-class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, WindowSessionWindow, ToolTabsWindow {
+class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, ToolTabsWindow {
     /// The parts of this window. The one late binding of the window: each part is given this object through its own narrow protocol.
     private(set) lazy var composition = WindowComposition(host: self)
 
@@ -705,7 +705,10 @@ extension WorkspaceManager: ProjectOperationsPresenter {
 
 /// What `CodeAndXRayCoordinator` needs of this window; the coordinator holds no other reference to it (`AR-14` step 11).
 extension WorkspaceManager: CodeXRayHost {
-    var activeTabKind: TabKind? { tabs.activeTab?.kind }
+    var activeXRayScope: String? {
+        if case .architecture(let scope)? = tabs.activeTab?.kind { return scope }
+        return nil
+    }
     var activeTabURL: URL? { tabs.activeTab?.url }
     var gitBranch: String { gitClient.branch }
     var defaultAuthor: String { flow.features.defaultOwner }

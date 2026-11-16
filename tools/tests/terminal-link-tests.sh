@@ -9,8 +9,6 @@ trap 'rm -rf "$out"' EXIT
 python3 - "$out" <<'PY'
 import pathlib, sys
 out = pathlib.Path(sys.argv[1])
-source = pathlib.Path('MarkView/Models/Workspace/DocumentState.swift').read_text()
-(out / 'FileType.swift').write_text(source.split('/// Represents a table of contents heading entry')[0])
 (out / 'main.swift').write_text(pathlib.Path('tools/tests/TerminalLinkTests.swift').read_text())
 root = out / 'fixtures'
 (root / 'sub').mkdir(parents=True)
@@ -18,7 +16,7 @@ for name in ['sample.swift', 'spaced file.md', 'README.md', 'LICENSE', 'literal%
     (root / name).write_text('test fixture\n')
 PY
 swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/terminal-link-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift MarkView/Models/Remote/RemoteConnectionState.swift MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Appearance/WebThemeArguments.swift MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Terminal/TerminalChildProcess.swift MarkView/Models/Terminal/TerminalBrowserBridge.swift MarkView/Models/Terminal/PTYWriter.swift "$out/FileType.swift" MarkView/Models/Workspace/ArchiveSupport.swift "$out/main.swift"
+    MarkView/Bridge/TypedWebBridge.swift MarkView/Bridge/PageMessages.swift MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Terminal/TerminalLink.swift MarkView/Models/Remote/RemoteConnectionState.swift MarkView/Models/Terminal/TerminalSession.swift MarkView/Models/Appearance/WebThemeArguments.swift MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Terminal/TerminalChildProcess.swift MarkView/Models/Terminal/TerminalBrowserBridge.swift MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Shared/ArchiveSupport.swift "$out/main.swift"
 "$out/terminal-link-tests" "$PWD/MarkView/Resources/Editor/terminal.html" "$out/fixtures" "$@"
 
 cp tools/tests/EditorLineLinkTests.swift "$out/main.swift"

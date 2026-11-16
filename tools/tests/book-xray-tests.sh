@@ -11,6 +11,6 @@ trap 'rm -rf "$out"' EXIT
 cp tools/tests/BookXRayTests.swift "$out/main.swift"
 # OutputLanguage.swift provides ContentHash (the chapter signature) and the output-language setting;
 # XRayContent.swift builds the item nodes under a section.
-swiftc -o "$out/book-xray-tests" Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Book/BookBuilder.swift MarkView/Models/Workspace/WikiLinkResolver.swift \
+swiftc -o "$out/book-xray-tests" Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Book/BookBuilder.swift MarkView/Models/Shared/WikiLinkResolver.swift \
     MarkView/Models/Book/BookAnnotator.swift MarkView/Models/Architecture/XRayContent.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/AI/OutputLanguage.swift "$out/main.swift"
 "$out/book-xray-tests"
