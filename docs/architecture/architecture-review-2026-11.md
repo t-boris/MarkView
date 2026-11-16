@@ -292,6 +292,8 @@ struct AIOperation<Input, Output: Decodable> {
 
 Migrate feature by feature, starting with `PrototypeAI` and `FeatureAI`. It deletes the retry loops, the salvage parsers, the activity translators and most cast chains.
 
+Status (2026-11-15): done by its acceptance count (`CLICompletion.run` outside `AIOperation`: 55 calls in 28 files -> 0, lint `clicompletion`); `AIOperation` is referenced from 37 files (1 call site at 6.26.2) and `AIJSONSalvage` from 10 places (3). Not re-measured: the validate-and-ask-again loops (12 files at 6.26.0), the activity-to-stage translators and whether usage is recorded at every call site; a rough grep for hand-written outermost-brace JSON salvage finds 5 sites (7 at 6.26.2).
+
 ### AR-27 Web-side copies (medium, M)
 
 Seven HTML escape functions under five names (the one in `markview-data.js:72` does not escape the apostrophe), 97 `innerHTML` sinks in 17 files, six wheel pan/zoom implementations, no shared debounce (14 ad-hoc timers), three private DOM builders beside 215 raw `createElement` calls in `markview-architecture.js`, four different wrappers for posting to native, 56 empty `catch {}` blocks. On the Swift side there are ten `WKWebView` hosts with seven navigation-policy and eight message-handler implementations; a weak handler proxy exists in two of them while the editor registers its bridge strongly.
