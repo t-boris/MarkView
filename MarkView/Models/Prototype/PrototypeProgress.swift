@@ -6,6 +6,7 @@ import MarkViewCore
 /// Turns the assistant's activity (files read, searches, the answer growing) into events. The CLI reports
 /// from its own threads and for every token, so the answer is scanned for the file being written and the
 /// size line is throttled.
+// unchecked Sendable: every mutable field is read and written under `lock`; the CLI reports from its own threads.
 final class PrototypeProgressTracker: @unchecked Sendable {
     private let lock = NSLock()
     private let emit: PrototypeAI.Stage

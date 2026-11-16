@@ -1,8 +1,11 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Watches the assistants running in a window's AI terminals and publishes what each one is doing, for the tabs and the
 /// toolbar. Reads each one's own session store off the main thread every few seconds, and only while an assistant terminal is
-/// running.
+/// running and the window is on screen (the window's `PollingScheduler`, `AR-19`).
 @MainActor
 final class AgentActivityMonitor: ObservableObject {
     struct Entry: Equatable, Identifiable {
@@ -19,30 +22,28 @@ final class AgentActivityMonitor: ObservableObject {
     weak var provider: (any AssistantProviding)?
     /// Owns the read of the session stores, so it ends with the folder or the window (AR-19).
     private let tasks: TaskBag
+    private let polling: PollingScheduler
+    private let pollKey = "agent-activity-" + UUID().uuidString
 
-    init(tasks: TaskBag) { self.tasks = tasks }
+    init(tasks: TaskBag, polling: PollingScheduler) {
+        self.tasks = tasks
+        self.polling = polling
+    }
 
-    private var timer: Timer?
     private var busy = false
     private var seen: [UUID: ActivityCache] = [:]
     static let interval: TimeInterval = 3
 
     func start() {
-        guard timer == nil else { return }
-        let timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] timer in
-            // The window is gone: the timer goes with it.
-            guard let self else { timer.invalidate(); return }
-            MainActor.assumeIsolated { self.tick() }
+        guard !polling.keys.contains(pollKey) else { return }
+        let key = pollKey, polling = polling
+        polling.every(Self.interval, key: key) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.tick()
         }
-        timer.tolerance = 1
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-    }
+    func stop() { polling.stop(key: pollKey) }
 
     /// What the toolbar shows: the active terminal's assistant, or the first working one.
     var headline: Entry? {

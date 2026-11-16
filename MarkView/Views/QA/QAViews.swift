@@ -1075,8 +1075,9 @@ private extension QANode {
     func binding<Value>(_ model: QAModel, _ keyPath: WritableKeyPath<QANode, Value>) -> Binding<Value> {
         let id = self.id
         let current = self[keyPath: keyPath]
-        return Binding(get: { model.current?.node(id)?[keyPath: keyPath] ?? current },
-                       set: { value in model.edit { $0.update(node: id) { $0[keyPath: keyPath] = value } } })
+        // SwiftUI reads and writes a binding on the main thread; the closures are only declared `@Sendable`.
+        return Binding(get: { MainActor.assumeIsolated { model.current?.node(id)?[keyPath: keyPath] ?? current } },
+                       set: { value in MainActor.assumeIsolated { model.edit { $0.update(node: id) { $0[keyPath: keyPath] = value } } } })
     }
 }
 

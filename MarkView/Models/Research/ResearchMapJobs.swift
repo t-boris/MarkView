@@ -47,7 +47,7 @@ extension ResearchJobs {
     /// Expand topic: the AI develops `node` of the map in `file`, in the direction the person gave (empty: its own
     /// choice). Returns a one-line reason when it cannot start.
     func developMap(file: URL, node: String, direction: String) -> String? {
-        guard let host, let maps, let root = project.root else { return "No project is open." }
+        guard host != nil, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; develop the branch when it has finished." }
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
@@ -108,7 +108,7 @@ extension ResearchJobs {
         }
         let name = kind == .custom ? "Diagram" : kind.title
         launch(kind: .mapDraw, file: file, title: "Draw \(name.lowercased()): " + Self.title(target.title)) { [weak host, weak maps, weak project] job in
-            guard let host, let maps, let project else { return nil }
+            guard host != nil, let maps, let project else { return nil }
             // The map as it is now, not as it was when the action was chosen.
             guard case .success(let current)? = maps.text(of: file).map({ ResearchMap.parse($0) }),
                   let from = current.node(node) else { return "That node no longer exists." }
@@ -163,7 +163,7 @@ extension ResearchJobs {
     /// Starts one of the single-node actions. Returns a one-line reason when it cannot start.
     private func runOnNode(file: URL, node: String, kind: Job.Kind, label: String, mode: ResearchMapRun.Mode,
                            prompt: @escaping (ResearchMap, ResearchMap.Node, String) -> String) -> String? {
-        guard let host, let maps, let root = project.root else { return "No project is open." }
+        guard host != nil, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; run this action when it has finished." }
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
@@ -184,7 +184,7 @@ extension ResearchJobs {
 
     /// Continues a map whose research stopped early.
     func continueMap(file: URL) -> String? {
-        guard let host, let maps, let root = project.root else { return "No project is open." }
+        guard host != nil, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map." }
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }) else {
             return "This file is not a readable research map."
@@ -380,6 +380,7 @@ final class MapRunDriver {
 
 /// The thread-safe half of a map run: parses the agent's text into node events and collects them
 /// until the driver takes them.
+// unchecked Sendable: `lock` guards every field except `onReady`, which the owner assigns once in its init before any callback can run.
 final class ResearchMapStream: @unchecked Sendable {
     private let lock = NSLock()
     private var parser: ResearchMapRun

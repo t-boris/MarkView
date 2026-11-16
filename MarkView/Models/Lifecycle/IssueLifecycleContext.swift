@@ -76,6 +76,7 @@ struct SessionLinkRecord: Codable, Equatable, Sendable {
 
 /// The session links of a project: append-only JSON lines under `.dde/lifecycle/sessions.jsonl`, folded when read. A damaged
 /// line is skipped. A call by a session that never attached is not recorded: registration alone proves nothing (REQ-003).
+// unchecked Sendable: `url` and `now` are `let` (`now` is not declared @Sendable); `lock` serializes every read and append of the link file.
 final class SessionLinkStore: @unchecked Sendable {
     let url: URL
     private let now: () -> Date

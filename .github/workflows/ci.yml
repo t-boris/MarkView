@@ -3,6 +3,7 @@
 # - Runs `swift test` on `Packages/MarkViewCore` (AR-44)
 # - Runs the architecture lint (`tools/lint/architecture-lint.sh`) and the manifest-selected suites (`tools/tests/run.sh`)
 # - Compiles the macOS app once with a shared DerivedData cache (`tools/ci/build-cache-mtimes.py`)
+# - Keeps the compiler warnings of the package and of the app at the allowance of `tools/lint/build-warnings-allowlist.txt` (AR-43)
 name: CI
 
 on:
@@ -58,7 +59,9 @@ jobs:
           echo "version=$(xcodebuild -version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Run MarkViewCore Swift Package tests
-        run: swift test --package-path Packages/MarkViewCore
+        run: |
+          set -o pipefail
+          swift test --package-path Packages/MarkViewCore 2>&1 | tee "$RUNNER_TEMP/package-build.log"
 
       - name: Run headless WebKit & window session regression suites
         run: |
@@ -79,12 +82,16 @@ jobs:
 
       - name: Build MarkView (Debug)
         run: |
+          set -o pipefail
           xcodebuild -project MarkView.xcodeproj \
             -scheme MarkView \
             -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/MarkViewDerivedData" \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee "$RUNNER_TEMP/app-build.log"
+
+      - name: Build warnings ratchet
+        run: ./tools/lint/build-warnings.sh --log "$RUNNER_TEMP/app-build.log" --log "$RUNNER_TEMP/package-build.log"
 
       - name: Record build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"

@@ -1077,7 +1077,8 @@ enum RunTestError: Error, LocalizedError {
     var errorDescription: String? { "refused" }
 }
 
-final class FakeDriver: QAActorDriver {
+// unchecked Sendable: a test double; the run reads and writes it from one task at a time and the test reads it after the run.
+final class FakeDriver: QAActorDriver, @unchecked Sendable {
     let request: QADriverRequest
     var opened: [String] = []
     var performed: [QAAction] = []

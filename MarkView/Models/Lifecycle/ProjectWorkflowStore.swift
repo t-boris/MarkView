@@ -70,7 +70,7 @@ enum WorkflowStoreError: Error, LocalizedError, Equatable {
     }
 }
 
-final class ProjectWorkflowStore: @unchecked Sendable {
+final class ProjectWorkflowStore: Sendable {
     let url: URL
     private let lock = NSLock()
 

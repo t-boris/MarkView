@@ -117,6 +117,7 @@ final class RemoteTerminalConnection: TerminalConnection {
         guard !stopped else { return }
         guard outgoing.count < 256 else {
             onState?(.reconnecting, "Remote input paused · reconnecting")
+            // task: closes the channel of a connection that fell behind; teardown must run to the end
             if let channel { Task { await channel.close() } }; return
         }
         outgoing.append(message); drain()
@@ -152,6 +153,7 @@ final class RemoteTerminalConnection: TerminalConnection {
         guard !stopped else { return }
         stopped = true; readyToSend = false; task?.cancel(); task = nil
         if let savedConnectionID { RemoteConnectionsStore.shared.connectionStopped(savedConnectionID) }
+        // task: closes the transport after the connection stopped; teardown must run to the end
         Task { await clearTransport() }
     }
     private func finish(_ code: Int32) { suspend(); onExit?(code) }

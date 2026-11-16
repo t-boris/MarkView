@@ -160,7 +160,7 @@ final class StudioRequestPath: ObservableObject {
     private func pushChanges(since before: [String: [StudioJSON]]) {
         let changes = StudioEntityChange.diff(before: before, after: session.simulator.state, spec: session.simulator.spec)
         guard !changes.isEmpty else { return }
-        Task { [weak self, session] in self?.channels.entitiesChanged(changes) }
+        Task { [weak self] in self?.channels.entitiesChanged(changes) }
     }
 
     /// A page WebSocket or EventSource on a simulated channel. One to a gateway port (a public variable inlined in the
@@ -216,7 +216,7 @@ final class StudioRequestPath: ObservableObject {
             let generation = self.session.simulator.generation
             let values = frames.map(\.bridgeValue)
             let previous = self.channelDeliveries
-            self.channelDeliveries = Task { [weak self, session] in
+            self.channelDeliveries = Task { [weak self] in
                 await previous?.value
                 guard let self, !self.session.closed, self.session.simulator.generation == generation else { return }
                 _ = try? await self.session.call("return window.__markviewStudio ? window.__markviewStudio.deliver(id, frames) : false;",
@@ -241,7 +241,7 @@ final class StudioRequestPath: ObservableObject {
         let generation = session.simulator.generation
         let preparer = makePreparer()
         session.updateReadiness()
-        Task { [weak self, session] in
+        Task { [weak self] in
             guard let self else { return done(.refused("The session is closed.")) }
             let outcome = await self.session.preparation.resolve(context, generation: generation, preparer: preparer,
                                                          currentGeneration: { [weak self] in self?.session.simulator.generation ?? -1 },
@@ -357,13 +357,13 @@ final class StudioRequestPath: ObservableObject {
         let preparer = makePreparer()
         let asked = Date()
         session.updateReadiness()
-        Task { [weak self, session] in
+        Task { [weak self] in
             guard let self else { return reply(.dropped("closed")) }
             var context = baseContext
             // A page's request answers within `provisionalAfter` seconds, whatever the preparation needs (BUG-089); the rule that
             // arrives later loads the page again once. Requests of the development server keep waiting: it renders from them.
             let answer = StudioReplyOnce(reply)
-            let provisionalTimer: Task<Void, Never>? = source.variable == nil ? Task { [weak self, session] in
+            let provisionalTimer: Task<Void, Never>? = source.variable == nil ? Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(Self.provisionalAfter * 1_000_000_000))
                 guard !Task.isCancelled, let self, !self.session.closed, self.session.simulator.generation == generation, answer.reply(.respond(.preparing(contract))) else { return }
                 self.provisional[generation, default: []].insert(contract)
@@ -458,7 +458,7 @@ final class StudioRequestPath: ObservableObject {
         guard provisional[generation]?.isEmpty ?? true, provisionalReady.contains(generation), session.simulator.generation == generation,
               !session.closed, session.appURL != nil else { return }
         provisionalReady.remove(generation)
-        Task { [weak self, session] in
+        Task { [weak self] in
             guard let self else { return }
             let typed = (try? await self.session.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
             guard !self.session.closed, self.session.simulator.generation == generation else { return }
@@ -527,7 +527,7 @@ final class StudioRequestPath: ObservableObject {
         let generation = session.simulator.generation
         guard reloadedForRules != generation else { return }
         reloadedForRules = generation
-        Task { [weak self, session] in
+        Task { [weak self] in
             guard let self else { return }
             let typed = (try? await self.session.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
             guard !self.session.closed, self.session.simulator.generation == generation else { return }

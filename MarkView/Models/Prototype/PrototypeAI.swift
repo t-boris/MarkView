@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import os
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -179,7 +180,7 @@ enum PrototypeAI {
         request.timeout = timeout
         request.label = label
         stage(.log("Started the assistant"))
-        let tracker = PrototypeProgressTracker(root: root, reading: reading, onRead: readLog.map { log in { log.add($0) } }, emit: stage)
+        let tracker = PrototypeProgressTracker(root: root, reading: reading, onRead: readLog.map { log in { @Sendable path in log.add(path) } }, emit: stage)
         let asking = AIOperation<CLICompletion.Request, CLICompletion.Result>(
             name: label, parse: { $0 },
             onResult: { result in
@@ -1016,11 +1017,10 @@ enum PrototypeAI {
     static let maxSweepFiles = 100
 
     /// The changes of a sweep, written by the runs that finish side by side.
-    private final class SweepChanges: @unchecked Sendable {
-        private let lock = NSLock()
-        private var changes: [String: PrototypeFiles.Change] = [:]
-        func set(_ path: String, _ change: PrototypeFiles.Change) { lock.lock(); changes[path] = change; lock.unlock() }
-        func change(for path: String) -> PrototypeFiles.Change? { lock.lock(); defer { lock.unlock() }; return changes[path] }
+    private final class SweepChanges: Sendable {
+        private let changes = OSAllocatedUnfairLock(initialState: [String: PrototypeFiles.Change]())
+        func set(_ path: String, _ change: PrototypeFiles.Change) { changes.withLock { $0[path] = change } }
+        func change(for path: String) -> PrototypeFiles.Change? { changes.withLock { $0[path] } }
     }
 
     /// One file of a sweep: a run that owns `file`, answers for it alone and is tried twice. An answer that

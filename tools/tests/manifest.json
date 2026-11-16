@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 210,
+  "suiteCount": 211,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -152,7 +152,6 @@
         "MarkView/Models/Terminal/AssistantProviding.swift",
         "MarkView/Models/Workspace/LinkedFolders.swift",
         "MarkView/Models/AI/LinkedFolderStore.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
@@ -197,6 +196,14 @@
       "sources": [
         "tools/lint/architecture-lint.sh",
         "tools/lint/domain-dependencies.py"
+      ]
+    },
+    {
+      "name": "build-warnings-tests",
+      "script": "tools/tests/build-warnings-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "tools/lint/build-warnings.sh"
       ]
     },
     {
@@ -1032,7 +1039,6 @@
         "MarkView/Models/Workspace/ProjectProviding.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -1136,7 +1142,6 @@
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/WebAppPreview.swift",
         "MarkView/Models/Workspace/WindowChrome.swift",
@@ -1200,7 +1205,6 @@
         "MarkView/Models/Workspace/PanelLayout.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/WindowChrome.swift",
         "MarkView/Models/Workspace/WindowSession.swift",
@@ -1265,7 +1269,6 @@
         "MarkView/Models/Workspace/ProjectProviding.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -1285,7 +1288,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Workspace/FinderOpenRequests.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PollingScheduler.swift",
         "tools/tests/FinderOpenRequestsTests.swift",
         "tools/tests/finder-open-requests-tests.sh"
       ]
@@ -1459,7 +1462,6 @@
         "MarkView/Models/Workspace/LinkedFolders.swift",
         "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
@@ -1702,7 +1704,6 @@
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Views/Appearance/AppPalette.swift",
         "MarkView/Views/Book/PDFReaderView.swift",
@@ -1858,7 +1859,6 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
@@ -3070,7 +3070,6 @@
         "MarkView/Models/Workspace/LinkedFolders.swift",
         "MarkView/Models/AI/LinkedFolderStore.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
@@ -3302,7 +3301,6 @@
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/TabsControllerStubs.swift",
@@ -3909,7 +3907,6 @@
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/WindowChrome.swift",
         "MarkView/Models/Workspace/WindowSession.swift",
@@ -4221,7 +4218,11 @@
         "tools/tests/SemanticDatabaseTests.swift",
         "tools/tests/fixtures/semantic-database/release-6.26-schema.sql",
         "tools/tests/semantic-database-tests.sh",
-        "MarkView/Models/AI/AIOperation.swift"
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/Architecture/StructuralIndexer.swift",
+        "MarkView/Models/AI/LinkedFolderStore.swift",
+        "MarkView/Models/Workspace/LinkedFolders.swift",
+        "MarkView/Models/Appearance/ProjectColor.swift"
       ]
     },
     {
@@ -4434,7 +4435,6 @@
         "MarkView/Models/Workspace/ProjectContext.swift",
         "MarkView/Models/Workspace/ProjectProviding.swift",
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/WorkspaceFileTreeStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
@@ -4595,7 +4595,6 @@
         "MarkView/Models/Workspace/SchemaVersionedStore.swift",
         "MarkView/Models/Workspace/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/TaskBag.swift",
         "MarkView/Models/Workspace/ToolOpener.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/ToolTabsRouter.swift",
@@ -4614,7 +4613,8 @@
       "script": "tools/tests/window-composition-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/Workspace/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PollingScheduler.swift",
         "MarkView/Models/Workspace/WindowComposition.swift",
         "tools/tests/WindowCompositionStubs.swift",
         "tools/tests/WindowCompositionTests.swift",

@@ -55,6 +55,7 @@ enum TabsControllerChecks {
         await closeFolderQuestionAndFailedSave()
         await followMovedFiles()
         await reloadFilesChangedOnDisk()
+        await openFilesAreWatchedWhileTheWindowIsOnScreen()
         await sideTableFollowsTheTabs()
         await whatRedrawsWhat()
         await closeTabsUnderTrashedFolder()
@@ -253,6 +254,43 @@ enum TabsControllerChecks {
             await tabs.reloadChangedOpenFiles(all: true)
             check(tabs.openTabs[0].content == "clean 2\n", "a file that vanished leaves its tab as it was")
             subscription.cancel()
+        }
+    }
+
+    /// The watch of open files is a job of the window's scheduler: it reloads a changed file while the window is on screen, does nothing
+    /// while it is not, and the window's shutdown ends it (`AR-19`). The stand-in clock turns the two-second wait into ten milliseconds.
+    @MainActor
+    static func openFilesAreWatchedWhileTheWindowIsOnScreen() async {
+        await folder { dir in
+            let file = dir.appendingPathComponent("watched.md")
+            try? "one\n".write(to: file, atomically: true, encoding: .utf8)
+            let tabs = TabsController(dialogs: Script().dialogs)
+            let polling = PollingScheduler(sleep: { _ in try await Task.sleep(nanoseconds: 10_000_000) })
+            tabs.polling = polling
+            await tabs.openTextFile(file)
+            @MainActor func reloaded(_ text: String) async -> Bool {
+                for _ in 0..<300 where tabs.openTabs[0].content != text { try? await Task.sleep(nanoseconds: 10_000_000) }
+                return tabs.openTabs[0].content == text
+            }
+
+            check(polling.keys.isEmpty, "a window with no terminal does not watch its files")
+            tabs.startWatchingOpenFiles()
+            tabs.startWatchingOpenFiles()
+            check(polling.keys.count == 1, "asking again does not start a second watch")
+            try? await Task.sleep(nanoseconds: 150_000_000)   // the first poll only takes the file's date
+            try? "two\n".write(to: file, atomically: true, encoding: .utf8)
+            check(await reloaded("two\n"), "a file an assistant changed is reloaded by the poll")
+
+            polling.setWindowVisible(false)
+            check(polling.runningCount == 0, "a window that is not on screen holds no poll")
+            try? "three\n".write(to: file, atomically: true, encoding: .utf8)
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            check(tabs.openTabs[0].content == "two\n", "and reads nothing while hidden")
+            polling.setWindowVisible(true)
+            check(await reloaded("three\n"), "it catches up when the window is back")
+
+            tabs.shutdown()
+            check(polling.keys.isEmpty, "closing the window ends the watch")
         }
     }
 

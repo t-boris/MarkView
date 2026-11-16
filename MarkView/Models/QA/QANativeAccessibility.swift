@@ -9,6 +9,7 @@ import Foundation
 // hangs costs a look a few seconds and never hangs MarkView. Only the pure model (`QANativeTree.swift`) is checked on its own; this layer is
 // checked against a real application by the live part of tools/tests/qa-native-tests.sh.
 
+// unchecked Sendable: every call runs on the private serial `queue`, which owns `inspectionRoot` and `inspectionOffset`.
 final class QANativeAccessibility: @unchecked Sendable {
     /// What one look at the application read.
     struct Reading {
@@ -68,7 +69,7 @@ final class QANativeAccessibility: @unchecked Sendable {
 
     // MARK: Running on the queue
 
-    private func run<T>(_ work: @escaping () throws -> T) async throws -> T {
+    private func run<T>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { continuation.resume(with: Result { try work() }) }
         }

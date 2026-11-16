@@ -109,7 +109,10 @@ private struct ImageThumbnail: View {
                 Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 220).padding(10)
             }
         }
-        .task { image = await Task.detached(priority: .utility) { NSImage(contentsOf: url) }.value }
+        .task {
+            let data = await Task.detached(priority: .utility) { try? Data(contentsOf: url) }.value
+            image = data.flatMap { NSImage(data: $0) }
+        }
     }
 }
 
@@ -420,6 +423,7 @@ struct BrowserContentsPanel: View {
         }
         // Read the page when it finishes loading, and when the address changes.
         .onReceive(session.$isLoading.removeDuplicates()) { loading in
+            // task: reads the page 0.4 s after it finished loading; it only asks the panel's own model to reload
             if !loading { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.reload() } }
         }
         .task(id: session.url) { model.reload() }

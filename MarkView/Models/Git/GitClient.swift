@@ -381,7 +381,7 @@ class GitClient: ObservableObject {
     }
 
     func discardChanges(_ file: String) {
-        guard let dir = workingDirectory else { return }
+        guard workingDirectory != nil else { return }
         mutate(["checkout", "--", file], activity: "Discarding changes…")
     }
 

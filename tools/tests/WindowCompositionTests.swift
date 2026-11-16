@@ -71,6 +71,8 @@ func joining() async {
     print("-- the parts that react to each other's events are joined once")
     let (_, composition) = makeComposition()
     composition.connect()
+    check(composition.terminals.polling === composition.polling && composition.tabs.polling === composition.polling && composition.project.fileTree.polling === composition.polling,
+          "the window's polls are one scheduler, shared by the terminals, the tabs and the file tree")
     let project = composition.project
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-project", isDirectory: true)
     project.rootNode = FileNode(url: root)
@@ -138,12 +140,15 @@ func closing() async {
         while !Task.isCancelled { try? await Task.sleep(nanoseconds: 10_000_000) }
     }, for: "wikilink:note")
     check(composition.taskBag.activeCount == 2, "the window's commands have work running")
+    composition.polling.every(60, key: "watch") { }
+    check(composition.polling.keys == ["watch"], "the window's polls run in its own scheduler")
 
     composition.close()
     check(Journal.shutdown == ["tabs", "project", "codeXRay", "flow", "browser", "toolTabs"],
           "every part ends its own work, tabs first and the tools last (\(Journal.shutdown))")
     await settle()
     check(composition.taskBag.activeCount == 0 && pending.isCancelled && stoppedFlag.value, "no task of the window is left running")
+    check(composition.polling.keys.isEmpty, "and no poll of the window is left scheduled")
 
     composition.tabs.emit(.reloadedFromDisk)
     composition.tabs.emit(.terminalClosed(UUID()))

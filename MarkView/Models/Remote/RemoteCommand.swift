@@ -6,6 +6,7 @@ import MarkViewCore
 
 /// A work-computer command, independent of the home CLI's PTY. Pipes are drained while the process
 /// runs, output is bounded, and polling never blocks the main thread or waits for EOF before draining.
+// unchecked Sendable: `lock` guards the process state and the output buffer; input is written through the serial `inputQueue`.
 final class RemoteCommand: @unchecked Sendable {
     struct Snapshot { let output: String; let exitCode: Int32? }
     private let inputQueue = DispatchQueue(label: "MarkView.remote.command-input")
@@ -83,6 +84,7 @@ final class RemoteCommand: @unchecked Sendable {
         if (inputWriter?.pendingCount ?? 0) == 0 || Date() >= deadline {
             inputWriter?.cancel(); child?.closeInput()
         } else {
+            // task: the input drain loop on the command's own queue, bounded by its deadline
             inputQueue.asyncAfter(deadline: .now() + 0.02) { [weak self] in self?.finishInput(deadline: deadline) }
         }
     }

@@ -22,10 +22,13 @@ final class WorkspaceFileTreeStore: ObservableObject {
     var autoRefreshPaused = false
     /// One beat of the watcher's timer (the Git status changes without the top folder changing); the window follows it.
     let timerBeats = PassthroughSubject<Void, Never>()
+    /// The window's scheduler, which runs the poll only while the window is on screen (`AR-19`); the window sets its own.
+    var polling = PollingScheduler.app
 
     private var fileWatcher: DispatchSourceFileSystemObject?
-    private var fileWatchTimer: Timer?
-    private var fileWatchDebounce: DispatchWorkItem?
+    private let pollKey = "file-tree-" + UUID().uuidString
+    /// The wait before a burst of file-system events reloads the tree; a newer event replaces it, stopping the watch cancels it.
+    private var fileWatchDebounce: Task<Void, Never>?
     private var lastRootModDate: Date?
     /// Whether the open folder holds a Markdown file (`AR-42`). A background walk answers it after the tree loads or reloads;
     /// until it has answered the flag is false, and the views that read it update when it changes.
@@ -123,8 +126,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
     func stopWatching() {
         fileWatchDebounce?.cancel()
         fileWatchDebounce = nil
-        fileWatchTimer?.invalidate()
-        fileWatchTimer = nil
+        polling.stop(key: pollKey)
         fileWatcher?.cancel()
         fileWatcher = nil
     }
@@ -161,21 +163,20 @@ final class WorkspaceFileTreeStore: ObservableObject {
         fileWatcher?.setEventHandler { [weak self] in
             guard let self else { return }
             self.fileWatchDebounce?.cancel()
-
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, !self.autoRefreshPaused else { return }
+            self.fileWatchDebounce = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self, !self.autoRefreshPaused else { return }
                 self.reloadFileTree()
             }
-
-            self.fileWatchDebounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
         }
 
         fileWatcher?.setCancelHandler { close(fd) }
         fileWatcher?.resume()
 
-        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkForFileTreeChanges() }
+        let key = pollKey, polling = polling
+        polling.every(10, key: key) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.checkForFileTreeChanges()
         }
     }
 
@@ -208,8 +209,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
 
         reloadTask?.cancel()
         reloadTask = Task.detached { [weak self] in
-            let rebuilt = FileNode.buildTree(from: rootURL, sortOrder: sort)
-            rebuilt.restoreExpansionState(from: expandedPaths, sortOrder: sort)
+            var rebuilt = FileTree.build(from: rootURL, sortOrder: sort)
+            rebuilt.restoreExpansion(from: expandedPaths, sortOrder: sort)
             let childCount = rebuilt.children?.count ?? 0
             Self.log("reloadFileTree: rebuilt with \(childCount) children")
             guard !Task.isCancelled else { return }
@@ -218,9 +219,9 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     /// Shows a rebuilt tree unless the folder changed while it was being built.
-    private func finishReload(_ rebuilt: FileNode, of rootURL: URL) {
+    private func finishReload(_ rebuilt: FileTree, of rootURL: URL) {
         guard rootNode?.url == rootURL else { return }
-        rootNode = rebuilt
+        rootNode = FileNode(rebuilt)
         lastRootModDate = rootModificationDate(for: rootURL)
         probeMarkdownFiles()
         Self.log("reloadFileTree: rootNode updated on MainActor")

@@ -29,6 +29,7 @@ actor SemanticDatabase {
         return SemanticDatabase(handle: file.handle, path: file.path)
     }
 
+    // unchecked Sendable: the SQLite handle is opened on a background thread and handed once to the actor that owns it; nothing else keeps a copy.
     private struct OpenedFile: @unchecked Sendable {
         let handle: OpaquePointer
         let path: String?

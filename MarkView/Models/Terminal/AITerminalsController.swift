@@ -50,10 +50,10 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
 
-    init(host: any AITerminalsHost, project: any ProjectProviding, tasks: TaskBag) {
+    init(host: any AITerminalsHost, project: any ProjectProviding, tasks: TaskBag, polling: PollingScheduler) {
         self.host = host
         self.projectContext = project
-        activity = AgentActivityMonitor(tasks: tasks)
+        activity = AgentActivityMonitor(tasks: tasks, polling: polling)
         activity.provider = self
         activity.start()
     }

@@ -190,7 +190,7 @@ final class FeatureAssistant: ObservableObject {
                                    assistant: "\(request.tool.displayName) · \(model)",
                                    output: folder.map { "Work · \($0.lastPathComponent)" } ?? "Work result",
                                    started: Date(), stage: "Starting")
-        let task = Task {
+        let task = Task { [self] in
             try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: key, onDelta: { [weak self] text in
                 onDelta?(text)
                 Task { @MainActor in

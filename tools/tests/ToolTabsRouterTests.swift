@@ -245,6 +245,26 @@ enum ToolTabsRouterChecks {
         check(rig.assistants.prompts.count == 1, "a question about an unknown environment is not sent")
         host.askAssistant(prod, question: "Is it up?")
         check(rig.assistants.prompts.count == 2 && rig.assistants.prompts[1].text.contains("Is it up?"), "a question about an environment goes to the assistant with the question")
+
+        // The window closes: the auto-refresh, the waits and a request still asking the person end with it (AR-19).
+        let polling = PollingScheduler()
+        host.store.polling = polling
+        host.store.autoRefresh = true
+        check(polling.keys.count == 1, "the auto-refresh is one job of the scheduler")
+        let asked = Task { await host.store.run("touch \(root.path)/never.txt", on: prod, origin: "The assistant", purpose: "a test") }
+        for _ in 0..<200 where host.store.approval == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+        check(host.store.approval != nil && host.store.tasks.activeCount == 1, "a request waiting for the person holds one timer, and no more")
+        host.store.answer(false)
+        if case .denied = await asked.value {} else { check(false, "a refused command is not run") }
+        check(host.store.tasks.activeCount == 0, "an answered request leaves no timer behind")
+        let closing = Task { await host.store.run("touch \(root.path)/never.txt", on: prod, origin: "The assistant", purpose: "a test") }
+        for _ in 0..<200 where host.store.approval == nil { try? await Task.sleep(nanoseconds: 10_000_000) }
+        check(host.store.approval != nil, "the next request waits")
+        rig.router.close()
+        if case .denied = await closing.value {} else { check(false, "a request still waiting when the window closes counts as no") }
+        check(host.store.approval == nil && host.store.tasks.activeCount == 0 && polling.keys.isEmpty,
+              "closing the window leaves no request on screen, no timer and no auto-refresh")
+        check(!FileManager.default.fileExists(atPath: root.appendingPathComponent("never.txt").path), "and the command did not run")
     }
 
     // MARK: Prototype Studio

@@ -28,23 +28,23 @@ public enum WebHost {
         case store(WKWebsiteDataStore)
     }
 
-    /// A page-to-native message channel: `window.webkit.messageHandlers.<name>.postMessage(...)` in `world`.
+    /// A page-to-native message channel: `window.webkit.messageHandlers.<name>.postMessage(...)` in `world` (the page's own world when nil).
     public struct Handler {
         enum Target {
             case message(WKScriptMessageHandler)
             case reply(WKScriptMessageHandlerWithReply)
         }
         let name: String
-        let world: WKContentWorld
+        let world: WKContentWorld?
         let target: Target
 
         /// A handler that takes a message and does not answer it. The caller keeps `target` alive.
-        public static func message(_ name: String, _ target: WKScriptMessageHandler, in world: WKContentWorld = .page) -> Handler {
+        public static func message(_ name: String, _ target: WKScriptMessageHandler, in world: WKContentWorld? = nil) -> Handler {
             Handler(name: name, world: world, target: .message(target))
         }
 
         /// A handler whose page call returns a promise that `target` answers. The caller keeps `target` alive.
-        public static func reply(_ name: String, _ target: WKScriptMessageHandlerWithReply, in world: WKContentWorld = .page) -> Handler {
+        public static func reply(_ name: String, _ target: WKScriptMessageHandlerWithReply, in world: WKContentWorld? = nil) -> Handler {
             Handler(name: name, world: world, target: .reply(target))
         }
     }
@@ -106,11 +106,12 @@ public enum WebHost {
 
     @MainActor
     private static func register(_ handler: Handler, in controller: WKUserContentController) {
+        let world = handler.world ?? .page
         switch handler.target {
         case .message(let target):
-            controller.add(WeakScriptMessageHandler(target), contentWorld: handler.world, name: handler.name)
+            controller.add(WeakScriptMessageHandler(target), contentWorld: world, name: handler.name)
         case .reply(let target):
-            controller.addScriptMessageHandler(WeakScriptMessageHandlerWithReply(target), contentWorld: handler.world, name: handler.name)
+            controller.addScriptMessageHandler(WeakScriptMessageHandlerWithReply(target), contentWorld: world, name: handler.name)
         }
     }
 }
@@ -139,7 +140,7 @@ final class WeakScriptMessageHandlerWithReply: NSObject, WKScriptMessageHandlerW
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
-                               replyHandler: @escaping (Any?, String?) -> Void) {
+                               replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard let target else {
             replyHandler(nil, "The page's host is closed.")
             return

@@ -6,6 +6,7 @@ extension CLICompletion.Result {
     func record(in db: SemanticDatabase?) {
         guard let db else { return }
         let input = inputTokens, output = outputTokens, cents = (costUSD ?? 0) * 100
+        // task: one queued write of a finished run's usage to the database actor; it touches no window state and a close should not lose it
         Task { await db.addUsage(inputTokens: input, outputTokens: output, costCents: cents) }
     }
 }

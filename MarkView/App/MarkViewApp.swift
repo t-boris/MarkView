@@ -101,6 +101,9 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         log("applicationDidFinishLaunching")
         // Listen for agents from the start, not when the first folder opens: an agent that drives the app opens it.
         _ = AgentToolServer.socketPath
+        // One app-wide poll for Finder Quick Action requests (`AR-19`): started with the app, so a request is taken with or without a
+        // window; `enqueueOpen` holds it until a window shows it.
+        FinderOpenRequests.shared.start { MarkViewApp.enqueueOpen($0) }
         ensureWindowExists()
     }
 
@@ -109,15 +112,12 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensureWindowExists() {
+        // task: one-shot check 0.3 s after launch that a window exists; touches only NSApp
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let visibleWindows = NSApp.windows.filter { ($0.isVisible || $0.isMiniaturized) && !$0.className.contains("Panel") }
             if visibleWindows.isEmpty {
                 self.log("No visible windows — creating one")
-                // Try SwiftUI's built-in new window action
-                if NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil) {
-                    return
-                }
-                // Fallback: use File > New Window menu item
+                // SwiftUI's built-in new window action
                 NSApp.sendAction(#selector(NSResponder.newWindowForTab(_:)), to: nil, from: nil)
             }
         }
@@ -182,8 +182,7 @@ enum DDEIndexerRunner {
                 try await db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
                 let linked = LinkedFolders.load(project: url)
                 if !linked.isEmpty { err("linked folders: " + linked.map(\.name).joined(separator: ", ")) }
-                let indexer = StructuralIndexer(db: db, rootURL: url, linkedFolders: linked)
-                indexer.progress = { msg in err(msg) }
+                let indexer = StructuralIndexer(db: db, rootURL: url, linkedFolders: linked, progress: { msg in err(msg) })
                 await indexer.indexAll()
                 err("done")
                 exit(0)
@@ -224,9 +223,7 @@ struct MarkViewApp: App {
                         Self.enqueueOpen(urls)
                     }
 
-                    appDelegate.log("ContentView onAppear: handler set, starting the Finder request poll")
-                    // One app-wide poll for Finder Quick Action requests while a window is open (`AR-19`)
-                    FinderOpenRequests.shared.start { Self.enqueueOpen($0) }
+                    appDelegate.log("ContentView onAppear: handler set")
                 }
         } defaultValue: {
             UUID()
@@ -441,6 +438,7 @@ struct MarkViewApp: App {
             } else {
                 Self.pendingFolderURL = url
                 self.newWindow()
+                // task: one-shot 1 s fallback of the Finder open hand-off; it only reads and clears a static, and the window is not its owner
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     if Self.pendingFolderURL != nil {
                         Self.pendingFolderURL = nil

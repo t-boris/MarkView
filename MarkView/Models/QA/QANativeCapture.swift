@@ -9,6 +9,7 @@ import ScreenCaptureKit
 // into a PNG when the runner asks for a picture (the video writer takes the pictures from there). It needs the Screen Recording permission,
 // which the caller has checked before: nothing here asks for it. macOS 13 compatible (no SCScreenshotManager, no SCRecordingOutput).
 
+// unchecked Sendable: the mutable state is the `State` box behind one lock; every other stored property is a `let`.
 final class QANativeCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     /// The window is captured this many times a second at most; a window that does not change sends nothing new.
     static let framesPerSecond = 10

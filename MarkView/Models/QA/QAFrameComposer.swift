@@ -96,10 +96,14 @@ enum QAFrameComposer {
 
     /// A small copy for the feed.
     static func thumbnail(from data: Data, width: Int = 420) -> NSImage? {
+        thumbnailImage(from: data, width: width).map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+    }
+
+    /// The same copy as a `CGImage`, a value that can be made off the main thread and handed to it.
+    static func thumbnailImage(from data: Data, width: Int = 420) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
                                         kCGImageSourceThumbnailMaxPixelSize: width]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }

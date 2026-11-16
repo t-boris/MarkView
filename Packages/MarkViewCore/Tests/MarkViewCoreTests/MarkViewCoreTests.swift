@@ -259,6 +259,7 @@ final class MarkViewCoreTests: XCTestCase {
     }
 
     func testAtomicFileNeverShowsATemporaryFileInTheTargetFolder() throws {
+        // unchecked Sendable: written by the background write, read only after the dispatch group has finished.
         final class Outcome: @unchecked Sendable { var error: Error? }
         let root = try makeScratchFolder()
         let document = root.appendingPathComponent("big.md")

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import AppKit
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -362,47 +363,47 @@ final class JobHandle {
 }
 
 /// Collects a run's streamed text and tool use from the CLI's background callbacks.
-private final class RunLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var text = ""
-    private var reads: [String] = []
-    private var urls: [String] = []
-    private var queries: [String] = []
-
-    func append(text part: String) {
-        lock.lock(); text += part; lock.unlock()
+private final class RunLog: Sendable {
+    private struct State: Sendable {
+        var text = ""
+        var reads: [String] = []
+        var urls: [String] = []
+        var queries: [String] = []
     }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func append(text part: String) { state.withLock { $0.text += part } }
 
     /// Records the activity; returns the progress line for it, if any.
     func record(_ activity: CLICompletion.Activity, root: URL) -> String? {
-        lock.lock(); defer { lock.unlock() }
         let base = root.standardizedFileURL.path + "/"
-        switch activity {
-        case .read(let path):
-            reads.append(path)
-            return "Reading " + (path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path)
-        case .search(let pattern):
-            return "Searching “\(pattern.prefix(50))”"
-        case .run(let command):
-            return "Running " + String(command.prefix(60))
-        case .webSearch(let query):
-            if !queries.contains(query) { queries.append(query) }
-            return "Searching the web: “\(query.prefix(60))”"
-        case .webFetch(let url):
-            if !urls.contains(url) { urls.append(url) }
-            return "Reading " + String(url.prefix(70))
-        case .thinking:
-            return "Thinking"
-        case .writing:
-            return "Writing the report"
-        case .answerDelta:
-            return nil
+        return state.withLock { state in
+            switch activity {
+            case .read(let path):
+                state.reads.append(path)
+                return "Reading " + (path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path)
+            case .search(let pattern):
+                return "Searching “\(pattern.prefix(50))”"
+            case .run(let command):
+                return "Running " + String(command.prefix(60))
+            case .webSearch(let query):
+                if !state.queries.contains(query) { state.queries.append(query) }
+                return "Searching the web: “\(query.prefix(60))”"
+            case .webFetch(let url):
+                if !state.urls.contains(url) { state.urls.append(url) }
+                return "Reading " + String(url.prefix(70))
+            case .thinking:
+                return "Thinking"
+            case .writing:
+                return "Writing the report"
+            case .answerDelta:
+                return nil
+            }
         }
     }
 
     func snapshot() -> (text: String, reads: [String], urls: [String], queries: [String]) {
-        lock.lock(); defer { lock.unlock() }
-        return (text, reads, urls, queries)
+        state.withLock { ($0.text, $0.reads, $0.urls, $0.queries) }
     }
 }
 

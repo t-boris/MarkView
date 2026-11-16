@@ -8,6 +8,7 @@ import XCTest
 /// the input pipe and how the child ended.
 final class SubprocessStartTests: XCTestCase {
     /// What the callbacks of one child delivered, in order. `events` holds "out", "err" and "exit" markers.
+    // unchecked Sendable: `lock` guards every field.
     private final class Recorder: @unchecked Sendable {
         private let lock = NSLock()
         private var out = Data(), err = Data()
@@ -23,7 +24,7 @@ final class SubprocessStartTests: XCTestCase {
     }
 
     private func start(_ spec: SubprocessSpec, _ recorder: Recorder) throws -> SubprocessChild {
-        try Subprocess.start(spec, onStdout: recorder.stdout, onStderr: recorder.stderr, onExit: { _, exit in recorder.exit(exit) })
+        try Subprocess.start(spec, onStdout: { recorder.stdout($0) }, onStderr: { recorder.stderr($0) }, onExit: { _, exit in recorder.exit(exit) })
     }
 
     private func sh(_ script: String, _ configure: (inout SubprocessSpec) -> Void = { _ in }) -> SubprocessSpec {

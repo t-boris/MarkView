@@ -84,16 +84,17 @@ struct FileTreeView: View {
     }
 
     private var source: FileBrowserSource {
-        FileBrowserSource(roots: roots, filter: filter, sort: fileTree.sortOrder,
-                          hasViewer: { FileType.hasViewer($0) }, isIgnored: ignoredLookup)
+        let repository = git.isGitRepo ? git.workingDirectory : nil
+        let linkedPaths = workspaceManager.project.linkedFolders.map { $0.url.standardizedFileURL.path }
+        return FileBrowserSource(roots: roots, filter: filter, sort: fileTree.sortOrder, hasViewer: { FileType.hasViewer($0) },
+                                 isIgnored: Self.ignoredLookup(root: repository, status: git.repoStatus, linkedPaths: linkedPaths))
     }
 
-    /// Git's ignore list for the project (REQ-001). Linked folders have no data of the project's repository.
-    private var ignoredLookup: @Sendable (URL, Bool) -> Bool {
-        guard git.isGitRepo, let root = git.workingDirectory else { return { _, _ in false } }
-        let status = git.repoStatus
+    /// Git's ignore list for the project (REQ-001), a value the browser can use off the main thread. Linked folders have no data of
+    /// the project's repository; without a repository nothing is ignored.
+    private nonisolated static func ignoredLookup(root: URL?, status: GitRepoStatus, linkedPaths: [String]) -> @Sendable (URL, Bool) -> Bool {
+        guard let root else { return { _, _ in false } }
         let prefix = root.standardizedFileURL.path + "/"
-        let linkedPaths = workspaceManager.project.linkedFolders.map { $0.url.standardizedFileURL.path }
         return { url, isDirectory in
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(prefix), !linkedPaths.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { return false }

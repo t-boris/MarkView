@@ -12,7 +12,6 @@ cp "$ROOT/tools/tests/Phase4ShellTests.swift" "$out/main.swift"
 swiftc \
     "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     "$ROOT/MarkView/Models/Workspace/DocumentScrollSideTable.swift" \
-    "$ROOT/MarkView/Models/Workspace/TaskBag.swift" \
     "$ROOT/MarkView/Models/Workspace/MarkdownDocumentChunker.swift" \
     "$out/main.swift" \
     -o "$out/phase4-tests"

@@ -50,8 +50,8 @@ class WhisperClient: ObservableObject {
     /// under Whisper's 25 MB upload limit. The recorder stops by itself at this length.
     static let maxRecordingDuration: TimeInterval = 600
 
-    private static let keychainService = "com.markview.dde.openai"
-    private static let keychainAccount = "apikey"
+    private nonisolated static let keychainService = "com.markview.dde.openai"
+    private nonisolated static let keychainAccount = "apikey"
 
     /// Reads the OpenAI API key from Keychain, migrating any legacy UserDefaults entry on first access (AR-10).
     nonisolated static func loadAPIKey() -> String? {
@@ -179,6 +179,7 @@ class WhisperClient: ObservableObject {
             beginRecording()
         case .notDetermined:
             let requested = generation
+            // task: asks the system for speech access; the generation check drops the answer when the recording was cancelled
             Task {
                 let status = await OnDeviceSpeech.requestAuthorization()
                 guard generation == requested else { return }

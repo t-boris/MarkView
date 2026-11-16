@@ -74,6 +74,7 @@ actor RemoteChannel {
         guard pending.count < 256 else { throw RemoteFailure.invalid("The remote connection is not keeping up.") }
         try await withCheckedThrowingContinuation { continuation in
             pending.append((message, continuation))
+            // task: drains the send queue; `sending` keeps it to one drain, and the channel's close ends it
             if !sending { sending = true; Task { await drain() } }
         }
     }

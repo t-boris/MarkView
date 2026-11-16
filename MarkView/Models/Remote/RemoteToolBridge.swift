@@ -14,6 +14,7 @@ struct RemoteBridgeRequest: Codable, Sendable {
 /// connection. Only this user's process that reads the `.token` file next to the socket is served. The
 /// descriptor is closed on stop; neither pairing secrets nor provider credentials appear in child
 /// arguments or MCP configuration.
+// unchecked Sendable: `lock` guards `stopped` and `clients`; every other stored property is a `let`.
 final class RemoteToolBridge: @unchecked Sendable {
     let path: String
     private let listener: PrivateSocket.Listener
@@ -54,6 +55,7 @@ final class RemoteToolBridge: @unchecked Sendable {
               listener.accepts(token: call.token),
               let name = call.message.payload["name"].string, RemoteWorkspaceTools.names.contains(name) else { finish(client); return }
         let request = call.message
+        // task: answers one RPC call on its own client socket and closes it
         Task {
             let result = await handler(request.id, name, request.payload["arguments"])
             if let data = try? JSONEncoder().encode(result) { _ = RemoteUnixRPC.write(client, data + Data([10])) }

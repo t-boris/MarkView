@@ -138,7 +138,7 @@ final class QAAPIClient: NSObject, URLSessionDataDelegate {
 
     /// Stop can race with creation of the request. Do not cancel a suspended task until its continuation is installed:
     /// URLSession can deliver completion immediately on cancellation, before a later resume.
-    // The flags are protected by the lock; URLSessionDataTask supports cancellation from any thread.
+    // unchecked Sendable: the flags are protected by the lock; URLSessionDataTask supports cancellation from any thread.
     private final class Transfer: @unchecked Sendable {
         private let lock = NSLock()
         private let task: URLSessionDataTask

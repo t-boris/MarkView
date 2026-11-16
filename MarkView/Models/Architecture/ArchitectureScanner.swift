@@ -1,4 +1,5 @@
 import Foundation
+import os
 import CryptoKit
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -1046,12 +1047,7 @@ private struct ImportResolver {
 }
 
 /// Thread-safe count of finished items for progress reports from concurrent work.
-private final class ProgressCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = 0
-    func increment() -> Int {
-        lock.lock(); defer { lock.unlock() }
-        value += 1
-        return value
-    }
+private final class ProgressCounter: Sendable {
+    private let value = OSAllocatedUnfairLock(initialState: 0)
+    func increment() -> Int { value.withLock { $0 += 1; return $0 } }
 }

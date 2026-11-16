@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 import SQLite3
 import XCTest
 @testable import MarkViewCore
@@ -161,17 +162,18 @@ final class SQLiteSchemaTests: XCTestCase {
                 try SQLiteSchema.execute(db, "INSERT INTO runs VALUES (2)")
             },
         ]
-        let failures = NSLock()
-        var errors: [Error] = []
+        let errors = OSAllocatedUnfairLock(initialState: [Error]())
+        let path = self.path
         DispatchQueue.concurrentPerform(iterations: 6) { _ in
             do {
                 let opened = try SQLiteSchema.open(path: path, migrations: counted, pragmas: ["PRAGMA journal_mode = WAL"])
                 sqlite3_close(opened.handle)
             } catch {
-                failures.lock(); errors.append(error); failures.unlock()
+                errors.withLock { $0.append(error) }
             }
         }
-        XCTAssertTrue(errors.isEmpty, "\(errors)")
+        let failed = errors.withLock { $0 }
+        XCTAssertTrue(failed.isEmpty, "\(failed)")
         XCTAssertEqual(scalar("SELECT count(*) FROM runs WHERE step = 1"), 1)
         XCTAssertEqual(scalar("SELECT count(*) FROM runs WHERE step = 2"), 1)
         XCTAssertEqual(scalar("PRAGMA user_version"), 2)
@@ -185,7 +187,7 @@ final class SQLiteSchemaTests: XCTestCase {
     }
 
     func testMigrationListMustAscendFromOne() {
-        let nothing: (OpaquePointer) throws -> Void = { _ in }
+        let nothing: @Sendable (OpaquePointer) throws -> Void = { _ in }
         XCTAssertThrowsError(try SQLiteSchema.open(path: path, migrations: []))
         XCTAssertThrowsError(try SQLiteSchema.open(path: path, migrations: [SQLiteMigration(version: 0, name: "zero", apply: nothing)]))
         XCTAssertThrowsError(try SQLiteSchema.open(path: path, migrations: [

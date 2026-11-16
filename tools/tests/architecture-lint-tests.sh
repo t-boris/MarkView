@@ -102,6 +102,7 @@ def fixture():
     write(root, "tools/lint/file-size-allowlist.txt", "# no file is over the limit\n")
     write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
     write(root, "tools/lint/app-log-allowlist.txt", "# none outside AppLog\n")
+    write(root, "tools/lint/unowned-task-allowlist.txt", "# no task is without an owner\n")
     write(root, "tools/lint/domain-cycles-allowlist.txt", "# no cycle between domain folders\n")
     write(root, "tools/lint/window-wiring-hooks.txt", "# no model has a hook that another object assigns\n")
     write(root, "tools/lint/window-wiring-backrefs.txt", "# no model holds the window's manager\n")
@@ -308,6 +309,94 @@ try:
     check(code == 1 and "[app-log] MarkView/Models/Workspace/Noisy.swift: 2 NSLog or Logger site(s), 0 allowed (new sites)" in out,
           "a new NSLog or Logger(subsystem:) fails and is named, comments are not counted")
     check("AppLog.swift" not in out, "AppLog's own file is the allowed home, not counted")
+    # --- unowned-task ratchet (AR-19)
+    OWNED = (
+        "final class Owner {\n"
+        "    private let tasks = TaskBag()\n"
+        "    private var refresh: Task<Void, Never>?\n"
+        "    func stored() {\n"
+        "        tasks.store(Task { await work() }, for: \"a\")\n"                       # an argument of store(
+        "        tasks.store(\n"
+        "            Task { [weak self] in await self?.work() }, for: \"b\")\n"          # the argument on the next line
+        "        refresh = Task { await work() }\n"                                       # a property
+        "        pending[id] = Task { await work() }\n"                                   # a collection element
+        "        let run = Task { await work() }\n"
+        "        running.append(run)\n"                                                   # a local that is read again
+        "        let timeout = cond ? Task { await work() } : nil\n"
+        "        timeout?.cancel()\n"                                                     # a conditional initializer, read again
+        "    }\n"
+        "    func awaited() async -> Int {\n"
+        "        let value = await Task.detached(priority: .utility) { heavy() }.value\n"
+        "        _ = await Task.detached {\n"
+        "            heavy()\n"
+        "        }\n"
+        "        .value\n"                                                                # awaited, the chain on the next line
+        "        return value\n"
+        "    }\n"
+        "    func justified() {\n"
+        "        Task { @MainActor in lastError = message } // task: one hop to the main actor, touches a process-wide store only\n"
+        "        // task: a Finder hand-off that finishes in one call and touches nothing of this window\n"
+        "        Task { await Shared.open(url) }\n"
+        "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Shared.tick() } // task: process-wide, no window state\n"
+        "    }\n"
+        "    func hops() {\n"
+        "        Task { @MainActor in self.apply(data) }\n"                              # no await: it finishes in one turn
+        "        Task { [weak self] in self?.apply() }\n"
+        "    }\n"
+        "    // Task { await work() } in a comment, and \"Task { await work() }\" and \"Timer.scheduledTimer(\" in a string, are not code\n"
+        "    let text = \"Task { await work() } Task.detached { } .asyncAfter(\"\n"
+        "    struct Task { }\n"
+        "}\n")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Owner.swift", OWNED)
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "unowned-task: 0 in 0 file(s), 0 allowed" in out,
+          "a task that is stored, awaited in place, never suspends or is justified by `// task: why`, and one in a comment or a string, is not a site")
+    UNOWNED = (
+        "final class Loose {\n"
+        "    func fireAndForget() {\n"
+        "        Task { await work() }\n"                                                  # a statement: nobody can cancel it
+        "        Task.detached(priority: .utility) { heavy() }\n"
+        "        _ = Task { await work() }\n"                                              # thrown away
+        "        let never = Task { await work() }\n"                                      # a local that is never read again
+        "        Button { Task { await work() } }\n"
+        "        // task:\n"
+        "        Task { await work() }\n"                                                  # a marker without a reason is none
+        "        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick() }\n"
+        "        refresh = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick() }\n"   # a timer is never stored
+        "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { tick() }\n"
+        "        let before = 1\n"
+        "        Task { await work() }\n"                                                  # not stored: the line above is another statement
+        "        Task { @MainActor in await self.apply() }\n"                            # it suspends, so it is not a hop
+        "    }\n"
+        "}\n")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Loose.swift", UNOWNED)
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[unowned-task] MarkView/Models/Workspace/Loose.swift: 11 unowned task site(s), 0 allowed (new sites)" in out,
+          "unowned Task, Task.detached, discarded and unread tasks, a Task that suspends, a marker without a reason, Timer and asyncAfter fail and are counted")
+    done = subprocess.run([str(Path(lint).parent / "task-ownership.sh"), "--root", str(root), "--sites"], stdout=subprocess.PIPE, text=True)
+    check(done.stdout.splitlines() == [f"MarkView/Models/Workspace/Loose.swift:{n}: {kind}" for n, kind in
+                                      ((3, "task"), (4, "detached"), (5, "task"), (6, "task"), (7, "task"), (9, "task"), (10, "timer"), (11, "timer"), (12, "after"), (14, "task"), (15, "task"))],
+          "--sites names every unowned site with its line and kind")
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Loose.swift", "func f() { Task { await work() } }\n")
+    write(root, "tools/lint/unowned-task-allowlist.txt", "1 MarkView/Models/Workspace/Loose.swift\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "unowned-task: 1 in 1 file(s), 1 allowed" in out, "a listed unowned site is allowed")
+    write(root, "MarkView/Models/Workspace/Loose.swift", "func f() { Task { await work() }; Task { await other() } }\n")
+    code, out = run(root)
+    check(code == 1 and "[unowned-task] MarkView/Models/Workspace/Loose.swift: 2 unowned task site(s), 1 allowed (more sites)" in out, "a second unowned site in a listed file fails")
+    write(root, "MarkView/Models/Workspace/Loose.swift", "func f() { tasks.store(Task { await work() }, for: \"a\") }\n")
+    code, out = run(root)
+    check(code == 1 and "[unowned-task] MarkView/Models/Workspace/Loose.swift: 0 unowned task site(s), 1 allowed; the count fell" in out,
+          "an owned site lowers the count and fails until the allowance is lowered (no slack)")
+    code, out = run(root, "--tighten")
+    code2, out2 = run(root)
+    check(code == 0 and code2 == 0 and "Loose.swift" not in (root / "tools/lint/unowned-task-allowlist.txt").read_text(), "--tighten drops the converted file from the list")
     # --- window-wiring (AR-17)
     root = fresh()
     write(root, "MarkView/Models/Workspace/Hooked.swift", (
@@ -509,6 +598,49 @@ try:
           and "[tabs-direct] MarkView/Models/Workspace/WorkspaceManager.swift:3" in out and "[tabs-direct] MarkView/Models/Workspace/WorkspaceManager.swift:5" in out
           and out.count("[tabs-direct]") == 5,
           "a view that reads the tabs through the manager and a manager that forwards a part's changes fail with file and line")
+
+    # --- unchecked-sendable (AR-43)
+    root = fresh()
+    write(root, "MarkView/Models/QA/GoodBoxes.swift", (
+        "// unchecked Sendable: in a whole-line comment only, as is nonisolated(unsafe)\n"
+        "/// A doc comment may say @unchecked Sendable without being a site.\n"
+        "// unchecked Sendable: `lock` guards every field.\n"
+        "final class Above: @unchecked Sendable {}\n"
+        "final class Same: @unchecked Sendable {} // unchecked Sendable: only `queue` touches it\n"
+        "enum Registry {\n"
+        "    // unchecked Sendable: every access is inside `lock.withLock`.\n"
+        "    nonisolated(unsafe) private static var running: [Int: Int] = [:]\n"
+        "    private nonisolated(unsafe) var other = 0 // unchecked Sendable: main actor only\n"
+        "}\n"
+        "final class Checked: Sendable {}\n"
+        "let note = \"@unchecked Sendable in a string\" // @unchecked Sendable in a trailing comment\n"))
+    write(root, "Packages/MarkViewCore/Sources/MarkViewCore/GoodBox.swift", (
+        "// unchecked Sendable: `lock` guards every field.\n"
+        "public final class Box: @unchecked Sendable {}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "unchecked-sendable" in out, "a justified escape hatch (same line or previous line), a checked Sendable and comments pass unchecked-sendable")
+    write(root, "MarkView/Models/QA/BadBoxes.swift", (
+        "final class NoComment: @unchecked Sendable {}\n"
+        "// unchecked Sendable: this comment belongs to the line below, not to the one after it\n"
+        "let unrelated = 1\n"
+        "final class TwoAway: @unchecked Sendable {}\n"
+        "// unchecked Sendable:\n"
+        "final class EmptyReason: @unchecked Sendable {}\n"
+        "// guarded by a lock\n"
+        "final class WrongMarker: @unchecked Sendable {}\n"
+        "enum Statics {\n"
+        "    nonisolated(unsafe) static var counter = 0\n"
+        "    nonisolated (unsafe) static var spaced = 0\n"
+        "}\n"))
+    write(root, "Packages/MarkViewCore/Sources/MarkViewCore/BadBox.swift", "public final class Box2: @unchecked Sendable {}\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [unchecked-sendable]")}
+    check(code == 1 and reported == {f"MarkView/Models/QA/BadBoxes.swift:{n}:" for n in (1, 4, 6, 8, 10, 11)}
+          | {"Packages/MarkViewCore/Sources/MarkViewCore/BadBox.swift:1:"},
+          "an @unchecked Sendable or nonisolated(unsafe) with no `// unchecked Sendable: <reason>` on the same or the previous line fails unchecked-sendable with file and line")
+    check("GoodBoxes.swift" not in out and "GoodBox.swift" not in out, "the justified file is not reported")
 
     # --- domain-cycles ratchet (AR-21)
     def domain_files(root, models=None, views=None):

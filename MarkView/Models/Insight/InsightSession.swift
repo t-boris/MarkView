@@ -307,7 +307,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 }
             )
             result.record(in: rag.db)
-            await markSectionReady(sectionId: sectionId, forNodeId: nodeIdLocal)
+            markSectionReady(sectionId: sectionId, forNodeId: nodeIdLocal)
             // Refresh snapshot with new content for this section.
             try? writeFinalHTMLToCache(nodeId: nodeIdLocal)
             writeSnapshotForRoot(nodeId: nodeIdLocal)
@@ -316,7 +316,7 @@ final class InsightSession: ObservableObject, Identifiable {
             }
         } catch {
             AppLog.insight.error("retrySection failed: \(Self.sanitizeForLog(error.localizedDescription))")
-            await markSectionFailed(sectionId: sectionId, forNodeId: nodeIdLocal)
+            markSectionFailed(sectionId: sectionId, forNodeId: nodeIdLocal)
             if currentNodeId == nodeIdLocal {
                 lastError = "retry failed: \(error.localizedDescription)"
                 lastErrorRetryable = true
@@ -372,7 +372,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 await navigateTo(nodeId: rootNodeId)
             }
             done += 1
-            statusMessage = "Explore all (\(done)/\(total ?? done)+ at depth \(depth)): \(pair.label)…"
+            statusMessage = "Explore all (\(done)/\(total)+ at depth \(depth)): \(pair.label)…"
             await expand(sectionId: pair.sectionId, topicIndex: pair.topicIndex)
             if let t = activeTask { _ = await t.value }
             // After expand, currentNode is the new child. If depth>1, recurse.

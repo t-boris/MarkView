@@ -411,6 +411,7 @@ enum ACPAssistant {
     // MARK: - Streaming state
 
     /// The answer as it streams, and progress for the caller.
+    // unchecked Sendable: `lock` guards the answer and the token counts; the callbacks and the notice prefix are `let`.
     private final class RunState: @unchecked Sendable {
         private let lock = NSLock()
         private var answer = ""
@@ -476,6 +477,7 @@ enum ACPAssistant {
 // MARK: - JSON-RPC connection
 
 /// One `<cli> --acp` process and its JSON-RPC traffic. All state lives on `queue`.
+// unchecked Sendable: all state is touched only on `queue`, a serial queue, except `permit` and `onUpdate`, which the owner sets before `start()`.
 private final class ACPConnection: @unchecked Sendable {
     /// Whether a tool call of `kind` with `input` may run.
     var permit: ((String, [String: Any]) -> Bool)?
@@ -536,12 +538,15 @@ private final class ACPConnection: @unchecked Sendable {
 
     /// Send a request and wait for its result.
     func request(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
-        try await withCheckedThrowingContinuation { continuation in
+        // The parameters reach the queue as JSON bytes (a Sendable value), not as a `[String: Any]`.
+        let encoded = try JSONSerialization.data(withJSONObject: params)
+        return try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 if let failure = self.failure { continuation.resume(throwing: failure); return }
                 let id = self.nextId
                 self.nextId += 1
                 self.pending[id] = continuation
+                let params = (try? JSONSerialization.jsonObject(with: encoded)) ?? [String: Any]()
                 self.write(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
             }
         }
@@ -555,6 +560,7 @@ private final class ACPConnection: @unchecked Sendable {
             }
             self.failAll(CancellationError())
         }
+        // task: the kill that follows a polite stop 1 s later; weak self, and terminate() is idempotent
         queue.asyncAfter(deadline: .now() + 1) { [weak self] in self?.terminate() }
     }
 

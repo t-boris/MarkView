@@ -33,6 +33,9 @@
 #                        a view observes the part it shows, so typing redraws what shows the tabs and nothing else
 #   (the ratchets below also include window-wiring, AR-17: closure hooks assigned after construction, references to the window's
 #                        whole WorkspaceManager, and hooks a view writes into a model)
+#   unchecked-sendable   (AR-43) every `@unchecked Sendable` and `nonisolated(unsafe)` in MarkView/ and Packages/ says what guards it, in a
+#                        `// unchecked Sendable: <what guards it>` comment on the same or the previous line; a type that can be
+#                        checked says `Sendable` and a value behind a lock is an OSAllocatedUnfairLock, so the escape hatch stays rare
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -44,6 +47,9 @@
 #   project-paths        a string literal that starts with `.dde` or `.markview-` outside ProjectPaths (CoreFiles.swift)
 #                        tools/lint/project-paths-allowlist.txt
 #   app-log              `NSLog(` and `Logger(subsystem:` outside AppLog (Packages/MarkViewCore AppLog.swift)  tools/lint/app-log-allowlist.txt
+#   unowned-task         (AR-19) a `Task { }`, `Task.detached`, `Timer`, or `.asyncAfter` that is not stored (TaskBag or a task property), not
+#                        awaited in place and not justified by a `// task: <why it needs no owner>` comment: work that nothing cancels
+#                        when its window, folder or tool tab closes. Classified by tools/lint/task-ownership.sh  tools/lint/unowned-task-allowlist.txt
 #   domain-cycles        (AR-21) a back-edge between two domain folders of Models (or of Views) that depend on each other: the count is the
 #                        number of types the back-edge names (tools/lint/domain-dependencies.py measures it; `--why A B` lists them).
 #                        `<count> Models/<from> -> Models/<to>  # why it stays` in tools/lint/domain-cycles-allowlist.txt; a pair that
@@ -313,6 +319,17 @@ ratchet("app-log", "app-log-allowlist.txt", "NSLog or Logger site(s)",
         "# `NSLog(` and `Logger(subsystem:` outside AppLog (AR-24). `<count> <path>`; a ratchet that only falls. Every message goes through a\n"
         "# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a\n"
         "# new Logger, and never log file contents, tokens, prompts or request headers.")
+
+ownership = subprocess.run([str(lint_dir / "task-ownership.sh"), "--root", str(root), "--counts"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+if ownership.returncode != 0:
+    violations.append(("unowned-task", f"tools/lint/task-ownership.sh failed: {ownership.stderr.strip()}"))
+else:
+    ratchet("unowned-task", "unowned-task-allowlist.txt", "unowned task site(s)",
+            {path: int(count) for count, path in (line.split(" ", 1) for line in ownership.stdout.splitlines() if line.strip())},
+            "# `Task { }`, `Task.detached`, `Timer` and `.asyncAfter` sites that no owner can cancel (AR-19): not stored in a TaskBag or a task\n"
+            "# property, not awaited in place, and without a `// task: <why it needs no owner>` comment. `<count> <path>`; a ratchet that only\n"
+            "# falls. Convert a site (the object that starts it owns a TaskBag, keys the task, cancels it on close and checks cancellation before\n"
+            "# it touches state), or justify it, then run tools/lint/architecture-lint.sh --tighten; tools/lint/task-ownership.sh --sites lists them.")
 
 # --- domain-cycles (AR-21)
 def domain_back_edges():
@@ -645,6 +662,19 @@ for path in settings_files:
         if "didChangeNotification" in text:
             violations.append(("settings-observer", f"{rel(path)}:{number}: observes every UserDefaults write; use SettingsObserver(keys) or SettingsObserver.changes(of:)"))
 
+# --- unchecked-sendable (AR-43)
+unchecked_escape = re.compile(r"@unchecked\s+Sendable|nonisolated\s*\(\s*unsafe\s*\)")
+unchecked_reason = re.compile(r"//\s*unchecked Sendable:\s*\S")
+for path in app_swift + package_swift:
+    source = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for number, line in code_lines(path):
+        if not unchecked_escape.search(re.split(r"\s//", re.sub(r'"(?:[^"\\]|\\.)*"', '""', line))[0]):
+            continue
+        before = source[number - 2].strip() if number >= 2 else ""
+        if unchecked_reason.search(line) or (before.startswith("//") and unchecked_reason.search(before)):
+            continue
+        violations.append(("unchecked-sendable", f"{rel(path)}:{number}: `@unchecked Sendable` or `nonisolated(unsafe)` without a `// unchecked Sendable: <what guards it>` comment on the same or the previous line"))
+
 # --- tabs-direct
 tab_read = re.compile(r"\b(?:workspaceManager|manager|workspace|wm)\??\.(?:openTabs|activeTab|activeTabIndex|lastSaveError)\b")
 for path in swift_files("MarkView/Views"):
@@ -659,7 +689,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

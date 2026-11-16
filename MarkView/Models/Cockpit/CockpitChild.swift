@@ -12,6 +12,7 @@ actor CockpitExitSignal {
 }
 
 /// A long-lived bundled helper. File handles are drained off the main thread; stdin is the app-lifetime lease.
+// unchecked Sendable: `lock` guards the process, the pending continuation, the buffered output and the flags.
 final class CockpitChild: @unchecked Sendable {
     enum Failure: LocalizedError {
         case launch, exited, timeout, responseTooLarge
@@ -75,6 +76,7 @@ final class CockpitChild: @unchecked Sendable {
         // Cancellation can arrive while the child is starting.
         lock.lock(); let shouldStop = stopped; lock.unlock()
         if shouldStop { stopInput() }
+        // task: the child's time limit: finish() ends it once and ignores it after the child ended
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + max(1, timeout)) { [weak self] in
             guard let self, self.finish(.failure(Failure.timeout)) else { return }
             self.stop()
@@ -118,6 +120,7 @@ final class CockpitChild: @unchecked Sendable {
     private func stopInput() {
         let child = current
         child?.closeInput()
+        // task: kills a child that did not close after its input ended; it checks isRunning first
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 8) {
             guard let child, child.isRunning else { return }
             child.terminate()

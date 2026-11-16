@@ -162,6 +162,7 @@ final class QARunModel: ObservableObject {
         runTask?.cancel()
         control?.stop()
         let retained = sessions
+        // task: the browser sessions close after the run is gone; cancelling it would leave them open
         Task { await retained.close() }
     }
 
@@ -291,6 +292,7 @@ final class QARunModel: ObservableObject {
         stop()
         let task = runTask, old = sessions
         sessions = QARunSessions()
+        // task: the old sessions close once the run has ended; cancelling it would leave them open
         Task { await task?.value; await old.close() }
     }
 

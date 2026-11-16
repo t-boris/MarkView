@@ -265,7 +265,9 @@ final class TabStripScroller: ObservableObject {
 
     @Published private(set) var canScrollLeft = false
     @Published private(set) var canScrollRight = false
+    // unchecked Sendable: main actor only; the one nonisolated reader is `deinit`, which runs when no other reference exists.
     private nonisolated(unsafe) weak var scrollView: NSScrollView?
+    // unchecked Sendable: same as `scrollView`: main actor only, plus `deinit`.
     private nonisolated(unsafe) var observers: [NSObjectProtocol] = []
     /// Empty room after the last tab that does not count as something more to see: the right end is reached when only it is hidden.
     private let endInset: CGFloat

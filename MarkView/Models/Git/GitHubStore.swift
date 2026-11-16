@@ -29,7 +29,7 @@ enum GitHubSettings {
 
 /// GitHub state of one window's folder: pull requests, issues and Actions of the selected
 /// repository, refreshed on demand and (for Actions) on a timer. Answers that arrive after
-/// the repository changed or the integration was turned off are dropped (`generation`).
+/// the repository changed or the integration was turned off are dropped: the tasks are cancelled (`AR-19`).
 @MainActor
 final class GitHubStore: ObservableObject {
     @Published private(set) var repos: [GitHubRepo] = []
@@ -72,9 +72,14 @@ final class GitHubStore: ObservableObject {
     private(set) var root: URL?
     /// Current branch, told by the Git client.
     private(set) var branch = ""
-    /// Bumped on every reset and repository change; async results of an older one are dropped.
-    private var generation = 0
-    private var pollTask: Task<Void, Never>?
+    /// What the store started for itself: the repository detection, the account and the search wait. A reset cancels them.
+    private let tasks = TaskBag()
+    /// What belongs to the selected repository: its lists, runs and the models' work. A repository change or a reset cancels them,
+    /// so an answer for an older repository never lands.
+    private let repoTasks = TaskBag()
+    /// The poll of Actions, a job of the app's scheduler (`AR-19`): paused while the app is in the background.
+    private let pollKey = "github-store-" + UUID().uuidString
+    var polling = PollingScheduler.app
     private var loadingBranchRuns = false
     private var loadingMetadata = false
     /// Runs seen active, to notify when they finish.
@@ -103,21 +108,19 @@ final class GitHubStore: ObservableObject {
         guard GitHubSettings.enabled, self.root != root else { return }
         reset()
         self.root = root
-        let generation = self.generation
-        Task {
+        tasks.store(Task {
             let found = await GitHubClient.detectRepos(root: root)
-            guard generation == self.generation else { return }
+            guard !Task.isCancelled else { return }
             repos = found
             selectedRepo = found.first
             loadAccount()
             startPolling()
-        }
+        }, for: "setup")
     }
 
     func reset() {
-        generation += 1
-        pollTask?.cancel()
-        pollTask = nil
+        tasks.cancelAll()
+        polling.stop(key: pollKey)
         root = nil
         branch = ""
         repos = []
@@ -129,7 +132,10 @@ final class GitHubStore: ObservableObject {
 
     /// Everything that belongs to the selected repository.
     private func clearRepoState() {
-        generation += 1
+        repoTasks.cancelAll()
+        for model in runModels.values { model.close() }
+        for model in issueModels.values { model.close() }
+        for model in pullRequestModels.values { model.close() }
         pullRequests = []; issues = []; runs = []; workflows = []; branchRuns = []
         labels = []; assignableUsers = []
         runModels = [:]; issueModels = [:]; pullRequestModels = [:]
@@ -141,12 +147,11 @@ final class GitHubStore: ObservableObject {
 
     func loadAccount() {
         guard let root else { return }
-        let generation = self.generation
-        Task {
+        repoTasks.store(Task {
             let found = try? await GitHubClient.account(root: root)
-            guard generation == self.generation else { return }
+            guard !Task.isCancelled else { return }
             account = found
-        }
+        }, for: "account")
     }
 
     /// The Git client saw a (new) current branch.
@@ -169,18 +174,18 @@ final class GitHubStore: ObservableObject {
     func refreshPullRequests() {
         guard let client else { return }
         loadingPRs = true
-        let state = prState, filter = prFilter, generation = self.generation
-        Task {
+        let state = prState, filter = prFilter
+        repoTasks.store(Task {
             do {
                 let list = try await client.pullRequests(state: state, filter: filter)
-                guard generation == self.generation, state == prState, filter == prFilter else { return }
+                guard !Task.isCancelled, state == prState, filter == prFilter else { return }
                 pullRequests = list
                 lastError = nil
             } catch {
-                if generation == self.generation { lastError = error.localizedDescription }
+                if !Task.isCancelled { lastError = error.localizedDescription }
             }
-            if generation == self.generation { loadingPRs = false }
-        }
+            if !Task.isCancelled { loadingPRs = false }
+        }, for: "pull-requests")
     }
 
     /// Run an action with `client` (the selected repository's by default). Returns the error.
@@ -202,49 +207,47 @@ final class GitHubStore: ObservableObject {
     // MARK: Issues
 
     @Published var issueSearch = ""
-    private var issueSearchTask: Task<Void, Never>?
 
+    /// A search waits until the typing pauses; the next keystroke replaces the wait.
     func searchIssues(_ query: String) {
         issueSearch = query
-        issueSearchTask?.cancel()
-        issueSearchTask = Task {
+        tasks.store(Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
             refreshIssues()
-        }
+        }, for: "issue-search")
     }
 
     func refreshIssues() {
         guard let client else { return }
         loadingIssues = true
-        let state = issueState, filter = issueFilter, search = issueSearch, generation = self.generation
-        Task {
+        let state = issueState, filter = issueFilter, search = issueSearch
+        repoTasks.store(Task {
             do {
                 let list = try await client.issues(state: state, filter: filter, search: search)
-                guard generation == self.generation, state == issueState, filter == issueFilter, search == issueSearch else { return }
+                guard !Task.isCancelled, state == issueState, filter == issueFilter, search == issueSearch else { return }
                 issues = list
                 lastError = nil
             } catch {
-                guard generation == self.generation, state == issueState, filter == issueFilter, search == issueSearch else { return }
+                guard !Task.isCancelled, state == issueState, filter == issueFilter, search == issueSearch else { return }
                 lastError = error.localizedDescription
             }
-            if generation == self.generation, state == issueState, filter == issueFilter, search == issueSearch { loadingIssues = false }
-        }
+            if !Task.isCancelled, state == issueState, filter == issueFilter, search == issueSearch { loadingIssues = false }
+        }, for: "issues")
     }
 
     /// Labels and assignable people, loaded once per repository.
     func loadIssueMetadata() {
         guard let client, labels.isEmpty, !loadingMetadata else { return }
         loadingMetadata = true
-        let generation = self.generation
-        Task {
+        repoTasks.store(Task {
             let foundLabels = (try? await client.labels()) ?? []
             let users = (try? await client.assignableUsers()) ?? []
-            guard generation == self.generation else { return }
+            guard !Task.isCancelled else { return }
             labels = foundLabels
             assignableUsers = users
             loadingMetadata = false
-        }
+        }, for: "metadata")
     }
 
     func issueModel(_ number: Int, repo slug: String) -> GitHubIssueModel? {
@@ -270,49 +273,48 @@ final class GitHubStore: ObservableObject {
     func refreshRuns() {
         guard let client, !loadingRuns else { return }
         loadingRuns = true
-        let workflow = runWorkflow, branch = runBranch, generation = self.generation
-        Task {
+        let workflow = runWorkflow, branch = runBranch
+        repoTasks.store(Task {
             do {
                 let list = try await client.runs(workflow: workflow, branch: branch)
-                if generation == self.generation, workflow == runWorkflow, branch == runBranch {
+                if !Task.isCancelled, workflow == runWorkflow, branch == runBranch {
                     runs = list
                     lastError = nil
                     noteRuns(list)
                 }
             } catch {
-                if generation == self.generation { lastError = error.localizedDescription }
+                if !Task.isCancelled { lastError = error.localizedDescription }
             }
-            guard generation == self.generation else { return }
+            guard !Task.isCancelled else { return }
             loadingRuns = false
             // The filter changed while this one was loading.
             if workflow != runWorkflow || branch != runBranch { refreshRuns() }
-        }
+        }, for: "runs")
     }
 
     func refreshWorkflows() {
         guard let client else { return }
-        let generation = self.generation
-        Task {
+        repoTasks.store(Task {
             let list = (try? await client.workflows()) ?? []
-            guard generation == self.generation else { return }
+            guard !Task.isCancelled else { return }
             workflows = list
-        }
+        }, for: "workflows")
     }
 
     private func refreshBranchRuns() {
         guard let client, !branch.isEmpty, !loadingBranchRuns else { return }
         loadingBranchRuns = true
-        let branch = self.branch, generation = self.generation
-        Task {
+        let branch = self.branch
+        repoTasks.store(Task {
             let list = try? await client.runs(workflow: nil, branch: branch)
-            guard generation == self.generation else { return }
+            guard !Task.isCancelled else { return }
             loadingBranchRuns = false
             guard let list, branch == self.branch else { return }
             var latest: [String: GHRun] = [:]
             for run in list where latest[run.workflowName] == nil { latest[run.workflowName] = run }
             branchRuns = latest.values.sorted { $0.workflowName < $1.workflowName }
             noteRuns(list)
-        }
+        }, for: "branch-runs")
     }
 
     /// Worst outcome of the current branch's latest runs.
@@ -335,20 +337,18 @@ final class GitHubStore: ObservableObject {
     // MARK: Polling and notifications
 
     private func startPolling() {
-        pollTask?.cancel()
+        polling.stop(key: pollKey)
         guard selectedRepo != nil else { return }
         if let client { polls.send(client) }
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                let active = self?.anyRunActive ?? false
-                let seconds = active ? GitHubSettings.activeInterval : GitHubSettings.idleInterval
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
-                self.refreshRuns()
-                self.refreshBranchRuns()
-                for model in self.runModels.values where model.isLive { model.refresh() }
-                if let client = self.client { self.polls.send(client) }
-            }
+        let key = pollKey, polling = polling
+        polling.every(key: key, interval: { [weak self] in
+            (self?.anyRunActive ?? false) ? GitHubSettings.activeInterval : GitHubSettings.idleInterval
+        }) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.refreshRuns()
+            self.refreshBranchRuns()
+            for model in self.runModels.values where model.isLive { model.refresh() }
+            if let client = self.client { self.polls.send(client) }
         }
     }
 
@@ -417,6 +417,8 @@ final class GitHubRunModel: ObservableObject {
     @Published private(set) var explanation = ""
     @Published private(set) var explaining = false
     private var refreshing = false
+    /// The model's reads, the log loads, the action and the explanation; the store closes the model when its repository goes.
+    private let tasks = TaskBag()
 
     init(runId: Int, client: GitHubClient, store: GitHubStore) {
         self.runId = runId
@@ -433,12 +435,13 @@ final class GitHubRunModel: ObservableObject {
         guard !refreshing else { return }
         refreshing = true
         let client = self.client
-        Task {
+        tasks.store(Task {
             defer { refreshing = false }
             do {
                 async let runValue = client.run(runId)
                 async let jobsValue = client.jobs(run: runId)
                 let (run, jobs) = try await (runValue, jobsValue)
+                guard !Task.isCancelled else { return }
                 self.run = run
                 self.jobs = jobs
                 if selectedJob == nil || !jobs.contains(where: { $0.databaseId == selectedJob }) {
@@ -447,9 +450,12 @@ final class GitHubRunModel: ObservableObject {
                 error = nil
                 // The shown job finished: its log is available now.
                 if let job = selected, job.outcome != .running, logs[job.databaseId] == nil { loadLog(job) }
-            } catch { self.error = error.localizedDescription }
-        }
+            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        }, for: "refresh")
     }
+
+    /// The store lets go of the model (another repository, or the folder closed): what it was doing stops.
+    func close() { tasks.cancelAll() }
 
     func select(_ job: GHJob) {
         selectedJob = job.databaseId
@@ -459,14 +465,16 @@ final class GitHubRunModel: ObservableObject {
     func loadLog(_ job: GHJob) {
         guard !loadingLog.contains(job.databaseId) else { return }
         loadingLog.insert(job.databaseId)
-        Task {
+        tasks.store(Task {
             defer { loadingLog.remove(job.databaseId) }
             do {
                 let text = try await client.jobLog(job.databaseId)
                 let steps = job.steps ?? []
-                logs[job.databaseId] = await Task.detached { GHJobLog.split(text, steps: steps) }.value
-            } catch { self.error = "Log of \(job.name): \(error.localizedDescription)" }
-        }
+                let split = await Task.detached { GHJobLog.split(text, steps: steps) }.value
+                guard !Task.isCancelled else { return }
+                logs[job.databaseId] = split
+            } catch { if !Task.isCancelled { self.error = "Log of \(job.name): \(error.localizedDescription)" } }
+        }, for: "log:\(job.databaseId)")
     }
 
     func rerun(failedOnly: Bool) { act("Re-run") { try await $0.rerun(self.runId, failedOnly: failedOnly) } }
@@ -475,14 +483,15 @@ final class GitHubRunModel: ObservableObject {
     private func act(_ label: String, _ action: @escaping (GitHubClient) async throws -> Void) {
         guard let store else { return }
         busy = true
-        Task {
+        tasks.store(Task {
             error = await store.perform(label, client: client, action)
             busy = false
             logs = [:]
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
             refresh()
             store.refreshRuns()
-        }
+        }, for: "act")
     }
 
     /// The failed steps' log, last lines of each — what the AI gets.
@@ -519,7 +528,7 @@ final class GitHubRunModel: ObservableObject {
         guard !explaining else { return }
         explaining = true
         explanation = ""
-        Task {
+        tasks.store(Task {
             await loadFailedLogs()
             var request = CLICompletion.Request(
                 project: store?.root,
@@ -535,6 +544,7 @@ final class GitHubRunModel: ObservableObject {
             var streamed = ""
             do {
                 let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "github-explain-failure", onDelta: { text in
+                    // task: hops onto the main actor to show the streamed text; it holds nothing of its own
                     Task { @MainActor in
                         streamed += text
                         self.explanation = streamed
@@ -545,7 +555,7 @@ final class GitHubRunModel: ObservableObject {
             } catch is CancellationError {
             } catch { explanation = "Failed: \(error.localizedDescription)" }
             explaining = false
-        }
+        }, for: "explain")
     }
 }
 
@@ -563,6 +573,8 @@ final class GitHubIssueModel: ObservableObject {
     @Published private(set) var html: GHIssueHTML?
     @Published var error: String?
     @Published private(set) var busy = false
+    /// The model's read and its actions; the store closes the model when its repository goes.
+    private let tasks = TaskBag()
 
     init(number: Int, client: GitHubClient, store: GitHubStore) {
         self.number = number
@@ -573,17 +585,20 @@ final class GitHubIssueModel: ObservableObject {
     }
 
     func refresh() {
-        Task {
+        tasks.store(Task {
             do {
                 async let details = client.issue(number)
                 async let rendered = client.issueHTML(number)
                 let (issue, html) = try await (details, rendered)
+                guard !Task.isCancelled else { return }
                 self.issue = issue
                 self.html = html
                 error = nil
-            } catch { self.error = error.localizedDescription }
-        }
+            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        }, for: "refresh")
     }
+
+    func close() { tasks.cancelAll() }
 
     func contentDidChange() {
         refresh()
@@ -595,13 +610,14 @@ final class GitHubIssueModel: ObservableObject {
              _ action: @escaping (GitHubClient) async throws -> Void) {
         guard let store, !busy else { return }
         busy = true
-        Task {
+        tasks.store(Task {
             error = await store.perform(label, client: client, action)
             busy = false
+            guard !Task.isCancelled else { return }
             if error == nil { onSuccess?() }
             refresh()
             store.refreshIssues()
-        }
+        }, for: "act")
     }
 }
 
@@ -618,6 +634,8 @@ final class GitHubPullRequestModel: ObservableObject {
     @Published private(set) var html: GHIssueHTML?
     @Published var error: String?
     @Published private(set) var busy = false
+    /// The model's read and its actions; the store closes the model when its repository goes.
+    private let tasks = TaskBag()
 
     init(number: Int, client: GitHubClient, store: GitHubStore) {
         self.number = number
@@ -627,27 +645,31 @@ final class GitHubPullRequestModel: ObservableObject {
     }
 
     func refresh() {
-        Task {
+        tasks.store(Task {
             do {
                 async let details = client.pullRequest(number)
                 async let rendered = client.pullRequestHTML(number)
                 let (pr, html) = try await (details, rendered)
+                guard !Task.isCancelled else { return }
                 pullRequest = pr
                 self.html = html
                 error = nil
-            } catch { self.error = error.localizedDescription }
-        }
+            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        }, for: "refresh")
     }
+
+    func close() { tasks.cancelAll() }
 
     /// Run an action, then reload the pull request and the list.
     func act(_ label: String, _ action: @escaping (GitHubClient) async throws -> Void) {
         guard let store else { return }
         busy = true
-        Task {
+        tasks.store(Task {
             error = await store.perform(label, client: client, action)
             busy = false
+            guard !Task.isCancelled else { return }
             refresh()
             store.refreshPullRequests()
-        }
+        }, for: "act")
     }
 }

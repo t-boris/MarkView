@@ -113,7 +113,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private var startupSentAt: Date?
     private var lastOutputAt: Date?
     private var pendingPastes: [(text: String, submit: Bool, queued: Date)] = []
-    private var pasteTimer: Timer?
+    /// The poll that waits for the terminal to be ready for a queued paste: a job of the app's scheduler that keeps running in the
+    /// background (an unattended run still needs its prompt), and the staggered delivery of a batch (`AR-19`).
+    private var pasteKey: String { "terminal-paste-" + id.uuidString }
+    private var pasteDelivery: Task<Void, Never>?
     private var size = winsize(ws_row: 30, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
     /// Interface text scale for the terminal glyphs; the host view keeps it current.
     private var fontScale = AppFontScale.storedFactor
@@ -505,6 +508,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         write("\u{1b}[200~" + text + "\u{1b}[201~")
         if submit {
             // Give the program a moment to take the paste before Enter.
+            // task: Enter 0.25 s after a paste so the program takes it first; weak self, writes to this session only
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.write("\r") }
         }
         focus()
@@ -545,9 +549,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     func pasteWhenReady(_ text: String, submit: Bool) {
         pendingPastes.append((text, submit, Date()))
         deliverPendingPastes()
-        guard !pendingPastes.isEmpty, pasteTimer == nil else { return }
-        pasteTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.deliverPendingPastes() }
+        guard !pendingPastes.isEmpty, !PollingScheduler.app.keys.contains(pasteKey) else { return }
+        let key = pasteKey
+        PollingScheduler.app.every(0.5, key: key, pausesWhenHidden: false) { [weak self] in
+            guard let self else { PollingScheduler.app.stop(key: key); return }
+            self.deliverPendingPastes()
         }
     }
 
@@ -580,16 +586,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     private func deliverPendingPastes() {
         guard let first = pendingPastes.first else {
-            pasteTimer?.invalidate(); pasteTimer = nil
+            PollingScheduler.app.stop(key: pasteKey)
             return
         }
         guard readyForPaste || Date().timeIntervalSince(first.queued) > 45 else { return }
         let pastes = pendingPastes
         pendingPastes = []
-        pasteTimer?.invalidate(); pasteTimer = nil
-        for (index, item) in pastes.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.6) { [weak self] in
-                self?.paste(item.text, submit: item.submit)
+        PollingScheduler.app.stop(key: pasteKey)
+        // A batch goes out one prompt every 0.6 s, and a later batch waits for this one.
+        let previous = pasteDelivery
+        pasteDelivery = Task { [weak self] in
+            await previous?.value
+            for (index, item) in pastes.enumerated() {
+                if index > 0 { try? await Task.sleep(nanoseconds: 600_000_000) }
+                guard !Task.isCancelled, let self else { return }
+                self.paste(item.text, submit: item.submit)
             }
         }
     }
@@ -623,6 +634,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if !startupSent, let command = resumeCommand ?? startupCommand, !command.isEmpty {
             startupSent = true
             resumeCommand = nil
+            // task: types the startup command 0.4 s after the shell is up; weak self, writes to this session only
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 self?.write(command + "\r")
                 self?.startupSentAt = Date()
@@ -630,6 +642,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         guard pageReady, !flushScheduled else { return }
         flushScheduled = true
+        // task: coalesces output into one flush per frame; flushScheduled keeps it to one pending hop
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in self?.flush() }
     }
 
@@ -653,6 +666,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         if !pendingOutput.isEmpty {
             flushScheduled = true
+            // task: the next frame's flush; flushScheduled keeps it to one pending hop
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in self?.flush() }
         }
     }

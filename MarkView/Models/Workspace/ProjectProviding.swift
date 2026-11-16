@@ -4,7 +4,7 @@ import Foundation
 /// semantic database. A feature takes this instead of a reference to the window's whole `WorkspaceManager` (`AR-14` step 8,
 /// `AR-17`); `ProjectContext` is the one implementation.
 @MainActor
-protocol ProjectProviding: AnyObject {
+protocol ProjectProviding: AnyObject, Sendable {
     /// The open folder, or a single file's folder; nil while nothing is open.
     var root: URL? { get }
     /// The project whose assistant, model and X-Ray model the window uses (BUG-021); nil for a single file, which uses the defaults.

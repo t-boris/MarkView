@@ -4,7 +4,7 @@ import MarkViewCore
 #endif
 
 /// The team-owned definition in .markview/operations.json. Only the run summary is local.
-struct ProjectOperation: Codable, Identifiable {
+struct ProjectOperation: Codable, Identifiable, Sendable {
     struct Discovered: Codable, Equatable {
         var command: String
         var cwd: String
@@ -178,7 +178,7 @@ enum ProjectOperationError: LocalizedError {
     }
 }
 
-struct ProjectOperationsDocument: Codable {
+struct ProjectOperationsDocument: Codable, Sendable {
     var version = 1
     var operations: [ProjectOperation] = []
     var extra: [String: AnyCodable] = [:]

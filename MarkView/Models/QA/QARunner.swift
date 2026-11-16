@@ -7,7 +7,7 @@ import Foundation
 // checked on its own (tools/tests/qa-tests.sh). Foundation only.
 
 /// One browser (or application) session that belongs to one player. Sessions of different players never share cookies or storage.
-protocol QAActorDriver: AnyObject {
+protocol QAActorDriver: AnyObject, Sendable {
     func open(_ address: String) async throws
     func observe() async throws -> QAObservation
     /// Does what the action says and answers, in a few words, what came of it. A failed action throws.
@@ -89,6 +89,7 @@ protocol QARunObserver: AnyObject {
 }
 
 /// One execution owns this gate. All state is protected because UI requests can race an assistant response.
+// unchecked Sendable: `lock` guards every mutable field: the UI and the assistant's response race on them.
 final class QARunControl: @unchecked Sendable {
     enum Command { case proceed, jump(String), stop }
     private let lock = NSLock()

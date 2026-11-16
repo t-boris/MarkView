@@ -203,6 +203,7 @@ enum CLICompletion {
 
 /// One CLI process: feeds stdin, hands each JSON line of its output to the provider's parser, enforces the timeout.
 /// All mutable state is touched only on `queue`.
+// unchecked Sendable: every mutable property is touched only on `queue`, a serial queue.
 private final class Invocation: @unchecked Sendable {
     private let tool: CLITool
     private let spec: SubprocessSpec

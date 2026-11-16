@@ -9,6 +9,7 @@ import MarkViewCore
 // and nothing is written when another writer (another window, git, an editor) changed the status meanwhile.
 // Foundation only (with FrontMatter.swift), so it can be checked on its own.
 
+// unchecked Sendable: `root` is a `let`; `lock` orders the read-modify-write of a status and `namesLock` guards the name cache.
 final class MarkdownIssueStatusStore: LifecycleStatusStore, @unchecked Sendable {
     let root: URL
     private let lock = NSLock()

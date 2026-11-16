@@ -110,6 +110,7 @@ struct LocalExecutor: DeploymentExecutor {
 struct SSHExecutor: DeploymentExecutor {
     let environment: DeploymentEnvironment
     /// Extra ssh options. Empty in the app; a test points ssh at its own known_hosts and a private server.
+    // unchecked Sendable: a test hook: the test assigns it once before any SSH command runs, and the app never writes it.
     nonisolated(unsafe) static var extraOptions: [String] = []
 
     /// Per-user mode-0700 directory for SSH ControlMaster sockets (AR-12).

@@ -118,7 +118,7 @@ struct GitStatusEntry: Identifiable, Hashable {
 }
 
 /// The parsed state of a repository (`git status --porcelain=v2 -z --branch`).
-struct GitRepoStatus: Equatable {
+struct GitRepoStatus: Equatable, Sendable {
     var head = ""
     var upstream: String?
     var ahead = 0

@@ -66,7 +66,8 @@ enum FinderOpenRequestsChecks {
         check((large?.path.count ?? 0) <= 65_540 && (large?.path.count ?? 0) > 60_000, "a request is read up to 64 KB (\(large?.path.count ?? 0))")
 
         // --- The poll.
-        let polled = FinderOpenRequests(candidates: [first], interval: 20_000_000)
+        let scheduler = PollingScheduler()
+        let polled = FinderOpenRequests(candidates: [first], interval: 0.02, scheduler: scheduler)
         var received: [[URL]] = []
         var ignored = 0
         check(!polled.isPolling, "a new poll is not running")
@@ -80,6 +81,13 @@ enum FinderOpenRequestsChecks {
         check(await eventually { received.count == 2 }, "the next request is taken too")
         check(ignored == 0, "a second start does not stack a second poll or replace the handler")
 
+        // The action writes while another app is in front: the poll keeps its cadence in the background.
+        scheduler.setAppActive(false)
+        write("/tmp/while-in-background", to: first)
+        check(await eventually { received.count == 3 }, "a request written while the app is in the background is still taken")
+        scheduler.setAppActive(true)
+        received.removeLast()
+
         polled.stop()
         check(!polled.isPolling, "stop ends the poll")
         write("/tmp/after-stop", to: first)
@@ -89,11 +97,12 @@ enum FinderOpenRequestsChecks {
         polled.start { received.append($0) }
         check(await eventually { received.count == 3 } && !exists(first), "a poll started again takes the request that waited")
         polled.stop()
+        scheduler.stopAll()
 
         if failures > 0 {
             FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
             exit(1)
         }
-        print("FinderOpenRequests: request files, one poll, stop and restart passed")
+        print("FinderOpenRequests: request files, one poll (also in the background), stop and restart passed")
     }
 }

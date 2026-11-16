@@ -31,6 +31,7 @@ struct GitHubRepo: Equatable { let slug: String }
 @MainActor final class StandInFileTree {
     let timerBeats = PassthroughSubject<Void, Never>()
     var refreshes = 0
+    var polling = PollingScheduler.app
     func refresh() { refreshes += 1 }
 }
 
@@ -58,6 +59,7 @@ enum TabsEvent {
 @MainActor final class TabsController: ObservableObject {
     private let eventSubject = PassthroughSubject<TabsEvent, Never>()
     var events: AnyPublisher<TabsEvent, Never> { eventSubject.eraseToAnyPublisher() }
+    var polling = PollingScheduler.app
     init() { Journal.built.append("tabs") }
     func emit(_ event: TabsEvent) { eventSubject.send(event) }
     func shutdown() { Journal.shutdown.append("tabs") }
@@ -86,9 +88,10 @@ enum TabsEvent {
     let host: any AITerminalsHost
     let project: ProjectContext
     let tasks: TaskBag
+    let polling: PollingScheduler
     var closedTabTerminals: [UUID] = []
-    init(host: any AITerminalsHost, project: ProjectContext, tasks: TaskBag) {
-        self.host = host; self.project = project; self.tasks = tasks
+    init(host: any AITerminalsHost, project: ProjectContext, tasks: TaskBag, polling: PollingScheduler) {
+        self.host = host; self.project = project; self.tasks = tasks; self.polling = polling
         Journal.built.append("terminals")
     }
     func closeTabTerminal(_ id: UUID) { closedTabTerminals.append(id) }
