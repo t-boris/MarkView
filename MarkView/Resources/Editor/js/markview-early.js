@@ -1,3 +1,4 @@
+// @ts-check
         // EARLIEST POSSIBLE GLOBAL ERROR CAPTURE — must precede any other code so
         // it catches initialization-time exceptions that would otherwise prevent
         // window.loadInsightSkeleton/updateInsightSection/setInsightStatus/...
@@ -5,7 +6,7 @@
         // ============================================================================
         (function installEarlyErrorCapture() {
             function postEarlyDiag(payload) {
-                try { window.mvBridge.send('jsError', payload, 'bridge'); } catch (_) {}
+                try { /** @type {any} */ (window).mvBridge.send('jsError', payload, 'bridge'); } catch (_) {}
             }
             window.addEventListener('error', function(event) {
                 postEarlyDiag({

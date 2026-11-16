@@ -44,6 +44,7 @@ jobs:
         working-directory: tools/web-vendor
         run: |
           npm ci
+          npm run check:editor
           ./build.sh
           git diff --exit-code -- ../../MarkView/Resources/Editor
 

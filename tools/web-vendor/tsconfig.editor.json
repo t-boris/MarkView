@@ -1,0 +1,50 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": []
+  },
+  "files": [
+    "../../MarkView/Resources/Editor/js/markview-themes.js",
+    "../../MarkView/Resources/Editor/js/mv-kit.js",
+    "../../MarkView/Resources/Editor/js/markview-early.js",
+    "../../MarkView/Resources/Editor/js/markview-state.js",
+    "../../MarkView/Resources/Editor/js/markview-document-files.js",
+    "../../MarkView/Resources/Editor/js/markview-mdext.js",
+    "../../MarkView/Resources/Editor/js/markview-render.js",
+    "../../MarkView/Resources/Editor/js/markview-edit.js",
+    "../../MarkView/Resources/Editor/js/markview-find.js",
+    "../../MarkView/Resources/Editor/js/markview-bridge.js",
+    "../../MarkView/Resources/Editor/js/markview-structured.js",
+    "../../MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
+    "../../MarkView/Resources/Editor/js/markview-insight-helpers.js",
+    "../../MarkView/Resources/Editor/js/markview-insight-handlers.js",
+    "../../MarkView/Resources/Editor/js/markview-globals.js",
+    "../../MarkView/Resources/Editor/js/markview-canvas.js",
+    "../../MarkView/Resources/Editor/js/markview-panels.js",
+    "../../MarkView/Resources/Editor/js/markview-code.js",
+    "../../MarkView/Resources/Editor/js/markview-architecture-model.js",
+    "../../MarkView/Resources/Editor/js/markview-architecture-graph.js",
+    "../../MarkView/Resources/Editor/js/markview-architecture-panels.js",
+    "../../MarkView/Resources/Editor/js/markview-architecture-details.js",
+    "../../MarkView/Resources/Editor/js/markview-architecture-toolbar.js",
+    "../../MarkView/Resources/Editor/js/markview-diagram-viewer.js",
+    "../../MarkView/Resources/Editor/js/markview-d3-mermaid.js",
+    "../../MarkView/Resources/Editor/js/markview-data.js",
+    "../../MarkView/Resources/Editor/js/markview-research-map-layout.js",
+    "../../MarkView/Resources/Editor/js/markview-research-map-core.js",
+    "../../MarkView/Resources/Editor/js/markview-research-map-chrome.js",
+    "../../MarkView/Resources/Editor/js/markview-research-map-tree.js",
+    "../../MarkView/Resources/Editor/js/markview-research-map-viewport.js",
+    "../../MarkView/Resources/Editor/js/markview-research-map-panel.js",
+    "../../MarkView/Resources/Editor/js/markview-research-map-entry.js",
+    "../../MarkView/Resources/Editor/js/markview-init.js"
+  ]
+}

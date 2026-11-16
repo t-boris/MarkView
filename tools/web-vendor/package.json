@@ -3,7 +3,8 @@
   "private": true,
   "description": "Builds the third-party browser bundles shipped in MarkView/Resources/Editor/vendor/js. Run ./build.sh after changing dependencies.",
   "scripts": {
-    "build": "./build.sh"
+    "build": "./build.sh",
+    "check:editor": "node check-editor-types.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",
@@ -47,6 +48,7 @@
     "yaml": "2.9.1"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
   }
 }
