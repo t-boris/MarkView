@@ -3,6 +3,7 @@
 // answers, the redirect parameter of an external page and the project detection. Called by UIStudioTests.swift.
 import CryptoKit
 import Foundation
+import os
 
 /// Whether `token` is an HS256 JWT signed with the test key, as a server holding the test secret verifies it.
 func verifiesWithTestKey(_ token: String) -> Bool {
@@ -15,6 +16,13 @@ func verifiesWithTestKey(_ token: String) -> Bool {
 }
 
 func authMockChecks() {
+    let date = Date(timeIntervalSince1970: 1_700_000_000)
+    let expectedDate = "2023-11-14T22:13:20Z"
+    let dateErrors = OSAllocatedUnfairLock(initialState: 0)
+    DispatchQueue.concurrentPerform(iterations: 200) { _ in
+        if StudioAuthMock.iso(date) != expectedDate { dateErrors.withLock { $0 += 1 } }
+    }
+    check("concurrent auth responses format their dates consistently", dateErrors.withLock { $0 } == 0)
     let app = "http://localhost:3000"
     let connections = [
         StudioServerConnection(variable: "SUPABASE_INTERNAL_URL", origin: "http://kong:8000", basePath: "", mode: .simulated, foundIn: ".env"),

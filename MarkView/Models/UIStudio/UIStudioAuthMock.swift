@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // The mock-up policy of UI Studio for sign-in and forms (REQ-010, DEC-007): whatever was typed, signing in, signing up,
 // verifying, resetting a password and signing out succeed and sign in the scenario's test user, and no real service is
@@ -203,13 +204,14 @@ struct StudioAuthMock: Equatable, Sendable {
     /// A year after the test time: the page's clock and a server on the scenario's clock both accept the session.
     static func expiresAt(_ testTime: Date) -> Double { seconds(testTime) + lifetime }
 
-    private static let isoFormatter: ISO8601DateFormatter = {
+    // The formatter stays behind its lock while independent page and server requests use it.
+    private static let isoFormatter: OSAllocatedUnfairLock<ISO8601DateFormatter> = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter
+        return OSAllocatedUnfairLock(uncheckedState: formatter)
     }()
 
-    static func iso(_ date: Date) -> String { isoFormatter.string(from: date) }
+    static func iso(_ date: Date) -> String { isoFormatter.withLock { $0.string(from: date) } }
 
     private func redirect(_ status: Int, to target: URL, pkce: Bool, user: StudioJSON, issuer: String, testTime: Date) -> StudioSimResponse {
         guard var components = URLComponents(url: target, resolvingAgainstBaseURL: false) else {
