@@ -588,6 +588,7 @@
 		B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */; };
 		45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */; };
 		DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */; };
+		EEB7F8AF131F41798AFA12A7 /* TerminalLayoutHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2E18BE1BFB4077B0C32A30 /* TerminalLayoutHostTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1291,6 +1292,7 @@
 		6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReaderHostTests.swift; sourceTree = "<group>"; };
 		346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFrameHostTests.swift; sourceTree = "<group>"; };
 		B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExportHostTests.swift; sourceTree = "<group>"; };
+		9C2E18BE1BFB4077B0C32A30 /* TerminalLayoutHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLayoutHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2507,6 +2509,7 @@
 				6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */,
 				346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */,
 				B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */,
+				9C2E18BE1BFB4077B0C32A30 /* TerminalLayoutHostTests.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3355,6 +3358,7 @@
 				B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */,
 				45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */,
 				DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */,
+				EEB7F8AF131F41798AFA12A7 /* TerminalLayoutHostTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,16 +1,18 @@
 import AppKit
 import WebKit
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-// Unrelated assistant/dictation dependencies are not exercised by this harness.
-final class WhisperClient { func stopRecording() async -> String? { nil } }
-
-@MainActor final class TerminalLayoutTests: NSObject, WKScriptMessageHandler {
+@MainActor private final class TerminalLayoutChecks: NSObject, WKScriptMessageHandler {
     var session: TerminalSession!
     var window: NSWindow!
     var launched = false
     var readySize: (cols: Int, rows: Int)?
     var checks = 0
     var failures = 0
+    var finish: ((String?) -> Void)?
+    private var runningTask: Task<Void, Never>?
 
     func check(_ passed: Bool, _ name: String) {
         checks += 1
@@ -24,7 +26,7 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
             let payload = body["payload"] as? [String: Any] ?? [:]
             readySize = (payload["cols"] as? Int ?? 0, payload["rows"] as? Int ?? 0)
             launched = true
-            Task { await run() }
+            runningTask = Task { await run() }
         }
     }
     func run() async {
@@ -107,13 +109,13 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
             check(try await js("document.querySelector('.xterm-scrollable-element > .scrollbar.vertical.visible') !== null") as? Bool == true,
                   "xterm's custom scrollbar remains visible with scrollback")
             print("Terminal layout checks: \(checks), failures: \(failures), DPR: \(try await js("devicePixelRatio") ?? "unknown")")
-            session.terminate(); exit(failures == 0 ? 0 : 1)
-        } catch { print("ERROR: \(error)"); session.terminate(); exit(1) }
+            finish?(nil)
+        } catch { finish?(error.localizedDescription) }
     }
-    func start() {
-        TerminalSession.pageURL = URL(fileURLWithPath: CommandLine.arguments[1])
+    func start(entry: URL, directory: URL) {
+        TerminalSession.pageURL = entry
         BridgeContract.bundledURL = TerminalSession.pageURL!.deletingLastPathComponent().appendingPathComponent("js/bridge-contract.json")
-        session = TerminalSession(directory: URL(fileURLWithPath: CommandLine.arguments[2]))
+        session = TerminalSession(directory: directory)
         let web = session.webView
         web.configuration.userContentController.removeScriptMessageHandler(forName: "terminal")
         web.configuration.userContentController.add(self, name: "terminal")
@@ -136,14 +138,40 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         web.frame = NSRect(x: 0, y: 0, width: 800, height: 480)
         window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.title = "MarkView terminal layout tests"
         window.contentView = web
         window.orderFrontRegardless()
         web.loadFileURL(TerminalSession.pageURL!, allowingReadAccessTo: TerminalSession.pageURL!.deletingLastPathComponent())
-        Task { await pause(45_000); print("TIMEOUT"); session.terminate(); exit(2) }
+    }
+    func stop() {
+        finish = nil
+        runningTask?.cancel()
+        session?.webView.configuration.userContentController.removeScriptMessageHandler(forName: "terminal")
+        session?.terminate()
+        window?.close()
+    }
+
+}
+final class TerminalLayoutHostTests: XCTestCase {
+    @MainActor func testLayoutAndLivePTY() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-terminal-layout-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldPage = TerminalSession.pageURL
+        let oldContract = BridgeContract.bundledURL
+        defer { TerminalSession.pageURL = oldPage; BridgeContract.bundledURL = oldContract }
+        let entry = try XCTUnwrap(Bundle.main.url(forResource: "terminal", withExtension: "html", subdirectory: "Editor"))
+        let checks = TerminalLayoutChecks()
+        defer { checks.stop() }
+        let done = expectation(description: "terminal layout checks completed")
+        checks.finish = { error in
+            if let error { XCTFail("Terminal layout failed: \(error)") }
+            done.fulfill()
+        }
+        checks.start(entry: entry, directory: root)
+        await fulfillment(of: [done], timeout: 60)
+        XCTAssertEqual(checks.failures, 0)
+        XCTAssertEqual(checks.checks, 61)
     }
 }
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-let tests = MainActor.assumeIsolated { let t = TerminalLayoutTests(); t.start(); return t }
-app.run()
