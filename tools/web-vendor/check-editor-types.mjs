@@ -2,14 +2,15 @@
 // file, code and message; line numbers are intentionally omitted so moves are stable.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const config = JSON.parse(readFileSync(new URL('./tsconfig.editor.json', import.meta.url), 'utf8'));
 const inputs = JSON.parse(readFileSync(new URL('./editor-inputs.json', import.meta.url), 'utf8'));
 if (JSON.stringify(config.files) !== JSON.stringify(inputs.map(path => '../../MarkView/Resources/Editor/' + path))) {
     throw new Error('Type-check inputs must match editor-inputs.json in the same order');
 }
-const result = spawnSync(process.execPath, [new URL('./node_modules/typescript/bin/tsc', import.meta.url).pathname,
-    '-p', new URL('./tsconfig.editor.json', import.meta.url).pathname, '--pretty', 'false'], { encoding: 'utf8' });
+const result = spawnSync(process.execPath, [fileURLToPath(new URL('./node_modules/typescript/bin/tsc', import.meta.url)),
+    '-p', fileURLToPath(new URL('./tsconfig.editor.json', import.meta.url)), '--pretty', 'false'], { encoding: 'utf8' });
 if (result.error || ![0, 2].includes(result.status)) throw result.error || new Error(result.stderr || 'tsc failed');
 const diagnostics = {};
 for (const line of result.stdout.split('\n')) {
