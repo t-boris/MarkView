@@ -617,6 +617,9 @@ func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async 
         check("attached: closing twice leaves the user's process running", !userApp.isTerminated)
         var discoveryCalls = 0
         var recoveringConfig = QANativeActor.Config(bringToFront: false, launchTimeout: 15)
+        // The fixture deliberately withholds two discoveries. Allow time for both retries
+        // even when the hosted runner delays a scheduled task beyond the normal grace.
+        recoveringConfig.discoveryGrace = 5
         recoveringConfig.discoverApplications = { requested in
             discoveryCalls += 1
             return requested == identifier && discoveryCalls > 2 ? [userApp] : []
@@ -626,7 +629,7 @@ func liveAttached(fixture: URL, identifier: String, singleInstance: Bool) async 
             try await recovering.open(identifier)
             let identity = await recovering.sessionIdentity()
             check("attached: transient discovery recovers the exact existing PID", discoveryCalls == 3 && identity?.contains("PID \(userApp.processIdentifier)") == true)
-        } catch { check("attached: transient discovery recovers (\(error.localizedDescription))", false) }
+        } catch { check("attached: transient discovery recovers after \(discoveryCalls) calls (\(error.localizedDescription))", false) }
         await recovering.close()
         check("attached: discovery recovery never ends the user's app", !userApp.isTerminated)
         let sessions = QARunSessions()
