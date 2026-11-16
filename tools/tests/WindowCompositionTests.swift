@@ -84,7 +84,7 @@ func joining() async {
           "the window's polls are one scheduler, shared by the terminals, the tabs and the file tree")
     let project = composition.project
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-project", isDirectory: true)
-    project.rootNode = FileNode(url: root)
+    project.rootNode = FileNode(url: root, isDirectory: true)
 
     composition.flow.gitHub.selectedRepo = GitHubRepo(slug: "o/r")
     check(composition.codeXRay.architecture.review.gitHubRepo == GitHubRepo(slug: "o/r"), "the repository the GitHub flow works with reaches the X-Ray")
