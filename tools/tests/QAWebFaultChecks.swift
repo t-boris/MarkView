@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import WebKit
 import Network
 
@@ -6,7 +7,9 @@ import Network
 // the production QAWebActor in real, independent WKWebViews against a loopback server.
 @MainActor final class BrowserSession {
     let webView: WKWebView
+    let prompts: any UserPrompts
     init(url: URL?, dataStore: WKWebsiteDataStore, extraHandlers: [WebHost.Handler] = [], prompts: any UserPrompts) {
+        self.prompts = prompts
         let config = WebHost.makeConfiguration(dataStore: .store(dataStore), handlers: extraHandlers)
         webView = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
     }
@@ -112,6 +115,17 @@ final class FaultServer: @unchecked Sendable {
         try await legacy.arm(QAFault(urlPattern: "/messages", mode: .status, status: 503))
         let oldValues = try await evaluate(legacy, "return [(await fetch(base + '/messages')).status, (await fetch(base + '/messages', {method: 'POST'})).status];") as? [Int]
         check(oldValues == [503, 503], "Existing rules without a method still affect GET and POST")
+        // A player answers a page's file chooser with its built-in picture: the production actor wires the chooser, the file is a real PNG.
+        let chosen = first.session.prompts.chooseFiles(allowsMultiple: false, allowsDirectories: false)
+        check(chosen?.count == 1 && chosen?.first?.lastPathComponent == QATestImage.fileName, "A player answers a file chooser with one file named like the built-in picture")
+        check(first.session.prompts.ask(UserPrompt(title: "Delete?", buttons: ["OK", "Cancel"])) == nil, "and still answers no question to a person")
+        if let url = chosen?.first, let data = try? Data(contentsOf: url), let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+            check(data.prefix(8) == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), "The picture file is a PNG")
+            check(properties[kCGImagePropertyPixelWidth] as? Int == QATestImage.width && properties[kCGImagePropertyPixelHeight] as? Int == QATestImage.height,
+                  "The picture is \(QATestImage.width) by \(QATestImage.height) pixels")
+        } else { check(false, "The chosen picture file can be read as an image") }
+        check(first.session.prompts.chooseFiles(allowsMultiple: true, allowsDirectories: false)?.first == chosen?.first, "A second answer is the same file, written whole again")
         await first.close(); await second.close(); await legacy.close()
         print("\(failures) web fault failures")
         exit(failures == 0 ? 0 : 1)

@@ -389,7 +389,9 @@ enum BrowserAgentExecutor {
           return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
         const sel = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=switch],[role=combobox],[contenteditable=true],[onclick]';
         const onScreen = el => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
-        const candidates = [...document.querySelectorAll(sel)].filter(visible);
+        // A file field is often hidden behind a styled label; the label is what a person clicks to open the file chooser.
+        const fileLabels = [...document.querySelectorAll('label')].filter(l => l.control && l.control.type === 'file' && visible(l));
+        const candidates = [...document.querySelectorAll(sel)].filter(visible).concat(fileLabels);
         candidates.sort((a,b) => Number(onScreen(b)) - Number(onScreen(a)));
         for (const el of candidates) {
           if (out.length >= 300) break;

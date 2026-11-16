@@ -122,6 +122,8 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 - To prove "never starts X" make X impossible to start (binary absent) and read the tool's source for flags that promise "only X"; never `curl` a dev server a Studio session uses.
   [A: Proving "never starts X", 2026-10-01 | A model-written rule, 2026-11-04]
 
+- A `URL` value caches its resource values (`resourceValues(forKeys:)` returns the modification time of the first read), so a test that reads a file signature twice through one long-lived `URL` sees a stale time; build a new `URL` for each read, as the store does. [A: xray-content-tests, 2026-11-16]
+
 ## 5. The app-probe and live checks (no visible windows, no crashes)
 
 - Never drive UI in the user's live app: automate the Debug build in `/tmp/MarkViewDerivedData` or a scratch copy, confirm first which window and folder is key, and leave
@@ -278,6 +280,8 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   emitter's exact bytes (BEL vs ST, `id=`) against the pre-fix page. [A: Terminal OSC 8, 2026-09-26 | Terminal escape-sequence tests, 2026-09-26]
 - A sanitizer that strips attributes can break a library's output (KaTeX): allow what the library writes by property name, never by a pattern that rejects bad values. In PDF check
   text with `pdftotext` (the system font wrote U+0138 in place of a Cyrillic letter) and detect the language from running prose only. [A: Beautiful PDF export, 2026-11-07]
+
+- A page that asks the person for something (a file chooser, `alert`, `confirm`) must be answered where nobody sees the window: `WKUIDelegate.runOpenPanelWith` showed a system `NSOpenPanel` inside the off-screen QA player and the step hung. Route every such question through `UserPrompts` (the app shows a panel, a player answers itself, no prompter cancels); a closure property on the session trips the `window-wiring` lint. A web player needs the control to be listed in the snapshot: a hidden `input[type=file]` is shown through its visible `label`. [A: QA runner could not upload a file, 2026-11-16]
 
 ## 10. SQLite, stores, file writes and paths
 

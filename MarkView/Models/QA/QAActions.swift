@@ -143,6 +143,7 @@ enum QAStepPrompt {
         - Do not repeat an action that already had its effect. If the previous action did not change the page, try another way or answer blocked.
         - narration is one short sentence in the language of the step title: what you do now, which control or field it is (by the name a person sees) and why. It is shown as a subtitle. For done and notMet, narration says what you saw.
         - Fill only the fields the step needs. Prefer the plain, visible way a person would take.
+        - To attach a file, click the file field (input:file) or the label or button that opens it, as a person would. There is no file dialog: the runner answers the page's file chooser itself with one built-in test image, a PNG named \(QATestImage.fileName), \(QATestImage.width) by \(QATestImage.height) pixels. The field then shows that name as its value; take a new look at the page to confirm the file was taken. Do not type a path. There is no other file: if the step needs another file type or size, answer blocked and say so.
         """
 
     private static let apiSystemPrompt = """
