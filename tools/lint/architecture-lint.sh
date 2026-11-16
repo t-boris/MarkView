@@ -314,10 +314,11 @@ ratchet("assistant-switch", "assistant-switch-allowlist.txt", "assistant literal
 ratchet("atomic-write", "atomic-write-allowlist.txt", "direct file write(s)",
         count_sites(app_swift + package_swift, re.compile(r"\.write\((?:to|toFile):"),
                     exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p) or rel(p) == "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"),
-        "# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay: a user's own\n"
-        "# export or download (PDF, picture, HTML export), a scratch file in the temporary folder or a staging folder that is published by one\n"
-        "# move, a file that must never replace an existing one (`.withoutOverwriting`), and an append-only log. Everything else, every file\n"
-        "# of app or project state, goes through AtomicFile.write. Run tools/lint/architecture-lint.sh --tighten after converting a site.")
+        "# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay, with its\n"
+        "# reason on the line (`  # why`): a user's own export to a place chosen in a save panel (the volume is the person's, and the\n"
+        "# write is already atomic: `Data.write(.atomic)`). Everything else (app or project state, documents, caches, scripts, scratch and\n"
+        "# staging files, logs) goes through AtomicFile: `write`, `create` (never replaces) or `append`. Run tools/lint/architecture-lint.sh\n"
+        "# --tighten after converting a site.")
 
 ratchet("project-paths", "project-paths-allowlist.txt", "path literal(s)",
         count_sites(app_swift + package_swift, re.compile(r'"\.(?:dde|markview-)'),
@@ -343,6 +344,22 @@ ratchet("silent-decode", "silent-decode-allowlist.txt", "silent decode site(s)",
         "# through JSONLinesFile. What may stay is a tolerant parse of data that other programs produce, with a fallback that the caller\n"
         "# chose: an assistant's answer, a process's output, a socket or a page's message, a union decoder that tries one case after the\n"
         "# other, and a probe whose failure the decode that follows reports. Each entry says which, after `#`.")
+
+NSALERT = re.compile(r"(?<![A-Za-z0-9_])NSAlert\b")
+
+def nsalert_sites(files):
+    """Lines of a model that name `NSAlert`; a trailing `// ...` comment does not count."""
+    counts = {}
+    for path in files:
+        hits = sum(1 for _, line in code_lines(path) if NSALERT.search(re.split(r"\s//", line)[0]))
+        if hits:
+            counts[rel(path)] = hits
+    return counts
+
+ratchet("nsalert-in-models", "nsalert-in-models-allowlist.txt", "NSAlert reference(s)", nsalert_sites(swift_files("MarkView/Models")),
+        "# `NSAlert` in MarkView/Models (AR-22). `<count> <path>`; a ratchet that only falls. A model never shows a dialog: it asks through the\n"
+        "# UserPrompts it is given (Models/Shared/UserPrompts.swift) and the app answers once, with AlertPrompts (Views/Shared). The list is empty;\n"
+        "# a new site is fixed (inject UserPrompts), not added.")
 
 ownership = subprocess.run([str(lint_dir / "task-ownership.sh"), "--root", str(root), "--counts"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 if ownership.returncode != 0:
@@ -734,7 +751,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

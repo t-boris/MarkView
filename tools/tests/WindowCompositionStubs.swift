@@ -38,7 +38,8 @@ struct GitHubRepo: Equatable { let slug: String }
 @MainActor final class ProjectContext: ObservableObject {
     let fileTree = StandInFileTree()
     var rootNode: FileNode?
-    init() { Journal.built.append("project") }
+    let prompts: any UserPrompts
+    init(prompts: any UserPrompts) { self.prompts = prompts; Journal.built.append("project") }
     func close() { Journal.shutdown.append("project") }
 }
 
@@ -60,7 +61,8 @@ enum TabsEvent {
     private let eventSubject = PassthroughSubject<TabsEvent, Never>()
     var events: AnyPublisher<TabsEvent, Never> { eventSubject.eraseToAnyPublisher() }
     var polling = PollingScheduler.app
-    init() { Journal.built.append("tabs") }
+    let prompts: any UserPrompts
+    init(prompts: any UserPrompts) { self.prompts = prompts; Journal.built.append("tabs") }
     func emit(_ event: TabsEvent) { eventSubject.send(event) }
     func shutdown() { Journal.shutdown.append("tabs") }
 }
@@ -90,9 +92,10 @@ enum TabsEvent {
     let project: ProjectContext
     let tasks: TaskBag
     let polling: PollingScheduler
+    let prompts: any UserPrompts
     var closedTabTerminals: [UUID] = []
-    init(host: any AITerminalsHost, project: ProjectContext, tasks: TaskBag, polling: PollingScheduler) {
-        self.host = host; self.project = project; self.tasks = tasks; self.polling = polling
+    init(host: any AITerminalsHost, project: ProjectContext, tasks: TaskBag, polling: PollingScheduler, prompts: any UserPrompts) {
+        self.host = host; self.project = project; self.tasks = tasks; self.polling = polling; self.prompts = prompts
         Journal.built.append("terminals")
     }
     func closeTabTerminal(_ id: UUID) { closedTabTerminals.append(id) }
@@ -138,9 +141,10 @@ enum TabsEvent {
 @MainActor final class BrowserHost {
     let terminals: AITerminalsController
     let tabs: TabsController
+    let prompts: any UserPrompts
     init(tabs: TabsController, layout: PanelLayout, chrome: WindowChrome, project: ProjectContext, terminals: AITerminalsController,
-         window: any BrowserHostWindow) {
-        self.tabs = tabs; self.terminals = terminals
+         window: any BrowserHostWindow, prompts: any UserPrompts) {
+        self.tabs = tabs; self.terminals = terminals; self.prompts = prompts
         Journal.built.append("browser")
     }
     func close() { Journal.shutdown.append("browser") }
@@ -157,8 +161,10 @@ enum TabsEvent {
 @MainActor final class CodeAndXRayCoordinator: ObservableObject {
     let architecture = ArchitectureStore()
     let project: ProjectContext
-    init(project: ProjectContext, host: any CodeXRayHost) {
+    let prompts: any UserPrompts
+    init(project: ProjectContext, host: any CodeXRayHost, prompts: any UserPrompts) {
         self.project = project
+        self.prompts = prompts
         Journal.built.append("codeXRay")
     }
     func close() { Journal.shutdown.append("codeXRay") }
@@ -167,8 +173,10 @@ enum TabsEvent {
 @MainActor final class InsightCoordinator {
     let tasks: TaskBag
     var closed: [UUID] = []
-    init(host: any InsightHost, project: ProjectContext, tasks: TaskBag) {
+    let prompts: any UserPrompts
+    init(host: any InsightHost, project: ProjectContext, tasks: TaskBag, prompts: any UserPrompts) {
         self.tasks = tasks
+        self.prompts = prompts
         Journal.built.append("insight")
     }
     func close(_ session: InsightSession) { closed.append(session.id) }

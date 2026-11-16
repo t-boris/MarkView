@@ -614,7 +614,7 @@ final class XRayFilterStore {
         let file = folder.appendingPathComponent("\(id)-\(featureSlug(title).prefix(50)).md")
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try Data(front.join(body: body).utf8).write(to: file, options: .withoutOverwriting)
+            try AtomicFile.create(front.join(body: body), to: file)
         } catch {
             host.setError("Could not save the answer: \(error.localizedDescription)")
             host.bump()

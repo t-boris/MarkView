@@ -67,6 +67,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
 
     private let project: any ProjectProviding
     private weak var host: (any CodeXRayHost)?
+    /// What tells the person that a fix could not be sent to the pull request (`AR-22`).
+    private let prompts: any UserPrompts
     /// Folder X-Rays by folder path (relative to the project root). The project's own X-Ray is `architecture` (scope "").
     private var folderXRays: [String: ArchitectureStore] = [:]
     /// The coordinator's own one-off background work (`AR-19`): cancelled when the folder switches or the window closes.
@@ -74,9 +76,10 @@ final class CodeAndXRayCoordinator: ObservableObject {
     private var selectionTasks: [UUID: Task<CLICompletion.Result, Error>] = [:]
     private var stoppedSelectionActions: Set<UUID> = []
 
-    init(project: any ProjectProviding, host: any CodeXRayHost) {
+    init(project: any ProjectProviding, host: any CodeXRayHost, prompts: any UserPrompts) {
         self.project = project
         self.host = host
+        self.prompts = prompts
     }
 
     /// A folder opens or closes: the stores start over and the work started for the old project stops.
@@ -683,10 +686,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
         let number = architecture.review.shownPRNumber
         tasks.store(Task { [weak self] in
             if let error = await self?.host?.fixInPullRequest(number, prompt: prompt) {
-                let alert = NSAlert()
-                alert.messageText = "Cannot fix in the pull request"
-                alert.informativeText = error
-                alert.runModal()
+                self?.prompts.inform("Cannot fix in the pull request", error)
             }
         }, for: "fixInPullRequest")
     }

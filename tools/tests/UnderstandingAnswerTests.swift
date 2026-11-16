@@ -92,5 +92,16 @@ DispatchQueue.concurrentPerform(iterations: 8) { _ in
 }
 check("concurrent saves reserve distinct numeric ids", saveErrors == 0 && Set(files.map { $0.lastPathComponent.prefix(7) }).count == 8)
 check("save leaves no reservation files", try FileManager.default.contentsOfDirectory(atPath: folder.path).allSatisfy { !$0.hasSuffix(".reserve") })
+// A folder that refuses the file: the save fails, and neither a reservation nor a partial answer stays; the earlier research is untouched.
+let listingBefore = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+let existingBefore = try Data(contentsOf: folder.appendingPathComponent("RES-001-existing.md"))
+chmod(folder.path, 0o555)
+var refusedSave = false
+do { _ = try answer.save(question: "Refused question", root: root, author: "Tester", date: "2026-09-27") } catch { refusedSave = true }
+chmod(folder.path, 0o755)
+check("a research folder that refuses the file fails the save", refusedSave)
+check("and leaves it as it was: no reservation, no partial answer, the earlier files unchanged",
+      try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == listingBefore
+          && Data(contentsOf: folder.appendingPathComponent("RES-001-existing.md")) == existingBefore)
 if failures > 0 { exit(1) }
 print("All understanding answer checks passed")

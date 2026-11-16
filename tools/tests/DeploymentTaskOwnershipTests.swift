@@ -142,6 +142,8 @@ let database = DatabaseTarget(id: "main", title: "Main", source: .envFile, file:
         let state = store5.databaseState("local", "main")
         return !state.running && (state.lastError != nil || state.last != nil)
     }, "and ends with an answer or a problem")
+    // The statement's own task leaves the bag a moment after the state it wrote shows an answer; wait for that, or a slow machine counts it.
+    check(await waitFor { store5.tasks.activeCount == 0 }, "the statement's own task has left the bag")
     store5.startOverview(env: "local", target: "main")
     store5.startOverview(env: "local", target: "main")
     check(store5.tasks.activeCount == 1 && store5.tasks.contains(key: "overview:local|main"), "a second look at a database replaces the first")

@@ -301,9 +301,9 @@ enum StudioChanges {
         defer { try? FileManager.default.removeItem(at: folder) }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try current.write(to: folder.appendingPathComponent("current"), atomically: true, encoding: .utf8)
-            try base.write(to: folder.appendingPathComponent("base"), atomically: true, encoding: .utf8)
-            try other.write(to: folder.appendingPathComponent("other"), atomically: true, encoding: .utf8)
+            try AtomicFile.write(current, to: folder.appendingPathComponent("current"))
+            try AtomicFile.write(base, to: folder.appendingPathComponent("base"))
+            try AtomicFile.write(other, to: folder.appendingPathComponent("other"))
         } catch { return nil }
         let output = await StudioProcess.git(["merge-file", "-p", "-L", "\(path) (now)", "-L", "\(path) (after the change)",
                                               "-L", "\(path) (before the change)", "current", "base", "other"], in: folder)
@@ -321,8 +321,8 @@ enum StudioChanges {
         var patch = ""
         for (index, change) in changes.enumerated() {
             let old = folder.appendingPathComponent("\(index)-a"), new = folder.appendingPathComponent("\(index)-b")
-            try? (change.before ?? "").write(to: old, atomically: true, encoding: .utf8)
-            try? (change.after ?? "").write(to: new, atomically: true, encoding: .utf8)
+            try? AtomicFile.write(change.before ?? "", to: old)
+            try? AtomicFile.write(change.after ?? "", to: new)
             let output = await StudioProcess.run("/usr/bin/diff", ["-u", "--label", change.before == nil ? "/dev/null" : "a/\(change.path)",
                                                                  "--label", change.after == nil ? "/dev/null" : "b/\(change.path)",
                                                                  old.path, new.path])

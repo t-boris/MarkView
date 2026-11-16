@@ -26,26 +26,40 @@ enum TabsControllerChecks {
         try await body(url)
     }
 
+    /// The person, as a script: the questions of the tabs are told apart by their buttons, as the person sees them, and answered from the
+    /// lists below (no answer left means Cancel / "no").
     @MainActor
-    final class Script {
+    final class Script: UserPrompts {
         var answers: [UnsavedChangesAnswer] = []
         var asked: [String] = []
         var failedSaves: [String] = []
-        var offered: [URL] = []
+        var offered: [String] = []
         /// The answers to "Save or Cancel" before an AI job reads the disk (true saves), and what was asked.
         var confirmations: [Bool] = []
         var confirmed: [String] = []
-        lazy var dialogs = TabDialogs(
-            askToSave: { [unowned self] message, _ in
-                asked.append(message)
-                return answers.isEmpty ? .cancel : answers.removeFirst()
-            },
-            confirmSave: { [unowned self] message, _ in
-                confirmed.append(message)
-                return confirmations.isEmpty ? false : confirmations.removeFirst()
-            },
-            reportFailedSave: { [unowned self] name in failedSaves.append(name) },
-            offerDefaultApp: { [unowned self] url, _ in offered.append(url); return false })
+
+        func ask(_ prompt: UserPrompt) -> Int? {
+            switch prompt.buttons {
+            case ["Save", "Don't Save", "Cancel"]:
+                asked.append(prompt.title)
+                switch answers.isEmpty ? .cancel : answers.removeFirst() {
+                case .save: return 0
+                case .discard: return 1
+                case .cancel: return 2
+                }
+            case ["Save", "Cancel"]:
+                confirmed.append(prompt.title)
+                return (confirmations.isEmpty ? false : confirmations.removeFirst()) ? 0 : 1
+            case []:
+                failedSaves.append(String(prompt.title.dropFirst("Couldn't save ".count)))
+                return 0
+            case ["OK", "Open in Default App"]:
+                offered.append(prompt.title)
+                return 0
+            default:
+                preconditionFailure("an unexpected question: \(prompt)")
+            }
+        }
     }
 
     static func main() async {
@@ -75,7 +89,7 @@ enum TabsControllerChecks {
         await folder { dir in
             let file = dir.appendingPathComponent("note.md")
             try? "# Title\n\n## Part\n".write(to: file, atomically: true, encoding: .utf8)
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             var events: [String] = []
             let subscription = tabs.events.sink { event in
                 switch event {
@@ -127,7 +141,7 @@ enum TabsControllerChecks {
             let file = dir.appendingPathComponent("a.md")
             try? "one\n".write(to: file, atomically: true, encoding: .utf8)
             let script = Script()
-            let tabs = TabsController(dialogs: script.dialogs)
+            let tabs = TabsController(prompts: script)
             await tabs.openTextFile(file)
             let id = tabs.openTabs[0].id
             tabs.updateTabContent("two\n", documentID: id)
@@ -161,7 +175,7 @@ enum TabsControllerChecks {
             try? "a\n".write(to: a, atomically: true, encoding: .utf8)
             try? "b\n".write(to: b, atomically: true, encoding: .utf8)
             let script = Script()
-            let tabs = TabsController(dialogs: script.dialogs)
+            let tabs = TabsController(prompts: script)
             await tabs.openTextFile(a)
             var git = OpenTab(url: dir.appendingPathComponent(".markview-tool-git"), content: "", originalContent: "")
             git.kind = .tool(.git)
@@ -189,7 +203,7 @@ enum TabsControllerChecks {
             let file = dir.appendingPathComponent("locked.md")
             try? "x\n".write(to: file, atomically: true, encoding: .utf8)
             let script = Script()
-            let tabs = TabsController(dialogs: script.dialogs)
+            let tabs = TabsController(prompts: script)
             await tabs.openTextFile(file)
             tabs.updateTabContent("y\n", documentID: tabs.openTabs[0].id)
 
@@ -217,7 +231,7 @@ enum TabsControllerChecks {
             try? FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
             let file = sub.appendingPathComponent("n.md")
             try? "n\n".write(to: file, atomically: true, encoding: .utf8)
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             await tabs.openTextFile(file)
             tabs.follow(moved: [(sub, moved)])
             check(tabs.openTabs[0].url.path == moved.appendingPathComponent("n.md").path, "a tab of a file inside a moved folder follows it")
@@ -232,7 +246,7 @@ enum TabsControllerChecks {
             let clean = dir.appendingPathComponent("clean.md"), dirty = dir.appendingPathComponent("dirty.md")
             try? "clean 1\n".write(to: clean, atomically: true, encoding: .utf8)
             try? "dirty 1\n".write(to: dirty, atomically: true, encoding: .utf8)
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             var reloads = 0
             let subscription = tabs.events.sink { if case .reloadedFromDisk = $0 { reloads += 1 } }
             await tabs.openTextFile(clean)
@@ -264,7 +278,7 @@ enum TabsControllerChecks {
         await folder { dir in
             let file = dir.appendingPathComponent("watched.md")
             try? "one\n".write(to: file, atomically: true, encoding: .utf8)
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             let polling = PollingScheduler(sleep: { _ in try await Task.sleep(nanoseconds: 10_000_000) })
             tabs.polling = polling
             await tabs.openTextFile(file)
@@ -297,7 +311,7 @@ enum TabsControllerChecks {
     @MainActor
     static func sideTableFollowsTheTabs() async {
         await folder { dir in
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             var ids: [UUID] = []
             for name in ["a.md", "b.md", "c.md"] {
                 let file = dir.appendingPathComponent(name)
@@ -321,7 +335,7 @@ enum TabsControllerChecks {
         await folder { dir in
             let file = dir.appendingPathComponent("typing.md")
             try? "# T\n".write(to: file, atomically: true, encoding: .utf8)
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             await tabs.openTextFile(file)
             let id = tabs.openTabs[0].id
             var tabsEmissions = 0, scrollEmissions = 0
@@ -352,7 +366,7 @@ enum TabsControllerChecks {
             try? "in\n".write(to: inside, atomically: true, encoding: .utf8)
             try? "keep\n".write(to: keep, atomically: true, encoding: .utf8)
             let script = Script()
-            let tabs = TabsController(dialogs: script.dialogs)
+            let tabs = TabsController(prompts: script)
             await tabs.openTextFile(keep)
             await tabs.openTextFile(inside)
             tabs.updateTabContent("edited\n", documentID: tabs.openTabs[1].id)
@@ -366,7 +380,7 @@ enum TabsControllerChecks {
     static func closingASessionTabIsTheWindowsToFinish() async {
         await folder { dir in
             let script = Script()
-            let tabs = TabsController(dialogs: script.dialogs)
+            let tabs = TabsController(prompts: script)
             var closed: [String] = []
             let subscription = tabs.events.sink { event in
                 switch event {
@@ -399,7 +413,7 @@ enum TabsControllerChecks {
     @MainActor
     static func tabKindsOpenWithoutTextLoad() async {
         await folder { dir in
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             let pdf = dir.appendingPathComponent("Read only.PDF"), image = dir.appendingPathComponent("p.png"), data = dir.appendingPathComponent("rows.csv")
             for url in [pdf, image, data] { try? Data("x".utf8).write(to: url) }
             tabs.openDocument(pdf)
@@ -421,7 +435,7 @@ enum TabsControllerChecks {
     @MainActor
     static func xrayTabsAndOpenText() async {
         await folder { dir in
-            let tabs = TabsController(dialogs: Script().dialogs)
+            let tabs = TabsController(prompts: Script())
             let note = dir.appendingPathComponent("note.md")
             try? "# Note\n".write(to: note, atomically: true, encoding: .utf8)
             await tabs.openTextFile(note)
@@ -456,7 +470,7 @@ enum TabsControllerChecks {
     static func githubTabsAndSavingBeforeAJobReadsTheDisk() async {
         await folder { dir in
             let script = Script()
-            let tabs = TabsController(dialogs: script.dialogs)
+            let tabs = TabsController(prompts: script)
 
             // The tab of a GitHub item: one per item, found again by it.
             let issue = GitHubItem.issue(number: 7, repo: "owner/repo", title: "#7")

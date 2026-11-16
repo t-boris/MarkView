@@ -114,14 +114,14 @@ actor SpecificationHandoffStore {
         if shouldSetReady {
             let updated = front.join(body: body)
             let snapshotOverview = files.appendingPathComponent("overview.md")
-            try updated.write(to: snapshotOverview, atomically: true, encoding: .utf8)
+            try AtomicFile.write(updated, to: snapshotOverview)
             manifest["overview.md"] = SHA256.hash(data: Data(updated.utf8))
                 .map { String(format: "%02x", $0) }.joined()
         }
         let revision = HandoffRevision(number: number, actor: actor, createdAt: Date(),
                                        linkedFiles: try currentLinks(folder: folder), hashes: manifest)
         let data = try JSONEncoder().encode(revision)
-        try data.write(to: staging.appendingPathComponent("record.json"), options: .atomic)
+        try AtomicFile.write(data, to: staging.appendingPathComponent("record.json"))
         guard try hashes(in: folder) == originalManifest else { throw HandoffError.changedDuringHandoff }
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Publish the revision first. If the live status write fails, remove the

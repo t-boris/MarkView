@@ -133,12 +133,12 @@ enum AgentModelProbe { static func hasClaudeSession(cwd: URL) -> Bool { false } 
 SWIFT
 swiftc -o "$out/ai-terminals-controller-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Workspace/AITerminalsController.swift MarkView/Models/Terminal/AssistantProviding.swift MarkView/Models/Terminal/TerminalProfile.swift \
+    MarkView/Models/Workspace/AITerminalsController.swift MarkView/Models/Terminal/AssistantProviding.swift MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/Shared/UserPrompts.swift tools/tests/ScriptedPrompts.swift \
     MarkView/Models/Shared/ProjectProviding.swift \
     MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/Remote/RemoteProtocol.swift \
     MarkView/Models/Terminal/RemoteConnectionState.swift \
     MarkView/Models/Terminal/AgentActivityMonitor.swift \
-    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
+    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/LoginScript.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
     MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/Appearance/ProjectColor.swift \
     "$out/Stub.swift" "$out/main.swift"

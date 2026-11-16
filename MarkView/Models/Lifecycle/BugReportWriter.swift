@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A new bug report for `docs/bugs/`, before it has an id.
 struct BugReportDraft: Sendable {
@@ -44,7 +47,7 @@ enum BugReportWriter {
     static func write(_ draft: BugReportDraft, id: String, slug: String, created: String, in folder: URL) throws -> URL {
         let file = folder.appendingPathComponent(fileName(id: id, slug: slug))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try Data(text(draft, id: id, created: created).utf8).write(to: file, options: .withoutOverwriting)
+        try AtomicFile.create(text(draft, id: id, created: created), to: file)
         return file
     }
 }

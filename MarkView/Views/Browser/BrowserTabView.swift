@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A browser tab in the centre: navigation, address field, "Save as Markdown" into the
 /// project, and the Preview Web App states shown until the app's page is up.
@@ -677,7 +680,7 @@ struct SavePageMarkdownSheet: View {
     private func write(_ data: Data, to target: URL, name: String) throws {
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         let url = WebClip.freeURL(in: target, name: name) { FileManager.default.fileExists(atPath: $0.path) }
-        try data.write(to: url, options: .atomic)
+        try AtomicFile.create(data, to: url)
         onSaved(url)
         dismiss()
     }

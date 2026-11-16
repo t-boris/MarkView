@@ -134,6 +134,18 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
     let logText = (try? String(contentsOf: root.appendingPathComponent(".dde/deployments-log.jsonl"), encoding: .utf8)) ?? ""
     check(logText.split(separator: "\n").count == store.log.count && logText.contains("shutdown"), "the log file has a line per command")
     check(!logText.contains("abcdef"), "the log holds commands, not their output")
+    // The log is read again by the next window, and a note that cannot be written is dropped without touching the lines before it.
+    let logFile = root.appendingPathComponent(".dde/deployments-log.jsonl")
+    let reopened = DeploymentStore()
+    reopened.setRoot(root)
+    check(reopened.log.map(\.id) == store.log.map(\.id), "a second window reads the same log back")
+    chmod(logFile.path, 0o444)
+    store.note(CommandLogEntry(time: Date(), environment: "this-mac", command: "echo dropped", origin: "test", outcome: "ran", status: 0))
+    chmod(logFile.path, 0o644)
+    check((try? String(contentsOf: logFile, encoding: .utf8)) == logText, "a note the file cannot take leaves the earlier lines as they were")
+    store.note(CommandLogEntry(time: Date(), environment: "this-mac", command: "echo kept", origin: "test", outcome: "ran", status: 0))
+    let grown = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+    check(grown.hasPrefix(logText) && grown.hasSuffix("\n") && grown.contains("echo kept") && !grown.contains("echo dropped"), "the next note is added after them")
 
     // A line of the log that cannot be read (cut by an interrupted write, or made by another version) is skipped when the log is read
     // again, and stays in the file: reading never rewrites the log, and the next command is appended after it (AR-36).

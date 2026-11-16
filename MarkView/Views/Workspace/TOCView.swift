@@ -226,6 +226,6 @@ struct DocumentSearchView: View {
 }
 
 #Preview {
-    let workspaceManager = WorkspaceManager()
+    let workspaceManager = WorkspaceManager(prompts: AlertPrompts())
     return TOCView(layout: workspaceManager.layout, terminals: workspaceManager.terminals).observingParts(of: workspaceManager)
 }

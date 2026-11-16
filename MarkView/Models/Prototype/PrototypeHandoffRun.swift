@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One hand-off of a prototype from code to the code, from the draft to the created feature (feature "Prototype and code stay in step",
 /// REQ-016 to REQ-018).
@@ -140,7 +143,7 @@ final class PrototypeHandoffRun: ObservableObject {
             do {
                 let png = try await renderer.capture(.init(site: site, screen: target.screen, page: target.page), theme: context.theme)
                 let file = scratch.appendingPathComponent(PrototypeHandoff.shotFileName(unitID: unit.id, side: side))
-                try png.write(to: file)
+                try AtomicFile.write(png, to: file)
                 shot = .taken(file.path)
             } catch let failure as PrototypeScreenshots.Failure {
                 switch failure {

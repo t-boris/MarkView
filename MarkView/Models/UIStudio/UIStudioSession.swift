@@ -612,7 +612,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let written = await Task.detached { () -> Bool in
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                      attributes: [.posixPermissions: 0o700])
-            return (try? data.write(to: file, options: .atomic)) != nil
+            return (try? AtomicFile.write(data, to: file)) != nil
         }.value
         return written ? file : nil
     }

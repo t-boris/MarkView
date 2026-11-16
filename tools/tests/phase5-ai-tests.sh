@@ -28,6 +28,7 @@ cp "$ROOT/tools/tests/Phase5AITests.swift" "$out/main.swift"
 swiftc -o "$out/phase5-tests" \
     "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     "$ROOT/MarkView/Models/AI/AIAssistants.swift" \
+    "$ROOT/MarkView/Models/AI/LoginScript.swift" \
     "$ROOT/MarkView/Models/AI/AIOperation.swift" \
     "$ROOT"/MarkView/Models/AI/Providers/*.swift \
     "$ROOT/MarkView/Models/Appearance/ProjectColor.swift" \

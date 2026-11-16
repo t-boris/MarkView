@@ -190,7 +190,8 @@ func run() async {
     host.sessions = [session]
     host.active = session
     let tasks = TaskBag()
-    let coordinator = InsightCoordinator(host: host, project: project, tasks: tasks)
+    let prompts = ScriptedPrompts()
+    let coordinator = InsightCoordinator(host: host, project: project, tasks: tasks, prompts: prompts)
     let page = StubPage(host: host, coordinator: coordinator)
     let sid = session.id.uuidString
 
@@ -231,6 +232,20 @@ func run() async {
     coordinator.didRequestInsightSave()
     check(tasks.activeCount == 0, "with no insight tab selected, none of the messages without a session id starts anything (and Save opens no panel)")
     host.active = session
+
+    // Starting a session that cannot start tells the person why through the prompter (AR-22), and starts nothing.
+    let shownBefore = host.sessions.count
+    let noFolder = StubProject()
+    let unopened = InsightCoordinator(host: host, project: noFolder, tasks: tasks, prompts: prompts)
+    prompts.script = [.press("OK")]
+    unopened.start()
+    check(prompts.asked == [UserPrompt(title: "No folder open", detail: "Open a folder before starting Recursive Insight.")],
+          "starting with no folder open says so, with the text it always had (\(prompts.asked))")
+    check(host.sessions.count == shownBefore && tasks.activeCount == 0, "and shows no tab and starts no task")
+    prompts.script = []
+    coordinator.start()
+    check(prompts.asked.count == 2 && prompts.asked[1].buttons.isEmpty && host.sessions.count == shownBefore && tasks.activeCount == 0,
+          "a folder whose assistant or database is not ready is refused with one notice nobody has to answer (\(prompts.asked.last?.title ?? ""))")
 
     coordinator.cancelSessions()
     check(tasks.contains(key: "insight.cancel.\(session.id)"), "cancelling the sessions of a closing folder runs on an owned task")
