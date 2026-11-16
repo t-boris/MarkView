@@ -74,6 +74,7 @@ Status of AR-01 to AR-13 on 2026-11-15 (the table above is the review as written
 - AR-05 Status (2026-11-15): done. `markview-init.js` defines `init` and calls it (`init();` at line 137; `ready` is sent from line 68); `markview-d3-mermaid.js` no longer calls it (one comment is left).
 - AR-06 Status (2026-11-15): done by reading. `ArchitectureStore` no longer runs `git show`: `ChangeReviewStore.prFileURL` is a synchronous cache lookup, and `ChangeSource.materialize` runs `git show` through `Subprocess.run` off the calling actor with a 15 s timeout and a 2 MiB cap.
 - AR-07 Status (2026-11-15): done by reading. `InsightArchiveExporter` runs `zip -r -q` through `Subprocess`, which drains stdout and stderr concurrently.
+- AR-08 Status (2026-11-15): done by reading. A timed-out child is stopped by `Subprocess` (SIGTERM, then SIGKILL after `terminationGrace`); `CLICompletion.Invocation` runs through `Subprocess.start`. Not run against a CLI that ignores SIGTERM.
 
 ## 3. Application shell and state
 
