@@ -575,13 +575,13 @@ final class GitHubRunModel: ObservableObject {
             request.model = request.xrayModel
             request.effort = "low"
             request.timeout = 300
-            var streamed = ""
+            let streamed = StreamedText()
             do {
                 let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "github-explain-failure", onDelta: { text in
                     // task: hops onto the main actor to show the streamed text; it holds nothing of its own
                     Task { @MainActor in
-                        streamed += text
-                        self.explanation = streamed
+                        streamed.value += text
+                        self.explanation = streamed.value
                     }
                 })
                 result.record(in: db)

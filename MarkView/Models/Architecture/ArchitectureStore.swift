@@ -1466,18 +1466,18 @@ final class ArchitectureStore: ObservableObject {
             request.model = request.xrayModel
             request.effort = "low"
             request.timeout = 300
-            var streamed = ""
+            let streamed = StreamedText()
             do {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-link").execute(request, onDelta: { text in
                     Task { @MainActor in
-                        streamed += text
-                        self.edgeNotes[key]?.text = streamed
+                        streamed.value += text
+                        self.edgeNotes[key]?.text = streamed.value
                         self.tasks.coalesce(key: "edge-refresh:" + key) { self.revision += 1 }
                     }
                 })
                 result.record(in: db)
                 guard !Task.isCancelled else { return }
-                edgeNotes[key]?.text = answer.isEmpty ? streamed : answer
+                edgeNotes[key]?.text = answer.isEmpty ? streamed.value : answer
             } catch is CancellationError {
                 // `reset` or a fresh question for this link ended it: the note is not this task's any more.
                 return

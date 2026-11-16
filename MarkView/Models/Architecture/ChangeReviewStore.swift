@@ -476,19 +476,19 @@ final class ChangeReviewStore {
         request.timeout = 300
         let source = overlay.source.id
         tasks.store(Task { [self] in
-            var streamed = ""
+            let streamed = StreamedText()
             do {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-pr-question").execute(request, onDelta: { [weak self] text in
                     Task { @MainActor in
                         guard let self, self.prOverlay?.source.id == source, index < (self.prOverlay?.chat.count ?? 0) else { return }
-                        streamed += text
-                        self.prOverlay?.chat[index].answer = streamed
+                        streamed.value += text
+                        self.prOverlay?.chat[index].answer = streamed.value
                         self.tasks.coalesce(key: "ask-refresh:\(index)") { self.host.bump() }
                     }
                 })
                 result.record(in: db)
                 if prOverlay?.source.id == source, index < (prOverlay?.chat.count ?? 0) {
-                    prOverlay?.chat[index].answer = answer.isEmpty ? streamed : answer
+                    prOverlay?.chat[index].answer = answer.isEmpty ? streamed.value : answer
                 }
             } catch is CancellationError {
                 // `reset` ended it: the chat is not this task's any more.
@@ -882,17 +882,17 @@ final class ChangeReviewStore {
         let source = overlay.source.id
         let findingKey = "\(path)|\(index)"
         tasks.store(Task {
-            var streamed = ""
+            let streamed = StreamedText()
             do {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-finding").execute(request, onDelta: { text in
                     Task { @MainActor in
-                        streamed += text
-                        self.updateFinding(source: source, path: path, index: index) { $0.explanation = streamed }
+                        streamed.value += text
+                        self.updateFinding(source: source, path: path, index: index) { $0.explanation = streamed.value }
                         self.tasks.coalesce(key: "finding-refresh:" + findingKey) { self.host.bump() }
                     }
                 })
                 result.record(in: db)
-                let text = answer.isEmpty ? streamed : answer
+                let text = answer.isEmpty ? streamed.value : answer
                 updateFinding(source: source, path: path, index: index) { $0.explanation = text }
             } catch is CancellationError {
                 // `reset` ended it: the review is not this task's any more, and its marks are not saved from here.

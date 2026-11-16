@@ -1444,6 +1444,7 @@
       "script": "tools/tests/git-task-ownership-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/StreamedText.swift",
         "MarkView/Models/Git/GitClient.swift",
         "MarkView/Models/Git/GitHubStore.swift",
         "MarkView/Models/Git/GitHubClient.swift",
@@ -2490,6 +2491,7 @@
       "script": "tools/tests/xray-task-ownership-tests.sh",
       "tier": "pure",
       "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/StreamedText.swift",
         "MarkView/Models/Architecture/ArchitectureHost.swift",
         "MarkView/Models/Architecture/ArchitectureModel.swift",
         "MarkView/Models/Architecture/ArchitectureScanner.swift",
@@ -5179,6 +5181,9 @@
       "script": "tools/tests/new-project-close-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/AI/ACPAssistant.swift",
+        "MarkView/Models/AI/CLICompletion.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StreamedText.swift",
         "MarkView/Models/Workspace/NewProject.swift",
         "MarkView/Models/Workspace/ProjectBootstrap.swift",
         "MarkView/Models/Workspace/NewProjectFlow.swift",

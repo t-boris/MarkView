@@ -1642,16 +1642,16 @@ final class FeatureAssistant: ObservableObject {
             var item = FeatureResult(title: action.title, text: "", pending: true, feature: slug)
             results.insert(item, at: 0)
             let resultID = item.id
-            var streamed = ""
+            let streamed = StreamedText()
             let result = await run("action:\(action.rawValue):" + resultID.uuidString, prompt: prompt, schema: nil, onDelta: { text in
                 Task { @MainActor in
-                    streamed += text
-                    self.updateResult(resultID) { $0.text = streamed }
+                    streamed.value += text
+                    self.updateResult(resultID) { $0.text = streamed.value }
                 }
             })
-            item.text = result?.text ?? streamed
+            item.text = result?.text ?? streamed.value
             updateResult(resultID) { r in
-                r.text = result.map { $0.text.isEmpty ? streamed : $0.text } ?? (streamed.isEmpty ? (self.error ?? "Failed") : streamed)
+                r.text = result.map { $0.text.isEmpty ? streamed.value : $0.text } ?? (streamed.value.isEmpty ? (self.error ?? "Failed") : streamed.value)
                 r.pending = false
                 if action == .diagram, let mermaid = Self.mermaidBlock(r.text) { r.diagram = mermaid }
             }
