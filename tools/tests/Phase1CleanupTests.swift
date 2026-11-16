@@ -84,7 +84,7 @@ check(missingPaths.isEmpty,
 // 7. AR-23: grab-bag files split into single-responsibility files in domain folders
 let splitFilesExist = [
     "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-    "MarkView/Models/Workspace/TaskBag.swift",
+    "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
     "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
     "MarkView/Models/Workspace/SchemaVersionedStore.swift",
     "MarkView/Models/AI/AIOperation.swift",

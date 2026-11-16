@@ -10,6 +10,6 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/window-composition-tests" \
-    MarkView/Models/Workspace/WindowComposition.swift MarkView/Models/Workspace/TaskBag.swift \
+    MarkView/Models/Workspace/WindowComposition.swift Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift Packages/MarkViewCore/Sources/MarkViewCore/PollingScheduler.swift \
     tools/tests/WindowCompositionStubs.swift tools/tests/WindowCompositionTests.swift 2>&1 | head -80
 "$out/window-composition-tests"

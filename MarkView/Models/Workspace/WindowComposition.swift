@@ -1,6 +1,9 @@
 import AppKit
 import Combine
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What the parts of a window ask of the window itself: each part holds only its own narrow protocol, and the window (the
 /// `WorkspaceManager`) conforms to all of them.
@@ -32,6 +35,8 @@ final class WindowComposition {
     let tabs = TabsController()
     /// Keyed cancellable background tasks owned by the window (`AR-19`).
     let taskBag = TaskBag()
+    /// The polls of the window run while the app is active and the window is on screen (`AR-19`); closing the window ends them.
+    let polling = PollingScheduler()
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
     /// The Git state of the window.
@@ -44,7 +49,7 @@ final class WindowComposition {
     private(set) lazy var research = ResearchMapController(host: host, project: project, tasks: taskBag)
     /// The terminals of the window: the AI panel's, the editor tabs', the AI terminals that come back across launches, and what the
     /// assistants are doing.
-    private(set) lazy var terminals = AITerminalsController(host: host, project: project, tasks: taskBag)
+    private(set) lazy var terminals = AITerminalsController(host: host, project: project, tasks: taskBag, polling: polling)
     /// The feature flow: the feature workspaces and the GitHub repository of the folder, intake, "Implement with AI" and "Fix with AI",
     /// and the bug basket.
     private(set) lazy var flow = FeatureFlowCoordinator(project: project, assistants: terminals, tabs: host, requests: requests,
@@ -84,6 +89,8 @@ final class WindowComposition {
 
     /// Joins the parts that react to each other's events. Called once, after the host is built.
     func connect() {
+        project.fileTree.polling = polling
+        tabs.polling = polling
         // The X-Ray of the window follows the repository the GitHub integration works with (the PR X-Ray reads it).
         flow.gitHub.$selectedRepo
             .sink { [weak self] repo in self?.codeXRay.architecture.review.gitHubRepo = repo }
@@ -92,7 +99,7 @@ final class WindowComposition {
         project.fileTree.timerBeats
             .sink { [weak self] in
                 guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
-                Task { await self.gitClient.refreshStatus() }
+                self.taskBag.store(Task { await self.gitClient.refreshStatus() }, for: "git-status")
             }
             .store(in: &connections)
         tabs.events
@@ -118,7 +125,7 @@ final class WindowComposition {
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in
                 guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating else { return }
-                Task { await self.gitClient.refresh() }
+                self.taskBag.store(Task { await self.gitClient.refresh() }, for: "git-refresh")
             }
             .store(in: &connections)
     }
@@ -127,8 +134,9 @@ final class WindowComposition {
     func close() {
         // UI Studio sessions stop the development servers they started (REQ-006); the tabs' background work ends.
         tabs.shutdown()
-        // The project's index process, file watcher and background jobs end with its window (AR-19).
+        // The project's index process, file watcher and background jobs end with its window (AR-19), and so do the window's polls.
         project.close()
+        polling.stopAll()
         // So do the code analysis, the X-Ray scans and the AI answers about code that it started.
         codeXRay.close()
         // And the feature flow's: the GitHub setting is no longer watched and its tasks stop.

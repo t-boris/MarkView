@@ -133,6 +133,7 @@ public final class SubprocessChild: @unchecked Sendable {
         lock.unlock()
         signalGroup(SIGTERM)
         guard first else { return }
+        // task: SIGKILL after the grace period for a group that ignored SIGTERM; it signals a process group, not app state
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + (overrideGrace ?? grace)) { [self] in
             signalGroup(SIGKILL)
         }

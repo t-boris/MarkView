@@ -1008,6 +1008,7 @@ private struct PrototypePreview: NSViewRepresentable {
 
         /// A screenshot of the pointed-at element, kept with the pick; sent only if the reviewer chose HTML + screenshot.
         private func snapshot(of pick: PrototypeAI.Pick) {
+            // task: waits 80 ms for the page to settle before a snapshot; weak self
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                 guard let self, let webView = self.webView else { return }
                 let config = WKSnapshotConfiguration()

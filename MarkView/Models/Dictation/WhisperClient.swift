@@ -179,6 +179,7 @@ class WhisperClient: ObservableObject {
             beginRecording()
         case .notDetermined:
             let requested = generation
+            // task: asks the system for speech access; the generation check drops the answer when the recording was cancelled
             Task {
                 let status = await OnDeviceSpeech.requestAuthorization()
                 guard generation == requested else { return }

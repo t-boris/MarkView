@@ -35,7 +35,7 @@ swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/feature-
     MarkView/Models/Lifecycle/LifecycleCapture.swift MarkView/Models/Git/GitHubClient.swift MarkView/Models/Git/GitStatusModel.swift \
     MarkView/Models/Git/ConflictPrompt.swift \
     MarkView/Models/Terminal/AssistantProviding.swift MarkView/Models/Terminal/TerminalProfile.swift \
-    MarkView/Models/Workspace/ProjectProviding.swift MarkView/Models/Workspace/TaskBag.swift \
+    MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
     MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \

@@ -62,6 +62,7 @@ final class DeploymentAdvisor: ObservableObject {
             request.label = "deployments:\(env.id)"
             do {
                 let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "deployments-ask", onDelta: { text in
+                    // task: hops onto the main actor to append the streamed text; it holds nothing of its own
                     Task { @MainActor in self.update(env.id, id) { $0.answer += text; if case .working = $0.state { $0.state = .working("Writing the answer…") } } }
                 })
                 self.update(env.id, id) { if $0.answer.isEmpty { $0.answer = result.text }; $0.state = .done }
@@ -81,4 +82,9 @@ final class DeploymentAdvisor: ObservableObject {
     }
 
     func clear(_ env: String) { exchanges[env] = nil }
+
+    /// The window closes: every answer being written stops (each shows "Stopped.").
+    func close() {
+        for task in tasks.values { task.cancel() }
+    }
 }

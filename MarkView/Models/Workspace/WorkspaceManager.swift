@@ -45,6 +45,7 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     var theme: WindowTheme { composition.theme }
     var tabs: TabsController { composition.tabs }
     var taskBag: TaskBag { composition.taskBag }
+    var polling: PollingScheduler { composition.polling }
     var aiJobs: AIToolJobs { composition.aiJobs }
     var gitClient: GitClient { composition.gitClient }
     var research: ResearchMapController { composition.research }
@@ -572,7 +573,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     // MARK: - Host window
 
     /// The window this workspace is shown in; set by its view. Control tools list, focus and name windows by it.
-    weak var hostWindow: NSWindow?
+    weak var hostWindow: NSWindow? {
+        didSet { if let hostWindow, hostWindow !== oldValue { polling.follow(window: hostWindow) } }
+    }
 
     /// A window with nothing open: no folder, no tab. Agents may open a project in it; they never replace a project.
     var isBlank: Bool { rootNode == nil && tabs.openTabs.isEmpty }

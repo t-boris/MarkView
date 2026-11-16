@@ -21,6 +21,7 @@ actor RemoteToolRequests {
                 finish(id, result: .textResult("The work computer did not answer in time. Reconnect before continuing.", error: true))
             }
             pending[id] = Pending(continuation: continuation, timeout: timeout)
+            // task: sends one tool call; the request's timeout owns its end
             Task {
                 do { try await channel.send(RemoteMessage("toolCall", .object(["name": .string(name), "arguments": arguments]), id: id)) }
                 catch { finish(id, result: .textResult(error.localizedDescription, error: true)) }

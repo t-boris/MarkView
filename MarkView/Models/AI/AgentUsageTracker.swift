@@ -85,7 +85,8 @@ final class AgentUsageTracker: ObservableObject {
     private let logQueue = DispatchQueue(label: "markview.agent-usage.logs", qos: .utility)
     private var visibleCount = 0
     private var appActive = true
-    private var timer: Timer?
+    /// The 15 s refresh is a job of the app's scheduler (`AR-19`), which also pauses it while the app is in the background.
+    private static let pollKey = "agent-usage"
     private var eventStream: FSEventStreamRef?
 
     private init() {
@@ -117,20 +118,17 @@ final class AgentUsageTracker: ObservableObject {
         updateRunning()
     }
 
-    private var isRunning: Bool { timer != nil }
+    private var isRunning: Bool { PollingScheduler.app.keys.contains(Self.pollKey) }
 
     private func updateRunning() {
         let shouldRun = visibleCount > 0 && appActive
         if shouldRun && !isRunning {
             detect()
             startWatching()
-            timer = Timer.scheduledTimer(withTimeInterval: Self.tickInterval, repeats: true) { _ in
-                Task { @MainActor in AgentUsageTracker.shared.tick() }
-            }
+            PollingScheduler.app.every(Self.tickInterval, key: Self.pollKey) { AgentUsageTracker.shared.tick() }
             tick()
         } else if !shouldRun && isRunning {
-            timer?.invalidate()
-            timer = nil
+            PollingScheduler.app.stop(key: Self.pollKey)
             stopWatching()
         }
     }

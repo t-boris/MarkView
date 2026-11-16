@@ -99,6 +99,7 @@ final class BackdropHostView: NSView {
         pendingRebuild?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.rebuild() }
         pendingRebuild = work
+        // task: kept as pendingRebuild and cancelled by the next resize
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 

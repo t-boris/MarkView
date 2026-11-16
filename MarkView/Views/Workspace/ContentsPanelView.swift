@@ -423,6 +423,7 @@ struct BrowserContentsPanel: View {
         }
         // Read the page when it finishes loading, and when the address changes.
         .onReceive(session.$isLoading.removeDuplicates()) { loading in
+            // task: reads the page 0.4 s after it finished loading; it only asks the panel's own model to reload
             if !loading { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.reload() } }
         }
         .task(id: session.url) { model.reload() }

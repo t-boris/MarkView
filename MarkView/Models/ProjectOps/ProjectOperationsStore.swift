@@ -220,7 +220,8 @@ final class ProjectOperationsStore: ObservableObject {
     @Published private(set) var discoveryReport: ProjectOperationDiscoveryReport?
     @Published private(set) var sourcesChanged = false
     private var discoveryTask: Task<Void, Never>?
-    private var watchTimer: Timer?
+    /// The poll that reads the definition file again, a job of the app's scheduler (`AR-19`): paused while the app is in the background.
+    private var pollKey: String { "project-operations-" + root.path }
     private var lastFileData: Data?
     private var refreshInFlight = false
     private var stalenessTick = 0
@@ -244,15 +245,14 @@ final class ProjectOperationsStore: ObservableObject {
             for (id, record) in previous where lastRuns[id] == nil { lastRuns[id] = record }
             revision += 1
         }
-        watchTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.refresh()
-                self.stalenessTick += 1
-                if self.stalenessTick >= 10 {
-                    self.stalenessTick = 0
-                    self.checkSourceSignature()
-                }
+        let key = pollKey
+        PollingScheduler.app.every(1.5, key: key) { [weak self] in
+            guard let self else { PollingScheduler.app.stop(key: key); return }
+            self.refresh()
+            self.stalenessTick += 1
+            if self.stalenessTick >= 10 {
+                self.stalenessTick = 0
+                self.checkSourceSignature()
             }
         }
         if Settings.standard.contains(fingerprintsKey) { checkSourceSignature() }
@@ -600,6 +600,7 @@ final class ProjectOperationsStore: ObservableObject {
             command: snapshot.command, cwd: snapshot.cwd, started: run.started, ended: nil, state: "running", exitCode: nil)
         lastRuns[id] = history
         Task.detached { try? ProjectOperationHistory.save(history, root: root) }
+        // task: asks the system once for notification permission; it holds nothing of its own and ends with the answer
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
         run.session.onExit = { [weak self, weak run] code in
             guard let self, let run else { return }

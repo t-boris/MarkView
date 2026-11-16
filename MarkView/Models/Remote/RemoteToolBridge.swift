@@ -55,6 +55,7 @@ final class RemoteToolBridge: @unchecked Sendable {
               listener.accepts(token: call.token),
               let name = call.message.payload["name"].string, RemoteWorkspaceTools.names.contains(name) else { finish(client); return }
         let request = call.message
+        // task: answers one RPC call on its own client socket and closes it
         Task {
             let result = await handler(request.id, name, request.payload["arguments"])
             if let data = try? JSONEncoder().encode(result) { _ = RemoteUnixRPC.write(client, data + Data([10])) }

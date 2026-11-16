@@ -58,6 +58,7 @@ enum AgentBrowserRegistration {
         switch tool.provider.mcp {
         case .commands(let commands)?:
             guard let list = commands.list, let path = CLIToolLocator.resolve(tool) else { return }
+            // task: one registration with an agent's CLI at launch; it holds nothing of a window
             Task.detached(priority: .userInitiated) {
                 let listed = await CLIToolLocator.run(path, list, timeout: 30)
                 let text = listed.stdout + listed.stderr
@@ -146,6 +147,7 @@ enum AgentBrowserRegistration {
         ask.addButton(withTitle: "Connect")
         ask.addButton(withTitle: "Cancel")
         guard ask.runModal() == .alertFirstButtonReturn else { return }
+        // task: one registration the person asked for, which shows its own result
         Task {
             let outcomes = await registerAll(executable: executable) + installSkills(executable: executable)
             let report = NSAlert()

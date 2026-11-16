@@ -32,7 +32,6 @@
 		07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFD /* AppFontScaleView.swift */; };
 		07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD03 /* ToolRegistry.swift */; };
 		07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */; };
-		07044898F5427AD51A50B430 /* TaskBag.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BD10 /* TaskBag.swift */; };
 		98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FB7907ACA21EEA149AD8958 /* TabsController.swift */; };
 		4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */; };
 		C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */; };
@@ -968,7 +967,6 @@
 		A6E0167483A13431C669BCFD /* AppFontScaleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFontScaleView.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD03 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScrollSideTable.swift; sourceTree = "<group>"; };
-		A6E0167483A13431C669BD10 /* TaskBag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBag.swift; sourceTree = "<group>"; };
 		8FB7907ACA21EEA149AD8958 /* TabsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabsController.swift; sourceTree = "<group>"; };
 		6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderOpenRequests.swift; sourceTree = "<group>"; };
 		6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotter.swift; sourceTree = "<group>"; };
@@ -1806,7 +1804,6 @@
 				A6E0167483A13431C669BD06 /* SchemaVersionedStore.swift */,
 				659CA4BBD506746CE1B89857 /* StructureOutline.swift */,
 				75282A5DF053FCD311C2528B /* TabClosing.swift */,
-				A6E0167483A13431C669BD10 /* TaskBag.swift */,
 				8FB7907ACA21EEA149AD8958 /* TabsController.swift */,
 				6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */,
 				6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */,
@@ -2524,7 +2521,6 @@
 				07044898F5427AD51A50B421 /* AppFontScaleView.swift in Sources */,
 				07044898F5427AD51A50B426 /* ToolRegistry.swift in Sources */,
 				07044898F5427AD51A50B427 /* DocumentScrollSideTable.swift in Sources */,
-				07044898F5427AD51A50B430 /* TaskBag.swift in Sources */,
 				98C5629E8EC7EF49B7CC3471 /* TabsController.swift in Sources */,
 				4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */,
 				C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */,

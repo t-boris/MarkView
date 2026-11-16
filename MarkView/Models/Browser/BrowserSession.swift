@@ -342,6 +342,7 @@ final class BrowserSession: NSObject, ObservableObject {
     }
 
     func cancelPick() {
+        // task: one call into the page that ends at once; it touches only the web view
         Task { _ = try? await webView.callAsyncJavaScript(
             "window.markviewPickCancel && window.markviewPickCancel();", arguments: [:], in: nil, contentWorld: .defaultClient) }
     }

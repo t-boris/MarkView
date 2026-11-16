@@ -162,6 +162,7 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
             super.setFrameSize(newSize)
             saveGeneration += 1
             let generation = saveGeneration
+            // task: debounces the width save; the generation check drops all but the last
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self, self.saveGeneration == generation, self.restored,
                       self.centerVisible, self.window != nil,

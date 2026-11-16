@@ -13,7 +13,7 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/document
     MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/Providers/*.swift tools/tests/CLICompletionTestSupport.swift \
     MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \
     MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
-    MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/TabsController.swift \
+    MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift tools/tests/TabsControllerStubs.swift \
     tools/tests/DocumentTranslatorTests.swift
 "$out/document-translator-tests"

@@ -85,8 +85,14 @@ func run() async {
     let project = StubProject()
     project.aiProject = folder
     let tasks = TaskBag()
-    let terminals = AITerminalsController(host: host, project: project, tasks: tasks)
+    let polling = PollingScheduler()
+    let terminals = AITerminalsController(host: host, project: project, tasks: tasks, polling: polling)
     check(terminals.activity.provider === terminals, "the activity monitor reads the terminals through AssistantProviding, with no closure wired by the window")
+    check(polling.keys.count == 1 && polling.runningCount == 1, "the monitor's poll is a job of the window's scheduler")
+    polling.setWindowVisible(false)
+    check(polling.runningCount == 0 && polling.keys.count == 1, "a window that is not on screen pauses the poll: nothing waits to run")
+    polling.setWindowVisible(true)
+    check(polling.runningCount == 1, "and the poll is back when the window is")
     check(terminals.sessions.isEmpty && terminals.shown == nil && terminals.root == nil, "a window with no folder has no terminal and no root")
     check(terminals.openAITerminal(.claude) == nil, "no terminal opens without a folder")
     check(terminals.ensureAITerminal() == nil, "ensureAITerminal opens nothing without a folder")
@@ -180,7 +186,7 @@ func run() async {
     check(claude?.terminated == true && second?.terminated == true && shell?.terminated == true, "each terminal's shell is ended")
     check(defaults.dictionary(forKey: savedKey(folder))?["profiles"] as? [String] == before, "closing the folder keeps the saved set, so the next launch brings the terminals back")
 
-    let relaunched = AITerminalsController(host: host, project: project, tasks: tasks)
+    let relaunched = AITerminalsController(host: host, project: project, tasks: tasks, polling: PollingScheduler())
     relaunched.workspaceRoot = folder
     check(relaunched.sessions.map(\.profile.rawValue) == ["claude", "claude", "shell"], "a new window on the folder reopens the terminals it had (\(relaunched.sessions.map(\.profile.rawValue)))")
     check(relaunched.shown === relaunched.sessions[1], "with the same terminal shown")
