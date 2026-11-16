@@ -126,6 +126,8 @@ Status (2026-11-15): partial, by reading. `WorkspaceManager` forwards one signal
 - `PrototypeAI.swift` 2,160, `InsightSession.swift` 2,072, `FeatureAI.swift` 1,848: each mixes prompts, parsing, file writing and state; the first two embed HTML.
 - Views above 1,300 lines: `FeaturePanelView` 2,084, `UIStudioView` 1,997, `GitHubViews` 1,808, `QAViews` 1,657, `FileTreeView` 1,409, `ContentView` 1,319.
 
+Status (2026-11-15): partial. `ArchitectureStore.swift` 1,889 lines (4,512 at 6.26.2; `Models/Architecture` has 30 files), `UIStudioSession.swift` 1,958 (3,766; `Models/UIStudio` 48 files), `PrototypeAI.swift` 1,067 (2,160), `InsightSession.swift` 1,449 (2,072), `FeatureAI.swift` 1,852 (1,848: not split). `FeaturePanelView.swift` (2,072 at 6.26.2) is split into 8 `FeaturePanel*Views.swift` files, the largest 374 lines. Views still above 1,300 lines: `UIStudioView` 2,000, `GitHubViews` 1,801, `QAViews` 1,666, `FileTreeView` 1,386, `ContentView` 1,365 (unchanged, within 1.5 percent). The `file-size` lint (limit 2,000 lines) reports 0 files over.
+
 ### AR-17 No composition root; collaborators are wired four different ways (high for testability, M-L)
 
 `ContentView.swift:188` creates `WorkspaceManager()`, whose initializers build everything. Wiring is done by closures set in `init` (`qa.assistantSelection`, `agentActivity.terminals`, `fileTreeStore.onTimer`), by back-references (`research.workspace = self`), by views writing hooks into the model (`EditorView.swift:476`, `:595`), and by 61 closure-typed stored properties across Models. The 15 existing protocols are feature-local; none covers the shell, tabs, file system, git or the assistant terminal. The QA model bug fixed in 6.24.2 came straight out of one of these closures.
