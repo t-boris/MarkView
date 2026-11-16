@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+Cluster naming schemas are constructed independently inside each parallel request. An app-hosted test checked the single- and multi-batch schemas; all 21 hosted tests, X-Ray ownership suite, Debug build, warning ratchet and architecture lint passed. The shared-dictionary diagnostic disappeared, but the compiler still reports an unrecognized task-group isolation pattern at that call; acceptance remains open.
+
 ACP response continuations transfer JSON data and decode it at the receiver rather than send mutable dictionaries. The three ACP/provider/timeout suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `ACPAssistant.swift` (one before). Live provider calls were not run per DEC-013.
 
 The raw JSON object now uses validated Sendable JSON storage instead of an unchecked dictionary. An app-hosted test checked nested values, mutation isolation, invalid input and `UInt64.max`; all 20 hosted tests, 17 changed-file pure and 11 gui suites, Debug build, warning ratchet and architecture lint passed. The app/package unsafe annotation count fell to 40, versus 43 initially. The separate task-group warnings in `ArchitectureStore.swift` remain open.

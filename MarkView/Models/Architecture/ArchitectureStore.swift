@@ -699,15 +699,7 @@ final class ArchitectureStore: ObservableObject {
         ],
     ]
 
-    /// Name every cluster (in parallel chunks), then group them into subsystems. The
-    /// structure on screen is updated as each answer lands.
-    private func nameClusters(_ clusters: [XRayCluster.Cluster], plan: XRayDigest.Plan, base: ArchitectureSnapshot,
-                              root: URL, db: SemanticDatabase?) async throws -> ArchitectureSnapshot {
-        let single = clusters.count <= Self.clustersPerCall
-        let chunks = stride(from: 0, to: clusters.count, by: Self.clustersPerCall)
-            .map { Array(clusters[$0..<min($0 + Self.clustersPerCall, clusters.count)]) }
-        progress?.total = chunks.count + (single ? 0 : 1)
-        progress?.unit = "calls"
+    static func clusterNamingSchema(single: Bool) -> [String: Any] {
         let clusterSchema: [String: Any] = [
             "type": "array",
             "items": [
@@ -731,7 +723,18 @@ final class ArchitectureStore: ObservableObject {
             properties["subsystems"] = Self.groupingSchema
             required += ["system", "subsystems"]
         }
-        let schema: [String: Any] = ["type": "object", "properties": properties, "required": required]
+        return ["type": "object", "properties": properties, "required": required]
+    }
+
+    /// Name every cluster (in parallel chunks), then group them into subsystems. The
+    /// structure on screen is updated as each answer lands.
+    private func nameClusters(_ clusters: [XRayCluster.Cluster], plan: XRayDigest.Plan, base: ArchitectureSnapshot,
+                              root: URL, db: SemanticDatabase?) async throws -> ArchitectureSnapshot {
+        let single = clusters.count <= Self.clustersPerCall
+        let chunks = stride(from: 0, to: clusters.count, by: Self.clustersPerCall)
+            .map { Array(clusters[$0..<min($0 + Self.clustersPerCall, clusters.count)]) }
+        progress?.total = chunks.count + (single ? 0 : 1)
+        progress?.unit = "calls"
         let subsystemLanguage = LogicalView.projectNameLanguage(plan)
         let task = single
             ? "Name each cluster, then group the clusters into 3-8 SUBSYSTEMS by responsibility (every cluster in exactly one), and name the whole system and say in 2-3 sentences what it does. Subsystem and system names in \(subsystemLanguage)."
@@ -750,7 +753,8 @@ final class ArchitectureStore: ObservableObject {
             for (index, chunk) in chunks.enumerated() {
                 let prompt = plan.overview + "\n\nClusters:\n" + chunk.map { LogicalView.clusterLine($0, plan: plan) }.joined(separator: "\n")
                 group.addTask { @MainActor in
-                    var request = CLICompletion.Request(project: self.project, prompt: prompt, systemPrompt: system, jsonSchema: schema)
+                    var request = CLICompletion.Request(project: self.project, prompt: prompt, systemPrompt: system,
+                                                        jsonSchema: Self.clusterNamingSchema(single: single))
                     request.timeout = 240
                     return try AIRawJSONObject(await self.xrayCall(request, root: root, db: db, call: index))
                 }

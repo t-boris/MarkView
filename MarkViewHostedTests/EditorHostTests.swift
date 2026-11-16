@@ -15,6 +15,18 @@ private actor DraftCheckpointRecorder {
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
     @MainActor
+    func testClusterNamingSchemaIncludesGroupsOnlyForSingleBatch() throws {
+        let single = ArchitectureStore.clusterNamingSchema(single: true)
+        let multi = ArchitectureStore.clusterNamingSchema(single: false)
+        let singleProperties = try XCTUnwrap(single["properties"] as? [String: Any])
+        let multiProperties = try XCTUnwrap(multi["properties"] as? [String: Any])
+        XCTAssertEqual(Set(singleProperties.keys), ["clusters", "system", "subsystems"])
+        XCTAssertEqual(Set(multiProperties.keys), ["clusters"])
+        XCTAssertEqual(Set(try XCTUnwrap(single["required"] as? [String])), ["clusters", "system", "subsystems"])
+        XCTAssertEqual(try XCTUnwrap(multi["required"] as? [String]), ["clusters"])
+    }
+
+    @MainActor
     func testPrototypeWaiterTimesOutAndCancels() async throws {
         let timed = PrototypeWaiter<String?>()
         do {
