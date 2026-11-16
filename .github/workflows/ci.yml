@@ -30,6 +30,23 @@ permissions:
   contents: read
 
 jobs:
+  web-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/web-vendor/package-lock.json
+      - name: Rebuild shipped web bundles
+        working-directory: tools/web-vendor
+        run: |
+          npm ci
+          ./build.sh
+          git diff --exit-code -- ../../MarkView/Resources/Editor
+
   pure-tests:
     strategy:
       fail-fast: false

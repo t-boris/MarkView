@@ -74,11 +74,12 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 ## Group B: JavaScript toolchain (D4). Size M now, L later
 
 **B1. AR-29 no module system; AR-27 web-side copies; AR-04 residual JS calls.**
+- Status 2026-11-16: step 1 is in progress. An ordered entry manifest and a classic-scope esbuild transform preserve existing globals; the guarded early part is injected by the app at document start. DEC-014 records why module imports would change the existing shared scope. The isolated prototype retained all measured window properties; the early section ran while the document was loading. The integrated app-hosted editor and five WebKit regression suites passed (6/6), as did architecture lint. A local `npm ci && ./build.sh` reproduced the bundle; a CI job now checks generated resources. Steps 2 and 3 remain open.
 - Now *(recorded 2026-11-15/16)*: 63 `<script>` tags in `index.html` (measured), `index.html` carries 1,295 inline CSS lines (measured), `window.x =`
   assignments 111, `innerHTML =` sinks 80, no `tsc --checkJs` or ESLint in `ci.yml`. The largest first-party JS file is 1,322 lines. The
   Swift half of AR-27 is done (`WebHost`, 0 raw `WKWebViewConfiguration`). AR-04: the defect class is closed by the lint `js-interpolation`;
   27 `evaluateJavaScript` sites remain, constant scripts or `JS.call`, accepted by the lint.
-- Do in this order, one commit each: (1) an entry file that imports the existing scripts in today's order and emits one bundle with
+- Do in this order, one commit each: (1) an ordered entry manifest that assembles the existing classic scripts in today's order and emits one bundle with
   `tools/web-vendor` (no behaviour change; same load order; `index.html` loads the bundle); (2) `tsc --checkJs` on the bundle's inputs
   with `// @ts-check` added file by file, errors allow-listed and shrinking; (3) move the 1,295 inline CSS lines to `css/`; (4) only with a
   separate approval, convert file by file to `import`/`export` and replace the wrap chains (`setContent` reassigned in four files,

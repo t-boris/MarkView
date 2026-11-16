@@ -22,10 +22,7 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' markview-data:; img-src 'self' data: https: markview-doc:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
 
-    <!-- The window theme: tokens as CSS custom properties on <html>, applied before the first paint. -->
-    <script src="js/markview-themes.js"></script>
-    <!-- Shared web primitives and typed bridge registry (AR-28, AR-29) -->
-    <script src="js/mv-kit.js"></script>
+    <!-- The app injects the bundle's theme and bridge section before first paint. -->
 
     <!-- KaTeX CSS -->
     <link rel="stylesheet" href="vendor/css/katex.min.css">
@@ -1627,45 +1624,14 @@
     <script src="vendor/js/js-yaml.min.js"></script>
 
     <!-- Inline editor scripts (split from monolithic block per ≤600-line file rule) -->
-    <script src="js/markview-early.js"></script>
-    <script src="js/markview-state.js"></script>
-    <script src="js/markview-document-files.js"></script>
-    <script src="js/markview-mdext.js"></script>
-    <script src="js/markview-render.js"></script>
-    <script src="js/markview-edit.js"></script>
-    <script src="js/markview-find.js"></script>
-    <script src="js/markview-bridge.js"></script>
-    <script src="js/markview-structured.js"></script>
-    <script src="js/markview-insight-srcdoc.js"></script>
-    <script src="js/markview-insight-helpers.js"></script>
-    <script src="js/markview-insight-handlers.js"></script>
-    <script src="js/markview-globals.js"></script>
     <!-- markview-canvas.js wraps window.setContent / window.scrollToHeading — must
          load AFTER markview-bridge.js and markview-globals.js define them. -->
-    <script src="js/markview-canvas.js"></script>
     <!-- markview-code.js wraps setContent / setStructuredContent / setTheme — load
          after everything that defines or wraps them. -->
-    <script src="js/markview-panels.js"></script>
-    <script src="js/markview-code.js"></script>
-    <script src="js/markview-architecture-model.js"></script>
-    <script src="js/markview-architecture-graph.js"></script>
-    <script src="js/markview-architecture-panels.js"></script>
-    <script src="js/markview-architecture-details.js"></script>
-    <script src="js/markview-architecture-toolbar.js"></script>
-    <script src="js/markview-diagram-viewer.js"></script>
-    <script src="js/markview-d3-mermaid.js"></script>
     <!-- markview-data.js wraps setContent / setStructuredContent / setCodeContent: load after them. -->
-    <script src="js/markview-data.js"></script>
     <!-- The research map (type: research-map documents) also wraps setContent / the entry points of the other views and
          switchToSource / switchToPreview / the mode toggles: load it after markview-data.js. The layout engine comes first, then the
          six parts of the map in order (they share window.MVResearchMapView). -->
-    <script src="js/markview-research-map-layout.js"></script>
-    <script src="js/markview-research-map-core.js"></script>
-    <script src="js/markview-research-map-chrome.js"></script>
-    <script src="js/markview-research-map-tree.js"></script>
-    <script src="js/markview-research-map-viewport.js"></script>
-    <script src="js/markview-research-map-panel.js"></script>
-    <script src="js/markview-research-map-entry.js"></script>
-    <script src="js/markview-init.js"></script>
+    <script src="js/editor.bundle.js"></script>
 </body>
 </html>

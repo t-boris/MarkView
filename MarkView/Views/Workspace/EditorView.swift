@@ -264,6 +264,15 @@ struct EditorView: NSViewRepresentable {
             // The contract goes in first: `mvBridge.send` validates every message against it (AR-28).
             webView.configuration.userContentController.addUserScript(bridge.messages.contract.userScript)
             webView.configuration.userContentController.addUserScript(prefsScript)
+            // The editor bundle's early section applies the theme before the first paint.
+            // Its guarded copy at the end of the page keeps the remaining classic scripts in order.
+            let bundleURL = editorResourceBaseURL.appendingPathComponent("js/editor.bundle.js")
+            if let bundle = try? String(contentsOf: bundleURL, encoding: .utf8),
+               let end = bundle.range(of: "/*! MARKVIEW_EDITOR_EARLY_END */") {
+                webView.configuration.userContentController.addUserScript(WKUserScript(
+                    source: String(bundle[..<end.lowerBound]), injectionTime: .atDocumentStart, forMainFrameOnly: true
+                ))
+            }
             if let nonce = prepared.nonce {
                 webView.configuration.userContentController.addUserScript(WKUserScript(
                     source: EditorPage.nonceScript(nonce),

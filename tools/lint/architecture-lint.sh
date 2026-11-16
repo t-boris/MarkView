@@ -492,7 +492,7 @@ if database.is_file():
             violations.append(("semantic-database-actor", f"{rel(database)}:{number}: `@MainActor` in the database; its SQLite calls must stay off the main thread"))
 
 # --- bridge-no-bypass
-bridge_senders = {"mv-kit.js"}   # and the UI Studio runtime parts below: a different host with its own handler
+bridge_senders = {"mv-kit.js", "editor.bundle.js"}   # generated bundle is checked through its source files
 page_files = []
 js_dir = root / "MarkView" / "Resources" / "Editor" / "js"
 if js_dir.is_dir():
@@ -511,7 +511,7 @@ for relative in ("MarkView/Bridge/WebViewBridge.swift",):
 
 # --- no-private-escape
 if js_dir.is_dir():
-    for path in sorted(p for p in js_dir.glob("*.js") if p.is_file() and p.name != "mv-kit.js"):
+    for path in sorted(p for p in js_dir.glob("*.js") if p.is_file() and p.name not in {"mv-kit.js", "editor.bundle.js"}):
         text_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for index, line in enumerate(text_lines):
             if "&amp;" in line and not any("mvkit-exempt:" in near for near in text_lines[max(0, index - 3):index + 1]):

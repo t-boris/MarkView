@@ -5,6 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 OUT=../../MarkView/Resources/Editor/vendor/js
 
+node build-editor.mjs > ../../MarkView/Resources/Editor/js/editor.bundle.js
+
 npx esbuild codemirror-entry.js --bundle --minify --format=iife --target=safari15 \
     --legal-comments=eof --outfile="$OUT/codemirror.bundle.js"
 
