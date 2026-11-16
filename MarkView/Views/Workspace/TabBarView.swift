@@ -9,8 +9,11 @@ private let tabDropZoneWidth: CGFloat = 40
 /// the active one is kept in view, the ▾ menu on the right lists every tab, and tabs are reordered by dragging.
 struct TabBarView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    let browser: BrowserHost
     @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var layout: PanelLayout
+    @EnvironmentObject private var chrome: WindowChrome
+    @EnvironmentObject private var requests: WindowRequests
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     /// What the ‹ › buttons need to know about this window's strip.
     @StateObject private var scroller = TabStripScroller(endInset: tabDropZoneWidth)
@@ -80,8 +83,8 @@ struct TabBarView: View {
         let selected = tabs.activeTabIndex == -1
         return Button {
             tabs.activeTabIndex = -1
-            workspaceManager.layout.workspaceArea = .files
-            workspaceManager.chrome.showCenter = true
+            layout.workspaceArea = .files
+            chrome.showCenter = true
         } label: {
             Image(systemName: selected ? "house.fill" : "house")
                 .uiFont(size: 11)
@@ -199,7 +202,8 @@ struct TabBarView: View {
         .help(relativePath(for: tab))
         .contextMenu {
             Button("Reveal in File Tree") {
-                workspaceManager.revealInFileTree(url: tab.url)
+                chrome.showFileTree = true
+                requests.fileTreeRevealRequest = tab.url.standardizedFileURL
             }
             Divider()
             Button("Close") {
@@ -221,7 +225,7 @@ struct TabBarView: View {
             }
             Divider()
             if tab.isFileBacked && FileType.isHTML(tab.url) {
-                Button("Open in Browser") { workspaceManager.browser.openHTML(tab.url) }
+                Button("Open in Browser") { browser.openHTML(tab.url) }
             }
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()

@@ -10,7 +10,8 @@ struct ObjectContextView: View {
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let object: FeatureObject
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var tabs: TabsController
     @State private var history: [String] = []
     @State private var mentions: [String] = []
     @State private var code: [String] = []
@@ -68,20 +69,28 @@ struct ObjectContextView: View {
         FlowButtons {
             switch object.kind {
             case .requirement:
-                SmallButton(title: "Review requirement", icon: "sparkles") { Task { await assistant.review(feature.slug, focus: object.id) } }
-                SmallButton(title: "Acceptance criteria", icon: "sparkles") { Task { await assistant.acceptanceCriteria(feature.slug, requirement: object.id) } }
+                SmallButton(title: "Review requirement", icon: "sparkles") {
+                    assistant.start("review:" + feature.slug) { await $0.review(feature.slug, focus: object.id) }
+                }
+                SmallButton(title: "Acceptance criteria", icon: "sparkles") {
+                    assistant.start("criteria:" + object.id) { await $0.acceptanceCriteria(feature.slug, requirement: object.id) }
+                }
             case .question:
-                SmallButton(title: "Research", icon: "globe") { Task { await assistant.research(feature.slug, topic: object.title, for: object.id) } }
+                SmallButton(title: "Research", icon: "globe") {
+                    assistant.start("research:" + feature.slug) { await $0.research(feature.slug, topic: object.title, for: object.id) }
+                }
             case .finding:
                 if (object.front["options"]?.list ?? []).isEmpty && !object.isClosed {
-                    SmallButton(title: "Resolve", icon: "sparkles") { Task { await assistant.resolutionOptions(feature.slug, finding: object.id) } }
+                    SmallButton(title: "Resolve", icon: "sparkles") {
+                        assistant.start("resolveopts:" + object.id) { await $0.resolutionOptions(feature.slug, finding: object.id) }
+                    }
                 }
             default:
                 EmptyView()
             }
             if [.requirement, .decision, .question, .finding, .research].contains(object.kind) {
                 SmallButton(title: "Delete…", icon: "trash") {
-                    FeatureObjectDeletion.confirmAndDelete([object.id], in: feature, store: store, workspace: workspaceManager)
+                    FeatureObjectDeletion.confirmAndDelete([object.id], in: feature, store: store, tabs: tabs)
                 }
             }
         }
@@ -114,7 +123,7 @@ struct ObjectContextView: View {
     }
 
     private func traceRow(_ label: String, _ target: FeatureObject) -> some View {
-        Button(action: { workspaceManager.openFile(target.url) }) {
+        Button(action: { flow.open(target.url) }) {
             HStack(spacing: 4) {
                 Text(label).uiFont(size: 9).foregroundColor(palette.textDim)
                 Text(target.id).uiFont(size: 9, weight: .semibold, design: .monospaced).foregroundColor(palette.blue)
@@ -145,7 +154,7 @@ struct ObjectContextView: View {
                 Text("issue \(issue.github.map { "#\($0)" } ?? issue.id) \(issue.title)").uiFont(size: 9).foregroundColor(palette.text).lineLimit(1)
             }
             ForEach(mentions, id: \.self) { path in
-                Button(path) { if let root = store.root { workspaceManager.openFile(root.appendingPathComponent(path)) } }
+                Button(path) { if let root = store.root { flow.open(root.appendingPathComponent(path)) } }
                     .buttonStyle(.link).uiFont(size: 9)
             }
             if !code.isEmpty {
@@ -243,7 +252,7 @@ struct FeatureCleanupSheet: View {
                 } else {
                     Button("Find outdated (AI)") {
                         marked = nil
-                        Task {
+                        assistant.start("outdated:" + slug) { assistant in
                             if let result = await assistant.markOutdated(slug) {
                                 marked = "Marked \(result.decisions) decisions and \(result.findings) findings as outdated — see the lists below."
                                 if result.decisions > 0 { selected.insert(.decisions) }

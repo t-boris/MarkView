@@ -26,6 +26,9 @@ final class IssueSyncRun: ObservableObject {
         report = nil
         phase = "Checking GitHub…"
         let started = generation
+        // A run that began ends on its own whatever the window does (DEC-009): GitHub issues it already closed are not taken back, and the
+        // project stays marked as running until `activeProjects.remove` below; closing the project only drops the report (`clear`).
+        // task: runs to its end and then unmarks the project; cancelling it would leave the mark set
         Task {
             let result = await run(root: root, features: features, bugs: bugs, lifecycle: lifecycle)
             Self.activeProjects.remove(project)

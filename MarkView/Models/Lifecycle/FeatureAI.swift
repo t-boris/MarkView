@@ -116,6 +116,20 @@ final class FeatureAssistant: ObservableObject {
 
     func isRunning(_ key: String) -> Bool { running.contains(key) || preparing.contains(key) }
 
+    /// Starts `work` as the job `key` of the project's panels and returns at once (`AR-19`): the task is kept by the store's jobs, so
+    /// the folder switching or the window closing ends it. A job of that key that still runs is not started again: the answer is the
+    /// one a second run of an AI step always gave ("That is already running"), and false, so that a caller that clears what the person
+    /// typed does so only when the job started. `work` gets the assistant it was started on. Name the job like the AI step it runs
+    /// ("explore:<slug>", "review:<slug>") so that the step's own key and the job agree on what is running.
+    @discardableResult
+    func start(_ key: String, _ work: @escaping @MainActor (FeatureAssistant) async -> Void) -> Bool {
+        guard store.jobs.start(key, { [self] in await work(self) }) else {
+            error = "That is already running — wait for it to finish."
+            return false
+        }
+        return true
+    }
+
     /// "Decide all for me" progress per feature: findings done, total.
     @Published var decideProgress: [String: (done: Int, total: Int)] = [:]
     /// The settlement apply running per feature (`applyDecisions`).

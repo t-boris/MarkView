@@ -14,6 +14,8 @@ struct AIToolbarMenu: View {
     /// The models each tool offers, as loaded (Codex's list is read from disk, so off the main thread).
     @State private var catalog: [CLITool: [AIModelOption]] = [:]
     @State private var availability: [CLITool: Bool] = [:]
+    /// The look for a tool's CLI that "Check Again" starts: a second tap replaces the first, and it ends with the menu (`AR-19`).
+    @State private var checks = TaskBag()
     /// Bumped when any choice changes, so the menu shows the stored values.
     @State private var refresh = 0
     @State private var seenSnapshot = ""
@@ -55,7 +57,7 @@ struct AIToolbarMenu: View {
                 Button("Open AI Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
                 Button("Check Again") {
                     let selected = tool
-                    Task { availability[selected] = await CLIToolLocator.resolveThorough(selected) != nil }
+                    checks.store(Task { availability[selected] = await CLIToolLocator.resolveThorough(selected) != nil }, for: "check-" + selected.rawValue)
                 }
                 Divider()
             }

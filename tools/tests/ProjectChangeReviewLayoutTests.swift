@@ -34,10 +34,20 @@ struct ProjectChange: Identifiable {
     func explain(_ change: ProjectChange, hunks: [DiffHunk]) {}
 }
 final class FileNode { let url = URL(fileURLWithPath: "/tmp/project") }
-@MainActor final class WorkspaceManager: ObservableObject {
+@MainActor final class WorkspaceFileTreeStore: ObservableObject {
     @Published var rootNode: FileNode? = FileNode()
-    func openFile(_ url: URL) {}
-    func openTool(_ id: ToolID) {}
+}
+/// The window's commands the view reads from the environment (MarkView/Models/Workspace/WindowCommands.swift).
+@MainActor protocol WindowCommands: AnyObject {
+    func openFile(_ url: URL)
+    func openTool(_ id: ToolID)
+}
+private struct WindowCommandsKey: EnvironmentKey { static let defaultValue: (any WindowCommands)? = nil }
+extension EnvironmentValues {
+    var windowCommands: (any WindowCommands)? {
+        get { self[WindowCommandsKey.self] }
+        set { self[WindowCommandsKey.self] = newValue }
+    }
 }
 
 var failures = 0
@@ -70,7 +80,7 @@ func fixture() -> (before: String, after: String) {
         ProjectChange(path: "apps/bf-menubar/Sources/BrokerFabricMenu/ConfigurationWindowModel.swift", kind: .modified, before: file.before, current: file.after),
         ProjectChange(path: "docs/notes/another-file.md", kind: .added, before: nil, current: "new\n"),
     ])
-    let hosting = NSHostingView(rootView: ProjectChangeReviewTab(review: review).environmentObject(WorkspaceManager()))
+    let hosting = NSHostingView(rootView: ProjectChangeReviewTab(review: review).environmentObject(WorkspaceFileTreeStore()))
     let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1000, height: 700), styleMask: [.borderless],
                           backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false

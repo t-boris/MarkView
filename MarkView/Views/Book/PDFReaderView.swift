@@ -147,7 +147,7 @@ struct PDFReaderView: View {
             } else if let error = reader.error {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 30))
                 Text(error).multilineTextAlignment(.center).frame(maxWidth: 450)
-                Button("Retry") { Task { await reader.load(url) } }
+                Button("Retry") { reader.startLoad(url) }
             } else {
                 ProgressView("Opening PDF...")
             }
@@ -161,7 +161,7 @@ struct PDFReaderView: View {
     private func unlock() {
         let value = password
         password = ""
-        Task { await reader.load(url, password: value) }
+        reader.startLoad(url, password: value)
     }
 
     private func icon(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {

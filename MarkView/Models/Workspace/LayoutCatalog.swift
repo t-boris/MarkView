@@ -8,7 +8,7 @@ import MarkViewCore
 // person put in `~/Library/Application Support/MarkView/layouts/`. `LayoutLibrary` is the pure part (read two folders, validate, look up);
 // `LayoutCatalog` is the one shared, observable copy the menus read. A file that cannot be used is never skipped silently: it is
 // logged and listed with its reason in `LayoutLibrary.ignored`, which the Layout menu shows. The app never writes, rewrites or deletes
-// a layout file. Foundation and Combine only, so `tools/tests/layout-preset-tests.sh` compiles it without the app.
+// a layout file. Foundation, Combine and the TaskBag only, so `tools/tests/layout-preset-tests.sh` compiles it without the app.
 
 // MARK: - Library
 
@@ -110,6 +110,8 @@ final class LayoutCatalog: ObservableObject {
 
     private let builtInFolder: URL?
     private let customFolder: URL?
+    /// The reads of the person's folder: a new one replaces the one before it (`AR-19`).
+    private let tasks = TaskBag()
 
     init(builtInFolder: URL? = LayoutCatalog.bundledFolder, userFolder: URL? = LayoutCatalog.userFolder) {
         self.builtInFolder = builtInFolder
@@ -117,14 +119,18 @@ final class LayoutCatalog: ObservableObject {
         // The bundled folder is a few small files in the app; the person's folder is read off the main thread, right after.
         library = LayoutLibrary.load(builtInFolder: builtInFolder, userFolder: nil)
         log(library.ignored, known: [])
-        Task { await reload() }
+        startReload()
     }
 
-    /// Reads both folders again, so a layout file added while the app runs can be chosen.
-    func reload() async {
+    /// Reads both folders again in the background, so a layout file added while the app runs can be chosen. A read still running is replaced.
+    func startReload() {
+        tasks.store(Task { [weak self] in await self?.reload() }, for: "reload")
+    }
+
+    private func reload() async {
         let built = builtInFolder, custom = customFolder
         let fresh = await Task.detached(priority: .utility) { LayoutLibrary.load(builtInFolder: built, userFolder: custom) }.value
-        guard fresh != library else { return }
+        guard !Task.isCancelled, fresh != library else { return }
         log(fresh.ignored, known: library.ignored)
         library = fresh
     }

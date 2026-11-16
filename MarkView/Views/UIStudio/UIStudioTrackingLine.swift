@@ -6,14 +6,15 @@ struct UIStudioTrackingLine: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
     let operation: StudioOperation
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    /// Shows the record the change is tracked in (a tab of the window).
+    let open: (URL) -> Void
 
     var body: some View {
         if let tracking = operation.tracking, tracking.isRecorded {
             HStack(spacing: 6) {
                 Image(systemName: tracking.isBug ? "ladybug" : "checklist").uiFont(size: 10).foregroundColor(palette.textDim)
                 Button {
-                    if let url = StudioChanges.validatedURL(tracking.file, root: session.root) { workspaceManager.openFile(url) }
+                    if let url = StudioChanges.validatedURL(tracking.file, root: session.root) { open(url) }
                 } label: {
                     Text(StudioTrackingText.label(tracking, reverted: operation.status == .undone))
                         .uiFont(size: 10).lineLimit(1).truncationMode(.middle)

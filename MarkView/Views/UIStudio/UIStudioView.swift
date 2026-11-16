@@ -11,7 +11,7 @@ import MarkViewCore
 struct UIStudioView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
     @WindowStorage(Setting.uiStudioInspectorWidth) private var inspectorWidth: Double
     @State private var dragStartWidth: Double?
     @State private var panel: Panel = .element
@@ -471,7 +471,7 @@ struct UIStudioView: View {
             Divider().background(palette.border)
             switch panel {
             case .element: elementPanel
-            case .history: UIStudioHistoryPanel(session: session) { panel = .evidence }
+            case .history: UIStudioHistoryPanel(session: session, openFile: { window?.openFile($0) }) { panel = .evidence }
             case .scenarios: UIStudioScenariosPanel(session: session)
             case .environment: UIStudioEnvironmentPanel(session: session, queue: session.preparation)
             case .evidence: UIStudioEvidencePanel(session: session)
@@ -579,7 +579,7 @@ struct UIStudioView: View {
 
     private func turn(_ operation: StudioOperation) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            UIStudioOperationRow(session: session, operation: operation, compact: true) { panel = .evidence }
+            UIStudioOperationRow(session: session, operation: operation, compact: true, openFile: { window?.openFile($0) }) { panel = .evidence }
             if operation.status == .clarification { clarification(operation) }
         }
         .padding(8)
@@ -627,7 +627,7 @@ struct UIStudioView: View {
             FactRows(rows: selectionRows(selection))
             if let path = selection.sourcePath {
                 Button {
-                    workspaceManager.openFile(session.root.appendingPathComponent(path), line: selection.line)
+                    window?.openFile(session.root.appendingPathComponent(path), line: selection.line)
                 } label: {
                     Label("Open \(path)\(selection.line.map { ":\($0)" } ?? "")", systemImage: "doc.text")
                 }
@@ -827,6 +827,7 @@ struct StudioAttachmentThumbnails: View {
 struct UIStudioHistoryPanel: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
+    let openFile: (URL) -> Void
     var showEvidence: () -> Void
 
     var body: some View {
@@ -838,7 +839,7 @@ struct UIStudioHistoryPanel: View {
                         .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                 }
                 ForEach(session.history.reversed()) { operation in
-                    UIStudioOperationRow(session: session, operation: operation, compact: false, showEvidence: showEvidence)
+                    UIStudioOperationRow(session: session, operation: operation, compact: false, openFile: openFile, showEvidence: showEvidence)
                     Divider().background(palette.border)
                 }
             }
@@ -854,8 +855,8 @@ struct UIStudioOperationRow: View {
     /// The form of a turn in the element panel's conversation: the whole request and answer, and checks that all passed
     /// folded into one line.
     let compact: Bool
+    let openFile: (URL) -> Void
     var showEvidence: () -> Void
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var showingPatch = false
 
     var body: some View {
@@ -912,7 +913,7 @@ struct UIStudioOperationRow: View {
             }
             if !operation.files.isEmpty {
                 ForEach(operation.files, id: \.path) { file in
-                    Button { workspaceManager.openFile(session.root.appendingPathComponent(file.path)) } label: {
+                    Button { openFile(session.root.appendingPathComponent(file.path)) } label: {
                         Label(file.path, systemImage: file.before == nil ? "doc.badge.plus" : "doc.text").uiFont(size: 10)
                     }
                     .buttonStyle(.plain).foregroundColor(palette.blue)
@@ -948,7 +949,7 @@ struct UIStudioOperationRow: View {
                 }
                 .controlSize(.small).disabled(session.busy != nil)
             }
-            UIStudioTrackingLine(session: session, operation: operation)
+            UIStudioTrackingLine(session: session, operation: operation, open: openFile)
         }
     }
 
@@ -1679,7 +1680,7 @@ struct UIStudioMapSection: View {
 struct UIStudioEvidencePanel: View {
     @Environment(\.palette) private var palette
     @ObservedObject var session: StudioSession
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @State private var chosen: [String] = []
     @State private var showDifference = false
     @State private var title = ""
@@ -1756,7 +1757,7 @@ struct UIStudioEvidencePanel: View {
                                     .foregroundColor(palette.orange).lineLimit(3)
                             }
                             if !package.featureSlug.isEmpty {
-                                Button("Show feature \(package.featureSlug)") { workspaceManager.flow.showFeatureContext(package.featureSlug) }
+                                Button("Show feature \(package.featureSlug)") { flow.showFeatureContext(package.featureSlug) }
                                     .buttonStyle(.plain).foregroundColor(palette.blue).uiFont(size: 10)
                             }
                         }
@@ -1815,23 +1816,6 @@ struct UIStudioEvidencePanel: View {
 
     private func section(_ title: String) -> some View {
         Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(palette.textDim).padding(.top, 4)
-    }
-}
-
-// MARK: - Contents panel
-
-/// The Contents panel beside a UI Studio tab: the session's facts.
-struct UIStudioContentsPanel: View {
-    @ObservedObject var session: StudioSession
-
-    var body: some View {
-        ScrollView {
-            FactRows(rows: [("Tab", "UI Studio"), ("Application", session.target?.label ?? "—"), ("State", session.state.title),
-                            ("Address", session.appURL?.absoluteString ?? "—"), ("Scenario", session.scenario.name),
-                            ("Route", session.route), ("Changes", String(session.history.filter { $0.kind != .question }.count)),
-                            ("Captures", String(session.captures.count))])
-                .padding(10)
-        }
     }
 }
 

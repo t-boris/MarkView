@@ -76,7 +76,7 @@ struct IssueLifecycleSection: View {
             }
             if let event = model.eventToConfirm, !model.eventConfirmed {
                 SmallButton(title: "Confirm “\(event)”…", icon: "checkmark.shield") {
-                    Task { if await LifecycleStatusChange.confirmDelivery(store: store, kind: kind, issue: issue, event: event) { reload() } }
+                    LifecycleStatusChange.startConfirmDelivery(store: store, kind: kind, issue: issue, event: event) { reload() }
                 }
                 .help("This rule variant counts the work as delivered when you confirm that “\(event)” happened.")
             }
@@ -87,13 +87,13 @@ struct IssueLifecycleSection: View {
             }
             if let target = model.acceptTarget {
                 SmallButton(title: "Accept", icon: "checkmark.circle") {
-                    Task { if await LifecycleStatusChange.perform(store: store, kind: kind, issue: issue, to: target) { reload() } }
+                    LifecycleStatusChange.start(store: store, kind: kind, issue: issue, to: target) { reload() }
                 }
                 .help(kind == .feature ? "Mark the feature verified: you checked that it works" : "Close the bug: you checked that the fix works")
             }
             if let target = model.reopenTarget {
                 SmallButton(title: "Reopen…", icon: "arrow.uturn.backward") {
-                    Task { if await LifecycleStatusChange.reopen(store: store, kind: kind, issue: issue, to: target) { reload() } }
+                    LifecycleStatusChange.startReopen(store: store, kind: kind, issue: issue, to: target) { reload() }
                 }
                 .help("The work came back: it goes back to \(target). Asks for a reason, which the history keeps.")
             }
@@ -123,15 +123,18 @@ struct IssueLifecycleSection: View {
         }
     }
 
+    /// The check reads git and GitHub; it runs as a job of the store (one per item, ended by closing the folder), and shows its verdict here.
     private func check() {
         checking = true
-        Task {
+        let started = store.jobs.start("evidence:\(kind.rawValue):\(issue)") {
             let result = await store.lifecycle.checkEvidence(kind, issue)
             delivery = result.verdict
             checkNote = result.confirmed ? "The evidence backs the status: it is now confirmed." : nil
             checking = false
             reload()
         }
+        // A check of this item that still runs shows its own progress; this click has nothing to wait for.
+        if !started { checking = false }
     }
 
     // MARK: Blocks

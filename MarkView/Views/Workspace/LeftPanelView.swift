@@ -3,10 +3,11 @@ import SwiftUI
 /// Left panel: the file tree, or — when the project has docs/features or docs/bugs — its issues:
 /// features and bugs, each with its GitHub issue.
 struct LeftPanelView: View {
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var layout: PanelLayout
 
     var body: some View {
-        LeftPanelContent(store: workspaceManager.flow.features, layout: workspaceManager.layout)
+        LeftPanelContent(store: flow.features, layout: layout)
     }
 }
 
@@ -15,7 +16,7 @@ private struct LeftPanelContent: View {
     @ObservedObject var store: FeatureStore
     /// This window's Files/Issues choice and open feature (BUG-004: not shared between windows).
     @ObservedObject var layout: PanelLayout
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     private var mode: String {
         get { layout.leftPanel }
         nonmutating set { layout.leftPanel = newValue }
@@ -41,17 +42,17 @@ private struct LeftPanelContent: View {
                 if let slug = openFeature, store.feature(slug) != nil {
                     FeatureNavigatorView(store: store, onBack: { openFeature = nil })
                 } else {
-                    IssuesListView(store: store, batch: workspaceManager.flow.bugBatch) { slug in
+                    IssuesListView(store: store, batch: flow.bugBatch) { slug in
                         store.activeSlug = slug
                         openFeature = slug
-                        workspaceManager.flow.showFeatureContext(slug)
+                        flow.showFeatureContext(slug)
                         if let feature = store.feature(slug) {
-                            workspaceManager.openFile(feature.overviewURL)
+                            flow.open(feature.overviewURL)
                         }
                     }
                 }
                 // The basket stays in view while features are opened and closed (REQ-001).
-                BugBasketView(batch: workspaceManager.flow.bugBatch, assistant: store.assistant)
+                BugBasketView(batch: flow.bugBatch, assistant: store.assistant)
             } else {
                 FileTreeView()
             }

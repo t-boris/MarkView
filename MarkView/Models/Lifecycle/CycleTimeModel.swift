@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The app side of cycle time (feature cycle-time-as-a-view-over-the-workflow): what the project's stores hold, handed to the pure
 // projection in CycleTime.swift / CycleTimeReport.swift, and the corrections of DEC-001 (Measure since, Exclude, Recompute) kept in
@@ -96,6 +99,7 @@ final class CycleTimeModel: ObservableObject {
     @Published private(set) var failure: String?
 
     private weak var store: FeatureStore?
+    private let tasks = TaskBag()
     private var generation = 0
     private var snapshotTaken: CycleSnapshot?
 
@@ -116,7 +120,8 @@ final class CycleTimeModel: ObservableObject {
         failure = nil
         snapshotTaken = snapshot
         let url = CycleSettingsFile.url(projectRoot: snapshot.root)
-        Task.detached(priority: .userInitiated) {
+        // A newer read replaces this one, and the model going away ends it.
+        tasks.store(Task.detached(priority: .userInitiated) {
             let loaded = CycleSettingsFile.load(url)
             let used: CycleSettings
             let problem: String?
@@ -125,6 +130,7 @@ final class CycleTimeModel: ObservableObject {
             case .unreadable(let message): used = .empty; problem = message
             }
             let built = CycleTimeBuilder.report(snapshot, settings: used)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard mine == self.generation else { return }
                 self.settings = used
@@ -132,7 +138,7 @@ final class CycleTimeModel: ObservableObject {
                 self.report = built
                 self.loading = false
             }
-        }
+        }, for: "reload")
     }
 
     /// Measure since: items whose latest round began earlier are left out. `nil` = all time.

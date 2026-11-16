@@ -144,8 +144,8 @@ func closing() async {
     check(composition.polling.keys == ["watch"], "the window's polls run in its own scheduler")
 
     composition.close()
-    check(Journal.shutdown == ["tabs", "project", "codeXRay", "flow", "browser", "toolTabs"],
-          "every part ends its own work, tabs first and the tools last (\(Journal.shutdown))")
+    check(Journal.shutdown == ["tabs", "project", "codeXRay", "flow", "browser", "toolTabs", "gitClient"],
+          "every part ends its own work, tabs first and the Git client last (\(Journal.shutdown))")
     await settle()
     check(composition.taskBag.activeCount == 0 && pending.isCancelled && stoppedFlag.value, "no task of the window is left running")
     check(composition.polling.keys.isEmpty, "and no poll of the window is left scheduled")

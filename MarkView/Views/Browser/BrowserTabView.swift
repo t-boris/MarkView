@@ -6,8 +6,11 @@ import WebKit
 /// project, and the Preview Web App states shown until the app's page is up.
 struct BrowserTabView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
+    @Environment(\.windowCommands) private var window
     @ObservedObject var session: BrowserSession
+    /// The window's browser: the other browser tabs (names agents call them by) and Preview Web App.
+    let browser: BrowserHost
     @State private var address = ""
     @State private var editingAddress = false
     @FocusState private var addressFocused: Bool
@@ -56,7 +59,7 @@ struct BrowserTabView: View {
         .sheet(item: Binding(get: { session.saveRequest.map(SaveRequest.init) },
                              set: { session.saveRequest = $0?.mode; if $0 == nil { session.saveFormat = .markdown } })) { request in
             SavePageMarkdownSheet(session: session, mode: request.mode, format: session.saveFormat,
-                                  root: workspaceManager.rootNode?.url) { url in
+                                  root: fileTree.rootNode?.url) { url in
                 didSave(url)
             }
         }
@@ -97,7 +100,7 @@ struct BrowserTabView: View {
             .background(RoundedRectangle(cornerRadius: 5).fill(palette.bg))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(addressFocused ? palette.blue : palette.border, lineWidth: 1))
             Button {
-                if session.isPicking { session.cancelPick() } else { Task { await session.pickElement() } }
+                if session.isPicking { session.cancelPick() } else { session.startPickElement() }
             } label: {
                 Image(systemName: "cursorarrow.rays").uiFont(size: 12)
                     .foregroundColor(session.isPicking ? palette.blue : palette.text)
@@ -121,7 +124,7 @@ struct BrowserTabView: View {
             Menu {
                 if let offer = session.fillOffer {
                     ForEach(offer.usernames, id: \.self) { name in
-                        Button("Fill \(name.isEmpty ? "saved login" : name)") { Task { await session.fillPassword(username: name) } }
+                        Button("Fill \(name.isEmpty ? "saved login" : name)") { session.startFillPassword(username: name) }
                     }
                     Divider()
                 }
@@ -174,7 +177,7 @@ struct BrowserTabView: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let name = input.stringValue.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        let taken = workspaceManager.browser.sessions.filter { $0 !== session }.map { $0.agentName.lowercased() }
+        let taken = browser.sessions.filter { $0 !== session }.map { $0.agentName.lowercased() }
         session.agentName = taken.contains(name.lowercased()) ? name + " 2" : name
     }
 
@@ -221,12 +224,12 @@ struct BrowserTabView: View {
             if offer.usernames.count > 1 {
                 Menu("Fill…") {
                     ForEach(offer.usernames, id: \.self) { name in
-                        Button(name.isEmpty ? "Saved login" : name) { Task { await session.fillPassword(username: name) } }
+                        Button(name.isEmpty ? "Saved login" : name) { session.startFillPassword(username: name) }
                     }
                 }
                 .menuStyle(.borderlessButton).fixedSize()
             } else {
-                Button("Fill") { Task { await session.fillPassword(username: offer.usernames.first) } }
+                Button("Fill") { session.startFillPassword(username: offer.usernames.first) }
             }
         }
         .controlSize(.small)
@@ -276,7 +279,7 @@ struct BrowserTabView: View {
     // MARK: - Saved banner
 
     private func didSave(_ url: URL) {
-        workspaceManager.refreshFileTree()
+        fileTree.refresh()
         saved = url
         savedHideTask?.cancel()
         savedHideTask = Task { @MainActor in
@@ -292,7 +295,7 @@ struct BrowserTabView: View {
                 .lineLimit(1).truncationMode(.middle)
             Spacer()
             Button("Open") {
-                if url.pathExtension.lowercased() == "pdf" { NSWorkspace.shared.open(url) } else { workspaceManager.openFile(url) }
+                if url.pathExtension.lowercased() == "pdf" { NSWorkspace.shared.open(url) } else { window?.openFile(url) }
                 saved = nil
             }
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
@@ -304,7 +307,7 @@ struct BrowserTabView: View {
     }
 
     private func relativePath(_ url: URL) -> String {
-        guard let root = workspaceManager.rootNode?.url, WebClip.isInside(url, root: root) else { return url.path }
+        guard let root = fileTree.rootNode?.url, WebClip.isInside(url, root: root) else { return url.path }
         return String(url.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count + 1))
     }
 
@@ -394,8 +397,8 @@ struct BrowserTabView: View {
         Text("Type an address above").uiFont(size: 13, weight: .semibold).foregroundColor(palette.text)
         Text("localhost:5173 or any site. Selected text or the whole page can be saved as Markdown into the project.")
             .uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center)
-        if workspaceManager.rootNode != nil {
-            Button("Preview Web App") { workspaceManager.browser.previewWebApp() }
+        if fileTree.rootNode != nil {
+            Button("Preview Web App") { browser.previewWebApp() }
         }
     }
 }
@@ -650,13 +653,13 @@ struct SavePageMarkdownSheet: View {
         error = nil
         if format == .pdf {
             saving = true
-            Task { @MainActor in
-                defer { saving = false }
-                do {
-                    let data = try await session.pagePDF()
-                    try write(data, to: target, name: name)
-                } catch {
-                    self.error = "Could not save: \(error.localizedDescription)"
+            session.startPagePDF { result in
+                saving = false
+                switch result {
+                case .success(let data):
+                    do { try write(data, to: target, name: name) } catch { self.error = "Could not save: \(error.localizedDescription)" }
+                case .failure(let failure) where failure is CancellationError: break
+                case .failure(let failure): self.error = "Could not save: \(failure.localizedDescription)"
                 }
             }
             return

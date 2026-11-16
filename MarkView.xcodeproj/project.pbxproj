@@ -18,8 +18,10 @@
 		00CA6729A7DBFA482D057D61 /* RemoteRelaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */; };
 		01824FCE6C8423DDB049E120 /* FeatureReviewGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE3D4429958A004ADFE5D2C /* FeatureReviewGate.swift */; };
 		01833EC335A594FF5C294559 /* UIStudioTrackingLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */; };
+		7A1C5E02B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C5E03B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift */; };
 		02044E5B00D534734886BB62 /* IssueGitHubSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */; };
 		026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */; };
+		9EF2792990CDBF023DF8BF5A /* ArchiveModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 118950A2E23855D420E6F93E /* ArchiveModel.swift */; };
 		03CC33F577463F4CDCCA922A /* QARunAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */; };
 		03D87B6042D0A0AEFBCB5C2C /* CockpitRunList.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF341DD17D4509302202B99E /* CockpitRunList.swift */; };
 		04DF637E19889A6C91B6A0D4 /* UIStudioReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 677FA91946060D4B98EF58AE /* UIStudioReview.swift */; };
@@ -36,6 +38,7 @@
 		4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */; };
 		C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */; };
 		C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */; };
+		B5A49B91F2C5A5EF94791EAF /* WindowCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */; };
 		D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371B8D63C2F7DBE224FF185A /* WindowChrome.swift */; };
 		B27D1E2F3A4B5C6D7E8F9A01 /* WindowComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */; };
 		12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */; };
@@ -470,6 +473,7 @@
 		EB315F16B4603811DE1E360A /* UIStudioStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4290F1912EB67F6DD7EB9033 /* UIStudioStore.swift */; };
 		EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C501ACCB7ED2B026E7B473E /* BugBatch.swift */; };
 		3B9FDCCEF80CBBF1C86F4AA9 /* FeatureFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */; };
+		6F694A9A231D7D276A16B123 /* FeatureJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4D4F594B2C36405F89A880 /* FeatureJobs.swift */; };
 		EBBC3870E229854BEDFFFEAB /* ResearchMapJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B487E652BEE66C9746620C91 /* ResearchMapJobs.swift */; };
 		29E867D20A88583C99BDBB20 /* ResearchMapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FE12382779BEA3E066F70AC /* ResearchMapController.swift */; };
 		EBC18992AE03BE7A9FF77909 /* WorkflowTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713A7BA330E95450C16AA739 /* WorkflowTemplate.swift */; };
@@ -937,6 +941,7 @@
 		96429CBA553AACC7995D6F5E /* DeploymentAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentAgentTools.swift; sourceTree = "<group>"; };
 		96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppPreview.swift; sourceTree = "<group>"; };
 		9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveSupport.swift; sourceTree = "<group>"; };
+		118950A2E23855D420E6F93E /* ArchiveModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveModel.swift; sourceTree = "<group>"; };
 		97EBFDF3C6E387DF3E3B4B1E /* CockpitRunTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRunTimeline.swift; sourceTree = "<group>"; };
 		9845BC21274AB0C15237A10A /* DeploymentDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentDiscovery.swift; sourceTree = "<group>"; };
 		988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSearchView.swift; sourceTree = "<group>"; };
@@ -961,6 +966,7 @@
 		C2120E0AD6C28CDB3CA63969 /* ProjectNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectNaming.swift; sourceTree = "<group>"; };
 		9C501ACCB7ED2B026E7B473E /* BugBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBatch.swift; sourceTree = "<group>"; };
 		696888538866AF51CA1996D3 /* FeatureFlowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlowCoordinator.swift; sourceTree = "<group>"; };
+		6B4D4F594B2C36405F89A880 /* FeatureJobs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureJobs.swift; sourceTree = "<group>"; };
 		9D0228F8BD26A840109C0420 /* UIStudioSession+Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIStudioSession+Screens.swift"; sourceTree = "<group>"; };
 		9DFB18E00AEC2AEE73280110 /* markview-mdext.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-mdext.js"; sourceTree = "<group>"; };
 		9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-typescript.min.js"; sourceTree = "<group>"; };
@@ -986,6 +992,7 @@
 		6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderOpenRequests.swift; sourceTree = "<group>"; };
 		6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotter.swift; sourceTree = "<group>"; };
 		2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRequests.swift; sourceTree = "<group>"; };
+		E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCommands.swift; sourceTree = "<group>"; };
 		371B8D63C2F7DBE224FF185A /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
 		A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowComposition.swift; sourceTree = "<group>"; };
 		BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileTreeStore.swift; sourceTree = "<group>"; };
@@ -1161,6 +1168,7 @@
 		ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectColorViews.swift; sourceTree = "<group>"; };
 		ECEFAE17263C5440B18AEDF2 /* MANIFEST.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = MANIFEST.txt; sourceTree = "<group>"; };
 		ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioTrackingLine.swift; sourceTree = "<group>"; };
+		7A1C5E03B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioContentsPanel.swift; sourceTree = "<group>"; };
 		ED38A3D93E96C54E2A3BCD06 /* UIStudioContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioContext.swift; sourceTree = "<group>"; };
 		ED3A5171E73A5AE15C8A979E /* WorkflowFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowFlow.swift; sourceTree = "<group>"; };
 		ED64FCA6C04585D135176CE3 /* CockpitQAPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitQAPlanView.swift; sourceTree = "<group>"; };
@@ -1553,6 +1561,7 @@
 			children = (
 				208F3A1A41768480AD365DC2 /* BugBasket.swift */,
 				9C501ACCB7ED2B026E7B473E /* BugBatch.swift */,
+				6B4D4F594B2C36405F89A880 /* FeatureJobs.swift */,
 				4B9B7C71F9506E1F39D08A0F /* BugReportWriter.swift */,
 				FD9CDC3A061835FA482444D4 /* BugValidity.swift */,
 				386B925AB44F77CD7331E15E /* CycleTime.swift */,
@@ -1788,6 +1797,7 @@
 				1257F7721DD8501CDE88B79D /* AITerminalsController.swift */,
 				0A3310051674EC51CC691EB0 /* BrowserHost.swift */,
 				5ED50FEDD6B6073D0783735F /* CockpitHost.swift */,
+				118950A2E23855D420E6F93E /* ArchiveModel.swift */,
 				659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */,
 				A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */,
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
@@ -1824,6 +1834,7 @@
 				6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */,
 				6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */,
 				2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */,
+				E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */,
 				371B8D63C2F7DBE224FF185A /* WindowChrome.swift */,
 				A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */,
 				BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */,
@@ -2076,6 +2087,7 @@
 				68569953A6974EBC56C557A5 /* UIStudioComparisonView.swift */,
 				1A6291D82348E4A264695D63 /* UIStudioPreviewHost.swift */,
 				ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */,
+				7A1C5E03B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift */,
 				15F3C39CF6E64AB9AA1EDA1B /* UIStudioView.swift */,
 			);
 			path = UIStudio;
@@ -2571,6 +2583,7 @@
 				4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */,
 				C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */,
 				C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */,
+				B5A49B91F2C5A5EF94791EAF /* WindowCommands.swift in Sources */,
 				D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */,
 				B27D1E2F3A4B5C6D7E8F9A01 /* WindowComposition.swift in Sources */,
 				12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */,
@@ -2610,6 +2623,7 @@
 				3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */,
 				19D506E600C91FF4D84FFA92 /* CodeAndXRayCoordinator.swift in Sources */,
 				026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */,
+				9EF2792990CDBF023DF8BF5A /* ArchiveModel.swift in Sources */,
 				776B4CCD3D7E382170DA54D9 /* ArchiveTabView.swift in Sources */,
 				633818C4C0B55262B8E03D5D /* AutoAnalysisScheduler.swift in Sources */,
 				B18E28636FC66D02115209D4 /* BackdropLayerBuilders.swift in Sources */,
@@ -2638,6 +2652,7 @@
 				FDEC1C9110BC9238829B7A22 /* BugBasketView.swift in Sources */,
 				EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */,
 				3B9FDCCEF80CBBF1C86F4AA9 /* FeatureFlowCoordinator.swift in Sources */,
+				6F694A9A231D7D276A16B123 /* FeatureJobs.swift in Sources */,
 				5CAE8E69834D69CFCD886C56 /* BugReportWriter.swift in Sources */,
 				DC55330FB0996F5C23062435 /* BugValidity.swift in Sources */,
 				83B0C087FC9FE19D379FA53E /* CLICompletion.swift in Sources */,
@@ -3037,6 +3052,7 @@
 				EB315F16B4603811DE1E360A /* UIStudioStore.swift in Sources */,
 				CEB68D6CDA33EA59EB05837D /* UIStudioTracking.swift in Sources */,
 				01833EC335A594FF5C294559 /* UIStudioTrackingLine.swift in Sources */,
+				7A1C5E02B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift in Sources */,
 				E161A7454C9233FFD975F710 /* UIStudioView.swift in Sources */,
 				9803A874E731E8A96D8E3FE6 /* UnderstandingAnswer.swift in Sources */,
 				CDB77CC294117E346070B67E /* WebAppPreview.swift in Sources */,

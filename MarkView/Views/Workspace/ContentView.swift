@@ -196,16 +196,21 @@ struct ContentView: View {
 }
 
 extension View {
-    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
-    /// the translation in progress): `@EnvironmentObject` for each.
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, the project, its
+    /// folder tree, Git, the translation in progress, the feature flow, the code analysis): `@EnvironmentObject` for each. And the window's
+    /// own commands, which a view reads as `@Environment(\.windowCommands)` (`WindowCommands`).
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
             .environmentObject(workspace.chrome)
             .environmentObject(workspace.requests)
+            .environmentObject(workspace.project)
             .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
             .environmentObject(workspace.translator)
+            .environmentObject(workspace.flow)
+            .environmentObject(workspace.codeXRay)
+            .environment(\.windowCommands, workspace)
     }
 }
 
@@ -391,7 +396,7 @@ private struct WorkspaceWindow: View {
             }
         }
         .sheet(item: $requests.intake) { request in
-            IntakeSheet(request: request, workspaceManager: workspaceManager)
+            IntakeSheet(request: request, flow: workspaceManager.flow, research: workspaceManager.research, codeXRay: workspaceManager.codeXRay)
         }
         .sheet(item: $requests.newProject) { request in
             NewProjectSheet(request: request, workspaceManager: workspaceManager)
@@ -605,7 +610,7 @@ private struct WorkspaceWindow: View {
     private var layoutMenu: some View {
         Menu {
             LayoutMenuItems(library: layouts.library, enabled: workspaceManager.rootNode != nil,
-                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { layouts.startReload() })
         } label: {
             toolbarIcon("rectangle.3.group", width: toolbarIconWidth)
         }
@@ -701,7 +706,7 @@ private struct WorkspaceWindow: View {
 
     private var workspaceCenter: some View {
         VStack(spacing: 0) {
-            TabBarView().environmentObject(workspaceManager)
+            TabBarView(browser: workspaceManager.browser)
             filesCenter
         }
         .background(palette.bg)
@@ -714,7 +719,7 @@ private struct WorkspaceWindow: View {
             }
             if let resume = requests.handoffResume,
                layout.workspaceArea == .files {
-                HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
+                HandoffResumeBar(resume: resume)
             }
             if tabs.openTabs.indices.contains(tabs.activeTabIndex) {
                 let activeTab = tabs.openTabs[tabs.activeTabIndex]
@@ -735,7 +740,6 @@ private struct WorkspaceWindow: View {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .pdf(let reader) = activeTab.kind {
                         PDFReaderView(url: activeTab.url, reader: reader)
@@ -745,15 +749,13 @@ private struct WorkspaceWindow: View {
                             .id(activeTab.id)
                     } else if case .archive = activeTab.kind {
                         ArchiveTabView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .browser(let session) = activeTab.kind {
-                        BrowserTabView(session: session)
+                        BrowserTabView(session: session, browser: workspaceManager.browser)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .prototype(let session) = activeTab.kind {
-                        PrototypeStudioView(session: session)
-                            .environmentObject(workspaceManager)
+                        PrototypeStudioView(session: session, terminals: workspaceManager.terminals, browser: workspaceManager.browser)
                             .id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
@@ -762,7 +764,7 @@ private struct WorkspaceWindow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                DiagnosticsBarView().environmentObject(workspaceManager)
+                DiagnosticsBarView()
             } else {
                 welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
@@ -817,13 +819,13 @@ private struct WorkspaceWindow: View {
     private func attachWindowSession() {
         guard let window = hostWindow, !sessionAttached else { return }
         sessionAttached = true
-        Task { @MainActor in
+        workspaceManager.taskBag.store(Task { @MainActor in
             await WindowSessionController.shared.attach(id: windowSessionID, window: window, workspace: workspaceManager) { id in
                 openWindow(id: WindowSessionController.sceneID, value: id)
             }
             restorationComplete = true
             drainPendingOpens(trigger: "restorationComplete")
-        }
+        }, for: "attach-session")
     }
 
     /// True when this view's window should receive "open in active window"
@@ -890,7 +892,6 @@ private struct WorkspaceWindow: View {
                       perform: performWelcomeAction) {
             if fileTree.rootNode != nil {
                 HandoffStartList(store: workspaceManager.flow.features)
-                    .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
             } else {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
@@ -1081,8 +1082,7 @@ private struct FloatingAgentsView: View {
         let height = maximized ? available.height : (minimized ? min(headerHeight, available.height) : normalHeight)
         let x = maximized ? 0 : min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
         let y = maximized ? 0 : min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
-        return ModuleExplorerView()
-            .environmentObject(workspaceManager)
+        return ModuleExplorerView(terminals: workspaceManager.terminals)
             .accessibilityHidden(minimized)
             .allowsHitTesting(!minimized)
             .opacity(minimized ? 0 : 1)

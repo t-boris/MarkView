@@ -76,8 +76,6 @@ private struct DatabaseView: View {
 
     @State private var picked: String?
     @State private var sql = "select 1"
-    @State private var running = false
-    @State private var message: String?
     @State private var showAll = false
 
     private var state: DatabaseState { store.databaseState(env.id, target.id) }
@@ -96,7 +94,7 @@ private struct DatabaseView: View {
             }
         }
         .padding(8).background(palette.bgInput.opacity(0.5)).cornerRadius(5)
-        .task { if state.overview == nil && !state.loading && state.error == nil { await store.loadOverview(env: env.id, target: target.id) } }
+        .onAppear { if state.overview == nil && !state.loading && state.error == nil { store.startOverview(env: env.id, target: target.id) } }
     }
 
     private var header: some View {
@@ -108,7 +106,7 @@ private struct DatabaseView: View {
             }
             Spacer()
             if state.loading { ProgressView().controlSize(.small) }
-            Button { Task { await store.loadOverview(env: env.id, target: target.id) } } label: { Image(systemName: "arrow.clockwise") }
+            Button { store.startOverview(env: env.id, target: target.id) } label: { Image(systemName: "arrow.clockwise") }
                 .controlSize(.small).disabled(state.loading).help("Look again")
             Button { store.disconnectDatabase(env: env.id, target: target.id) } label: { Image(systemName: "xmark") }
                 .controlSize(.small).help("Disconnect (forgets the Keychain item, if there is one)")
@@ -149,7 +147,7 @@ private struct DatabaseView: View {
             ForEach(shown) { t in
                 Button {
                     picked = t.id
-                    Task { await store.loadTable(env: env.id, target: target.id, table: t) }
+                    store.startTable(env: env.id, target: target.id, table: t)
                 } label: {
                     HStack(spacing: 8) {
                         Text(t.schema == "public" ? t.name : t.id).uiFont(size: 11, design: .monospaced).foregroundColor(palette.text).lineLimit(1).truncationMode(.middle)
@@ -208,12 +206,12 @@ private struct DatabaseView: View {
                 .padding(4).background(palette.bgSidebar).cornerRadius(4)
             HStack(spacing: 10) {
                 Button { run() } label: { Label("Run", systemImage: "play.fill") }.controlSize(.small)
-                    .keyboardShortcut(.return, modifiers: .command).disabled(running || sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                if running { ProgressView().controlSize(.small) }
+                    .keyboardShortcut(.return, modifiers: .command).disabled(state.running || sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if state.running { ProgressView().controlSize(.small) }
                 risk
                 Spacer()
             }
-            if let message { Text(message).uiFont(size: 11).foregroundColor(palette.red).textSelection(.enabled) }
+            if let message = state.message { Text(message).uiFont(size: 11).foregroundColor(palette.red).textSelection(.enabled) }
             if let error = state.lastError { Text(error).uiFont(size: 11).foregroundColor(palette.red).textSelection(.enabled) }
             if let last = state.last { ResultGrid(last.result) }
         }
@@ -227,21 +225,7 @@ private struct DatabaseView: View {
         }
     }
 
-    private func run() {
-        running = true; message = nil
-        let text = sql
-        Task {
-            let outcome = await store.runQuery(text, env: env.id, target: target.id, origin: "You")
-            switch outcome {
-            case .ran(let result, let wrote): if result.empty { message = wrote ? "Done: the statement ran." : "The statement ran and returned no rows." }
-            case .denied: message = "Not run: you said no."
-            case .blocked(let why): message = why
-            case .failed: break
-            }
-            running = false
-            if case .ran(_, true) = outcome { await store.loadOverview(env: env.id, target: target.id) }
-        }
-    }
+    private func run() { store.startQuery(sql, env: env.id, target: target.id) }
 }
 
 /// A result as a table that scrolls sideways.
