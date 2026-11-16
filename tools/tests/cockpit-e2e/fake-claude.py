@@ -123,7 +123,6 @@ def markview_binary():
 def call(binary, root, tool, args, ticket=""):
     env = {k: v for k, v in os.environ.items() if not k.startswith("DYLD_") and not k.startswith("MV_PROBE")}
     args = dict(args)
-    args.setdefault("project_folder", root)
     if tool == "markview_cockpit_ask":
         args.setdefault("ticket", ticket)
     try:
@@ -141,7 +140,6 @@ def step():
     kept = len([f for f in os.listdir(E2E) if f.startswith("step-prompt-")]) + 1
     open(os.path.join(E2E, "step-prompt-%d.txt" % kept), "w").write(text)
     ticket = re.search(r"ticket ([0-9A-Fa-f-]{36})", text)
-    root = re.search(r"project_folder ([^\s,]+)", text)
     marker = text.index("Assignment and prior results (JSON):")
     start = text.index("{", marker)
     task, _ = json.JSONDecoder().raw_decode(text[start:])
@@ -150,7 +148,7 @@ def step():
     actions = json.loads(assignment[assignment.index("E2E:") + 4:]) if "E2E:" in assignment else []
     binary = markview_binary()
     ticket = ticket.group(1) if ticket else ""
-    root = root.group(1) if root else os.getcwd()
+    root = os.getcwd()
     log({"event": "step start", "argv": [a[:80] for a in sys.argv[1:]], "step": title, "ticket": bool(ticket), "root": root, "binary": bool(binary), "controls": task.get("controls")})
     for action in actions:
         entry = {"event": "action", "step": title, "action": action}

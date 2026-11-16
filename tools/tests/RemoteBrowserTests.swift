@@ -29,7 +29,7 @@ final class DeploymentStore {
     func environment(_ id: String) -> Environment? { nil }
 }
 final class DiscussionStore {}
-enum ProjectAgentTools { static let toolNames: Set<String> = []; static let serverName = "markview" }
+enum ProjectAgentTools { static let toolNames: Set<String> = ["markview_test"]; static let serverName = "markview" }
 enum DeploymentAgentTools { static let names: Set<String> = [] }
 enum DiscussionAgentTools { static let names: Set<String> = [] }
 enum ControlAgentTools { static let names: Set<String> = [] }
@@ -38,7 +38,7 @@ enum ControlToolRunner {
     static func run(_ tool: String, _ args: [String: Any], caller: Caller) async -> BrowserAgentTools.Reply { .error("Unexpected control tool") }
 }
 enum ProjectToolRunner {
-    static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
+    static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) -> BrowserAgentTools.Reply { .init(text: "project served") }
     static func reportCockpitProgress(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
     static func askCockpitSupervisor(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
 }
@@ -102,6 +102,7 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
         let workspace = WorkspaceManager(), other = WorkspaceManager()
         workspace.terminals.root = root; other.terminals.root = root
         let session = BrowserSession(), unrelated = BrowserSession()
+        let featureStore = FeatureStore()
         session.agentName = "WorkTab"; unrelated.agentName = "OtherWindow"
         let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = session.webView
@@ -110,7 +111,7 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
         let id = UUID(), otherID = UUID()
         func registration(_ workspace: WorkspaceManager, _ tab: BrowserSession) -> AgentToolWindow {
             let tabs = BrowserAgentTabs(tabs: { [tab] }, active: { tab }, show: { _ in }, open: { _, _ in tab })
-            return .init(workspace: { workspace }, root: { root }, browser: { tool, args in await tabs.run(tool, args) })
+            return .init(workspace: { workspace }, root: { root }, features: { featureStore }, browser: { tool, args in await tabs.run(tool, args) })
         }
         AgentToolServer.register(id, registration(workspace, session))
         AgentToolServer.register(otherID, registration(other, unrelated))
@@ -177,6 +178,16 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
         let pinnedReply = await Task.detached { rawControlReply(controlSocket, pinned) }.value
         check(pinnedReply?.isError == false && pinnedReply?.text.contains("WorkTab") == true,
               "A forged outside folder is ignored for a window-bound request")
+        let legacyMismatch: [String: Any] = ["tool": "markview_test", "window": id.uuidString, "token": controlToken,
+                                              "arguments": ["project_folder": "/outside-the-window"]]
+        let mismatchReply = await Task.detached { rawControlReply(controlSocket, legacyMismatch) }.value
+        check(mismatchReply?.isError == true && mismatchReply?.text.contains("Nothing was done") == true,
+              "A legacy project folder outside a pinned window is refused before a project tool runs")
+        let legacyMatch: [String: Any] = ["tool": "markview_test", "window": id.uuidString, "token": controlToken,
+                                           "arguments": ["project_folder": root.path]]
+        let matchReply = await Task.detached { rawControlReply(controlSocket, legacyMatch) }.value
+        check(matchReply?.isError == false && matchReply?.text == "project served",
+              "A matching legacy project folder allows the selected project tool")
         let viaClient = await Task.detached { BrowserAgentTools.request(socket: controlSocket, payload: tabsRequest, timeout: 5) }.value
         check(viaClient.text.contains("WorkTab"), "The MCP client finds the token file by itself and is served")
         session.agentStopped = true

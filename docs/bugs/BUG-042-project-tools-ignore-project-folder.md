@@ -55,3 +55,8 @@ not write project files.
 - Debug build with `xcodebuild` (see CLAUDE.md) passes.
 - Not exercised by a run: a live call from a window of one project naming another. `BrowserControlServer.perform` needs the
   running app with two projects, so the wiring is covered by the build and by reading the call path.
+
+
+## Update 2026-11-16
+
+The socket now selects a window from the authenticated peer and its working folder; tool schemas no longer advertise `project_folder` for routing. To preserve this fix for older clients, a legacy `project_folder` is only a restriction on the already selected project: a mismatch is refused before the project tool runs, and a match is accepted. Real-socket tests in `remote-browser-tests` cover both cases.

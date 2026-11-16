@@ -57,6 +57,8 @@ try! FileManager.default.createDirectory(at: routingRoot, withIntermediateDirect
 try! FileManager.default.createSymbolicLink(at: routingAlias, withDestinationURL: routingRoot)
 check(BrowserAgentTools.windowIndex(forFolder: routingAlias.path, roots: [routingRoot.path], strict: true) == 0,
       "a symlinked peer folder selects the same project")
+check(BrowserAgentTools.folder(routingAlias.path, isInProject: routingRoot.path), "a legacy folder matches through a symlink")
+check(!BrowserAgentTools.folder(routingRoot.path + "-other", isInProject: routingRoot.path), "a legacy path prefix outside the project is refused")
 try? FileManager.default.removeItem(at: routingAlias)
 try? FileManager.default.removeItem(at: routingRoot)
 let schema = BrowserAgentTools.tools[0].json["inputSchema"] as? [String: Any]
@@ -116,7 +118,7 @@ try! process.run()
 let messages: [[String: Any]] = [
     ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "test", "version": "1"]]],
     ["jsonrpc": "2.0", "method": "notifications/initialized"],
-    ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": "browser_navigate", "arguments": ["url": "localhost:5173"]]],
+    ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": "browser_navigate", "arguments": ["url": "localhost:5173", "project_folder": "/legacy"]]],
 ]
 for message in messages { input.fileHandleForWriting.write(try! JSONSerialization.data(withJSONObject: message) + Data("\n".utf8)) }
 try! input.fileHandleForWriting.close()
@@ -130,6 +132,7 @@ check(received["tool"] as? String == "browser_navigate"
       "found through its parent process, the call reached the app", "\(received)")
 check(lines.last?.contains("Garden") == true, "the app's reply came back as the tool result", out)
 check(received["cwd"] == nil && received["pids"] == nil, "the request carries no client-supplied folder or ancestry")
+check((received["arguments"] as? [String: Any])?["project_folder"] as? String == "/legacy", "a legacy folder is forwarded only as an argument for mismatch validation")
 let unreachable = BrowserAgentTools.request(socket: socketPath + ".missing", payload: [:], timeout: 1)
 check(unreachable.isError && unreachable.text.contains("not reachable"), "a closed app is reported, not hung on")
 unlink(socketPath)

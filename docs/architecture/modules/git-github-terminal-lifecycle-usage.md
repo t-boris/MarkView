@@ -348,7 +348,7 @@ Cline started from the AI panel gets the entry in its settings automatically whe
 `MarkView --mcp-browser --diagnose` prints the parent processes, the MarkView found and the window's tabs. Sockets of
 MarkView processes that are gone are removed at launch. An agent whose tools run outside the terminal (Cline's
 background hub, a child of launchd) has no MarkView among its ancestors: the server then tries the running
-MarkView processes' sockets. The app derives the caller’s ancestry and working folder from the authenticated socket peer and selects the deepest matching project; it does not trust a folder or PID list from the request. A shared daemon outside the project may therefore need the agent launched from the app or project. Filesystem alias resolution runs off the main actor and the selected window is rechecked before dispatch. Windows register when a folder opens. A
+MarkView processes' sockets. The app derives the caller’s ancestry and working folder from the authenticated socket peer and selects the deepest matching project; it does not use a folder or PID list from the request to select a window. A legacy `project_folder` may only reject a project call if it does not match the selected window. A shared daemon outside the project may therefore need the agent launched from the app or project. Filesystem alias resolution runs off the main actor and the selected window is rechecked before dispatch. Windows register when a folder opens. A
 Copilot terminal printing `MCP server was blocked by policy: "markview-browser"` (an organisation that lists its
 allowed MCP servers) turns it off for Copilot and offers to restart Copilot without it (BUG-025).
 

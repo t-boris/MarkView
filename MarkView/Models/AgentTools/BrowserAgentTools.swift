@@ -57,6 +57,16 @@ enum BrowserAgentTools {
         return nil
     }
 
+    /// A legacy folder may restrict a project call, but cannot select a window.
+    static func folder(_ folder: String, isInProject root: String) -> Bool {
+        guard !folder.isEmpty, !root.isEmpty else { return false }
+        func resolved(_ path: String) -> String {
+            URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        let path = resolved(folder), project = resolved(root)
+        return path == project || path.hasPrefix(project + "/")
+    }
+
     /// What an MCP server of this binary offers: the browser tools, or the project tools (`ProjectAgentTools`).
     /// `rechecksApp`: look for the app again with every message, so that quitting MarkView takes the tools away.
     struct MCPProfile {
@@ -252,9 +262,7 @@ enum BrowserAgentTools {
 
     /// One tool call to the app that `location` names; with several running MarkViews, each is asked until one has the agent's folder open.
     static func forward(_ tool: String, _ args: [String: Any], to location: AppLocation) -> Reply {
-        var args = args
-        // Ignore the legacy client-declared folder; the app obtains the peer’s folder from the kernel.
-        args.removeValue(forKey: "project_folder")
+        // A legacy project_folder is forwarded only as a restriction; the app never uses it to select a window.
         let payload: [String: Any] = ["window": location.window, "tool": tool, "arguments": args]
         // Each running MarkView knows only its own windows: a list is the sum of what every one of them says.
         if fanOutTools.contains(tool), location.fallbacks.count > 1 {

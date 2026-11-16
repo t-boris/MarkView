@@ -13,7 +13,8 @@ enum ProjectAgentTools {
 
     static let instructions = """
     MarkView is the documentation environment of this project. These tools read and extend features, bugs and \
-    prototypes in the window selected from the authenticated process and its working folder. Call \
+    prototypes in the window selected from the authenticated process and its working folder. A legacy project_folder \
+    can only restrict a call: a mismatch is refused, never used to choose a window. Call \
     markview_guide first (topic "overview") to learn what features, requirements, decisions, questions, \
     bugs and prototypes are and how they are written. Always add features and bugs with the markview_add_* \
     and markview_create_* tools: the app writes the Markdown files in the exact format it reads, with \

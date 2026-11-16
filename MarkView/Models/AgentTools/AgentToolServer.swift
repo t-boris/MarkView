@@ -191,27 +191,44 @@ enum AgentToolServer {
         let known = id.flatMap { windows[$0] != nil ? $0 : nil } ?? TerminalBrowserBridge.windowID(forAncestors: pids)
         let windowID: UUID?
         if let known { windowID = known } else { windowID = await windowForFolder(cwd) }
-        guard let windowID, let window = windows[windowID] else {
+        guard let windowID, var window = windows[windowID] else {
             let open = windows.values.compactMap { $0.root()?.path }.sorted()
             return .error(BrowserAgentTools.noWindowPrefix + " this agent works in (\(cwd.isEmpty ? "unknown" : cwd)) open."
                           + (open.isEmpty ? "" : " Open project windows: " + open.joined(separator: ", ")))
         }
+        var toolArguments = args
+        if isProjectTool, let supplied = toolArguments.removeValue(forKey: "project_folder") {
+            guard let text = supplied as? String else { return .error("project_folder must be a path. Nothing was done.") }
+            let folder = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !folder.isEmpty {
+                guard let root = window.root()?.path else { return .error("This window has no project open. Nothing was done.") }
+                // task: the request awaits path resolution and checks that the window still holds the same project.
+                let matches = await Task.detached { BrowserAgentTools.folder(folder, isInProject: root) }.value
+                guard let current = windows[windowID], current.root()?.path == root else {
+                    return .error("The project window changed. Nothing was done.")
+                }
+                guard matches else {
+                    return .error("project_folder does not match the selected window’s project. Nothing was done.")
+                }
+                window = current
+            }
+        }
         if isProjectTool, DeploymentAgentTools.names.contains(tool) {
             guard let store = window.deployments() else { return .error("This window has no project open.") }
-            return await DeploymentToolRunner.run(tool, args, store: store)
+            return await DeploymentToolRunner.run(tool, toolArguments, store: store)
         }
         if isProjectTool, DiscussionAgentTools.names.contains(tool) {
             guard let store = window.discussions() else { return .error("This window has no project open.") }
-            return DiscussionToolRunner.run(tool, args, store: store)
+            return DiscussionToolRunner.run(tool, toolArguments, store: store)
         }
         if isProjectTool {
             guard let store = window.features() else { return .error("This window has no project open.") }
-            if tool == "markview_cockpit_report_progress" { return await ProjectToolRunner.reportCockpitProgress(args, store: store) }
-            if tool == "markview_cockpit_ask" { return await ProjectToolRunner.askCockpitSupervisor(args, store: store) }
-            if LifecycleToolRunner.handles(tool, args) { return await LifecycleToolRunner.run(tool, args, store: store) }
-            return ProjectToolRunner.run(tool, args, store: store)
+            if tool == "markview_cockpit_report_progress" { return await ProjectToolRunner.reportCockpitProgress(toolArguments, store: store) }
+            if tool == "markview_cockpit_ask" { return await ProjectToolRunner.askCockpitSupervisor(toolArguments, store: store) }
+            if LifecycleToolRunner.handles(tool, toolArguments) { return await LifecycleToolRunner.run(tool, toolArguments, store: store) }
+            return ProjectToolRunner.run(tool, toolArguments, store: store)
         }
-        return await window.browser(tool, args)
+        return await window.browser(tool, toolArguments)
     }
 
     /// Resolve filesystem aliases away from the main actor; a changed or closed window is never selected afterward.
