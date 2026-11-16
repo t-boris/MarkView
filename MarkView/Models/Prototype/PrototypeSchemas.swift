@@ -4,11 +4,11 @@ import Foundation
 /// the parsers read (`PrototypePlan`, `PrototypeFiles.change(from:)`).
 enum PrototypeSchemas {
 
-    private static let fileSchema: [String: Any] = [
+    private static var fileSchema: [String: Any] { [
         "type": "object",
         "properties": ["path": ["type": "string"], "content": ["type": "string"]],
         "required": ["path", "content"], "additionalProperties": false,
-    ]
+    ] }
 
     private static func strings(_ description: String? = nil) -> [String: Any] {
         var schema: [String: Any] = ["type": "array", "items": ["type": "string"]]
@@ -19,7 +19,7 @@ enum PrototypeSchemas {
     /// The plan of both modes: one schema, so a strict provider sees the same contract. The code-mode fields
     /// (`gaps`, `evidence`, `components`) are required but described as empty in requirements mode, and
     /// `Plan` drops whatever the planner put there in that mode.
-    static let planSchema: [String: Any] = [
+    static var planSchema: [String: Any] { [
         "type": "object",
         "properties": [
             "title": ["type": "string"],
@@ -55,16 +55,16 @@ enum PrototypeSchemas {
         ],
         "required": ["title", "summary", "assumptions", "gaps", "roles", "entities", "screens", "styles", "themes", "defaultTheme"],
         "additionalProperties": false,
-    ]
+    ] }
 
     /// The answer of the foundation and screen runs: a summary and whole files.
-    static let filesSchema: [String: Any] = [
+    static var filesSchema: [String: Any] { [
         "type": "object",
         "properties": ["summary": ["type": "string"], "files": ["type": "array", "items": fileSchema]],
         "required": ["summary", "files"], "additionalProperties": false,
-    ]
+    ] }
 
-    static let reviseSchema: [String: Any] = [
+    static var reviseSchema: [String: Any] { [
         "type": "object",
         "properties": [
             "summary": ["type": "string"],
@@ -80,5 +80,5 @@ enum PrototypeSchemas {
                           "description": "Paths of the files a request for many files needs, left for runs of their own; empty otherwise."],
         ],
         "required": ["summary", "screens", "files", "edits", "delete", "remaining"], "additionalProperties": false,
-    ]
+    ] }
 }
