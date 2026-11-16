@@ -12,6 +12,11 @@ private actor DraftCheckpointRecorder {
     func snapshot() -> [ProjectDraft] { drafts }
 }
 
+@MainActor private final class TerminalCloseTestObserver: TerminalCloseObserver {
+    var calls = 0
+    func terminalWillClose() { calls += 1 }
+}
+
 private actor SessionTestDriver: QAActorDriver {
     private var opening: CheckedContinuation<Void, Never>?
     private(set) var didStart = false
@@ -53,6 +58,20 @@ private actor DelayedSessionTestFactory: QADriverFactory {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    @MainActor
+    func testTerminalCloseObserverIsCalledOnceAndCanBeCleared() {
+        let terminal = TerminalSession(directory: FileManager.default.temporaryDirectory)
+        let observer = TerminalCloseTestObserver()
+        terminal.closeObserver = observer
+        terminal.terminate()
+        terminal.terminate()
+        XCTAssertEqual(observer.calls, 1)
+        terminal.closeObserver = observer
+        terminal.closeObserver = nil
+        terminal.terminate()
+        XCTAssertEqual(observer.calls, 1)
+    }
+
     @MainActor
     func testProjectChangeReviewLayoutUsesRealModels() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-review-layout-" + UUID().uuidString)

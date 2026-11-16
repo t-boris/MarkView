@@ -3084,6 +3084,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/QA/QATriage.swift",
         "MarkView/Models/QA/QAWebActor.swift",
+        "MarkView/Models/Cockpit/CockpitAgentAttempt.swift",
+        "MarkView/Models/Terminal/TerminalSession.swift",
         "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Browser/BrowserSession.swift",
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",

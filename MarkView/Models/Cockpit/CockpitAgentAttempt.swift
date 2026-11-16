@@ -3,7 +3,7 @@ import Darwin
 
 /// One step gets a fresh existing agent terminal and a one-use reporting ticket.
 @MainActor
-final class CockpitAgentAttempt {
+final class CockpitAgentAttempt: TerminalCloseObserver {
     private weak var assistants: (any AssistantProviding)?
     private let root: URL
     private var session: TerminalSession?
@@ -93,7 +93,7 @@ final class CockpitAgentAttempt {
                                               onFixCycle: { [weak self] count in self?.onFixCycle(count) },
                                               onActivity: { [weak self] tool, refusal in self?.onGate(tool, refusal) })
                 terminal.onExit = { [weak self] _ in self?.cancel(reason: "The agent terminal exited before reporting a result.") }
-                terminal.onCockpitTermination = { [weak self] in self?.cancel(reason: "The agent terminal was closed before reporting a result.") }
+                terminal.closeObserver = self
                 do {
                     let data = try JSONEncoder().encode(task)
                     let assignment = String(decoding: data, as: UTF8.self)
@@ -142,6 +142,8 @@ final class CockpitAgentAttempt {
         }
     }
 
+    func terminalWillClose() { cancel(reason: "The agent terminal was closed before reporting a result.") }
+
     private func cancel(reason: String) {
         guard let ticket else { return }
         CockpitAgentRegistry.cancel(ticket, reason: reason)
@@ -157,7 +159,7 @@ final class CockpitAgentAttempt {
         let exited = watchdogExited
         watchdogExited = nil
         session?.onExit = nil
-        session?.onCockpitTermination = nil
+        session?.closeObserver = nil
         let reaping = session?.terminateCockpitStep(beforeReap: { await exited?.wait() })
         session = nil
         var reported = reply

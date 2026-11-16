@@ -25,6 +25,12 @@ protocol TerminalLinkTarget: AnyObject {
     func openInAppBrowser(_ url: URL)
 }
 
+/// Receives the one-time notification when a terminal is explicitly stopped or restarted.
+@MainActor
+protocol TerminalCloseObserver: AnyObject {
+    func terminalWillClose()
+}
+
 /// One embedded terminal: a login shell on a pseudo-terminal (PTY) that Swift owns,
 /// drawn by xterm.js in its own web view (`Resources/Editor/terminal.html`).
 ///
@@ -61,7 +67,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     let operationCommand: String?
     var onExit: ((Int32) -> Void)?
     /// A cockpit assignment must be interrupted if its terminal is closed or restarted.
-    var onCockpitTermination: (() -> Void)?
+    weak var closeObserver: (any TerminalCloseObserver)?
     /// Everything the process prints, as it arrives (e.g. to find a dev server's address).
     var onOutput: ((Data) -> Void)?
     var onLaunchFailure: ((String) -> Void)?
@@ -477,9 +483,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     /// End the shell and everything started in it.
     @discardableResult func terminate(beforeReap: (@Sendable () async -> Void)? = nil) -> Task<Void, Never>? {
-        let notifyCockpit = onCockpitTermination
-        onCockpitTermination = nil
-        notifyCockpit?()
+        let observer = closeObserver
+        closeObserver = nil
+        observer?.terminalWillClose()
         tasks.cancelAll()
         connection?.stop()
         let stoppedPID = childPID

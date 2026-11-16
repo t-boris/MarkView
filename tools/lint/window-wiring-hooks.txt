@@ -3,5 +3,5 @@
 # (an event is a publisher); run tools/lint/architecture-lint.sh --tighten after removing a site.
 6 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
 3 MarkView/Models/Remote/RemoteTerminalConnection.swift
-6 MarkView/Models/Terminal/TerminalSession.swift
+5 MarkView/Models/Terminal/TerminalSession.swift
 2 MarkView/Models/UIStudio/UIStudioServer.swift
