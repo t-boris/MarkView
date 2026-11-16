@@ -187,7 +187,7 @@ extension StudioSession {
         }
         let projectRoot = root
         do {
-            let scenarios = try await Task.detached { () throws -> [StudioScenario] in
+            let scenarios = try await Task.detached { [next] () throws -> [StudioScenario] in
                 try StudioStore.saveScenario(next, root: projectRoot)
                 return StudioStore.loadScenarios(projectRoot)
             }.value

@@ -3871,6 +3871,7 @@
       "script": "tools/tests/ui-studio-live-run.sh",
       "tier": "live",
       "sources": [
+        "MarkView/Models/UIStudio/UIStudioSession+Screens.swift",
         "MarkView/Models/AI/ACPAssistant.swift",
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
@@ -3988,6 +3989,7 @@
       "script": "tools/tests/ui-studio-session-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/Models/UIStudio/UIStudioSession+Screens.swift",
         "MarkView/Models/Browser/BrowserElementPick.swift",
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
@@ -4066,6 +4068,7 @@
       "script": "tools/tests/ui-studio-lifetime-tests.sh",
       "tier": "gui",
       "sources": [
+        "MarkView/Models/UIStudio/UIStudioSession+Screens.swift",
         "MarkView/Models/Browser/BrowserElementPick.swift",
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",

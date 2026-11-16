@@ -146,7 +146,7 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
-UI Studio scenario saving is being changed to capture its Sendable scenario by value; verification is in progress.
+UI Studio scenario saving captures the Sendable scenario by value. The session and lifetime GUI suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `UIStudioSession+Screens.swift` (one before). The manifest now records this source for both automatic suites and the manual live suite.
 
 QA generation callbacks and their immutable captured values are Sendable. All 18 changed-file pure and two gui suites passed; the QA suite was rerun after its attempt recorder was made lock-owned. Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `QAModel.swift` (two before).
 
