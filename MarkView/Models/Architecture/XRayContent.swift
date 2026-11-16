@@ -221,7 +221,7 @@ enum XRayContent {
 
     // MARK: - Documents: the assistant
 
-    static let documentSchema: [String: Any] = [
+    static var documentSchema: [String: Any] { [
         "type": "object",
         "properties": [
             "collections": [
@@ -259,7 +259,7 @@ enum XRayContent {
             ],
         ],
         "required": ["collections"],
-    ]
+    ] }
 
     /// Labels drawn on the diagram follow the file's language (English for code); only the
     /// summaries follow the AI language setting.

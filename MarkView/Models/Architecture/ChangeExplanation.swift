@@ -59,7 +59,7 @@ enum ChangeExplainer {
         """
     }
 
-    static let schema: [String: Any] = [
+    static var schema: [String: Any] { [
         "type": "object",
         "properties": [
             "summary": ["type": "string"],
@@ -75,7 +75,7 @@ enum ChangeExplainer {
             ]],
         ],
         "required": ["summary", "changes"],
-    ]
+    ] }
 
     /// The explanation in the assistant's answer, or nil when it explains none of the `hunkCount` changes asked about.
     static func parse(_ object: [String: Any], hunkCount: Int) -> ChangeExplanation? {

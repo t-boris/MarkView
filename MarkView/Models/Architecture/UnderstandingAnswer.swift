@@ -39,7 +39,7 @@ struct UnderstandingAnswer: Codable {
     var originFound: Bool
     var sources: [Source]
 
-    static let schema: [String: Any] = {
+    static var schema: [String: Any] {
         let section: [String: Any] = ["type": "object", "properties": [
             "text": ["type": "string"], "sources": ["type": "array", "items": ["type": "string"]]
         ], "required": ["text", "sources"]]
@@ -51,7 +51,7 @@ struct UnderstandingAnswer: Codable {
         return ["type": "object", "properties": ["what": section, "why": section, "how": section, "origin": section,
             "originFound": ["type": "boolean"], "sources": ["type": "array", "items": source]],
             "required": ["what", "why", "how", "origin", "originFound", "sources"]]
-    }()
+    }
 
     enum Failure: LocalizedError {
         case invalid(String)
