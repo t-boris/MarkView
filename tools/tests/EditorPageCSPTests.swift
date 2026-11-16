@@ -68,7 +68,7 @@ final class EditorFolder: NSObject, WKURLSchemeHandler {
 
 /// The editor page loaded the way EditorView.loadEditorPage loads it: page text with a base URL, then the preferences script and
 /// (when the page took one) the nonce script at document start.
-final class Page {
+@MainActor final class Page {
     let web: WKWebView
     let window: NSWindow
     let bridge = Bridge()
@@ -105,6 +105,7 @@ final class Page {
     }
 }
 
+MainActor.assumeIsolated {
 _ = NSApplication.shared
 NSApplication.shared.setActivationPolicy(.prohibited)
 guard let original = try? String(contentsOfFile: editor + "/index.html", encoding: .utf8) else {
@@ -186,3 +187,5 @@ check(decode(closed)["nonce"] as? String == "undefined" && decode(closed)["csp"]
 
 print(failures == 0 ? "All editor page policy checks passed" : "\(failures) editor page policy check(s) failed")
 exit(failures == 0 ? 0 : 1)
+
+}
