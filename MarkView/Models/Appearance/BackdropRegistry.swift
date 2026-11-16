@@ -49,12 +49,12 @@ struct BackdropDescriptor: Sendable {
 
 /// A class that registers a backdrop; the registry finds it. It must be a class, because the registry finds registrations through the
 /// Objective-C runtime's list of the classes in the app.
-protocol BackdropRegistration {
+protocol BackdropRegistration: Sendable {
     static var descriptor: BackdropDescriptor { get }
 }
 
 enum BackdropRegistry {
-    struct Entry {
+    struct Entry: Sendable {
         let descriptor: BackdropDescriptor
         let type: any BackdropRegistration.Type
     }
