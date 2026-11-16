@@ -4,7 +4,7 @@ import XCTest
 
 /// `AR-18`: the settings store reads and writes the same property-list values the app always wrote, a default stands in for
 /// anything missing or of another type, and an observer hears about its own keys only. `Setting`'s names are pinned by the app's
-/// `settings-key-table-tests`.
+/// `SettingsKeyTableTests` in `MarkViewCoreTests`.
 final class SettingsTests: XCTestCase {
     private func freshDefaults() -> (UserDefaults, () -> Void) {
         let suite = "settings-tests-\(UUID().uuidString)"

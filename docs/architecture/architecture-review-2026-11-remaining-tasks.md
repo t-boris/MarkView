@@ -44,7 +44,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 - Do: remove the tracked test files and the presentation after checking that no test or script reads them (`git grep -n TestFiles
   tools Tests MarkView`); decide with D1 whether the Fixtures under `Tests/Fixtures/` replace what a suite needs.
   Delete `EmbeddingClient` and its settings keys only if `git grep EmbeddingClient` shows no caller outside the key helpers; a settings key
-  name never changes once shipped (`settings-key-table-tests`), so a retired key is removed from the table in the same commit with the
+  name never changes once shipped (`SettingsKeyTableTests` in `MarkViewCoreTests`), so a retired key is removed from the table in the same commit with the
   test updated.
 - Acceptance: `git ls-files TestFiles` = 0; `git ls-files '*.pdf' | wc -l` = 0 for the presentation; `git grep -c EmbeddingClient -- MarkView` = 0
   (or a stated number with the reason).
@@ -151,7 +151,7 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
   unchecked count at a stated lower number.
 
 **D4. AR-44 steps 3-4 and the stubs.**
-- Status 2026-11-16: moved the PrivateSocket real-socket and phase2 core checks to `MarkViewCoreTests` and removed their standalone script and manifest entry. The PrivateSocket package test passed (1 test, 0 failures); the migrated phase2 checks passed (2 tests, 0 failures); the remaining script mains and application stubs are not yet migrated. Port script mains to `swift test` cases in `Packages/MarkViewCore` and delete the scripts; one
+- Status 2026-11-16: moved the PrivateSocket real-socket and phase2 core checks to `MarkViewCoreTests` and removed their standalone script and manifest entry. The PrivateSocket package test passed (1 test, 0 failures); the migrated phase2 checks passed (2 tests, 0 failures); the settings-key compatibility table was moved into `MarkViewCoreTests` and its standalone script and manifest entry removed. All 90 compatibility rows and 89 registry names passed in the package test. The other script mains and application stubs are not yet migrated. Port script mains to `swift test` cases in `Packages/MarkViewCore` and delete the scripts; one
 `TestSupport` target with one fake per protocol replaces the stub type definitions (81 stubbed application types, 125 definitions, at
 2026-11-15). Acceptance: the stub count by `git grep -c "^final class\|^struct" tools/tests/*.swift` for application type names falls to a
 stated number per pull request; `tools/tests/manifest.json` suite count stays true.

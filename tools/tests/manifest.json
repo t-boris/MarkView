@@ -3592,17 +3592,6 @@
       ]
     },
     {
-      "name": "settings-key-table-tests",
-      "script": "tools/tests/settings-key-table-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "tools/tests/SettingsKeyTableTests.swift",
-        "tools/tests/settings-key-table-tests.sh"
-      ]
-    },
-    {
       "name": "structure-outline-tests",
       "script": "tools/tests/structure-outline-tests.sh",
       "tier": "pure",

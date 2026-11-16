@@ -1,4 +1,6 @@
 import Foundation
+import XCTest
+@testable import MarkViewCore
 
 // AR-18: every persisted setting has a typed key in the registry (`Setting`), and the name of every key is the name an earlier build
 // of the app wrote. The person's preferences file is the contract: a key that changes name loses what the person chose.
@@ -10,16 +12,16 @@ import Foundation
 //     under the old name; with nothing stored the key's default applies.
 // A family of keys (one per assistant, per project, per folder) has a row for an instance and the pattern it stands for.
 //
-// Completeness: every key literal in SettingsKeys.swift (argument 1) must be a row's pattern, so a key added to the registry
-// without a row fails here. Run through tools/tests/settings-key-table-tests.sh.
-setvbuf(stdout, nil, _IONBF, 0)
+// Completeness: every key literal in SettingsKeys.swift must be a row's pattern, so a key added without a row fails here.
+final class SettingsKeyTableTests: XCTestCase {
+func testPersistedKeyCompatibility() {
 var failures = 0
 var rows = 0
 func check(_ ok: Bool, _ message: String) {
     if !ok { failures += 1; print("FAIL \(message)") }
 }
 
-let registrySource = CommandLine.arguments[1]
+let registrySource = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Sources/MarkViewCore/SettingsKeys.swift").standardizedFileURL.path
 
 /// A glob where `*` stands for the part a family fills in (an assistant id, a project token, a path).
 func matches(_ name: String, _ pattern: String) -> Bool {
@@ -219,4 +221,6 @@ for pattern in Set(patterns) where !literals.contains(pattern) {
 }
 
 print(failures == 0 ? "All \(rows) setting key rows passed (\(literals.count) registry names)" : "\(failures) failure(s)")
-exit(failures == 0 ? 0 : 1)
+XCTAssertEqual(failures, 0)
+}
+}

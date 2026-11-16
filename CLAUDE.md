@@ -109,7 +109,7 @@ Each line is the number of places to edit; a new Swift file also needs its entri
 - **A layout preset**: 1. A JSON file in `Resources/Layouts/`, ordered by file name, so by its `NN-` prefix (`LayoutCatalog`).
 - **A welcome backdrop**: 1. A class conforming to `BackdropRegistration` and `BackdropDrawing` in `Views/Appearance/*BackdropLayers.swift`.
 - **A settings key**: 1. An entry in `Setting` (`Packages/MarkViewCore/.../SettingsKeys.swift`), read through `Settings`,
-  `@AppStorage(key)` or `@WindowStorage(key)`. A name never changes once shipped (`settings-key-table-tests` pins them); a literal key
+  `@AppStorage(key)` or `@WindowStorage(key)`. A name never changes once shipped (`SettingsKeyTableTests` in `MarkViewCoreTests` pins them); a literal key
   or a direct `UserDefaults` call fails the `settings-literal` lint. Per-window UI state uses `@WindowStorage`, never `@AppStorage`.
 - **A bridge message**: 4. Its entry in `Resources/Editor/js/bridge-contract.json`, its payload type in `Bridge/PageMessages.swift`, its
   `messages.on` handler in `Bridge/WebViewBridge.swift`, and the page's `mvBridge.send(...)` call. A page never posts through
