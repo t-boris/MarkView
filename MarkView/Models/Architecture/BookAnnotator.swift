@@ -22,7 +22,7 @@ enum BookAnnotator {
 
     // MARK: - The book as the view holds it
 
-    struct Section {
+    struct Section: Sendable {
         var id: String
         var parent: String
         var title: String
@@ -32,7 +32,7 @@ enum BookAnnotator {
         var depth: Int
     }
 
-    struct Chapter {
+    struct Chapter: Sendable {
         var id: String
         var path: String
         var title: String
@@ -53,7 +53,7 @@ enum BookAnnotator {
         }
     }
 
-    struct Book {
+    struct Book: Sendable {
         var title: String
         var chapters: [Chapter]
         var language: String
@@ -85,7 +85,7 @@ enum BookAnnotator {
 
     // MARK: - Windows
 
-    struct Window {
+    struct Window: Sendable {
         var index: Int
         var count: Int
         /// 1-based, inclusive.
@@ -94,7 +94,7 @@ enum BookAnnotator {
         var sectionIds: [String]
     }
 
-    struct Job {
+    struct Job: Sendable {
         var chapter: Chapter
         var window: Window
     }

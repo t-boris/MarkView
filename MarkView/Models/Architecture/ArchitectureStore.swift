@@ -1741,6 +1741,29 @@ final class ArchitectureStore: ObservableObject {
     private static let maxBookCalls = 150
     private static let bookConcurrency = 4
 
+    private func annotateBookJob(_ job: BookAnnotator.Job, book: BookAnnotator.Book, index: Int, root: URL,
+                                 db: SemanticDatabase?) async throws -> (Int, AIRawJSONObject?, [String]) {
+        let lines = await Task.detached(priority: .userInitiated) { () -> [String] in
+            ((try? String(contentsOf: root.appendingPathComponent(job.chapter.path), encoding: .utf8)) ?? "")
+                .editorLines.map(String.init)
+        }.value
+        guard !lines.isEmpty else { return (index, nil, []) }
+        let built = BookAnnotator.request(job: job, book: book, lines: lines)
+        var request = CLICompletion.Request(project: project, prompt: built.prompt, systemPrompt: built.system, jsonSchema: built.schema)
+        request.timeout = job.chapter.isLarge ? 240 : 120
+        request.label = "xray-book:" + job.chapter.path
+        do {
+            let answer = try await xrayCall(request, root: root, db: db, call: 100 + index,
+                                            accept: { BookAnnotator.isUsable($0, job: job) })
+            return (index, try BookAnnotator.isUsable(answer, job: job) ? AIRawJSONObject(answer) : nil, lines)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            self.error = "Could not annotate \((job.chapter.path as NSString).lastPathComponent): \(error.localizedDescription)"
+            return (index, nil, lines)
+        }
+    }
+
     /// Step 4 of Analyze (and "Describe this chapter"): the AI writes what every chapter and
     /// section says, finds related sections and, for large chapters, lists the items they are
     /// made of. One call per chapter (windows for very long ones), answers applied as they land.
@@ -1794,27 +1817,8 @@ final class ArchitectureStore: ObservableObject {
             var nextJob = 0
             func start(_ i: Int) {
                 let job = jobs[i]
-                group.addTask { @MainActor in
-                    let lines = await Task.detached(priority: .userInitiated) { () -> [String] in
-                        ((try? String(contentsOf: root.appendingPathComponent(job.chapter.path), encoding: .utf8)) ?? "")
-                            .editorLines.map(String.init)
-                    }.value
-                    guard !lines.isEmpty else { return (i, nil, []) }
-                    let built = BookAnnotator.request(job: job, book: book, lines: lines)
-                    var request = CLICompletion.Request(project: self.project, prompt: built.prompt,
-                                                        systemPrompt: built.system, jsonSchema: built.schema)
-                    request.timeout = job.chapter.isLarge ? 240 : 120
-                    request.label = "xray-book:" + job.chapter.path
-                    do {
-                        let answer = try await self.xrayCall(request, root: root, db: db, call: 100 + i,
-                                                             accept: { BookAnnotator.isUsable($0, job: job) })
-                        return (i, try BookAnnotator.isUsable(answer, job: job) ? AIRawJSONObject(answer) : nil, lines)
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        self.error = "Could not annotate \((job.chapter.path as NSString).lastPathComponent): \(error.localizedDescription)"
-                        return (i, nil, lines)
-                    }
+                group.addTask {
+                    try await self.annotateBookJob(job, book: book, index: i, root: root, db: db)
                 }
             }
             while nextJob < min(Self.bookConcurrency, jobs.count) { start(nextJob); nextJob += 1 }

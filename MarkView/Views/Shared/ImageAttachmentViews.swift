@@ -72,7 +72,7 @@ extension View {
             }
             .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
                 ImageAttachments.load(from: providers) { png in
-                    Task { @MainActor in attachments.wrappedValue.add([png]) }
+                    attachments.wrappedValue.add([png])
                 }
             }
     }

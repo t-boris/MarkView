@@ -123,16 +123,18 @@ enum ImageAttachments {
     }
 
     /// Reads the images of dropped items, an image file or a picture dragged from an app. `deliver` gets each one's PNG
-    /// data as it has been read, on a background thread. False when no item looks like an image, so the drop is refused.
+    /// data as it has been read, on the main actor. False when no item looks like an image, so the drop is refused.
     @discardableResult
-    static func load(from providers: [NSItemProvider], deliver: @escaping (Data) -> Void) -> Bool {
+    @MainActor static func load(from providers: [NSItemProvider], deliver: @escaping @MainActor @Sendable (Data) -> Void) -> Bool {
         var accepted = false
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 accepted = true
                 // A file keeps its full resolution; when it is not an image file, the item may still carry a picture.
+                let fallback: @MainActor @Sendable () -> Void = { loadPicture(from: provider, deliver: deliver) }
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let url, let png = image(at: url) { deliver(png) } else { loadPicture(from: provider, deliver: deliver) }
+                    if let url, let png = image(at: url) { Task { @MainActor in deliver(png) } }
+                    else { Task { @MainActor in fallback() } }
                 }
             } else if provider.canLoadObject(ofClass: NSImage.self) {
                 accepted = true
@@ -142,10 +144,10 @@ enum ImageAttachments {
         return accepted
     }
 
-    private static func loadPicture(from provider: NSItemProvider, deliver: @escaping (Data) -> Void) {
+    @MainActor private static func loadPicture(from provider: NSItemProvider, deliver: @escaping @MainActor @Sendable (Data) -> Void) {
         guard provider.canLoadObject(ofClass: NSImage.self) else { return }
         _ = provider.loadObject(ofClass: NSImage.self) { object, _ in
-            if let image = object as? NSImage, let png = pngData(from: image) { deliver(png) }
+            if let image = object as? NSImage, let png = pngData(from: image) { Task { @MainActor in deliver(png) } }
         }
     }
 

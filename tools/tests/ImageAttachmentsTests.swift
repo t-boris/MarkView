@@ -168,23 +168,34 @@ check(appended == ["tail"], "an empty clipboard pastes nothing", "\(appended)")
 final class Delivered: @unchecked Sendable {
     private let lock = NSLock()
     private var pngs: [Data] = []
-    func add(_ data: Data) { lock.withLock { pngs.append(data) } }
+    private var mainThread = true
+    func add(_ data: Data) { lock.withLock { pngs.append(data); mainThread = mainThread && Thread.isMainThread } }
     var all: [Data] { lock.withLock { pngs } }
+    var deliveredOnMain: Bool { lock.withLock { mainThread } }
 }
-func drop(_ providers: [NSItemProvider], expecting count: Int) -> (accepted: Bool, images: [Data]) {
+func drop(_ providers: [NSItemProvider], expecting count: Int) -> (accepted: Bool, images: [Data], mainThread: Bool) {
     let delivered = Delivered()
-    let accepted = ImageAttachments.load(from: providers) { delivered.add($0) }
+    let accepted = MainActor.assumeIsolated { ImageAttachments.load(from: providers) { delivered.add($0) } }
     let deadline = Date().addingTimeInterval(count == 0 ? 1 : 5)
     while Date() < deadline, delivered.all.count < count { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
-    return (accepted, delivered.all)
+    return (accepted, delivered.all, delivered.deliveredOnMain)
 }
 let droppedFile = drop([NSItemProvider(object: file as NSURL)], expecting: 1)
 check(droppedFile.accepted && droppedFile.images.count == 1 && droppedFile.images.first.flatMap(size) ?? (0, 0) == (200, 100), "a dropped image file is read")
 let droppedPicture = drop([NSItemProvider(object: makeImage(64, 48))], expecting: 1)
 check(droppedPicture.accepted && droppedPicture.images.count == 1 && droppedPicture.images.first.flatMap(size) ?? (0, 0) == (64, 48), "a dropped picture is read")
+let mixedProvider = NSItemProvider(object: text as NSURL)
+let fallbackImage = makeImage(40, 30)
+mixedProvider.registerObject(ofClass: NSImage.self, visibility: .all) { completion in
+    completion(fallbackImage, nil)
+    return nil
+}
+let fallbackPicture = drop([mixedProvider], expecting: 1)
+check(fallbackPicture.accepted && fallbackPicture.images.first.flatMap(size) ?? (0, 0) == (40, 30), "a non-image file falls back to the dropped picture")
+check(droppedFile.mainThread && droppedPicture.mainThread && fallbackPicture.mainThread, "dropped images are delivered on the main thread")
 let droppedText = drop([NSItemProvider(object: text as NSURL)], expecting: 0)
 check(droppedText.images.isEmpty, "a dropped text file gives no image")
-check(!ImageAttachments.load(from: [NSItemProvider(object: "just words" as NSString)]) { _ in }, "dropped text is refused")
+check(!MainActor.assumeIsolated { ImageAttachments.load(from: [NSItemProvider(object: "just words" as NSString)]) { _ in } }, "dropped text is refused")
 
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
