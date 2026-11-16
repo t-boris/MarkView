@@ -501,3 +501,139 @@ on rename detection.
    `Subprocess` across 15 files (AR-25), `AIOperation` across 28 files (AR-26), registry to the
    end (AR-31), then `WorkspaceManager` (AR-14). Three rounds have cleaned the edges; none has yet
    reduced a count in the table of 12.1 apart from the folders.
+
+## 13. Final check (2026-11-15, branch feat/architecture-review-finish)
+
+Date: 2026-11-15. Checked commit: `ac3001ba` (the merge tip of `feat/architecture-review-finish`, version 6.26.2 plus
+151 commits, merges included; 105 of them carry an `AR-` or `FU-` id in the subject). Base for every "6.26.2" column:
+`6facd9f` (`main`, version 6.26.2). One read-only documentation pass, counts only:
+
+- Counted with `tools/lint/architecture-lint.sh` (exit 0), `tools/lint/task-ownership.sh`,
+  `tools/lint/domain-dependencies.py` and `git grep`, on the merge tip and on `6facd9f`.
+- **Not done in this pass:** no build, no `swift test`, no `tools/tests/run.sh`, no build-warnings run, the app was not
+  launched, nothing was profiled. Every "by reading" below means the code was read and not run.
+- The per-finding results are the `Status (2026-11-15):` lines in
+  [`architecture-review-2026-11.md`](architecture-review-2026-11.md); this section is their summary. Nothing here is
+  `verified`; that status stays with the owner.
+
+### 13.1 Verdict
+
+**This time counts moved.** Of the ten measures of 12.1, six reached their target (`WorkspaceManager.swift` lines, flat files, `Process()`, `CLICompletion.run`, SQLite on the main actor, large JS files), two came near it (places to edit for a new tool: 2 against 1; `SchemaVersionedStore` users: 14 files, not yet all stores) and two did not (views taking the whole manager: 56 against 0; cycles between `Models/` folders: 22 pairs against 0). Of the
+49 findings, 23 are done by their own count or by reading (AR-01 to AR-03, AR-05 to AR-13, AR-25, AR-26, AR-28, AR-30,
+AR-32 to AR-35, AR-37, AR-38, AR-46) and 26 are partial (AR-04, AR-14 to AR-24, AR-27, AR-29, AR-31, AR-36, AR-39 to
+AR-45, AR-47 to AR-49); none is untouched. The remaining work is mostly the wide, boring part: views that still take
+the whole manager, tasks without an owner, cycles between folders, and the sweeps of file writes and JSON stores.
+
+### 13.2 The measures
+
+| Measure | Review | 6.26.2 | Now | Target | Source |
+|---|---|---|---|---|---|
+| `WorkspaceManager.swift` lines | 5851 | 5747 | **730** (+267 in `WorkspaceManager+AIToolRuns.swift`) | under 1000 | `wc -l` |
+| Views taking the whole manager | 62 | 62 | **56** (34 files) | 0 | lint `workspace-manager` |
+| Mutual dependencies between `Models/` folders | 6 cycles | 28 mutual pairs | **22 pairs**, 168 type edges, 91 in the back-edges; 19 of 21 domains in one strongly connected group | 0 | `domain-dependencies.py` |
+| Type references in cycles, held by a ratchet | - | - | 104 in 29 pairs (Models and Views) | falling | lint `domain-cycles` |
+| `Process()` outside `Subprocess` | 17 files | 17 in 15 files | **0** | 0 | lint `process` |
+| `CLICompletion.run` outside `AIOperation` | 54 in 27 files | 55 in 28 files | **0** | 0 | lint `clicompletion` |
+| `SchemaVersionedStore` users | - | 1 | **14 files** (17 sites) | all `.dde` stores | `git grep` |
+| `sqlite3_*` on the main actor | all | all | `SemanticDatabase` is an `actor`; 3 other files call `sqlite3_` (isolation not read) | 0 | lint `semantic-database-actor` |
+| Places to edit for a new tool tab | 9 | about 7 | **2** | 1 | by reading `ToolRegistry`, `ToolTabViews` |
+| JS files over 2800 lines | 3 | 3 | **0** (largest 1,322) | 0 | line counts |
+| Unowned `Task {}` and `Task.detached` sites | - | 391 in 87 files | **263 in 70 files** (`Timer` 0, `asyncAfter` 21, each justified) | falling | `task-ownership.sh` |
+| `.write(to:` sites | 115 | 112 | **35** (26 files, all allow-listed) | 0 | lint `atomic-write` |
+| `NSLog` calls | 119 | 124 | **0** | 0 | lint `app-log` |
+| `".dde"` literals | 56 | 57 | **0** | 0 | lint `project-paths` |
+| `WKWebViewConfiguration(` creations | - | 10 | **0** | 0 | lint `webview-configuration` |
+| String `case` labels in `WebViewBridge.swift` | 29 | 29 | **0** | 0 | `git grep` |
+| `evaluateJavaScript` sites | 71 | 57 | 27 (7 files); `JS.call`/`JS.sequence` 6 -> 39 | 0 string-built | lint `js-interpolation` |
+| `@unchecked Sendable` + `nonisolated(unsafe)` | 36 | 41 | 40, each justified | justified | lint `unchecked-sendable` |
+| Literal assistant switches outside `Models/AI/Providers/` | about 28 in 13 files | same | **0** | 0 | lint `assistant-switch` |
+| `NSAlert` references in `Models/` | - | 31 in 6 files | 25 in 11 files | 0 | `git grep` |
+
+Reading the table: the first three rows are the architecture the review was about, and only the first moved a long way. A
+file that went from 5,747 to 730 lines did not make the 56 views independent of it; `ArchitectureStore.swift` fell from
+4,512 to 1,889 lines and `UIStudioSession.swift` from 3,766 to 1,958 by moving code into 8 and 9 new parts.
+
+### 13.3 FU-20 to FU-30
+
+| ID | State on 2026-11-15 | Basis |
+|---|---|---|
+| FU-20 Mermaid loses its stylesheet | addressed in code | `sanitizeMermaidSvg` keeps `<style>` and rebuilds it with `sanitizeScopedStylesheet`; `tools/tests/MermaidSvgWebTests.swift` exists; no diagram was rendered |
+| FU-21 quit refused every time | addressed by reading | `saveBeforeTermination` is best-effort; a refused autosave is announced once per launch (`announceRefusedSave`) |
+| FU-22 process-group kill never runs | addressed by reading | `SubprocessChild` spawns with `POSIX_SPAWN_SETPGROUP`; `SubprocessProcessGroupTests.swift` exists, not run |
+| FU-23 `AtomicFile` on documents | addressed by reading | symlinks followed, extended attributes copied, temporary file outside the target folder; hard links documented as breaking |
+| FU-24 CSS filter is a regex | addressed by reading | the browser's CSS parser serialises the declarations; only those are checked |
+| FU-25 remaining sinks, `'unsafe-inline'` in cached Insight HTML | **open** | `InsightHTMLTemplate.swift:137` still has `script-src 'self' 'unsafe-inline'`; the canvas and Insight sinks named at 6.26.2 were not re-read |
+| FU-26 silent nonce miss | addressed in code | `EditorPage` logs a miss; `tools/tests/EditorPageCSPTests.swift` exists, not run |
+| FU-27 test runner limits | mostly addressed | per-suite time limits and group kill by reading; `--changed` exits 3 when changed files match no suite; `ci.yml` names no `gui` suite; the group kill was not exercised |
+| FU-28 structural tests in the pure tier | closed | the 500-line `tasks/todo.md` check and the 21 + 19 folder-name pins are gone from `Phase7WebCITests.swift` and `Phase1CleanupTests.swift` (0 matches) |
+| FU-29 dead `ToolSurface` fields | closed | `menuTools`, `WelcomeActions` and `isRestorable` read them |
+| FU-30 one commit for twenty findings | partly followed | 151 commits on the branch; a finding spans several step commits, so it can be reverted as a range, not as one commit |
+
+Still open from the earlier checks: FU-09 (no writer of the open-path file in the repository; the Quick Action handoff was
+never tried) and FU-10 (the Insight frame was never run live).
+
+### 13.4 What is not finished, with counts
+
+- **AR-14, AR-17:** 56 views take the whole manager (target 0); 33 closure hooks in 12 files and 4 back-references in 4
+  files remain, held by ratchets. `WorkspaceManager.swift` is 730 lines against the table's under 400.
+- **AR-19:** 263 unowned tasks in 70 files: `Views/` 162 (Lifecycle 55, Workspace 43, Git 29, Deployments 14, Browser 5,
+  the rest 16), X-Ray stores 37, UI Studio 19, Cockpit 8, project operations 8, the other 29.
+- **AR-20, AR-21:** no layer rule, only a ratchet; 22 `Models/` pairs in cycles, led by Lifecycle -> Workspace (10 types
+  back), UI Studio -> Workspace (12), Prototype -> Workspace (10), Browser -> Workspace (9), Cockpit -> Workspace (9).
+- **AR-22:** `NSAlert` references in `Models/` 25 in 11 files; `FileManager` in `Views/` 25 uses in 15 files.
+- **AR-24:** 35 `.write(to:` sites, `FileManager.default` 454, `try?` in `Models/` 1,087, `JSONEncoder()` 71 and
+  `JSONDecoder()` 72, no shared watcher, JSON codec or rotating JSON-lines file.
+- **AR-04, AR-27, AR-29:** 27 `evaluateJavaScript` sites, 80 `innerHTML =` sinks, 57 empty `catch {}` blocks, 63
+  `<script>` tags with no module system, no `tsc --checkJs` or ESLint, 1,295 lines of inline CSS in `index.html`.
+- **AR-31:** 2 places to edit for a new tool (target 1).
+- **AR-36, AR-39:** 93 `try? decode` sites; file locking in exactly one file; the 14 `SchemaVersionedStore` users do not
+  include `FeatureStore`.
+- **AR-40, AR-41:** `cwd`, `folderDeclared`, `cwdTrusted` and `by_user` still come from the client; hardened runtime is not a
+  project setting (`ENABLE_HARDENED_RUNTIME` 0 matches).
+- **AR-42, AR-43:** not profiled; the warning count is unverified (189 distinct at 6.26.2; the branch's commit messages say
+  the app target reached 0, which this pass did not check); `complete` checking is on for the package only.
+- **AR-44:** no app-hosted test target; the stubs, the per-file `check(...)` helpers and the coverage gap were not
+  re-counted.
+- **AR-47, AR-48, AR-49:** no SwiftLint or SwiftFormat; `TestFiles/` 11 files and a 3.65 MB presentation PDF still tracked;
+  `tasks/lessons.md` 2,036 lines, not distilled.
+- **Not run:** build, `swift test`, `tools/tests/run.sh`, `build-warnings.sh`, the app. Until they are, the "done by reading"
+  results are claims about code, not about behaviour.
+
+### 13.5 The documents
+
+The 21 living documents of `docs/architecture/` were rewritten against `ac3001ba` and each carries the commit it was checked
+against; they cite files and symbols, not line numbers. Counted with the stale-reference checker of the second check (a
+backticked path or `Type.member` that no tracked file or type matches), living documents before and after:
+
+| | path missing | `file:line` cited | line beyond end of file | symbol missing |
+|---|---|---|---|---|
+| 21 living documents, 6.26.2 | 157 | 1,382 | 181 | 55 |
+| 21 living documents, now | 30 | 0 | 0 | 5 |
+| the two review documents, now (historical records) | 83 | 119 | 15 | 64 |
+
+Of the 35 tokens still flagged in the living documents, 9 are deliberate mentions of removed files or types and 26 are false
+positives of the checker (generic names and file patterns). `Type.member` pairs whose type exists but whose member does not:
+72 -> 7. The two review documents are left as written; their counts rose because the new `Status` lines name removed files
+(`project.yml`, `QUICKSTART.md`, `WorkspaceControllers.swift` and others) on purpose.
+
+### 13.6 Recommended order
+
+1. **Run what this pass did not:** build, `swift test --package-path Packages/MarkViewCore`, `./tools/tests/run.sh --tier pure`,
+   `tools/lint/build-warnings.sh`, then look at one Mermaid diagram (FU-20), the Insight frame (FU-10) and the Finder Quick
+   Action (FU-09) in a build that is not the installed app. Every other item depends on knowing which of the "by reading"
+   lines hold.
+2. **Small security closes:** FU-25 (`'unsafe-inline'` in cached Insight HTML), `ENABLE_HARDENED_RUNTIME` in the project
+   (AR-41), and what to do with the client-supplied `cwd`, `cwdTrusted` and `by_user` (AR-40).
+3. **AR-14 and AR-17 to the end:** take the 56 views off the whole manager one view at a time, each taking only the part it
+   reads, and ratchet the `workspace-manager` count down to 0; then delete the 33 hooks and 4 back-references.
+4. **AR-20 and AR-21 as a rule, not a ratchet:** an allowed-dependency table per folder; move the shared pieces of 12.3
+   (`FrontMatter`, `YAMLParser`, `ContentHash`, `WindowStorage`, `SystemProbe`, `CommandPolicy`) to a shared home so the
+   back-edges to `Workspace` and `AI` fall first.
+5. **The sweeps, each with its count:** the 35 `.write(to:` sites to `AtomicFile` (AR-24), the JSON stores and the 93
+   `try? decode` sites to `SchemaVersionedStore` (AR-36, AR-39), `NSAlert` out of `Models/` (AR-22).
+6. **AR-19:** decide the rule for the 162 view-level tasks (a `.task` modifier owns its task; a button action that starts
+   long work goes through a model that owns it) before touching them one by one.
+7. **Web (AR-29, AR-27, AR-04):** an esbuild entry that emits one bundle in today's order, then `tsc --checkJs`; only then
+   convert files.
+8. **Tests and records (AR-44, AR-49):** an app-hosted test target for the GUI and WebKit suites; distil
+   `tasks/lessons.md` by topic.

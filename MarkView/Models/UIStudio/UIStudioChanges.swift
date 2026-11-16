@@ -1,8 +1,10 @@
 import CryptoKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
-/// A child process run off the main thread with both pipes drained while it runs (CLAUDE.md: a full pipe must not
-/// deadlock it, and `waitUntilExit` never runs on the main thread).
+/// The UI Studio's view of a finished child: the status and both streams, whole (`Subprocess`, nothing cut).
 enum StudioProcess {
     struct Output: Sendable {
         var status: Int32
@@ -10,45 +12,13 @@ enum StudioProcess {
         var stderr: String
     }
 
-    /// `timeout` ends the process (SIGTERM) when it runs longer; its output so far is returned.
+    /// `timeout` ends the process (and its group) when it runs longer; its output so far is returned.
     static func run(_ executable: String, _ arguments: [String], in directory: URL? = nil, input: Data? = nil,
                     timeout: TimeInterval? = nil) async -> Output {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = arguments
-                if let directory { process.currentDirectoryURL = directory }
-                let out = Pipe(), err = Pipe(), stdin = Pipe()
-                process.standardOutput = out
-                process.standardError = err
-                process.standardInput = input == nil ? FileHandle.nullDevice : stdin
-                do { try process.run() } catch {
-                    continuation.resume(returning: Output(status: -1, stdout: "", stderr: error.localizedDescription))
-                    return
-                }
-                if let timeout {
-                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if process.isRunning { process.terminate() } }
-                }
-                if let input {
-                    DispatchQueue.global().async {
-                        try? stdin.fileHandleForWriting.write(contentsOf: input)
-                        try? stdin.fileHandleForWriting.close()
-                    }
-                }
-                var stdoutData = Data(), stderrData = Data()
-                let group = DispatchGroup()
-                group.enter()
-                DispatchQueue.global().async { stdoutData = out.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-                group.enter()
-                DispatchQueue.global().async { stderrData = err.fileHandleForReading.readDataToEndOfFile(); group.leave() }
-                group.wait()
-                process.waitUntilExit()
-                continuation.resume(returning: Output(status: process.terminationStatus,
-                                                      stdout: String(decoding: stdoutData, as: UTF8.self),
-                                                      stderr: String(decoding: stderrData, as: UTF8.self)))
-            }
-        }
+        let result = await Subprocess.run(SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: directory, stdin: input,
+            timeout: timeout ?? 0, maxOutputBytes: SubprocessSpec.unboundedOutput))
+        return Output(status: result.exitCode, stdout: result.stdout, stderr: result.stderr)
     }
 
     static func git(_ arguments: [String], in directory: URL) async -> Output {
@@ -87,7 +57,7 @@ struct StudioWorkingSnapshot: Equatable {
 
 /// Code revision identity (§10.1) and the working snapshot behind it.
 enum StudioRevisionProbe {
-    static let ignoredFolders: Set<String> = [".git", "node_modules", ".dde", "dist", "build", ".next", ".nuxt", ".svelte-kit",
+    static let ignoredFolders: Set<String> = [".git", "node_modules", ProjectPaths.localFolderName, "dist", "build", ".next", ".nuxt", ".svelte-kit",
                                               "DerivedData", ".build", "Pods", "coverage", ".turbo", ".cache", "out", "target"]
     static let maxListedFiles = 6_000
     static let maxHashedBytes = 2_000_000
@@ -200,7 +170,7 @@ enum StudioChangeError: Error, Equatable, LocalizedError {
 /// Applies, records and selectively undoes source changes (EDIT-05…EDIT-07, plan I-6).
 enum StudioChanges {
     /// Folders a UI change never writes: version control, dependencies, MarkView's own data, build output.
-    static let protectedFolders: Set<String> = [".git", "node_modules", ".dde", ".markview", "dist", "build", ".next", ".nuxt",
+    static let protectedFolders: Set<String> = [".git", "node_modules", ProjectPaths.localFolderName, ".markview", "dist", "build", ".next", ".nuxt",
                                                 ".svelte-kit", "DerivedData", ".build", "Pods", "vendor", "out", "target", "coverage"]
     static let maxFileSize = 2_000_000
 
@@ -213,11 +183,9 @@ enum StudioChanges {
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(trimmed).standardizedFileURL
         // A symlink inside the project must not lead outside it.
-        let resolvedParent = url.deletingLastPathComponent().resolvingSymlinksInPath().path
-        guard resolvedParent == base.path || resolvedParent.hasPrefix(base.path + "/") else { return nil }
+        guard ProjectPaths.contains(url.deletingLastPathComponent(), root: base) else { return nil }
         if FileManager.default.fileExists(atPath: url.path) {
-            let resolved = url.resolvingSymlinksInPath().path
-            guard resolved.hasPrefix(base.path + "/") else { return nil }
+            guard ProjectPaths.containsStrictly(url, root: base) else { return nil }
         }
         let binary: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "ico", "woff", "woff2", "ttf", "otf", "zip", "pdf", "wasm", "mp4", "mov"]
         guard !binary.contains(url.pathExtension.lowercased()) else { return nil }
@@ -294,7 +262,7 @@ enum StudioChanges {
     private static func put(_ text: String?, at url: URL) throws {
         if let text {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url)
         } else if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }

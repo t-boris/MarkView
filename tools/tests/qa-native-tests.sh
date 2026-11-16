@@ -23,7 +23,7 @@ M=MarkView/Models
 cp tools/tests/QANativeChecks.swift "$out/main.swift"
 swiftc -target "$(uname -m)-apple-macos13.0" -o "$out/qa-native" \
     "$M/QA/QANativeTree.swift" "$M/QA/QANativeAccessibility.swift" "$M/QA/QANativeCapture.swift" "$M/QA/QANativeActor.swift" "$M/QA/QANativeFactory.swift" tools/tests/QANativeKeychainStub.swift \
-    "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAStore.swift" "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/QA/QAEffort.swift" \
+    "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAStore.swift" MarkView/Models/Workspace/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/AI/AIOperation.swift" tools/tests/AIOperationStub.swift "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/QA/QAEffort.swift" \
     "$M/QA/QATriage.swift" "$M/QA/QAInputMark.swift" "$M/QA/QAActions.swift" "$M/QA/QARunner.swift" "$M/QA/QALanguage.swift" "$M/QA/QAPageEvidence.swift" "$M/QA/QACredentials.swift" "$M/QA/QAScenarioEdit.swift" "$M/QA/QAAttachments.swift" \
     "$M/QA/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 app=""

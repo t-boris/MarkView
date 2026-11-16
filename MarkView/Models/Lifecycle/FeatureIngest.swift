@@ -89,7 +89,7 @@ extension FeatureAssistant {
         guard let feature = store.feature(slug), let source = feature.object(id) else { return }
         let file = source.front.string("file")
         let fileNote = file.isEmpty ? "" : "\nThe source file is at \(store.relativePath(source.url.deletingLastPathComponent().appendingPathComponent(file))) — read it when its text below is empty or partial (images: look at them)."
-        let prompt = context(feature, query: String(content.prefix(300))) + """
+        let prompt = await context(feature, query: String(content.prefix(300))) + """
 
         ## New source \(id): \(source.title)\(fileNote)
 

@@ -1,7 +1,7 @@
 # System Overview
 
-Snapshot of `main` at `85b6f8d` (2.17.0). Details and `path:line` citations live in the
-[module docs](./modules/); this page is the map.
+Snapshot of the code at `ac3001ba` (6.26.2, the integration branch of the architecture review, 2026-11-15). Details live in the
+[module docs](./modules/); this page is the map. The docs carry no `path:line` citations: line numbers drift, so a doc names the file and the symbol.
 
 ## 1. What MarkView is
 
@@ -27,7 +27,7 @@ headless indexer, shells).
 | Web libraries | markdown-it (+ plugins), DOMPurify, Turndown, Mermaid, KaTeX, Prism, CodeMirror 6, Cytoscape + ELK, Chart.js, js-yaml, xterm.js (all bundled locally under `Resources/Editor/vendor/js`) |
 | Storage | SQLite3 C API (WAL, FTS5) at `<workspace>/.dde/state.db`; JSON caches; Markdown files with YAML front matter; UserDefaults; Keychain (OpenAI key); rotating JSONL logs |
 | AI | CLI subprocesses: `claude -p` stream-json, `codex exec --json`, `agy` (Antigravity), ACP JSON-RPC over stdio for Cline/Copilot; OpenAI HTTP for Whisper |
-| Build | Canonical `MarkView.xcodeproj` (XcodeGen/`project.yml` retired), local `Packages/MarkViewCore` Swift package, esbuild for vendored JS |
+| Build | Canonical `MarkView.xcodeproj` (XcodeGen retired), local `Packages/MarkViewCore` Swift package, esbuild for vendored JS |
 
 ## 3. Container view
 
@@ -35,9 +35,9 @@ headless indexer, shells).
 flowchart LR
   subgraph App["MarkView.app (one process, sandbox off)"]
     Shell["App shell<br/>MarkViewApp, ContentView"]
-    WM["WorkspaceManager<br/>(per window)"]
+    WM["WorkspaceManager facade + WindowComposition<br/>(per window)"]
     Web["WKWebView editor<br/>index.html + markview-*.js"]
-    Bridge["WebViewBridge / EditorView<br/>Coordinator"]
+    Bridge["TypedWebBridge / WebViewBridge /<br/>EditorView Coordinator"]
     Stores["Stores: ArchitectureStore, FeatureStore,<br/>GitHubStore, InsightSession, AgentUsageTracker"]
     DB[("SemanticDatabase<br/>.dde/state.db")]
     Term["TerminalSession<br/>forkpty + terminal.html"]
@@ -60,21 +60,23 @@ flowchart LR
 
 | Subsystem | Core types | Responsibility | Doc |
 |---|---|---|---|
-| App shell & workspace | `DDEAppEntry`, `MarkViewApp`, `ContentView`, `WorkspaceManager`, `OpenTab`, `FileTreeView` | Launch, windows, menus, tabs, file tree, open/save, settings, and dispatch for most bridge actions | [app-shell-and-workspace](./modules/app-shell-and-workspace.md) |
+| App shell & workspace | `DDEAppEntry`, `MarkViewApp`, `ContentView`, `WorkspaceManager`, `WindowComposition`, `TabsController`, `ProjectContext`, `OpenTab`, `FileTreeView` | Launch, windows, menus; per window the composition of tabs, project, panels and chrome; open/save and the file tree | [app-shell-and-workspace](./modules/app-shell-and-workspace.md) |
 | Editor & bridge | `EditorView`, `WebViewBridge`, `PDFExporter`, `markview-*.js` | Rendering, editing, find, diagrams, code viewer, Swift↔JS message protocol, PDF | [editor-and-bridge](./modules/editor-and-bridge.md) |
 | AI assistants & dictation | `CLICompletion`, `ACPAssistant`, `AIAssistantPreferences`, `CLIToolLocator`, `CodeExplainer`, `WhisperClient`, `DictationController` | One abstraction over the CLIs, prompt building, Explain notes, code navigation, voice input | [ai-assistants-and-dictation](./modules/ai-assistants-and-dictation.md) |
 | Feature workflow | `FeatureStore`, `FeatureAssistant`, `IntakeSheet`, `FeatureIngest` | Feature and bug specs on disk (`docs/features`, `docs/bugs`), AI question rounds, plans, GitHub issues | [feature-workflow](./modules/feature-workflow.md) |
-| Architecture & X-Ray | `ArchitectureScanner`, `ArchitectureStore`, `XRay*`, `markview-architecture.js` | Repo scan → component graph → AI grouping and descriptions → Cytoscape map; PR X-Ray reviews | [architecture-and-xray](./modules/architecture-and-xray.md) |
-| Semantic index & Insight | `SemanticDatabase`, `StructuralIndexer`, `GraphRAG`, `InsightSession`, `InsightCache` | SQLite schema, structural and FTS indexing, prompt assembly, Recursive Insight documents | [semantic-index-and-insight](./modules/semantic-index-and-insight.md) |
+| Architecture & X-Ray | `ArchitectureScanner`, `ArchitectureStore`, `XRay*`, `markview-architecture-*.js` | Repo scan → component graph → AI grouping and descriptions → Cytoscape map; PR X-Ray reviews | [architecture-and-xray](./modules/architecture-and-xray.md) |
+| Semantic index & Insight | `SemanticDatabase`, `StructuralIndexer`, `GraphRAG`, `InsightCoordinator`, `InsightSession`, `InsightCache` | SQLite schema, structural and FTS indexing, prompt assembly, Recursive Insight documents | [semantic-index-and-insight](./modules/semantic-index-and-insight.md) |
 | Git, GitHub, terminal, lifecycle, usage | `GitClient`, `GitHubClient`, `GitHubStore`, `TerminalSession`, `TerminalLink`, `LifecycleLog`, `AgentUsageTracker` | VCS panel, PR/issue/CI integration, PTY terminals, cycle-time events, quota tracking | [git-github-terminal-lifecycle-usage](./modules/git-github-terminal-lifecycle-usage.md) |
 | Build, release, testing | `MarkView.xcodeproj`, `Packages/MarkViewCore`, `bump-version.sh`, `release.sh`, `tools/tests/*` | Toolchain, signing, versioning, standalone tests (`tools/tests/run.sh`) | [build-release-testing](./modules/build-release-testing.md) |
 
 ## 5. Architectural principles (observed)
 
-1. **One window = one `WorkspaceManager`.** It owns the workspace root, tabs, the `SemanticDatabase`
-   and the per-workspace stores. Menus reach it through `FocusedValue`.
+1. **One window = one `WorkspaceManager`, a facade over one `WindowComposition`.** The composition builds the window's parts in one
+   place (`ProjectContext` with the `SemanticDatabase`, `TabsController`, `PanelLayout`, `WindowChrome`, `TaskBag`, `PollingScheduler`,
+   the per-workspace stores); each part sees the window only through its own host protocol. Menus reach it through `FocusedValue`.
 2. **The web view is a renderer, not the source of truth.** Swift owns file contents and tabs. JS
-   renders and sends edits back through `window.webkit.messageHandlers.bridge` (see the
+   renders and sends edits back through the `bridge` message handler. Each message is declared in `Editor/js/bridge-contract.json`
+   and decoded by a payload type in `Bridge/PageMessages.swift` (see the
    [message catalog](./modules/editor-and-bridge.md#5-bridge-message-catalog)).
 3. **AI through local CLIs.** MarkView never holds Anthropic/OpenAI chat credentials. It shells out to
    the user's signed-in CLIs, mostly read-only, and parses JSON or JSON-schema answers.
@@ -87,19 +89,22 @@ flowchart LR
 6. **Heavy indexing runs out of process.** The app re-launches itself with `--dde-index <folder>` and
    streams progress from stderr.
 
-## 6. Code size (2.17.0)
+## 6. Code size (6.26.2, `ac3001ba`)
 
 | Area | Lines |
 |---|---|
-| Swift (`MarkView/**/*.swift`, 75 files) | ~37.4k |
-| of which `WorkspaceManager.swift` / `ArchitectureStore.swift` / `InsightSession.swift` | 3766 / 3136 / 2024 |
-| Editor (`index.html` + `markview-*.js`) | ~9.8k |
+| Swift app (`MarkView/**/*.swift`, 547 files) | ~155.6k |
+| Swift package (`Packages/MarkViewCore/Sources`, 12 files) | ~2.4k |
+| of which `WorkspaceManager.swift` / `ArchitectureStore.swift` / `InsightSession.swift` | 730 / 1889 / 1449 |
+| Editor, first party (`index.html` 1.7k + `markview-*.js` and `mv-kit.js`, 46 files) | ~20.2k |
+
+Counted with `git ls-files` and a line count on the working tree; the standalone suites in `tools/tests/` (211) are not included.
 
 ## 7. Where to start reading
 
 1. `MarkView/App/MarkViewApp.swift`: entry point and menus.
-2. `MarkView/Views/ContentView.swift`: window layout.
-3. `MarkView/Models/WorkspaceManager.swift`: `openFolder`, `openFile`, `saveActiveFile`, and the bridge action switch.
-4. `MarkView/Views/EditorView.swift` + `MarkView/Bridge/WebViewBridge.swift`: the Swift side of the editor.
+2. `MarkView/Views/Workspace/ContentView.swift`: window layout.
+3. `MarkView/Models/Workspace/WorkspaceManager.swift` (`openFolder`, the window's facade) and `WindowComposition.swift` (what a window is made of); `TabsController.swift` for `openFile` and `saveActiveFile`.
+4. `MarkView/Views/Workspace/EditorView.swift` + `MarkView/Bridge/WebViewBridge.swift` (+ `PageMessages.swift`): the Swift side of the editor.
 5. `MarkView/Resources/Editor/index.html`: script load order, then `markview-render.js`.
-6. `MarkView/Models/AIAssistants.swift`: how every AI call is made.
+6. `MarkView/Models/AI/AIAssistants.swift`: how every AI call is made.

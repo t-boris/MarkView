@@ -1,5 +1,8 @@
 import AppKit
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Workflow tab of the project window (BUG-108; feature-3, REQ-001, REQ-002, REQ-005). The workflow belongs to the project, so it
 /// is configured inside the project's window, not in Settings: the statuses of features and bugs with their lifecycle roles, the
@@ -41,7 +44,7 @@ struct WorkflowTabView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("Workflow").uiFont(size: 15, weight: .semibold)
-                Text(".dde/workflow/workflow.json").uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
+                Text(ProjectPaths.workflowRelativePath).uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
                 Spacer(minLength: 8)
                 Picker("", selection: Binding(get: { editor.mode }, set: { editor.switchMode($0, store: store) })) {
                     ForEach(WorkflowEditorModel.Mode.allCases) { Text($0.rawValue).tag($0) }

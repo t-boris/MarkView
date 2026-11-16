@@ -133,7 +133,7 @@ MarkView macOS app (WKWebView, xterm.js with FitAddon, fontFamily "SF Mono", Men
 
 ## Suspected code
 
-- `MarkView/Models/TerminalSession.swift` — Owns the host WKWebView. The left padding is visible, so the web view is not shifted. The likelier cause is a frame that is a constant few points wider than the visible panel, or a container that clips on the right. Either would hide the 4px padding and about 1 column.
+- `MarkView/Models/Terminal/TerminalSession.swift` — Owns the host WKWebView. The left padding is visible, so the web view is not shifted. The likelier cause is a frame that is a constant few points wider than the visible panel, or a container that clips on the right. Either would hide the 4px padding and about 1 column.
 - `MarkView/Resources/Editor/terminal.html` — refit() calls fit.fit() (line 129), and #term uses inset 6px 4px 4px 8px under body overflow:hidden. If FitAddon gets one column too many (cell-width rounding, or it reserves no width for the viewport scrollbar), the last column spills past the padding and is clipped at the page edge.
 - `MarkView (the SwiftUI/AppKit view hosting the terminal panel)` — The layout that places the terminal panel next to other panes may give the WKWebView bounds larger than its visible area, for example an overlapping split divider or a safe-area inset.
 

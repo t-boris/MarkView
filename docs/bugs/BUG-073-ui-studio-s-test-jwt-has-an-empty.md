@@ -31,4 +31,4 @@ Every page, including /, redirects to /auth/login without a `redirect=` paramete
 
 ## Environment
 
-MarkView 5.18.0, macOS 27, vivaa apps/client-web-app (Next.js 16.2.1, @supabase/ssr). Cause: StudioConnections.testValue (MarkView/Models/UIStudioConnections.swift) builds `alg: none` tokens with an empty signature.
+MarkView 5.18.0, macOS 27, vivaa apps/client-web-app (Next.js 16.2.1, @supabase/ssr). Cause: StudioConnections.testValue (MarkView/Models/UIStudio/UIStudioConnections.swift) builds `alg: none` tokens with an empty signature.

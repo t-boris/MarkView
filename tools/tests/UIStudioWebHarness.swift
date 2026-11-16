@@ -316,8 +316,8 @@ window.loadedItems = fetch('/api/items').then(function (r) { return r.json(); })
 @MainActor
 func run() async {
     guard let url = CommandLine.arguments.dropFirst().first.map(URL.init(fileURLWithPath:)),
-          let source = try? String(contentsOf: url, encoding: .utf8) else {
-        print("usage: ui-studio-web-harness <markview-ui-studio.js>")
+          let source = StudioRuntime.source(in: url) else {
+        print("usage: ui-studio-web-harness <Editor/js folder with the markview-ui-studio-*.js parts>")
         exit(2)
     }
     watchdog.reached("Open a window and load the page")

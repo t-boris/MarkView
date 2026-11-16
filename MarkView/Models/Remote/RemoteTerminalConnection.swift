@@ -10,7 +10,7 @@ final class RemoteTerminalConnection: TerminalConnection {
     private let invitation: RemoteInvitation
     private let root: URL
     private let browserWindowID: UUID
-    private let provider: RemoteProviderConfiguration.Provider
+    private let provider: CLITool
     private let model: String?
     private let resume: Bool
     private let savedConnectionID: UUID?
@@ -23,7 +23,7 @@ final class RemoteTerminalConnection: TerminalConnection {
     private var lastHomeMessage = Date()
     private var size = (cols: 120, rows: 30)
 
-    init(invitation: RemoteInvitation, root: URL, browserWindowID: UUID, provider: RemoteProviderConfiguration.Provider,
+    init(invitation: RemoteInvitation, root: URL, browserWindowID: UUID, provider: CLITool,
          model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws {
         self.invitation = invitation; self.root = root; self.browserWindowID = browserWindowID
         self.provider = provider; self.model = model; self.resume = resume; self.savedConnectionID = savedConnectionID
@@ -41,8 +41,7 @@ final class RemoteTerminalConnection: TerminalConnection {
                     onState?(.connecting, "Connecting to home Mac…")
                     let root = root, windowID = browserWindowID, provider = provider
                     let workspace = try await RemoteWorkspace(root: root, browserCall: { name, arguments in
-                        await BrowserControlServer.performRemoteBrowser(name, arguments: arguments, window: windowID,
-                                                                       root: root, agent: provider == .claude ? .claude : .codex)
+                        await RemoteBrowserRelay.perform(name, arguments: arguments, window: windowID, root: root, agent: provider)
                     })
                     self.workspace = workspace
                     try await channel.prepareSession(reset: reset)
@@ -84,7 +83,7 @@ final class RemoteTerminalConnection: TerminalConnection {
     private func receive(_ message: RemoteMessage) async throws {
         guard !stopped else { return }
         lastHomeMessage = Date()
-        onState?(.online, "Connected · " + provider.title)
+        onState?(.online, "Connected · " + provider.displayName)
         switch message.kind {
         case "output":
             if let value = message.payload.string, let data = Data(base64Encoded: value), data.count <= 65536 { onOutput?(data) }
@@ -118,6 +117,7 @@ final class RemoteTerminalConnection: TerminalConnection {
         guard !stopped else { return }
         guard outgoing.count < 256 else {
             onState?(.reconnecting, "Remote input paused · reconnecting")
+            // task: closes the channel of a connection that fell behind; teardown must run to the end
             if let channel { Task { await channel.close() } }; return
         }
         outgoing.append(message); drain()
@@ -153,6 +153,7 @@ final class RemoteTerminalConnection: TerminalConnection {
         guard !stopped else { return }
         stopped = true; readyToSend = false; task?.cancel(); task = nil
         if let savedConnectionID { RemoteConnectionsStore.shared.connectionStopped(savedConnectionID) }
+        // task: closes the transport after the connection stopped; teardown must run to the end
         Task { await clearTransport() }
     }
     private func finish(_ code: Int32) { suspend(); onExit?(code) }

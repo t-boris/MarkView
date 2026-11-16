@@ -32,7 +32,7 @@ No operations UI works on the PR tab: the bridge ignores operation messages whos
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Models/WorkspaceManager.swift lines 1491, 1512 and 1651-1659; code reading only.
+MarkView current main (ade7910), MarkView/Models/Workspace/WorkspaceManager.swift lines 1491, 1512 and 1651-1659; code reading only.
 
 ## Resolution
 

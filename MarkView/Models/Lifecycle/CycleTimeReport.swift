@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The project report of cycle time (feature cycle-time-as-a-view-over-the-workflow, REQ-002, REQ-003, REQ-004): the metrics of
 // `CycleTime.swift` over all items of a kind, judged against the project's own history. Three signals are kept apart (DEC-014):
@@ -105,36 +108,30 @@ struct CycleSettings: Codable, Equatable, Sendable {
     }
 }
 
-/// `.dde/lifecycle/cycle-time.json`. A missing file is the empty settings; a file that cannot be read is reported and left alone.
+/// `.dde/lifecycle/cycle-time.json`. A missing file is the empty settings; a file that cannot be read is reported and left alone,
+/// and saving settings copies it to a backup first.
 enum CycleSettingsFile {
-    static func url(projectRoot: URL) -> URL { projectRoot.appendingPathComponent(".dde/lifecycle/cycle-time.json") }
+    static func url(projectRoot: URL) -> URL { ProjectPaths.cycleTimeFile(projectRoot) }
 
     enum Loaded: Equatable {
         case settings(CycleSettings)
         case unreadable(String)
     }
 
-    private static func decoder() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }
+    private static let store = SchemaVersionedStore<CycleSettings>()
 
     static func load(_ url: URL) -> Loaded {
-        guard FileManager.default.fileExists(atPath: url.path) else { return .settings(.empty) }
-        do {
-            return .settings(try decoder().decode(CycleSettings.self, from: Data(contentsOf: url)))
-        } catch {
-            return .unreadable("\(url.lastPathComponent) cannot be read (\(error.localizedDescription)); fix or remove it. The statistics ignore it until then.")
+        let result = store.load(from: url)
+        switch result {
+        case .missing: return .settings(.empty)
+        case .loaded(let settings, _): return .settings(settings)
+        case .newerSchema, .corrupted:
+            return .unreadable("\(result.problem ?? "\(url.lastPathComponent) cannot be read.") The statistics ignore it until then.")
         }
     }
 
     static func save(_ settings: CycleSettings, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(settings).write(to: url, options: .atomic)
+        try store.save(settings, to: url)
     }
 }
 

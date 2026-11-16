@@ -6,6 +6,8 @@ struct ModuleExplorerView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @Environment(\.appFontScale) private var fontScale
+    /// AI spend of the project in dollars, read from the database actor; nil until the first answer or when nothing was spent.
+    @State private var costDollars: Double?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,14 +20,11 @@ struct ModuleExplorerView: View {
                         .lineLimit(1)
                     Spacer(minLength: 6)
                     if showStats {
-                        if let db = workspaceManager.semanticDatabase {
-                            let stats = db.getUsageStats()
-                            if stats.totalJobs > 0 {
-                                Text("$\(String(format: "%.2f", stats.totalCostDollars))")
-                                    .uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
-                            }
+                        if let costDollars {
+                            Text("$\(String(format: "%.2f", costDollars))")
+                                .uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
                         }
-                        if let progress = workspaceManager.indexingProgress {
+                        if let progress = workspaceManager.project.indexingProgress {
                             ProgressView().scaleEffect(0.4)
                             Text(progress).uiFont(size: 8).foregroundColor(palette.blue).lineLimit(1)
                         }
@@ -39,7 +38,18 @@ struct ModuleExplorerView: View {
             .background(palette.bg)
             Divider().background(palette.border)
 
-            AITerminalPanel().environmentObject(workspaceManager)
+            AITerminalPanel(terminals: workspaceManager.terminals, folderOpen: workspaceManager.rootNode != nil)
+        }
+        .task(id: workspaceManager.semanticDatabase.map(ObjectIdentifier.init)) { await refreshCost() }
+    }
+
+    /// Re-read the spend every few seconds while the panel is on screen (the task ends with the view).
+    private func refreshCost() async {
+        guard let db = workspaceManager.semanticDatabase else { costDollars = nil; return }
+        while !Task.isCancelled {
+            let stats = await db.getUsageStats()
+            costDollars = stats.totalJobs > 0 ? stats.totalCostDollars : nil
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
         }
     }
 }

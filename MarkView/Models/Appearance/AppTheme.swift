@@ -1,10 +1,13 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The theme model of a workspace window: which appearance it uses, the accent each appearance remembers,
 // the colours the native views draw with, and how a new window gets its starting value. Foundation only, so
-// `tools/tests/theme-model-tests.sh` checks it without the app. Views read the palette from the SwiftUI
-// environment (`WindowTheme.swift`); the web pages receive the appearance id and the accent
-// (`markview-themes.js` holds their tokens, and the checks compare the base colours of both sides).
+// `tools/tests/theme-model-tests.sh` checks it without the app. A theme itself is data (`ThemeDefinition.swift`, one JSON
+// file each); views read the palette from the SwiftUI environment (`WindowTheme.swift`); the web pages receive the theme's
+// tokens from the same definition (`markview-themes.js` only turns them into CSS custom properties).
 
 // MARK: - Colour
 
@@ -84,84 +87,44 @@ struct ThemeColor: Equatable, Hashable, Codable {
 
 // MARK: - Appearances
 
-/// The appearance choices of a window. `classicDark` and `classicLight` are the look before themes existed
-/// (DEC-004): kept until the person chooses System or a preset, listed only while active.
-enum AppTheme: String, CaseIterable, Codable {
-    case system, classicDark, classicLight, darcula, midnight, graphite, tokyoNight, carbonRed, nord, forest, paper, daylight
+/// The appearance choice of a window: System, or the id of a theme the catalog knows (a file in `Resources/Themes/` or in the person's
+/// themes folder). A value is only a name: what it looks like is in `ThemeDefinition`, found through `ThemeLibrary.resolve`. An id that
+/// no theme answers to now (a deleted file) stays as it was stored and is shown as Classic Dark, so the choice comes back with the file.
+struct AppTheme: Hashable, Codable, Identifiable, Sendable {
+    let id: String
 
-    var displayName: String {
-        switch self {
-        case .system: return "System"
-        case .classicDark: return "Classic Dark"
-        case .classicLight: return "Classic Light"
-        case .darcula: return "Darcula"
-        case .midnight: return "Midnight"
-        case .graphite: return "Graphite"
-        case .tokyoNight: return "Tokyo Night"
-        case .carbonRed: return "Carbon Red"
-        case .nord: return "Nord"
-        case .forest: return "Forest"
-        case .paper: return "Paper"
-        case .daylight: return "Daylight"
+    init(_ id: String) { self.id = id }
+
+    /// Follows the macOS appearance; it is drawn as Classic Dark or Classic Light.
+    static let system = AppTheme("system")
+    /// The look before themes existed (DEC-004): what an unknown or missing id is shown as.
+    static let classicDark = AppTheme("classic-dark")
+    static let classicLight = AppTheme("classic-light")
+
+    var isSystem: Bool { self == .system }
+
+    /// An id read from storage; nil when the text cannot be an id. Earlier versions stored the case name of an enum (`tokyoNight`,
+    /// `classicDark`); those become the id they stand for (`tokyo-night`, `classic-dark`).
+    init?(stored raw: String) {
+        var id = ""
+        for character in raw {
+            if character.isUppercase { id += "-" + character.lowercased() } else { id.append(character) }
         }
+        guard ThemeSchema.isValidID(id) else { return nil }
+        self.id = id
     }
 
-    /// One line shown in the picker under the name.
-    var summary: String {
-        switch self {
-        case .system: return "Follows the macOS appearance"
-        case .classicDark: return "The dark look before themes"
-        case .classicLight: return "The light look before themes"
-        case .darcula: return "IntelliJ-inspired warm dark grey"
-        case .midnight: return "Deep blue-black with sky blue"
-        case .graphite: return "Neutral dark with violet"
-        case .tokyoNight: return "Indigo night with lavender and cyan"
-        case .carbonRed: return "Soft black with coral and warm ivory"
-        case .nord: return "Arctic blue-grey with frost cyan"
-        case .forest: return "Deep moss green with parchment text"
-        case .paper: return "Warm light paper with blue ink"
-        case .daylight: return "Cool daylight grey with deep teal"
+    init(from decoder: Decoder) throws {
+        let text = try decoder.singleValueContainer().decode(String.self)
+        guard let theme = AppTheme(stored: text) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Not a theme id: \(text)"))
         }
+        self = theme
     }
 
-    var isPreset: Bool { [.darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .nord, .forest, .paper, .daylight].contains(self) }
-    var isClassic: Bool { self == .classicDark || self == .classicLight }
-
-    /// Whether the window is drawn dark; `systemIsDark` decides for System.
-    func isDark(systemIsDark: Bool) -> Bool {
-        switch self {
-        case .system: return systemIsDark
-        case .classicLight, .paper, .daylight: return false
-        case .classicDark, .darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .nord, .forest: return true
-        }
-    }
-
-    /// The appearance that is actually drawn: System becomes Classic Dark or Classic Light.
-    func resolved(systemIsDark: Bool) -> AppTheme {
-        self == .system ? (systemIsDark ? .classicDark : .classicLight) : self
-    }
-
-    /// Identifier of a resolved appearance in the web pages ("classic-dark", "darcula", ...).
-    var webID: String {
-        switch self {
-        case .system: return "system"
-        case .classicDark: return "classic-dark"
-        case .classicLight: return "classic-light"
-        case .darcula: return "darcula"
-        case .midnight: return "midnight"
-        case .graphite: return "graphite"
-        case .tokyoNight: return "tokyo-night"
-        case .carbonRed: return "carbon-red"
-        case .nord: return "nord"
-        case .forest: return "forest"
-        case .paper: return "paper"
-        case .daylight: return "daylight"
-        }
-    }
-
-    /// The choices a window's picker lists: System and the presets, preceded by Classic only while it is active.
-    static func pickerChoices(current: AppTheme) -> [AppTheme] {
-        (current.isClassic ? [current] : []) + [.system, .darcula, .midnight, .graphite, .tokyoNight, .carbonRed, .nord, .forest, .paper, .daylight]
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(id)
     }
 }
 
@@ -190,119 +153,34 @@ struct ThemePalette: Equatable {
     /// The minimum contrast of body text, and of text and icons in the accent colour, against the backgrounds.
     static let readableContrast = 4.5
 
-    private struct Base {
-        let bg, bgSidebar, bgInput, bgHover, bgActive, bgBanner: UInt32
-        let text, textDim, textBright: UInt32
-        let border, selection: UInt32
-        let accent: UInt32
-        let green, orange, yellow, purple, red, cyan: UInt32
-        /// Classic keeps its own badge and selection colours; the presets derive them from the accent.
-        let badge: UInt32?
-        let literalBlue: UInt32?
-    }
-
-    private static func base(_ theme: AppTheme) -> Base {
-        switch theme {
-        case .system, .classicDark:
-            return Base(bg: 0x1E1E1E, bgSidebar: 0x252526, bgInput: 0x3C3C3C, bgHover: 0x2A2D2E, bgActive: 0x37373D, bgBanner: 0x1B1B1F,
-                        text: 0xD4D4D4, textDim: 0x808080, textBright: 0xFFFFFF, border: 0x3C3C3C, selection: 0x264F78,
-                        accent: 0x569CD6, green: 0x4EC9B0, orange: 0xCE9178, yellow: 0xDCDCAA, purple: 0xC586C0, red: 0xF44747,
-                        cyan: 0x9CDCFE, badge: 0x007ACC, literalBlue: 0x569CD6)
-        case .classicLight:
-            return Base(bg: 0xFFFFFF, bgSidebar: 0xF3F3F3, bgInput: 0xE8E8E8, bgHover: 0xE8E8E8, bgActive: 0xDCDCDC, bgBanner: 0xF0F0F0,
-                        text: 0x1E1E1E, textDim: 0x6E7681, textBright: 0x000000, border: 0xD4D4D4, selection: 0xADD6FF,
-                        accent: 0x569CD6, green: 0x4EC9B0, orange: 0xCE9178, yellow: 0xDCDCAA, purple: 0xC586C0, red: 0xF44747,
-                        cyan: 0x0070C1, badge: 0x007ACC, literalBlue: 0x569CD6)
-        case .darcula:
-            return Base(bg: 0x2B2B2B, bgSidebar: 0x323232, bgInput: 0x3C3F41, bgHover: 0x3A3A3A, bgActive: 0x464646, bgBanner: 0x262626,
-                        text: 0xE0E0E0, textDim: 0xA3A3A3, textBright: 0xFFFFFF, border: 0x484848, selection: 0,
-                        accent: 0xE6A15C, green: 0x8DC278, orange: 0xE0884A, yellow: 0xE3C86F, purple: 0xC39BD9, red: 0xFF6B68,
-                        cyan: 0x6DC3D6, badge: nil, literalBlue: nil)
-        case .midnight:
-            return Base(bg: 0x151C2B, bgSidebar: 0x1D2738, bgInput: 0x27344B, bgHover: 0x223048, bgActive: 0x2C3B58, bgBanner: 0x111726,
-                        text: 0xE5EBF5, textDim: 0x93A1BA, textBright: 0xFFFFFF, border: 0x303F5A, selection: 0,
-                        accent: 0x79B8FF, green: 0x7FD6A4, orange: 0xF2A36B, yellow: 0xE9D08A, purple: 0xB79CFF, red: 0xFF7B86,
-                        cyan: 0x5CD3E6, badge: nil, literalBlue: nil)
-        case .graphite:
-            return Base(bg: 0x202124, bgSidebar: 0x2A2C30, bgInput: 0x36383D, bgHover: 0x303338, bgActive: 0x3E4147, bgBanner: 0x1B1C1F,
-                        text: 0xE8EAED, textDim: 0x9AA0A6, textBright: 0xFFFFFF, border: 0x40434A, selection: 0,
-                        accent: 0xB39DDB, green: 0x81C995, orange: 0xF6AE5F, yellow: 0xF2D675, purple: 0xD58FE0, red: 0xF28B82,
-                        cyan: 0x78D9EC, badge: nil, literalBlue: nil)
-        case .tokyoNight:
-            return Base(bg: 0x1A1B26, bgSidebar: 0x202233, bgInput: 0x2B2F45, bgHover: 0x292D42, bgActive: 0x353B55, bgBanner: 0x151620,
-                        text: 0xD5DAF0, textDim: 0xA0A9CB, textBright: 0xF2F4FF, border: 0x414763, selection: 0,
-                        accent: 0xB49AFF, green: 0x9ECE6A, orange: 0xFFAD77, yellow: 0xE0C583, purple: 0xBB9AF7, red: 0xFF879D,
-                        cyan: 0x7DCFFF, badge: nil, literalBlue: nil)
-        case .carbonRed:
-            return Base(bg: 0x171719, bgSidebar: 0x212124, bgInput: 0x2C2B30, bgHover: 0x302C30, bgActive: 0x403139, bgBanner: 0x121214,
-                        text: 0xEDE8E6, textDim: 0xB4A6A6, textBright: 0xFFF7F1, border: 0x484046, selection: 0,
-                        accent: 0xFF6B81, green: 0xA3C991, orange: 0xEFA975, yellow: 0xE7CD92, purple: 0xC8A4D4, red: 0xFF929C,
-                        cyan: 0x8DCBD0, badge: nil, literalBlue: nil)
-        case .nord:
-            return Base(bg: 0x2E3440, bgSidebar: 0x353C4A, bgInput: 0x434C5E, bgHover: 0x3B4252, bgActive: 0x4C566A, bgBanner: 0x292E39,
-                        text: 0xE5E9F0, textDim: 0xA9B4C9, textBright: 0xFFFFFF, border: 0x4C566A, selection: 0,
-                        accent: 0x88C0D0, green: 0xA3BE8C, orange: 0xE0A082, yellow: 0xEBCB8B, purple: 0xC3A5C0, red: 0xEB939C,
-                        cyan: 0x8FBCBB, badge: nil, literalBlue: nil)
-        case .forest:
-            return Base(bg: 0x1E2A22, bgSidebar: 0x26352B, bgInput: 0x334436, bgHover: 0x2C3C31, bgActive: 0x3A4D40, bgBanner: 0x19231C,
-                        text: 0xDDD8C0, textDim: 0xA9B49A, textBright: 0xFBF6E3, border: 0x3F5446, selection: 0,
-                        accent: 0xA7C080, green: 0x9CCC8B, orange: 0xE69875, yellow: 0xDBBC7F, purple: 0xD699B6, red: 0xE67E80,
-                        cyan: 0x7FBBB3, badge: nil, literalBlue: nil)
-        case .paper:
-            return Base(bg: 0xFFFCF5, bgSidebar: 0xF2EDE3, bgInput: 0xE8E1D3, bgHover: 0xEBE5D8, bgActive: 0xDDD5C4, bgBanner: 0xF7F2E8,
-                        text: 0x292724, textDim: 0x655F55, textBright: 0x000000, border: 0xD6CEBE, selection: 0,
-                        accent: 0x315E9B, green: 0x287030, orange: 0xA05000, yellow: 0x7F6400, purple: 0x7B3FA0, red: 0xB3261E,
-                        cyan: 0x00707E, badge: nil, literalBlue: nil)
-        case .daylight:
-            return Base(bg: 0xF7F9FC, bgSidebar: 0xE8EDF4, bgInput: 0xDCE3ED, bgHover: 0xE2E8F1, bgActive: 0xD3DCE8, bgBanner: 0xEEF2F8,
-                        text: 0x1F2933, textDim: 0x52606F, textBright: 0x000000, border: 0xC5CFDC, selection: 0,
-                        accent: 0x0F766E, green: 0x17713A, orange: 0x9A4F00, yellow: 0x755800, purple: 0x6F3FB5, red: 0xB3261E,
-                        cyan: 0x0B6A86, badge: nil, literalBlue: nil)
-        }
-    }
-
-    /// The base colours the web token file repeats for each appearance: editor background, panel background, text, accent.
-    static func webBase(_ theme: AppTheme) -> (bg: ThemeColor, panel: ThemeColor, text: ThemeColor, accent: ThemeColor) {
-        let b = base(theme.resolved(systemIsDark: true))
-        return (ThemeColor(b.bg), ThemeColor(b.bgSidebar), ThemeColor(b.text), ThemeColor(b.accent))
-    }
-
-    /// The default accent of an appearance.
-    static func defaultAccent(of theme: AppTheme) -> ThemeColor {
-        webBase(theme).accent
-    }
-
-    /// The palette of an appearance. `theme` must be resolved; `accent` is the person's override, if any.
-    static func make(_ theme: AppTheme, accent override: ThemeColor? = nil) -> ThemePalette {
-        let theme = theme.resolved(systemIsDark: true)
-        let b = base(theme)
-        let bg = ThemeColor(b.bg), sidebar = ThemeColor(b.bgSidebar)
-        let defaultAccent = ThemeColor(b.accent)
+    /// The palette of a theme. `accent` is the person's override, if any. A theme that pins `selection`, `badge` or `accentText` (the
+    /// Classic looks) keeps them while the accent is its own; once the person picks an accent they follow it like everyone else's.
+    static func make(_ definition: ThemeDefinition, accent override: ThemeColor? = nil) -> ThemePalette {
+        let n = definition.native
+        let defaultAccent = n.accent
         let accent = override ?? defaultAccent
-        let readable = accent.adjusted(toContrast: readableContrast, against: [bg, sidebar])
-        let isDark = theme.isDark(systemIsDark: true)
-
-        let usesLiterals = theme.isClassic && override == nil
-        let blue = usesLiterals ? ThemeColor(b.literalBlue ?? b.accent) : readable
-        let badge = usesLiterals ? ThemeColor(b.badge ?? b.accent) : accent
-        let selection = usesLiterals
-            ? ThemeColor(b.selection)
-            : bg.mixed(with: accent, fraction: isDark ? 0.38 : 0.24)
-        return ThemePalette(theme: theme, isDark: isDark,
-                            bg: bg, bgSidebar: sidebar, bgInput: ThemeColor(b.bgInput), bgHover: ThemeColor(b.bgHover),
-                            bgActive: ThemeColor(b.bgActive), bgBanner: ThemeColor(b.bgBanner),
-                            text: ThemeColor(b.text), textDim: ThemeColor(b.textDim), textBright: ThemeColor(b.textBright),
-                            border: ThemeColor(b.border), selection: selection,
+        let readable = accent.adjusted(toContrast: readableContrast, against: [n.bg, n.bgSidebar])
+        let isDark = definition.isDark
+        let own = override == nil
+        let blue = (own ? n.accentText : nil) ?? readable
+        let badge = (own ? n.badge : nil) ?? accent
+        let selection = (own ? n.selection : nil) ?? n.bg.mixed(with: accent, fraction: isDark ? 0.38 : 0.24)
+        return ThemePalette(theme: AppTheme(definition.id), isDark: isDark,
+                            bg: n.bg, bgSidebar: n.bgSidebar, bgInput: n.bgInput, bgHover: n.bgHover,
+                            bgActive: n.bgActive, bgBanner: n.bgBanner,
+                            text: n.text, textDim: n.textDim, textBright: n.textBright,
+                            border: n.border, selection: selection,
                             accent: accent, defaultAccent: defaultAccent, onAccent: badge.readableText, blue: blue,
-                            green: ThemeColor(b.green), orange: ThemeColor(b.orange), yellow: ThemeColor(b.yellow),
-                            purple: ThemeColor(b.purple), red: ThemeColor(b.red), cyan: ThemeColor(b.cyan), badge: badge)
+                            green: n.green, orange: n.orange, yellow: n.yellow,
+                            purple: n.purple, red: n.red, cyan: n.cyan, badge: badge)
     }
 }
 
 // MARK: - Settings of one window
 
 /// The appearance a window uses and the accent each appearance remembers in it (DEC-002).
-/// Decoding never fails on bad content: an unknown appearance becomes Classic Dark and unreadable accents are dropped.
+/// Decoding never fails on bad content: a name that cannot be an id becomes Classic Dark and unreadable accents are dropped. A
+/// well-formed id is kept even when no theme has it now (see `AppTheme`).
 struct WindowThemeSettings: Equatable, Codable {
     var theme: AppTheme
     private(set) var accents: [AppTheme: ThemeColor]
@@ -319,11 +197,11 @@ struct WindowThemeSettings: Equatable, Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let name = (try? container.decode(String.self, forKey: .theme)) ?? ""
-        theme = AppTheme(rawValue: name) ?? .classicDark
+        theme = AppTheme(stored: name) ?? .classicDark
         var kept: [AppTheme: ThemeColor] = [:]
         if let raw = try? container.decode([String: String].self, forKey: .accents) {
             for (key, value) in raw {
-                if let theme = AppTheme(rawValue: key), let color = ThemeColor(hex: value) { kept[theme] = color }
+                if let theme = AppTheme(stored: key), let color = ThemeColor(hex: value) { kept[theme] = color }
             }
         }
         accents = kept
@@ -331,8 +209,8 @@ struct WindowThemeSettings: Equatable, Codable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(theme.rawValue, forKey: .theme)
-        try container.encode(Dictionary(uniqueKeysWithValues: accents.map { ($0.key.rawValue, $0.value.hex) }), forKey: .accents)
+        try container.encode(theme.id, forKey: .theme)
+        try container.encode(Dictionary(uniqueKeysWithValues: accents.map { ($0.key.id, $0.value.hex) }), forKey: .accents)
     }
 
     /// The accent the person set for `theme` in this window.
@@ -346,16 +224,6 @@ struct WindowThemeSettings: Equatable, Codable {
 
     /// Set (or, with nil, reset) the accent of the active appearance.
     mutating func setAccent(_ color: ThemeColor?) { accents[theme] = color }
-
-    /// Resolved palette for the window.
-    func palette(systemIsDark: Bool) -> ThemePalette {
-        ThemePalette.make(theme.resolved(systemIsDark: systemIsDark), accent: activeOverride)
-    }
-
-    /// The accent in use: the override, or the appearance's default.
-    func effectiveAccent(systemIsDark: Bool) -> ThemeColor {
-        activeOverride ?? ThemePalette.defaultAccent(of: theme.resolved(systemIsDark: systemIsDark))
-    }
 }
 
 // MARK: - Where the settings come from
@@ -363,10 +231,6 @@ struct WindowThemeSettings: Equatable, Codable {
 /// The starting settings of a window that has none of its own (a new window, or one restored from before themes
 /// existed), and the record of the last change that new windows inherit (DEC-005).
 struct ThemeSettingsStore {
-    static let lastChangedKey = "theme.lastChanged.v1"
-    /// The key the application-wide light / dark / system setting used before themes existed.
-    static let legacyKey = "theme"
-
     let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
@@ -374,16 +238,17 @@ struct ThemeSettingsStore {
     /// The settings a new window starts from: the last change anyone made, else the earlier light / dark setting as
     /// Classic (absent, "system" or unreadable -> Classic Dark), never a failure.
     func startingSettings() -> WindowThemeSettings {
-        if let data = defaults.data(forKey: Self.lastChangedKey), Self.isReadable(data),
+        let stored = Settings(defaults)
+        if let data = stored.stored(Setting.themeLastChanged), Self.isReadable(data),
            let settings = try? JSONDecoder().decode(WindowThemeSettings.self, from: data) {
             return settings
         }
-        return WindowThemeSettings(theme: Self.legacyTheme(defaults.string(forKey: Self.legacyKey)))
+        return WindowThemeSettings(theme: Self.legacyTheme(stored.stored(Setting.legacyTheme)))
     }
 
     /// Remember the settings of the window that changed last.
     func remember(_ settings: WindowThemeSettings) {
-        if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: Self.lastChangedKey) }
+        if let data = try? JSONEncoder().encode(settings) { Settings(defaults).set(data, for: Setting.themeLastChanged) }
     }
 
     /// The Classic appearance an earlier saved value stands for.
@@ -391,10 +256,10 @@ struct ThemeSettingsStore {
         value == "light" ? .classicLight : .classicDark
     }
 
-    /// A stored record is used only when it is a JSON object naming a known appearance; anything else counts as missing.
+    /// A stored record is used only when it is a JSON object whose theme can be an id; anything else counts as missing.
     private static func isReadable(_ data: Data) -> Bool {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let name = object["theme"] as? String else { return false }
-        return AppTheme(rawValue: name) != nil
+        return AppTheme(stored: name) != nil
     }
 }

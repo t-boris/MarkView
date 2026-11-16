@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 extension String {
     /// Lines as the code viewer counts them: CRLF, CR and LF each end a line. (Swift
@@ -210,7 +213,7 @@ final class CodeExplainStore: ObservableObject {
         let clipped = lines.count > Self.maxLines ? "\n[file continues to line \(lines.count); explain the part shown]" : ""
         let task = FileExplanationPrompt.instructions(path: path)
         liveAnswers[path] = ""
-        Task {
+        Task { [self] in
             defer { working.remove(path); activity[path] = nil; liveAnswers[path] = nil; revision += 1 }
             // One pass over the file itself: no tools, the fast model at low effort.
             var request = CLICompletion.Request(
@@ -224,12 +227,11 @@ final class CodeExplainStore: ObservableObject {
             let contentHash = ContentHash.of(content)
             let lineCount = min(lines.count, Self.maxLines)
             do {
-                let result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
+                let (object, result) = try await AIOperation<CLICompletion.Request, [String: Any]>.object(name: "explain-file").execute(request, onActivity: { [weak self] activity in
                     guard case .answerDelta(let text) = activity else { return }
                     Task { @MainActor in self?.receive(text, path: path, contentHash: contentHash, lineCount: lineCount) }
                 })
                 result.record(in: db)
-                let object = result.structured as? [String: Any] ?? [:]
                 let sections = (object["sections"] as? [[String: Any]] ?? []).compactMap { raw -> CodeSection? in
                     guard let start = raw["startLine"] as? Int, let end = raw["endLine"] as? Int else { return nil }
                     let level = raw["importance"] as? String ?? "normal"
@@ -330,10 +332,10 @@ final class CodeExplainStore: ObservableObject {
                                                   items: items,
                                                   language: Self.reasonLanguage, project: root)
             do {
-                let result = try await CLICompletion.run(request)
+                let (ratings, result) = try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
                 result.record(in: db)
                 guard var current = explanations[path] else { return }
-                current.ratings[filter.id] = ImportanceRater.parse(result.structured, keys: Set(items.map(\.key)), filter: filter)
+                current.ratings[filter.id] = ratings
                 explanations[path] = current
                 save(current, directory: directory)
             } catch is CancellationError {
@@ -345,7 +347,7 @@ final class CodeExplainStore: ObservableObject {
 
     /// State of `path` for the code viewer's margin panel, as a JSON object literal.
     func payloadJSON(path: String, content: String, filters: [ImportanceRater.Filter],
-                     pr: ArchitectureStore.PRFileNotes? = nil, search: ArchitectureStore.SearchNotes? = nil) -> String {
+                     pr: PRFileNotes? = nil, search: XRayFilterStore.SearchNotes? = nil) -> String {
         struct Payload: Encodable {
             let explanation: CodeExplanation?
             let working: Bool
@@ -354,9 +356,9 @@ final class CodeExplainStore: ObservableObject {
             let stale: Bool
             let filters: [ImportanceRater.Filter]
             /// The selected pull request's changes in this file (the "Pull request" lens).
-            let pr: ArchitectureStore.PRFileNotes?
+            let pr: PRFileNotes?
             /// The ⚡ search's places in this file (the "⚡" lens).
-            let search: ArchitectureStore.SearchNotes?
+            let search: XRayFilterStore.SearchNotes?
         }
         let payload = Payload(explanation: explanations[path], working: working.contains(path), activity: activity[path], error: errors[path],
                               stale: isStale(path: path, content: content), filters: filters, pr: pr, search: search)
@@ -376,7 +378,7 @@ final class CodeExplainStore: ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             var stored = explanation
             stored.ratings = stored.ratings.filter { !ImportanceRater.isTemporary($0.key) }   // one-off filters are never stored
-            try encoder.encode(stored).write(to: fileURL(explanation.path, directory), options: .atomic)
+            try AtomicFile.write(encoder.encode(stored), to: fileURL(explanation.path, directory))
         } catch {
             errors[explanation.path] = "Explanation could not be cached: \(error.localizedDescription)"
         }

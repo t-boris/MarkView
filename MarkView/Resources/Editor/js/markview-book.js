@@ -8,7 +8,7 @@
     // A single file printed as a document: title page from its front matter, no chapter heading, contents only when long.
     let documentMeta = {title: '', subtitle: '', author: '', date: ''};
     const isDocument = () => options.mode === 'document';
-    const escape =text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const escape = window.mvKit.escapeHtml;
     const slug = text => text.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/ /g, '-');
     const node = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
     const canonical = value => { const u = new URL(value); u.hash = ''; u.search = ''; return decodeURIComponent(u.href); };

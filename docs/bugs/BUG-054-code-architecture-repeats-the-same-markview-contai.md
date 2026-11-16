@@ -56,11 +56,11 @@ Native MarkView macOS application, X-Ray Code architecture view. The screenshot 
 
 ## Suspected code
 
-- `MarkView/Models/CodeArchitecture.swift:35` — view selects the dedicated code model or falls back to the logical/modules hierarchy. At lines 62–69 it clones every ancestor per layer, replacing IDs, parent and role while retaining name and summary. This directly explains repeated MarkView containers when a shared ancestor spans multiple layers.
-- `MarkView/Models/CodeArchitecture.swift:23` — guessedLayer uses a fixed list of directory names and SQL detection, otherwise returning other. At lines 58–59 it is used when no semantic ancestor role is available. Missing path categories can inflate Unclassified code.
-- `MarkView/Resources/Editor/vendor/js/markview-architecture.js:712` — expandedSet automatically opens layer bands in the initial overview, leaving nested component expansion unchanged. Combined with the cloned ancestor hierarchy, it can foreground the same outer MarkView box in each band.
-- `MarkView/Models/ArchitectureStore.swift:1090` — The logical fallback constructs component nodes with their stored names, purposes and layers. These become input to the Code projection when a dedicated codeModel is absent; the stored hierarchy should be inspected.
-- `MarkView/Models/CodeArchitecture.swift:485` — validateModel permits 1–120 components and validates structural/source constraints without requiring full source ownership coverage or responsibility depth. An incomplete model can pass these checks.
+- `MarkView/Models/Architecture/CodeArchitecture.swift:35` — view selects the dedicated code model or falls back to the logical/modules hierarchy. At lines 62–69 it clones every ancestor per layer, replacing IDs, parent and role while retaining name and summary. This directly explains repeated MarkView containers when a shared ancestor spans multiple layers.
+- `MarkView/Models/Architecture/CodeArchitecture.swift:23` — guessedLayer uses a fixed list of directory names and SQL detection, otherwise returning other. At lines 58–59 it is used when no semantic ancestor role is available. Missing path categories can inflate Unclassified code.
+- `MarkView/Resources/Editor/js/markview-architecture.js:712` — expandedSet automatically opens layer bands in the initial overview, leaving nested component expansion unchanged. Combined with the cloned ancestor hierarchy, it can foreground the same outer MarkView box in each band.
+- `MarkView/Models/Architecture/ArchitectureStore.swift:1090` — The logical fallback constructs component nodes with their stored names, purposes and layers. These become input to the Code projection when a dedicated codeModel is absent; the stored hierarchy should be inspected.
+- `MarkView/Models/Architecture/CodeArchitecture.swift:485` — validateModel permits 1–120 components and validates structural/source constraints without requiring full source ownership coverage or responsibility depth. An incomplete model can pass these checks.
 
 ## Likely causes
 

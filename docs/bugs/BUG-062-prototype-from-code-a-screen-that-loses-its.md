@@ -33,7 +33,7 @@ The prototype is left with a blank Trade screen and a blank OptionDesk component
 
 ## Environment
 
-MarkView 5.12.1 (installed); source checked on main 2b55a9d (5.13.0): Models/PrototypeSession.swift settleAndFix (`sweep: false`), Models/PrototypeAI.swift reviseSystem and revise (`targets = sweep ? ... : []`). Project: broker-fabric, docs/prototypes/strikedesk. Related: BUG-060 (the \"Not covered\" note on a declining repair round), BUG-053.
+MarkView 5.12.1 (installed); source checked on main 2b55a9d (5.13.0): Models/Prototype/PrototypeSession.swift settleAndFix (`sweep: false`), Models/Prototype/PrototypeAI.swift reviseSystem and revise (`targets = sweep ? ... : []`). Project: broker-fabric, docs/prototypes/strikedesk. Related: BUG-060 (the \"Not covered\" note on a declining repair round), BUG-053.
 
 ## Cause
 

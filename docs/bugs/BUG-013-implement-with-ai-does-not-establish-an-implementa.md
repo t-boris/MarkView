@@ -71,9 +71,9 @@ MarkView native macOS app (macOS 13+, Swift 5.9). The report covers all configur
 
 ## Suspected code
 
-- `MarkView/Models/HandoffPrompt.swift` — `feature(_:claude:)` emits `/goal implement …` only for Claude Code and a plain instruction otherwise.
-- `MarkView/Models/WorkspaceManager.swift` — `implementWithAI` selects prompt format from preferences before `sendToAssistant` chooses the receiving terminal, which may use another backend.
-- `MarkView/Models/TerminalSession.swift` — `pasteWhenReady` and `paste` are relevant to the unresolved Claude Code case if a generated `/goal` is altered or lost during delivery.
+- `MarkView/Models/Lifecycle/HandoffPrompt.swift` — `feature(_:claude:)` emits `/goal implement …` only for Claude Code and a plain instruction otherwise.
+- `MarkView/Models/Workspace/WorkspaceManager.swift` — `implementWithAI` selects prompt format from preferences before `sendToAssistant` chooses the receiving terminal, which may use another backend.
+- `MarkView/Models/Terminal/TerminalSession.swift` — `pasteWhenReady` and `paste` are relevant to the unresolved Claude Code case if a generated `/goal` is altered or lost during delivery.
 - `tools/tests/HandoffPromptTests.swift` — Tests expect a plain non-Claude prompt and check only the generated Claude prompt, leaving terminal selection and delivery unverified.
 
 ## Likely causes

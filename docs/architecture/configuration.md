@@ -1,21 +1,25 @@
 # Configuration
 
+Checked against the code at `ac3001ba` (2026-11-15).
+
 MarkView has no config file. Configuration is split across UserDefaults (set through the DDE
 Settings window and UI toggles), web view `localStorage`, command-line flags, the environment of
 child processes, and build-time settings.
 
 ## 1. UserDefaults keys
 
-Changing or renaming any of these keys is a **major** version change (CLAUDE.md).
+Changing or renaming any of these keys is a **major** version change (CLAUDE.md). Every key is declared once in
+`Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift` (`SettingsKey`, with a scope `.app`, `.project` or `.window`), and lint rule
+`settings-literal` keeps a key literal out of the rest of the app. That file is the complete list (70 literal keys plus the keys built
+from a tool, an agent or a project root); the tables below list the ones people ask about, and the last table lists keys added since.
 
 | Key | Type / default | Purpose | Owner |
 |---|---|---|---|
 | `workspace.lastFolder` | path | Folder restored on launch | app shell |
-| `layout.showTOC` | Bool | Contents section visibility. The left panel has no stored default: every new window starts with it closed (center panel only) and a window restores its own from its saved session | app shell |
+| `layout.showTOC.v3` | Bool | Contents section visibility. The left panel has no stored default: every new window starts with it closed (center panel only) and a window restores its own from its saved session | app shell |
 | `layout.leftPanelWidth`, `layout.rightPanelWidth` | Double, 220 (180–6000) / 500 (320–1200) | Width of the left / right pane. The window keeps its own (`WindowUIState`); the key is only the starting value of a new window | app shell |
 | `layout.navigatorTab`, `layout.leftPanel`, `layout.issuesFeature`, `layout.gitSection`, `feature.stage` | enum/String | Last panel tab/section chosen. Each window keeps its own in `PanelLayout`; the key only seeds the next window and relaunch (BUG-004) | app shell, features, git |
-| `layout.terminalPromptsExpanded.v3`, `contents.infoExpanded`, `search.panelMode`, `uiStudioInspectorWidth`, `uiStudioSelectionExpanded`, `prototypeChatWidth`, `prototypePickScreenshot`, `imageSlideshowSeconds`, `editorTextSizeMirror`, `fileBrowser.viewMode`, `fileBrowser.showHidden`, `fileBrowser.hideIgnored`, `fileBrowser.category`, `editor.markview-*` | mixed | Per-window interface state (`WindowUIState`); the key is only the starting value of a new window | app shell |
-| `feature.lifecycle.expanded` | Bool | Disclosure state (global across windows) | features |
+| `contents.infoExpanded`, `search.panelMode`, `uiStudioInspectorWidth`, `uiStudioSelectionExpanded`, `prototypeChatWidth`, `prototypePickScreenshot`, `imageSlideshowSeconds`, `editorTextSizeMirror`, `fileBrowser.viewMode`, `fileBrowser.showHidden`, `fileBrowser.hideIgnored`, `fileBrowser.category` | mixed | Per-window interface state (`WindowUIState`); the key is only the starting value of a new window | app shell |
 | `features.active.<12-char hash of root>` | String | Open feature per project | features |
 | `research.webDisabled.<12-char hash of root>` | Bool, false | New Research: repository-only, no web search, for this folder (DEC-011) | research |
 | `research.timeoutMinutes` | Int, 20 (5–120) | New Research job time limit; a longer run stops and is saved as incomplete (DEC-012) | research |
@@ -45,6 +49,30 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 To reset: quit the app, then `defaults delete <bundle id>` (see the
 [runbook](./operations-runbook.md)).
 
+Keys declared in `SettingsKeys.swift` that the tables above do not cover (the type and default are those of the declaration; scope
+`project` means one value per project key, `window` means a window's own value):
+
+| Key | Type / default | Scope | Purpose |
+|---|---|---|---|
+| `appFontScalePercent` | Int, 100 | app | Application font scale |
+| `browser.openTerminalLinksInApp` | Bool, `true` | app | Open terminal links in the built-in browser |
+| `browserNeverSavePasswordHosts` | [String], `[]` | app | Hosts the person said never to save a password for |
+| `pdfExport.theme`, `pdfExport.paper` | String, `paper` / `a4` | app | PDF export theme and paper size |
+| `workspace.recentProjects` | [String], `[]` | app | Recently opened folders, most recent first |
+| `settings.dictation.locale` | String, `""` | app | Dictation language as a BCP 47 identifier (`""` follows the system) |
+| `settings.github.activeInterval` | Double, 30 | app | Seconds between checks while a run is active |
+| `settings.github.configDirectory` | String, `""` | app | The `gh` configuration folder the person chose |
+| `qaRecordVideo`, `qaReviewDepth` | Bool `true` / String `screens` | app | QA run options |
+| `remote.relayURL`, `remote.deviceID` | String, `""` | app | Remote workspace relay and device id |
+| `project.ai` | JSON | project | One project's assistant, model and X-Ray model choices |
+| `project.colors`, `project.colors.byFolderName` | JSON / Bool | project | A chosen colour per project; the second is set once colours saved before DEC-014 were dropped |
+| `project.workspaceTransparency`, `project.linkedFolders` | JSON | project | Workspace transparency and linked folders per project |
+| `layout.showTOC.v3` | Bool, `false` | app | Starting value for the Contents section |
+| `layout.workspaceArea`, `layout.workSection` | String, `Files` / `Tasks` | window | Area and work section shown by the window |
+| `layout.agentsWidth`, `layout.agentsHeight`, `layout.agentsOffsetX`, `layout.agentsOffsetY` | Double, 650 / 600 / 0 / 0 | window | Geometry of the agents panel |
+| `welcomeBackdrop` | String, `matrix` | window | Backdrop of the welcome screen |
+| `qa.panel`, `qa.inspectorWidth`, `qa.showApps`, `qa.showPlayers`, `qa.showEnvironments`, `qa.showBaseline` | String `branches` / Double 380 / Bool `true`, `true`, `true`, `false` | window | QA tab layout and filters |
+
 ## 2. Web view localStorage
 
 | Key | Purpose |
@@ -58,6 +86,11 @@ To reset: quit the app, then `defaults delete <bundle id>` (see the
 | Flag | Effect |
 |---|---|
 | `--dde-index <folder>` | Headless structural indexer child process, used internally by `runStructuralIndex` |
+| `--mcp-browser` | MCP stdio server with the browser tools, started by an agent's MCP configuration (`BrowserAgentTools.runServer`); never returns |
+| `--mcp-project` | MCP stdio server with the project tools (`ProjectAgentTools.profile`); never returns |
+| `--mcp-control` | MCP stdio server with the control tools (`ControlAgentTools.profile`); never returns |
+| `--project-call` | Runs one project tool call from the command line and exits (`ProjectAgentTools.runCall`) |
+| `--remote-workspace-mcp`, `--remote-workspace-guard` | The remote-workspace MCP server and its command guard (`RemoteUnixRPC.runMCP`, `runGuard`); never return |
 
 ## 4. Environment
 
@@ -84,9 +117,9 @@ Scripts read `SIGN_IDENTITY` and `NOTARY_PROFILE` (`release.sh`). CI uses `GH_TO
 
 ## 6. Build-time configuration
 
-- `MarkView.xcodeproj/project.pbxproj` is the single source of truth (XcodeGen and `project.yml` have been retired). `MARKETING_VERSION` equals `CURRENT_PROJECT_VERSION`, and both are set by `./bump-version.sh`.
+- `MarkView.xcodeproj/project.pbxproj` is the single source of truth (XcodeGen has been retired). `MARKETING_VERSION` equals `CURRENT_PROJECT_VERSION`, and both are set by `./bump-version.sh`.
 - `MarkView/Info.plist`: document types, usage strings (microphone, Apple Events), and
-  **ATS arbitrary loads allowed**.
+  App Transport Security: `NSAllowsArbitraryLoads` is false; web content (`NSAllowsArbitraryLoadsInWebContent`) and local networking (`NSAllowsLocalNetworking`) are allowed (AR-41).
 - Entitlements: **App Sandbox off** in both configurations. Release adds audio input and Apple Events;
   Debug adds audio input and network client.
 

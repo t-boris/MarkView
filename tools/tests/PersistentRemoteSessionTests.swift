@@ -3,11 +3,9 @@ import CryptoKit
 
 // The provider process is an inert echo terminal; both production endpoint controllers, HTTPS
 // protocol, MCP sockets and workspace executors are real. No provider login or user project is used.
-enum CLITool: String { case claude, codex }
 struct TerminalProfile { init(_ tool: CLITool) {} }
 enum ContentHash { static func of(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() } }
 enum CLIToolLocator { static func resolveThorough(_ tool: CLITool) async -> String? { "/test/inert-agent" } }
-enum AgentModelProbe { static func hasClaudeSession(cwd: URL) -> Bool { true } }
 enum RemoteCodexContext {
     static func prepare(executable: String, directory: URL, context: RemoteJSON) async throws -> String? { nil }
 }
@@ -21,8 +19,8 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
     static let shared = RemoteConnectionsStore()
     func connectionStopped(_ id: UUID) {}
 }
-@MainActor enum BrowserControlServer {
-    static func performRemoteBrowser(_ name: String, arguments: RemoteJSON, window: UUID, root: URL, agent: CLITool) async -> RemoteJSON {
+@MainActor enum RemoteBrowserRelay {
+    static func perform(_ name: String, arguments: RemoteJSON, window: UUID, root: URL, agent: CLITool) async -> RemoteJSON {
         .textResult("BROWSER " + window.uuidString)
     }
 }
@@ -82,8 +80,8 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
         defer { homeA.suspend(); homeB.suspend() }
         try await wait("Multiple saved hosts independently register and become available") { hostAReady && hostBReady }
         let windowA = UUID(), windowB = UUID()
-        let workA = try await RemoteTerminalConnection(invitation: first, root: a, browserWindowID: windowA, provider: .claude, model: nil, resume: true)
-        let workB = try await RemoteTerminalConnection(invitation: second, root: b, browserWindowID: windowB, provider: .codex, model: nil, resume: true)
+        let workA = try await RemoteTerminalConnection(invitation: first, root: a, browserWindowID: windowA, provider: CLITool(rawValue: "claude")!, model: nil, resume: true)
+        let workB = try await RemoteTerminalConnection(invitation: second, root: b, browserWindowID: windowB, provider: CLITool(rawValue: "codex")!, model: nil, resume: true)
         var outputA = "", outputB = "", exitedA = false
         workA.onOutput = { outputA += String(decoding: $0, as: UTF8.self) }
         workB.onOutput = { outputB += String(decoding: $0, as: UTF8.self) }

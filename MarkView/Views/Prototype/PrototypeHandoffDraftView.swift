@@ -18,7 +18,7 @@ struct PrototypeHandoffDraftView: View {
     @State private var tab = Tab.feature
     @State private var brief = ""
     @State private var briefEdited = false
-    @State private var agent = TerminalProfile.claude
+    @State private var agent = TerminalProfile(AssistantProviderRegistry.defaultTool)
     @State private var copied = false
     @State private var showNotes = false
 
@@ -181,15 +181,15 @@ struct PrototypeHandoffDraftView: View {
                 .disabled(currentBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Send to \(agent.title)") {
                     let text = currentBrief
-                    let terminal = workspaceManager.openAITerminal(agent)
-                    workspaceManager.sendToAssistant(submit: true, to: terminal) { _ in text }
+                    let terminal = workspaceManager.terminals.openAITerminal(agent)
+                    workspaceManager.terminals.sendToAssistant(submit: true, to: terminal) { _ in text }
                     onClose()
                 }
                 .disabled(currentBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || run.progress.running)
                 Button(run.creating ? "Creating…" : "Create feature") {
                     Task {
-                        if let created = await run.create(into: workspaceManager.features) {
-                            workspaceManager.featureWritten(created.slug, overview: created.overview)
+                        if let created = await run.create(into: workspaceManager.flow.features) {
+                            workspaceManager.flow.featureWritten(created.slug, overview: created.overview)
                             onClose()
                         }
                     }

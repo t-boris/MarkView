@@ -150,7 +150,7 @@ struct BugBasketView: View {
     private var footer: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             let eligible = batch.eligible
-            let busy = workspaceManager.assistantIsBusy
+            let busy = workspaceManager.terminals.assistantIsBusy
             VStack(alignment: .leading, spacing: 4) {
                 if eligible.count == 1, let only = eligible.first {
                     HStack(spacing: 4) {
@@ -160,7 +160,7 @@ struct BugBasketView: View {
                             .help("Its panel has Fix with AI for a single bug")
                     }
                 }
-                SmallButton(title: "Fix \(eligible.count) with AI", icon: "hammer", prominent: true) { workspaceManager.fixBasketWithAI() }
+                SmallButton(title: "Fix \(eligible.count) with AI", icon: "hammer", prominent: true) { workspaceManager.flow.fixBasketWithAI() }
                     .disabled(eligible.count < BugBasket.minimumBatch || busy)
                     .opacity(eligible.count < BugBasket.minimumBatch || busy ? 0.5 : 1)
                     .help(fixHelp(eligible: eligible.count, busy: busy))
@@ -179,7 +179,7 @@ struct BugBasketView: View {
     private func open(_ path: String) {
         guard let url = batch.url(path) else { return }
         workspaceManager.openFile(url)
-        workspaceManager.showTOC = true
+        workspaceManager.chrome.showTOC = true
         workspaceManager.layout.navigatorTab = .feature
     }
 }

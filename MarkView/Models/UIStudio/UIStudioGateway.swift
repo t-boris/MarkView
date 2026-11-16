@@ -467,6 +467,7 @@ enum StudioGatewayError: LocalizedError, Equatable {
 /// what the guards refuse, call the handler, wait `delayMs`, write the response and close. A client that closes its side
 /// before the answer is dropped and its late reply ignored. The whole request must arrive within `requestTimeout`
 /// (408 otherwise); at most `maxConnections` connections are open at once (extra ones are closed at once).
+// unchecked Sendable: the mutable state is touched only on the serial `queue`; every other stored property is a `let`.
 final class StudioGateway: @unchecked Sendable {
     typealias Handler = @Sendable (StudioGatewayRequest, @escaping @Sendable (StudioGatewayResponse) -> Void) -> Void
 
@@ -586,6 +587,7 @@ final class StudioGateway: @unchecked Sendable {
             self.fail(pending, StudioGatewayError.timeout)
         }
         pending.timeout = timeout
+        // task: the request's time limit, kept as pending.timeout and cancelled when the request ends
         queue.asyncAfter(deadline: .now() + 10, execute: timeout)
     }
 
@@ -696,6 +698,7 @@ final class StudioGateway: @unchecked Sendable {
         }
         let timer = DispatchWorkItem { [weak self] in self?.timedOut(id) }
         link.timer = timer
+        // task: the connection's time limit, kept as link.timer and cancelled when the link ends
         queue.asyncAfter(deadline: .now() + requestTimeout, execute: timer)
         connection.start(queue: queue)
         receive(link)
@@ -798,6 +801,7 @@ final class StudioGateway: @unchecked Sendable {
             return
         }
         link.phase = .delaying
+        // task: a delayed write that checks the link is still waiting; the link owns its end
         queue.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
             guard let self, let link = self.links[id], link.phase == .delaying else { return }
             self.write(data, to: link)

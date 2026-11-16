@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// The delivery-evidence log of this Mac: one JSON-lines file in the app's Application Support folder, shared by every window. It
 /// holds what GitHub and git showed about a feature's delivery (see EvidenceTimings.swift), never a change of status - the workflow
@@ -95,7 +96,7 @@ final class LifecycleLog: ObservableObject {
                     guard let event = try? decoder.decode(LifecycleEvent.self, from: Data(line.utf8)) else { return true }
                     return event.project != project
                 }
-                try (kept.map(String.init).joined(separator: "\n") + (kept.isEmpty ? "" : "\n")).write(to: url, atomically: true, encoding: .utf8)
+                try AtomicFile.write(kept.map(String.init).joined(separator: "\n") + (kept.isEmpty ? "" : "\n"), to: url)
             } catch {
                 let message = "Could not delete the delivery evidence: \(error.localizedDescription)"
                 Task { @MainActor in LifecycleLog.shared.lastError = message }
@@ -134,10 +135,8 @@ final class LifecycleLog: ObservableObject {
 
 /// AI model names used on this Mac: the spelling already seen is reused, so one model is one name in the evidence.
 enum LifecycleModels {
-    private static let key = "lifecycle.models"
-
     /// Most recently used first.
-    static var all: [String] { UserDefaults.standard.stringArray(forKey: key) ?? [] }
+    static var all: [String] { Settings.standard.value(Setting.lifecycleModels) }
 
     /// The spelling already known for `name` (case-insensitive), or `name` trimmed.
     static func canonical(_ name: String) -> String {
@@ -150,7 +149,7 @@ enum LifecycleModels {
     static func use(_ name: String) -> String {
         let name = canonical(name)
         guard !name.isEmpty else { return name }
-        UserDefaults.standard.set([name] + all.filter { $0.caseInsensitiveCompare(name) != .orderedSame }, forKey: key)
+        Settings.standard.set([name] + all.filter { $0.caseInsensitiveCompare(name) != .orderedSame }, for: Setting.lifecycleModels)
         return name
     }
 }

@@ -78,7 +78,7 @@ web_queries:
 
 #### Evidence
 
-- [Project fact] Перечисление CLITool содержит claude, codex, cline, copilot и antigravity. — `MarkView/Models/AIAssistants.swift:13`
+- [Project fact] Перечисление CLITool содержит claude, codex, cline, copilot и antigravity. — `MarkView/Models/AI/AIAssistants.swift:13`
 
 ### Интеграция зависит от режима {#n7}
 
@@ -88,7 +88,7 @@ web_queries:
 
 #### Evidence
 
-- [Project fact] ACPAssistant отдельно запускает и настраивает поддерживаемые CLI. — `MarkView/Models/ACPAssistant.swift:3`
+- [Project fact] ACPAssistant отдельно запускает и настраивает поддерживаемые CLI. — `MarkView/Models/AI/ACPAssistant.swift:3`
 - [AI inference] Поддержка стороннего CLI в приложении требует проверки его протокола, запуска и отображения в интерфейсе.
 
 ### Учёт лимитов {#n8}
@@ -99,7 +99,7 @@ web_queries:
 
 #### Evidence
 
-- [Project fact] UsageAgent перечисляет только claude и codex. — `MarkView/Models/AgentUsage.swift:10`
+- [Project fact] UsageAgent перечисляет только claude и codex. — `MarkView/Models/AI/AgentUsage.swift:10`
 
 ### Дополнительные готовые агенты {#n3}
 
@@ -192,7 +192,7 @@ DeepSeek — поставщик моделей и API, который можно
 #### Evidence
 
 - [External fact] Cline описывает выбор провайдера DeepSeek, ввод API-ключа и выбор модели. — <https://docs.cline.bot/provider-config/deepseek>
-- [Project fact] Cline включён в CLITool и работает через ACPAssistant. — `MarkView/Models/AIAssistants.swift:16`
+- [Project fact] Cline включён в CLITool и работает через ACPAssistant. — `MarkView/Models/AI/AIAssistants.swift:16`
 - [Open assumption] Настройка провайдера в установленном Cline будет доступна при запуске MarkView через ACP; это не проверялось.
 
 ### DeepSeek в Codex {#n17}

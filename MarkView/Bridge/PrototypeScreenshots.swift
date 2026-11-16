@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One screen of one saved version of a prototype from code, rendered offscreen and returned as a PNG (feature "Prototype and code stay
 /// in step", REQ-017).
@@ -95,17 +98,15 @@ final class PrototypeScreenshots {
             throw Failure.noScreen(page)
         }
 
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let handler = PrototypeSchemeHandler(root: target.site)
-        configuration.setURLSchemeHandler(handler, forURLScheme: PrototypeSchemeHandler.scheme)
-        if let theme {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: PrototypeThemes.startScript(attribute: theme.attribute, id: theme.id),
-                injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        }
+        let themeScripts = theme.map {
+            [WKUserScript(source: PrototypeThemes.startScript(attribute: $0.attribute, id: $0.id),
+                          injectionTime: .atDocumentStart, forMainFrameOnly: true)]
+        } ?? []
+        let configuration = WebHost.makeConfiguration(
+            dataStore: .nonPersistent, userScripts: themeScripts,
+            urlSchemeHandlers: [(PrototypeSchemeHandler.scheme, PrototypeSchemeHandler(root: target.site))])
         let size = Self.viewport
-        let web = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
+        let web = WebHost.makeWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -127,9 +128,9 @@ final class PrototypeScreenshots {
         try await loader.finished(within: Self.loadLimit)
 
         if target.page == nil, let id = target.screen {
-            guard let plan = try await web.evaluate("return JSON.stringify((window.App && App.plan) || []);") as? String,
+            guard let plan = try await web.evaluate("return JSON.stringify((window.App && App.plan) || []);"),
                   let route = Self.route(of: id, inPlan: plan) else { throw Failure.noScreen(id) }
-            _ = try await web.evaluate("location.hash = \(PrototypeThemes.literal("#" + route)); return 'ok'")
+            _ = try await web.evaluate("location.hash = hash; return 'ok'", arguments: ["hash": "#" + route])
         }
         _ = try await web.evaluate(Self.settleScript, limit: Self.settleLimit + 4)
 
@@ -185,12 +186,13 @@ final class PrototypeScreenshots {
 }
 
 private extension WKWebView {
-    /// Runs an async function body in the page and returns its result; a thrown page error becomes a `Failure`.
+    /// Runs an async function body in the page and returns the string it answers (nil for any other answer); a thrown page error
+    /// becomes a `Failure`.
     @MainActor
-    func evaluate(_ body: String, limit: TimeInterval = 10) async throws -> Any? {
-        try await withThrowingTaskGroup(of: Any?.self) { group in
+    func evaluate(_ body: String, arguments: [String: Any] = [:], limit: TimeInterval = 10) async throws -> String? {
+        try await withThrowingTaskGroup(of: String?.self) { group in
             group.addTask { @MainActor in
-                do { return try await self.callAsyncJavaScript(body, arguments: [:], in: nil, contentWorld: .page) }
+                do { return try await self.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page) as? String }
                 catch { throw PrototypeScreenshots.Failure.loadFailed(((error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String) ?? error.localizedDescription) }
             }
             group.addTask {

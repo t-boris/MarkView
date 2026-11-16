@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // Focused value so menu commands target the active window's WorkspaceManager
 struct FocusedWorkspaceKey: FocusedValueKey {
@@ -26,19 +29,18 @@ extension FocusedValues {
 /// The left pane's width. It has no ceiling of its own: the split view lets it grow until the
 /// centre and the terminal are at their minimum widths; `range` only bounds what is remembered.
 enum LeftPanelWidth {
-    static let key = "layout.leftPanelWidth"
     static let range: ClosedRange<CGFloat> = 180...6000
     static let standard: CGFloat = 220
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
     static func saved(in state: WindowUIState) -> CGFloat {
-        let width = CGFloat(state.value(key, fallback: 0.0))
+        let width = CGFloat(state.value(Setting.leftPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
     static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
-        state.set(Double(width.rounded()), for: key, publishing: false)
+        state.set(Double(width.rounded()), for: Setting.leftPanelWidth, publishing: false)
     }
 }
 
@@ -94,19 +96,18 @@ private struct LeftPanelWidthKeeper: NSViewRepresentable {
 /// Restores the terminal column to a useful width after SwiftUI recreates the split view.
 /// The user can still drag the divider; that width becomes the next starting width.
 private enum RightPanelWidth {
-    static let key = "layout.rightPanelWidth"
     static let range: ClosedRange<CGFloat> = 320...1200
     static let standard: CGFloat = 500
 
     /// The width this window last had (or, for a window that has none yet, the last one any window left).
     static func saved(in state: WindowUIState) -> CGFloat {
-        let width = CGFloat(state.value(key, fallback: 0.0))
+        let width = CGFloat(state.value(Setting.rightPanelWidth))
         return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
     }
 
     static func save(_ width: CGFloat, in state: WindowUIState) {
         guard range.contains(width) else { return }
-        state.set(Double(width.rounded()), for: key, publishing: false)
+        state.set(Double(width.rounded()), for: Setting.rightPanelWidth, publishing: false)
     }
 }
 
@@ -161,6 +162,7 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
             super.setFrameSize(newSize)
             saveGeneration += 1
             let generation = saveGeneration
+            // task: debounces the width save; the generation check drops all but the last
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self, self.saveGeneration == generation, self.restored,
                       self.centerVisible, self.window != nil,
@@ -181,11 +183,43 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
     }
 }
 
+/// The window of one workspace. It owns the workspace and hands each part of it to the views below: a view that shows tabs, panels, the
+/// folder tree or Git state observes that part itself, so typing in the editor redraws what shows the tabs and nothing else (`AR-15`).
 struct ContentView: View {
-    @Environment(\.appFontScale) private var appFontScale
-    @Environment(\.openWindow) private var openWindow
     var windowSessionID = UUID()
     @StateObject private var workspaceManager = WorkspaceManager()
+
+    var body: some View {
+        WorkspaceWindow(windowSessionID: windowSessionID, workspaceManager: workspaceManager)
+            .observingParts(of: workspaceManager)
+    }
+}
+
+extension View {
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
+    /// the translation in progress): `@EnvironmentObject` for each.
+    func observingParts(of workspace: WorkspaceManager) -> some View {
+        environmentObject(workspace.tabs)
+            .environmentObject(workspace.layout)
+            .environmentObject(workspace.chrome)
+            .environmentObject(workspace.requests)
+            .environmentObject(workspace.project.fileTree)
+            .environmentObject(workspace.gitClient)
+            .environmentObject(workspace.translator)
+    }
+}
+
+private struct WorkspaceWindow: View {
+    @Environment(\.appFontScale) private var appFontScale
+    @Environment(\.openWindow) private var openWindow
+    let windowSessionID: UUID
+    @ObservedObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var layout: PanelLayout
+    @EnvironmentObject private var chrome: WindowChrome
+    @EnvironmentObject private var requests: WindowRequests
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
+    @EnvironmentObject private var git: GitClient
     @StateObject private var changeReview = ProjectChangeReview()
     @State private var showFolderPicker = false
     /// Project Cycle Time summary, opened from the top bar (DEC-002, DEC-006).
@@ -198,16 +232,14 @@ struct ContentView: View {
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
     @State private var projectKey: String?
     @ObservedObject private var projectColors = ProjectColorStore.shared
+    /// The layout presets of the Layout menu (`AR-33`).
+    @ObservedObject private var layouts = LayoutCatalog.shared
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
-    @AppStorage(TerminalBrowserBridge.enabledKey) private var openTerminalLinksInApp = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.claude)) private var browserToolsClaude = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.codex)) private var browserToolsCodex = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.copilot)) private var browserToolsCopilot = true
-    @AppStorage(BrowserControlServer.agentToolsKey(.antigravity)) private var browserToolsAntigravity = true
+    @AppStorage(Setting.openTerminalLinksInApp) private var openTerminalLinksInApp: Bool
 
     var body: some View {
         WindowThemeHost(theme: workspaceManager.theme) { windowContent }
@@ -220,7 +252,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             workspaceHeader
             if let projectKey { ProjectColorBand(color: projectColors.color(forKey: projectKey)) }
-            if let saveError = workspaceManager.lastSaveError {
+            if let saveError = tabs.lastSaveError {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
@@ -229,7 +261,7 @@ struct ContentView: View {
                         .lineLimit(2)
                     Spacer(minLength: 8)
                     Button("Dismiss") {
-                        workspaceManager.lastSaveError = nil
+                        tabs.lastSaveError = nil
                     }
                     .buttonStyle(.borderless)
                 }
@@ -242,35 +274,35 @@ struct ContentView: View {
                 let terminalMinimum = min(500, max(300, geometry.size.width - 700))
                 ZStack(alignment: .bottomTrailing) {
                 if workspaceTransparency > 0 {
-                    WorkspaceBackdrop(root: workspaceManager.rootNode?.url, backdrop: workspaceManager.layout.welcomeBackdrop,
-                                      store: workspaceManager.features)
+                    WorkspaceBackdrop(root: fileTree.rootNode?.url, backdrop: layout.welcomeBackdrop,
+                                      store: workspaceManager.flow.features)
                 }
                 HSplitView {
-                    if workspaceManager.showFileTree {
+                    if chrome.showFileTree {
                         navigationPane
                             .frame(minWidth: compact ? 160 : LeftPanelWidth.range.lowerBound,
                                    idealWidth: compact ? 190 : LeftPanelWidth.standard,
                                    maxWidth: compact ? 240 : .infinity)
                             .background { if !compact { LeftPanelWidthKeeper(state: workspaceManager.windowUI) } }
                     }
-                    if workspaceManager.showCenter {
+                    if chrome.showCenter {
                         workspaceCenter.frame(minWidth: 400, idealWidth: 500)
                     }
-                    if workspaceManager.terminalVisible {
+                    if chrome.terminalVisible {
                         rightPane.frame(minWidth: terminalMinimum, idealWidth: max(500, terminalMinimum))
-                            .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter, state: workspaceManager.windowUI))
+                            .background(RightPanelWidthKeeper(centerVisible: chrome.showCenter, state: workspaceManager.windowUI))
                     }
                 }
                 .environment(\.palette, palette)
-                if workspaceManager.agentsVisible {
+                if chrome.agentsVisible {
                     FloatingAgentsView(workspaceManager: workspaceManager, available: geometry.size)
                 }
                 }
                 .onAppear {
-                    workspaceManager.compactLayout = compact
+                    chrome.compactLayout = compact
                 }
                 .onChange(of: compact) { value in
-                    workspaceManager.compactLayout = value
+                    chrome.compactLayout = value
                 }
             }
         }
@@ -280,33 +312,33 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .exportPDFRequested)) { notification in
             if notification.isFor(workspaceManager) { exportPDF() }
         }
-        .onChange(of: workspaceManager.activeTabIndex) { index in
-            guard workspaceManager.openTabs.indices.contains(index) else { return }
-            let tab = workspaceManager.openTabs[index]
+        .onChange(of: tabs.activeTabIndex) { index in
+            guard tabs.openTabs.indices.contains(index) else { return }
+            let tab = tabs.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .data, .prototype, .uiStudio, .cockpit, .qa:
+            case .file, .image, .pdf, .archive, .tool, .terminal, .browser, .data, .prototype, .uiStudio, .cockpit:
                 lastFilesTab = tab.id
-                workspaceManager.layout.workspaceArea = .files
+                layout.workspaceArea = .files
                 if case .file = tab.kind,
-                   let feature = workspaceManager.features.locate(tab.url)?.feature {
-                    workspaceManager.showFeatureContext(feature.slug)
+                   let feature = workspaceManager.flow.features.locate(tab.url)?.feature {
+                    workspaceManager.flow.showFeatureContext(feature.slug)
                 }
             case .architecture, .insight:
-                workspaceManager.layout.workspaceArea = .projectMap
+                layout.workspaceArea = .projectMap
             case .github(let item):
-                workspaceManager.layout.workspaceArea = .files
+                layout.workspaceArea = .files
                 switch item {
-                case .issue: workspaceManager.layout.gitSection = .issues
-                case .pullRequest: workspaceManager.layout.gitSection = .pullRequests
-                case .run: workspaceManager.layout.gitSection = .actions
+                case .issue: layout.gitSection = .issues
+                case .pullRequest: layout.gitSection = .pullRequests
+                case .run: layout.gitSection = .actions
                 }
             }
-            workspaceManager.showCenter = true
+            chrome.showCenter = true
         }
         // NOTE: Do NOT use .onOpenURL — it causes SwiftUI to intercept
         // folder URLs, preventing application:open: from receiving them.
         .focusedSceneValue(\.workspaceManager, workspaceManager)
-        .focusedSceneValue(\.workspaceHasFolder, workspaceManager.rootNode != nil)
+        .focusedSceneValue(\.workspaceHasFolder, fileTree.rootNode != nil)
         .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 workspaceManager.openFolder(url)
@@ -317,7 +349,7 @@ struct ContentView: View {
             showFolderPicker = true
         }
         .overlay(alignment: .bottomTrailing) { AIToolJobsBanner(jobs: workspaceManager.aiJobs) }
-        .sheet(item: $workspaceManager.pdfBookSelection) { selection in
+        .sheet(item: $requests.pdfBookSelection) { selection in
             BookPDFExportView(selection: selection, project: workspaceManager.aiProject,
                               drafts: workspaceManager.pdfBookDrafts, database: workspaceManager.semanticDatabase)
         }
@@ -325,52 +357,52 @@ struct ContentView: View {
             GraphCreatorSheet(
                 workspaceManager: workspaceManager,
                 isPresented: graphCreatorSheetBinding,
-                preselectedType: workspaceManager.pendingGraphCreatorType ?? "architecture"
+                preselectedType: requests.pendingGraphCreatorType ?? "architecture"
             )
         }
-        .sheet(isPresented: $workspaceManager.showPrototypeCreator) {
-            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $workspaceManager.showPrototypeCreator,
-                                  mode: workspaceManager.prototypeCreatorMode)
+        .sheet(isPresented: $requests.showPrototypeCreator) {
+            PrototypeCreatorSheet(workspaceManager: workspaceManager, prototypes: workspaceManager.toolTabs.prototypes, isPresented: $requests.showPrototypeCreator,
+                                  mode: requests.prototypeCreatorMode)
         }
-        .sheet(isPresented: Binding(get: { workspaceManager.doneRequest != nil },
-                                    set: { if !$0 { workspaceManager.doneRequest = nil } })) {
-            if let url = workspaceManager.doneRequest {
+        .sheet(isPresented: Binding(get: { requests.doneRequest != nil },
+                                    set: { if !$0 { requests.doneRequest = nil } })) {
+            if let url = requests.doneRequest {
                 DefinitionOfDoneSheet(root: workspaceManager.projectFolder, feature: url) { done in
-                    workspaceManager.startImplementation(url, done: done)
+                    workspaceManager.flow.startImplementation(url, done: done)
                 }
             }
         }
-        .sheet(isPresented: $workspaceManager.showGlobalSearch) {
+        .sheet(isPresented: $chrome.showGlobalSearch) {
             SharedSearchView()
                 .environmentObject(workspaceManager)
                 .windowThemed(workspaceManager.theme)
         }
-        .sheet(isPresented: $workspaceManager.operationConsoleVisible) {
+        .sheet(isPresented: $requests.operationConsoleVisible) {
             if let store = workspaceManager.projectOperations {
                 ProjectOperationConsole(store: store).environmentObject(workspaceManager)
             }
         }
-        .sheet(item: $workspaceManager.operationEditRequest) { request in
+        .sheet(item: $requests.operationEditRequest) { request in
             if let store = workspaceManager.projectOperations {
-                let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
+                let nodes = workspaceManager.codeXRay.architecture.snapshot?.view("deployment")?.nodes
                     .filter { $0.kind != "root" && $0.kind != "moduleRef" }
                     .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
                 ProjectOperationEditor(store: store, request: request, deploymentNodes: nodes)
             }
         }
-        .sheet(item: $workspaceManager.intake) { request in
+        .sheet(item: $requests.intake) { request in
             IntakeSheet(request: request, workspaceManager: workspaceManager)
         }
-        .sheet(item: $workspaceManager.newProject) { request in
+        .sheet(item: $requests.newProject) { request in
             NewProjectSheet(request: request, workspaceManager: workspaceManager)
         }
-        .sheet(isPresented: $workspaceManager.gitHubPublishRequested) {
-            if let root = workspaceManager.rootNode?.url {
+        .sheet(isPresented: $requests.gitHubPublishRequested) {
+            if let root = fileTree.rootNode?.url {
                 GitHubPublishSheet(root: root, workspaceManager: workspaceManager)
             } else {
                 VStack(spacing: 10) {
                     Text("Open a folder first, then publish it to GitHub.")
-                    Button("Close") { workspaceManager.gitHubPublishRequested = false }.keyboardShortcut(.defaultAction)
+                    Button("Close") { requests.gitHubPublishRequested = false }.keyboardShortcut(.defaultAction)
                 }
                 .padding(20)
             }
@@ -382,16 +414,16 @@ struct ContentView: View {
         })
         .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
         .background(WindowAccessor(window: $hostWindow))
-        .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }
-        .task(id: workspaceManager.rootNode?.url) {
-            await changeReview.open(workspaceManager.rootNode?.url)
+        .onChange(of: fileTree.rootNode?.url) { _ in updateWindowIdentity() }
+        .task(id: fileTree.rootNode?.url) {
+            await changeReview.open(fileTree.rootNode?.url)
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 120_000_000_000) }
                 catch { break }
                 await changeReview.refresh()
             }
         }
-        .onChange(of: workspaceManager.rootOpenedAsFolder) { _ in updateWindowIdentity() }
+        .onChange(of: workspaceManager.project.rootOpenedAsFolder) { _ in updateWindowIdentity() }
         // Finder "Open With" / Quick Action: requests wait in
         // MarkViewApp.pendingOpenURLs until the active window takes them.
         // Drain on every moment this window may have become eligible — a new
@@ -419,7 +451,7 @@ struct ContentView: View {
             // File › New Project… from a window with a folder: this new window takes it.
             if MarkViewApp.pendingNewProject {
                 MarkViewApp.pendingNewProject = false
-                workspaceManager.newProject = NewProjectRequest()
+                requests.newProject = NewProjectRequest()
             }
         }
     }
@@ -431,11 +463,12 @@ struct ContentView: View {
             HStack(spacing: 5) {
                 HStack(spacing: 1) {
                     headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth,
-                                 selected: workspaceManager.showFileTree) { workspaceManager.toggleNavigation() }
+                                 selected: chrome.showFileTree) { chrome.toggleNavigation() }
                     headerButton("rectangle", help: "Workspace content", width: controlWidth,
-                                 selected: workspaceManager.showCenter) { workspaceManager.toggleCenter() }
+                                 selected: chrome.showCenter) { chrome.toggleCenter() }
                     headerButton("sidebar.trailing", help: "Right panel (⌘2)", width: controlWidth,
-                                 selected: workspaceManager.terminalVisible) { workspaceManager.toggleRightPanel() }
+                                 selected: chrome.terminalVisible) { chrome.toggleRightPanel() }
+                    layoutMenu.frame(width: controlWidth, height: controlWidth)
                 }
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerDivider
@@ -459,36 +492,28 @@ struct ContentView: View {
                 Spacer(minLength: 4)
                 HStack(spacing: 1) {
                     headerButton("viewfinder", help: "X-Ray (⌘4)", width: controlWidth,
-                                 selected: workspaceManager.layout.workspaceArea == .projectMap) { activate(.projectMap) }
-                        .disabled(workspaceManager.rootNode == nil)
+                                 selected: layout.workspaceArea == .projectMap) { activate(.projectMap) }
+                        .disabled(fileTree.rootNode == nil)
                     headerButton("checklist", help: "Tasks", width: controlWidth,
-                                 selected: workspaceManager.layout.workspaceArea == .work) { activate(.work) }
-                        .disabled(workspaceManager.rootNode == nil)
-                    ForEach(ToolRegistry.primaryToolbarTools) { tool in
-                        tabButton(tool.icon, help: tool.help, width: controlWidth, matches: { WorkspaceManager.toolMatches(tool.id, kind: $0) }) {
-                            workspaceManager.openTool(tool.id)
-                        }.disabled(workspaceManager.rootNode == nil)
-                    }
+                                 selected: layout.workspaceArea == .work) { activate(.work) }
+                        .disabled(fileTree.rootNode == nil)
+                    toolButtons(.primary)
                     headerButton("square.on.square.dashed", help: "New Prototype…", width: controlWidth,
-                                 selected: { if case .prototype? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
-                        workspaceManager.openPrototypeCreator(mode: .requirements)
-                    }.disabled(workspaceManager.rootNode == nil)
+                                 selected: { if case .prototype? = tabs.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements)
+                    }.disabled(fileTree.rootNode == nil)
                     browserMenu.frame(width: controlWidth, height: controlWidth)
-                    if let discussionsTool = ToolRegistry.descriptor(for: .discussions) {
-                        tabButton(discussionsTool.icon, help: discussionsTool.help, width: controlWidth, matches: { WorkspaceManager.toolMatches(discussionsTool.id, kind: $0) }) {
-                            workspaceManager.openTool(discussionsTool.id)
-                        }.disabled(workspaceManager.rootNode == nil)
-                    }
+                    toolButtons(.afterBrowser)
                     headerButton("terminal", help: "Agents (⌘3)", width: controlWidth,
-                                 selected: workspaceManager.agentsVisible) { workspaceManager.toggleAIConsole() }
+                                 selected: chrome.agentsVisible) { workspaceManager.toggleAIConsole() }
                     projectMenu.frame(width: controlWidth, height: controlWidth)
                 }
                 .background(RoundedRectangle(cornerRadius: 7).fill(palette.bgActive.opacity(0.5)))
                 headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
-                    workspaceManager.showGlobalSearch = true
+                    chrome.showGlobalSearch = true
                 }
                 newMenu.frame(width: controlWidth, height: controlWidth)
-                AIToolbarMenu(workspaceManager: workspaceManager, compact: compact)
+                AIToolbarMenu(workspaceManager: workspaceManager, fileTree: fileTree, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 200)
                 headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
                     workspaceManager.theme.showsPicker.toggle()
@@ -502,17 +527,17 @@ struct ContentView: View {
         .frame(height: min(70, 44 * max(1, appFontScale)))
         .background(palette.bgSidebar)
         .overlay(alignment: .bottom) { Divider() }
-        .sheet(isPresented: $showCycleTime, onDismiss: { workspaceManager.cycleTimeItem = nil }) {
-            CycleTimeSheet(store: workspaceManager.features, focus: workspaceManager.cycleTimeItem, open: { item in
+        .sheet(isPresented: $showCycleTime, onDismiss: { requests.cycleTimeItem = nil }) {
+            CycleTimeSheet(store: workspaceManager.flow.features, focus: requests.cycleTimeItem, open: { item in
                 showCycleTime = false
                 if item.kind == .feature {
-                    workspaceManager.showFeature(item.issue, stage: .explore)
-                } else if let bug = workspaceManager.features.bugs.first(where: { $0.key == item.issue }) {
+                    workspaceManager.flow.showFeature(item.issue, stage: .explore)
+                } else if let bug = workspaceManager.flow.features.bugs.first(where: { $0.key == item.issue }) {
                     workspaceManager.openFile(bug.url)
                 }
             }, close: { showCycleTime = false })
         }
-        .onChange(of: workspaceManager.cycleTimeItem) { item in if item != nil { showCycleTime = true } }
+        .onChange(of: requests.cycleTimeItem) { item in if item != nil { showCycleTime = true } }
     }
 
     private var headerDivider: some View {
@@ -554,9 +579,9 @@ struct ContentView: View {
     private enum TabMark { case closed, open, current }
 
     private func tabMark(_ matches: (TabKind) -> Bool) -> TabMark {
-        guard workspaceManager.openTabs.contains(where: { matches($0.kind) }) else { return .closed }
-        if let active = workspaceManager.activeTab, matches(active.kind),
-           workspaceManager.showCenter, workspaceManager.layout.workspaceArea == .files { return .current }
+        guard tabs.openTabs.contains(where: { matches($0.kind) }) else { return .closed }
+        if let active = tabs.activeTab, matches(active.kind),
+           chrome.showCenter, layout.workspaceArea == .files { return .current }
         return .open
     }
 
@@ -567,11 +592,35 @@ struct ContentView: View {
         return headerButton(symbol, help: help, width: width, selected: mark == .current, open: mark == .open, action: action)
     }
 
+    /// The buttons of the tools registered for `slot` of the toolbar (`ToolRegistry`).
+    private func toolButtons(_ slot: ToolbarSlot) -> some View {
+        ForEach(ToolRegistry.shared.toolbarTools(slot)) { tool in
+            tabButton(tool.icon, help: tool.help, width: toolbarIconWidth, matches: { $0.toolID == tool.id }) {
+                workspaceManager.openTool(tool.id)
+            }.disabled(fileTree.rootNode == nil)
+        }
+    }
+
+    /// The layout presets (`AR-33`, `DEC-002`): chosen by hand, applied to this window only.
+    private var layoutMenu: some View {
+        Menu {
+            LayoutMenuItems(library: layouts.library, enabled: workspaceManager.rootNode != nil,
+                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+        } label: {
+            toolbarIcon("rectangle.3.group", width: toolbarIconWidth)
+        }
+        .menuStyle(.borderlessButton)
+        .tint(palette.text)
+        .menuIndicator(.hidden)
+        .help("Layout: arrange the panels of this window")
+        .accessibilityLabel("Layout")
+    }
+
     /// Less frequent window tools, kept alongside the direct project buttons.
     private var projectMenu: some View {
         Menu {
             Button("Project Cycle Time…") { showCycleTime = true }
-                .disabled(workspaceManager.rootNode == nil)
+                .disabled(fileTree.rootNode == nil)
             Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
         } label: {
             toolbarIcon("ellipsis", width: toolbarIconWidth)
@@ -584,19 +633,16 @@ struct ContentView: View {
     }
 
     private var browserMenu: some View {
-        let selected: Bool = { if case .browser? = workspaceManager.activeTab?.kind { return true } else { return false } }()
+        let selected: Bool = { if case .browser? = tabs.activeTab?.kind { return true } else { return false } }()
         return Menu {
-            Button("Preview Web App (⌘6)") { workspaceManager.previewWebApp() }
-                .disabled(workspaceManager.rootNode == nil)
-            Button("New Browser Tab (⌘5)") { workspaceManager.openBrowser(nil) }
+            Button("Preview Web App (⌘6)") { workspaceManager.browser.previewWebApp() }
+                .disabled(fileTree.rootNode == nil)
+            Button("New Browser Tab (⌘5)") { workspaceManager.browser.open(nil) }
             Divider()
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
             Menu("Browser Tools for Agents") {
-                Toggle("Claude Code", isOn: $browserToolsClaude)
-                Toggle("Codex", isOn: $browserToolsCodex)
-                Toggle("Copilot", isOn: $browserToolsCopilot)
-                Toggle("Antigravity", isOn: $browserToolsAntigravity)
+                ForEach(CLITool.allCases.filter { $0.provider.mcp != nil }) { BrowserToolsToggle(tool: $0) }
                 Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
             }
             Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
@@ -614,14 +660,14 @@ struct ContentView: View {
     private var newMenu: some View {
         Menu {
             ForEach(IntakeKind.allCases) { kind in
-                Button(kind.title + "…") { workspaceManager.intake = IntakeRequest(kind: kind) }
+                Button(kind.title + "…") { requests.intake = IntakeRequest(kind: kind) }
             }
-            if let url = workspaceManager.activeTab?.url, workspaceManager.activeTab?.isFileBacked == true {
+            if let url = tabs.activeTab?.url, tabs.activeTab?.isFileBacked == true {
                 Section("From the open document (\(url.lastPathComponent))") {
                     ForEach(IntakeKind.allCases) { kind in
-                        Button(kind.title + " from It…") { workspaceManager.startIntake(kind, fromDocument: url) }
+                        Button(kind.title + " from It…") { workspaceManager.flow.startIntake(kind, fromDocument: url) }
                     }
-                    Button("Implement It with AI") { workspaceManager.implementWithAI(url) }
+                    Button("Implement It with AI") { workspaceManager.flow.implementWithAI(url) }
                 }
             }
         } label: {
@@ -632,7 +678,7 @@ struct ContentView: View {
         .menuIndicator(.hidden)
         .help("New feature, new bug, or research something in the project")
         .accessibilityLabel("New project item")
-        .disabled(workspaceManager.rootNode == nil)
+        .disabled(fileTree.rootNode == nil)
     }
 
     @ViewBuilder
@@ -643,9 +689,9 @@ struct ContentView: View {
 
     private var rightPane: some View {
         VStack(spacing: 0) {
-            TOCView(layout: workspaceManager.layout)
+            TOCView(layout: layout)
                 .environmentObject(workspaceManager)
-            if workspaceManager.rootNode != nil {
+            if fileTree.rootNode != nil {
                 Divider()
                 ProjectChangeReviewBar(review: changeReview)
                     .environmentObject(workspaceManager)
@@ -663,15 +709,15 @@ struct ContentView: View {
 
     private var filesCenter: some View {
         VStack(spacing: 0) {
-            if !workspaceManager.selectionActions.isEmpty {
-                SelectionActionBar().environmentObject(workspaceManager)
+            if !workspaceManager.codeXRay.selectionActions.isEmpty {
+                SelectionActionBar(coordinator: workspaceManager.codeXRay)
             }
-            if let resume = workspaceManager.handoffResume,
-               workspaceManager.layout.workspaceArea == .files {
+            if let resume = requests.handoffResume,
+               layout.workspaceArea == .files {
                 HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
             }
-            if workspaceManager.openTabs.indices.contains(workspaceManager.activeTabIndex) {
-                let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+            if tabs.openTabs.indices.contains(tabs.activeTabIndex) {
+                let activeTab = tabs.openTabs[tabs.activeTabIndex]
                 let editorVisible: Bool = {
                     switch activeTab.kind {
                     case .file, .data, .architecture, .insight: return true
@@ -685,7 +731,7 @@ struct ContentView: View {
                         .allowsHitTesting(editorVisible)
                         .accessibilityHidden(!editorVisible)
                     if case .terminal(let id) = activeTab.kind,
-                       let session = workspaceManager.terminalSession(id) {
+                       let session = workspaceManager.terminals.tabTerminal(id) {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url)
@@ -694,26 +740,8 @@ struct ContentView: View {
                     } else if case .pdf(let reader) = activeTab.kind {
                         PDFReaderView(url: activeTab.url, reader: reader)
                             .id(activeTab.id)
-                    } else if case .discussions = activeTab.kind {
-                        DiscussionsView(store: workspaceManager.discussions)
-                            .environmentObject(workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .git = activeTab.kind {
-                        GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .workflow = activeTab.kind {
-                        WorkflowTabView(store: workspaceManager.features, editor: workspaceManager.workflowEditor)
-                            .id(activeTab.id)
-                    } else if case .qa = activeTab.kind {
-                        QATabView(model: workspaceManager.qa)
-                            .id(activeTab.id)
-                    } else if case .changeReview = activeTab.kind {
-                        ProjectChangeReviewTab(review: changeReview)
-                            .environmentObject(workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .deployments = activeTab.kind {
-                        DeploymentsView(store: workspaceManager.deployments)
-                            .environmentObject(workspaceManager)
+                    } else if let tool = activeTab.kind.toolID {
+                        ToolTabViews.view(for: tool, context: .init(workspace: workspaceManager, tab: activeTab, changeReview: changeReview))
                             .id(activeTab.id)
                     } else if case .archive = activeTab.kind {
                         ArchiveTabView(url: activeTab.url)
@@ -727,12 +755,6 @@ struct ContentView: View {
                         PrototypeStudioView(session: session)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
-                    } else if case .uiStudio(let session) = activeTab.kind {
-                        UIStudioView(session: session)
-                            .environmentObject(workspaceManager)
-                            .id(activeTab.id)
-                    } else if case .cockpit(let session) = activeTab.kind {
-                        CockpitView(session: session).id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
                             .environmentObject(workspaceManager)
@@ -744,42 +766,42 @@ struct ContentView: View {
             } else {
                 welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
-            ResearchBar(research: workspaceManager.research,
-                        root: workspaceManager.rootNode?.url,
-                        activeFile: workspaceManager.activeTab.flatMap { $0.isFileBacked ? $0.url : nil },
-                        activeContent: workspaceManager.activeTab?.content ?? "")
+            ResearchBar(research: workspaceManager.research.jobs,
+                        root: fileTree.rootNode?.url,
+                        activeFile: tabs.activeTab.flatMap { $0.isFileBacked ? $0.url : nil },
+                        activeContent: tabs.activeTab?.content ?? "")
         }
     }
 
     private func activate(_ area: WorkspaceArea) {
-        workspaceManager.showCenter = true
+        chrome.showCenter = true
         switch area {
         case .files:
             if let id = lastFilesTab,
-               let index = workspaceManager.openTabs.firstIndex(where: { $0.id == id }) {
-                workspaceManager.activeTabIndex = index
-            } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
+               let index = tabs.openTabs.firstIndex(where: { $0.id == id }) {
+                tabs.activeTabIndex = index
+            } else if let index = tabs.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .terminal, .browser, .prototype, .uiStudio, .cockpit, .qa: return true
+                case .file, .image, .pdf, .archive, .tool, .terminal, .browser, .prototype, .uiStudio, .cockpit: return true
                 default: return false
                 }
             }) {
-                workspaceManager.activeTabIndex = index
+                tabs.activeTabIndex = index
             }
-            workspaceManager.layout.workspaceArea = .files
+            layout.workspaceArea = .files
         case .projectMap:
-            workspaceManager.openArchitecture()
+            workspaceManager.codeXRay.openArchitecture()
         case .work:
-            workspaceManager.layout.workspaceArea = .work
-            workspaceManager.layout.leftPanel = "issues"
-            workspaceManager.showFeatureContext(workspaceManager.features.active?.slug)
+            layout.workspaceArea = .work
+            layout.leftPanel = "issues"
+            workspaceManager.flow.showFeatureContext(workspaceManager.flow.features.active?.slug)
         }
     }
 
     /// Title, proxy icon and project color follow the workspace root: every way of opening,
     /// restoring or closing a folder changes `rootNode`.
     private func updateWindowIdentity() {
-        let root = workspaceManager.rootNode?.url
+        let root = fileTree.rootNode?.url
         workspaceFolderName = root.map(WindowTitle.folderName(of:))
         hostWindow?.titleVisibility = .hidden
         hostWindow?.titlebarAppearsTransparent = true
@@ -789,7 +811,7 @@ struct ContentView: View {
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
         // Agents driving MarkView see every window, also one with nothing open yet.
         workspaceManager.hostWindow = hostWindow
-        if hostWindow != nil { workspaceManager.registerBrowserControl() }
+        if hostWindow != nil { workspaceManager.browser.register() }
     }
 
     private func attachWindowSession() {
@@ -845,7 +867,7 @@ struct ContentView: View {
 
     private var graphCreatorSheetBinding: Binding<Bool> {
         Binding(
-            get: { workspaceManager.pendingGraphCreatorType != nil },
+            get: { requests.pendingGraphCreatorType != nil },
             set: { isPresented in
                 if !isPresented {
                     workspaceManager.dismissGraphCreator()
@@ -860,28 +882,28 @@ struct ContentView: View {
     /// The pinned welcome tab: action tiles over an animated backdrop (`WelcomeScreen`). What each tile does is
     /// decided here, with the same calls as the menus and the search commands.
     private var welcomeView: some View {
-        ProjectWelcomeScreen(root: workspaceManager.rootNode?.url,
-                      isGitRepo: workspaceManager.gitClient.isGitRepo,
-                      store: workspaceManager.features,
-                      backdrop: Binding(get: { workspaceManager.layout.welcomeBackdrop },
-                                        set: { workspaceManager.layout.welcomeBackdrop = $0 }),
+        ProjectWelcomeScreen(root: fileTree.rootNode?.url,
+                      isGitRepo: git.isGitRepo,
+                      store: workspaceManager.flow.features,
+                      backdrop: Binding(get: { layout.welcomeBackdrop },
+                                        set: { layout.welcomeBackdrop = $0 }),
                       perform: performWelcomeAction) {
-            if workspaceManager.rootNode != nil {
-                HandoffStartList(store: workspaceManager.features)
+            if fileTree.rootNode != nil {
+                HandoffStartList(store: workspaceManager.flow.features)
                     .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
             } else {
                 ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
-                    workspaceManager.newProject = NewProjectRequest(resume: id)
+                    requests.newProject = NewProjectRequest(resume: id)
                 }
-                if !workspaceManager.recentProjects.isEmpty {
+                if !workspaceManager.project.recentProjects.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Recent projects").uiFont(size: 13, weight: .semibold)
-                        ForEach(workspaceManager.recentProjects, id: \.self) { path in
+                        ForEach(workspaceManager.project.recentProjects, id: \.self) { path in
                             RecentProjectRow(path: path) {
                                 workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
                             } onRemove: {
-                                workspaceManager.removeRecentProject(path)
+                                workspaceManager.project.removeRecentProject(path)
                             }
                         }
                     }
@@ -897,30 +919,25 @@ struct ContentView: View {
         switch id {
         case .terminal: workspaceManager.showAIConsole()
         case .newFeature:
-            workspaceManager.intake = IntakeRequest(kind: .feature)
-            workspaceManager.layout.workspaceArea = .work
+            requests.intake = IntakeRequest(kind: .feature)
+            layout.workspaceArea = .work
         case .quickFeature:
-            workspaceManager.intake = IntakeRequest(kind: .quickFeature)
-            workspaceManager.layout.workspaceArea = .work
+            requests.intake = IntakeRequest(kind: .quickFeature)
+            layout.workspaceArea = .work
         case .newBug:
-            workspaceManager.intake = IntakeRequest(kind: .bug)
-            workspaceManager.layout.workspaceArea = .work
-        case .understand: workspaceManager.intake = IntakeRequest(kind: .understand)
-        case .research: workspaceManager.newResearch()
-        case .discussions: workspaceManager.openDiscussions()
+            requests.intake = IntakeRequest(kind: .bug)
+            layout.workspaceArea = .work
+        case .understand: requests.intake = IntakeRequest(kind: .understand)
+        case .research: workspaceManager.flow.newResearch()
+        case .tool(let tool): workspaceManager.openTool(tool)
         case .tasks: activate(.work)
-        case .xray: workspaceManager.openArchitecture()
-        case .search: workspaceManager.showGlobalSearch = true
+        case .xray: workspaceManager.codeXRay.openArchitecture()
+        case .search: chrome.showGlobalSearch = true
         case .files: activate(.files)
         case .openFile: openFile()
-        case .git: workspaceManager.openGit()
-        case .deployments: workspaceManager.openDeployments()
-        case .workflow: workspaceManager.openWorkflow()
-        case .qa: workspaceManager.openQA()
-        case .uiStudio: workspaceManager.openUIStudio()
-        case .browser: _ = workspaceManager.openBrowser(nil)
+        case .browser: _ = workspaceManager.browser.open(nil)
         case .openFolder: openFolder()
-        case .newProject: workspaceManager.newProject = NewProjectRequest()
+        case .newProject: requests.newProject = NewProjectRequest()
         }
     }
 
@@ -949,10 +966,10 @@ struct ContentView: View {
     }
 
     private func exportPDF() {
-        guard workspaceManager.activeTabIndex >= 0,
-              workspaceManager.activeTabIndex < workspaceManager.openTabs.count else { return }
+        guard tabs.activeTabIndex >= 0,
+              tabs.activeTabIndex < tabs.openTabs.count else { return }
 
-        let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+        let activeTab = tabs.openTabs[tabs.activeTabIndex]
         let fileName = activeTab.url.deletingPathExtension().lastPathComponent + ".pdf"
         NotificationCenter.default.post(.performPDFExport, for: workspaceManager, object: fileName)
     }
@@ -1028,7 +1045,6 @@ private struct WindowAccessor: NSViewRepresentable {
 
 #Preview {
     ContentView()
-        .environmentObject(WorkspaceManager())
 }
 
 /// The one toolbar menu of the AI: the assistant CLI and its model for this window's project (BUG-021; other projects keep theirs), the model
@@ -1036,6 +1052,8 @@ private struct WindowAccessor: NSViewRepresentable {
 /// edits the defaults, as DDE Settings does. The bar shows the assistant and its model; the X-Ray model is named in the menu.
 struct AIToolbarMenu: View {
     let workspaceManager: WorkspaceManager
+    /// Passed in: toolbar content does not get the window's environment objects.
+    let fileTree: WorkspaceFileTreeStore
     var compact = false
     /// The models each tool offers, as loaded (Codex's list is read from disk, so off the main thread).
     @State private var catalog: [CLITool: [AIModelOption]] = [:]
@@ -1109,7 +1127,7 @@ struct AIToolbarMenu: View {
                 .pickerStyle(.inline)
                 Text("Used by X-Ray, operations discovery, filters and explanations.")
             }
-            AIToolsMenuItems(workspaceManager: workspaceManager)
+            AIToolsMenuItems(workspaceManager: workspaceManager, fileTree: fileTree)
         } label: {
             if compact {
                 Image(systemName: unavailable ? "exclamationmark.triangle" : "cpu")
@@ -1124,7 +1142,7 @@ struct AIToolbarMenu: View {
               (workspaceManager.aiProject == nil ? "Default assistant and model" : "Assistant and model for this project")
               + " — the AI terminal, features and research. X-Ray model: \(xrayName). The menu also holds the AI tools.")
         .onAppear { seenSnapshot = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject) }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+        .onReceive(SettingsObserver.changes(of: AIAssistantPreferences.observedKeys)) { _ in
             let next = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject)
             if next != seenSnapshot {
                 seenSnapshot = next
@@ -1157,6 +1175,7 @@ extension AIToolbarMenu {
 private struct AIToolsMenuItems: View {
     // Passed in: toolbar content does not get the window's environment objects.
     @ObservedObject var workspaceManager: WorkspaceManager
+    @ObservedObject var fileTree: WorkspaceFileTreeStore
 
     var body: some View {
         Menu("Diagrams") {
@@ -1168,31 +1187,31 @@ private struct AIToolsMenuItems: View {
             Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
         }
         Menu("Prototype") {
-            Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
-                .disabled(workspaceManager.rootNode == nil)
+            Button("New Prototype…") { workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements) }
+                .disabled(fileTree.rootNode == nil)
             // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
-            Button("UI Studio (Existing Code)") { workspaceManager.openUIStudio() }
-                .disabled(workspaceManager.rootNode == nil)
-            let saved = workspaceManager.savedPrototypes()
+            Button("UI Studio (Existing Code)") { workspaceManager.openTool(.uiStudio) }
+                .disabled(fileTree.rootNode == nil)
+            let saved = workspaceManager.toolTabs.prototypes.saved()
             Menu("Open Prototype (\(saved.count))") {
                 if saved.isEmpty {
                     Text("No prototypes in this project yet")
                 } else {
                     ForEach(saved) { prototype in
-                        Button(prototype.label) { workspaceManager.openSavedPrototype(prototype.slug) }
+                        Button(prototype.label) { workspaceManager.toolTabs.prototypes.openSaved(prototype.slug) }
                     }
                 }
             }
-            .disabled(workspaceManager.rootNode == nil || saved.isEmpty)
+            .disabled(fileTree.rootNode == nil || saved.isEmpty)
         }
         Menu("Analysis") {
             Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
             // Superseded by New Research, which saves a report (DEC-010).
-            Button("Deep Research…") { workspaceManager.newResearch() }
+            Button("Deep Research…") { workspaceManager.flow.newResearch() }
             Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
             Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
-            Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
-                .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
+            Button("Recursive Insight") { workspaceManager.insight.start() }
+                .disabled(fileTree.rootNode == nil || !fileTree.hasMarkdownFiles)
         }
     }
 }
@@ -1216,12 +1235,12 @@ private struct FloatingAgentsView: View {
     }
 
     var body: some View {
-        let savedWidth = CGFloat(state.value("layout.agentsWidth", fallback: 650.0))
-        let savedHeight = CGFloat(state.value("layout.agentsHeight", fallback: 600.0))
+        let savedWidth = CGFloat(state.value(Setting.agentsWidth))
+        let savedHeight = CGFloat(state.value(Setting.agentsHeight))
         let baseWidth = min(max(280, savedWidth), available.width)
         let baseHeight = min(max(180, savedHeight), available.height)
-        let savedX = max(0, CGFloat(state.value("layout.agentsOffsetX", fallback: 0.0)))
-        let savedY = max(0, CGFloat(state.value("layout.agentsOffsetY", fallback: 0.0)))
+        let savedX = max(0, CGFloat(state.value(Setting.agentsOffsetX)))
+        let savedY = max(0, CGFloat(state.value(Setting.agentsOffsetY)))
         let baseX = min(savedX, max(0, available.width - baseWidth))
         let baseY = min(savedY, max(0, available.height - baseHeight))
         let normalWidth = min(available.width - baseX, max(min(280, available.width), baseWidth - resizeTranslation.width))
@@ -1252,13 +1271,13 @@ private struct FloatingAgentsView: View {
                             .onChanged { if !minimized && !maximized { resizeTranslation = $0.translation } }
                             .onEnded { value in
                                 guard !minimized && !maximized else { return }
-                                state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: "layout.agentsWidth")
-                                state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: "layout.agentsHeight")
+                                state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: Setting.agentsWidth)
+                                state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: Setting.agentsHeight)
                                 resizeTranslation = .zero
                             })
                     Group {
                         if minimized {
-                            MinimizedAgentStatus(monitor: workspaceManager.agentActivity)
+                            MinimizedAgentStatus(monitor: workspaceManager.terminals.activity)
                         } else {
                             Color.clear
                         }
@@ -1270,8 +1289,8 @@ private struct FloatingAgentsView: View {
                             .onChanged { if !maximized { moveTranslation = $0.translation } }
                             .onEnded { value in
                                 guard !maximized else { return }
-                                state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: "layout.agentsOffsetX")
-                                state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: "layout.agentsOffsetY")
+                                state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: Setting.agentsOffsetX)
+                                state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: Setting.agentsOffsetY)
                                 moveTranslation = .zero
                             })
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
@@ -1289,7 +1308,7 @@ private struct FloatingAgentsView: View {
                         maximized.toggle()
                     }
                     headerControl("xmark", help: "Hide Agents", height: headerHeight) {
-                        workspaceManager.agentsVisible = false
+                        workspaceManager.chrome.agentsVisible = false
                     }
                 }
             }
@@ -1330,4 +1349,17 @@ private struct MinimizedAgentStatus: View {
         .padding(.leading, 6)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// One row of "Browser Tools for Agents": whether an assistant started from the AI panel gets MarkView's MCP servers.
+private struct BrowserToolsToggle: View {
+    let tool: CLITool
+    @AppStorage private var enabled: Bool
+
+    init(tool: CLITool) {
+        self.tool = tool
+        _enabled = AppStorage(tool.agentToolsKey)
+    }
+
+    var body: some View { Toggle(tool.displayName, isOn: $enabled) }
 }

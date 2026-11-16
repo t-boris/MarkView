@@ -1,0 +1,112 @@
+import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
+
+/// Watches the assistants running in a window's AI terminals and publishes what each one is doing, for the tabs and the
+/// toolbar. Reads each one's own session store off the main thread every few seconds, and only while an assistant terminal is
+/// running and the window is on screen (the window's `PollingScheduler`, `AR-19`).
+@MainActor
+final class AgentActivityMonitor: ObservableObject {
+    struct Entry: Equatable, Identifiable {
+        let id: UUID
+        let name: String
+        let activity: AgentActivity
+    }
+
+    /// One entry per running assistant terminal whose session can be read.
+    @Published private(set) var entries: [Entry] = []
+
+    /// The window whose terminals are watched: its sessions, the shown one, and where a model an assistant terminal's own log
+    /// names (BUG-048, Claude Code) is reported, only when the log belongs to that terminal's process.
+    weak var provider: (any AssistantProviding)?
+    /// Owns the read of the session stores, so it ends with the folder or the window (AR-19).
+    private let tasks: TaskBag
+    private let polling: PollingScheduler
+    private let pollKey = "agent-activity-" + UUID().uuidString
+
+    init(tasks: TaskBag, polling: PollingScheduler) {
+        self.tasks = tasks
+        self.polling = polling
+    }
+
+    private var busy = false
+    private var seen: [UUID: ActivityCache] = [:]
+    static let interval: TimeInterval = 3
+
+    func start() {
+        guard !polling.keys.contains(pollKey) else { return }
+        let key = pollKey, polling = polling
+        polling.every(Self.interval, key: key) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.tick()
+        }
+    }
+
+    func stop() { polling.stop(key: pollKey) }
+
+    /// What the toolbar shows: the active terminal's assistant, or the first working one.
+    var headline: Entry? {
+        let active = provider?.shownID
+        return entries.first { $0.activity.state != .idle && $0.id == active }
+            ?? entries.first { $0.activity.state != .idle }
+            ?? entries.first { $0.id == active } ?? entries.first
+    }
+
+    /// Working assistants other than the headline.
+    var othersWorking: Int {
+        entries.filter { $0.activity.state != .idle && $0.id != headline?.id }.count
+    }
+
+    private func tick() {
+        guard !busy else { return }
+        let watched = (provider?.sessions ?? []).filter { $0.isRunning && $0.profile.tool != nil }
+        guard !watched.isEmpty else {
+            if !entries.isEmpty { entries = [] }
+            seen = [:]
+            return
+        }
+        busy = true
+        let jobs: [Job] = watched.map { (id: $0.id, name: $0.title, directory: $0.directory, profile: $0.profile,
+                                  shell: $0.shellPID, printing: $0.printed(within: 6), cached: seen[$0.id],
+                                  since: $0.runningSince) }
+        tasks.store(Task(priority: .utility) { [weak self] in
+            let reading = await Self.read(jobs)
+            self?.apply(reading.results, models: reading.models, cancelled: Task.isCancelled)
+        }, for: "agent-activity.read")
+    }
+
+    private typealias Job = (id: UUID, name: String, directory: URL, profile: TerminalProfile, shell: pid_t, printing: Bool,
+                             cached: ActivityCache?, since: Date?)
+    private typealias Reading = (results: [(UUID, String, URL, Int, Date, AgentActivity?)], models: [(UUID, String)])
+
+    /// Reads each watched assistant's own session store (its provider's reader), off the main actor; ends early when the
+    /// window's tasks are cancelled.
+    nonisolated private static func read(_ jobs: [Job]) async -> Reading {
+        var results: [(UUID, String, URL, Int, Date, AgentActivity?)] = []
+        var models: [(UUID, String)] = []
+        for job in jobs {
+            guard !Task.isCancelled else { break }
+            guard let reader = job.profile.tool?.provider.activity,
+                  let read = reader.read(ActivityRequest(directory: job.directory, shell: job.shell, printing: job.printing,
+                                                         cached: job.cached, since: job.since)) else { continue }
+            results.append((job.id, job.name, read.source, read.size, read.date, read.activity))
+            if let model = read.model { models.append((job.id, model)) }
+        }
+        return (results, models)
+    }
+
+    private func apply(_ results: [(UUID, String, URL, Int, Date, AgentActivity?)], models: [(UUID, String)], cancelled: Bool) {
+        busy = false
+        guard !cancelled else { return }
+        for (id, model) in models { provider?.liveModelReported(model, terminalID: id) }
+        var next: [Entry] = []
+        var cache: [UUID: ActivityCache] = [:]
+        for (id, name, url, size, date, activity) in results {
+            cache[id] = ActivityCache(url: url, size: size, date: date, activity: activity)
+            if let activity { next.append(Entry(id: id, name: name, activity: activity)) }
+        }
+        seen = cache
+        if next != entries { entries = next }
+    }
+}

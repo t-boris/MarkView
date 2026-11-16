@@ -58,10 +58,10 @@ User-reported MarkView 5.43.0 on macOS; macOS version and project are unknown. S
 
 ## Suspected code
 
-- `MarkView/Resources/Editor/vendor/js/markview-architecture.js:3118` — Toolbar rendering hides the date button unless the payload mode is PR; renderHistory at line 3178 also restricts the picker to PR mode.
+- `MarkView/Resources/Editor/js/markview-architecture.js:3118` — Toolbar rendering hides the date button unless the payload mode is PR; renderHistory at line 3178 also restricts the picker to PR mode.
 - `MarkView/Resources/Editor/index.html:1443` — The entry point to the separate view is labeled “Pull request,” obscuring access to historical comparison.
-- `MarkView/Models/WorkspaceManager.swift:1790` — Routes history and commit-selection messages to the architecture store; relevant when verifying the picker from ordinary X-Ray.
-- `MarkView/Models/ArchitectureStore.swift:2764` — Loads commits for a selected day and handles comparison with the chosen commit; the existing path should be verified with the new entry point.
+- `MarkView/Models/Workspace/WorkspaceManager.swift:1790` — Routes history and commit-selection messages to the architecture store; relevant when verifying the picker from ordinary X-Ray.
+- `MarkView/Models/Architecture/ArchitectureStore.swift:2764` — Loads commits for a selected day and handles comparison with the chosen commit; the existing path should be verified with the new entry point.
 - `docs/features/x-ray-comparison-by-date/decisions/DEC-009.md:26` — Documents the existing placement in the PR X-Ray toolbar, which conflicts with the user's clarification that date comparison should not depend on PR.
 
 ## Likely causes
@@ -81,7 +81,7 @@ User-reported MarkView 5.43.0 on macOS; macOS version and project are unknown. S
 
 **Verified against:** `origin/main` @ `41b20d81f0` (2026-11-08) — docs: flexible-files-views-and-visible-agent-usage is implemented (PR #326, release v5.44.0)
 
-**Reason:** In the snapshot, MarkView/Resources/Editor/vendor/js/markview-architecture.js hides the date comparison button unless the X-Ray payload mode is 'pr', and renderHistory also requires that mode. MarkView/Resources/Editor/index.html labels the entry to that separate view 'Pull request'. The history and commit-selection handlers exist, but ordinary project X-Ray still does not expose the requested date comparison entry point. The installed app was not independently checked.
+**Reason:** In the snapshot, MarkView/Resources/Editor/js/markview-architecture.js hides the date comparison button unless the X-Ray payload mode is 'pr', and renderHistory also requires that mode. MarkView/Resources/Editor/index.html labels the entry to that separate view 'Pull request'. The history and commit-selection handlers exist, but ordinary project X-Ray still does not expose the requested date comparison entry point. The installed app was not independently checked.
 
 ## Clarifications
 

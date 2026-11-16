@@ -3,33 +3,34 @@
 Source: `docs/architecture/architecture-review-2026-11.md` (AR-01..AR-49) and `docs/architecture/architecture-review-2026-11-followup.md` (FU-01..FU-30, sections 10 and 12). Decisions DEC-001..DEC-011 stand. Rules: CLAUDE.md "Architecture & Refactoring Rules" (a finding is done when the old thing is gone and a count says so; one finding per pull request; a first real caller in the same pull request; behaviour tests only). Merged PRs are batched into one version bump and one release per wave; nothing is installed without Boris asking.
 
 ## Wave 1: regressions and small defects (independent files, run in parallel)
-- [ ] A1 FU-20: Mermaid SVG loses its `<style>` in `mvKit.sanitizeMermaidSvg`; test renders a real diagram and checks a computed fill.
-- [ ] A2 AR-01 rest (FU-24, 25, 26): CSS parsed not regexed, canvas colour, Insight SVG sink, nonce miss logged and tested.
-- [ ] B1 FU-21 + FU-15: quit must not be refused by a newer session file; one notice.
-- [ ] B2 FU-23: document save through `AtomicFile` keeps symlinks, attributes; temp file outside the project folder.
-- [ ] C1 FU-22: `Subprocess` really kills the process group.
-- [ ] D1 Cockpit and Remote sockets: token and peer check (AR-40 rest).
-- [ ] D2 FU-27, 28, 29: runner kills its group and has per-tier limits; structural rules become a named lint script; dead `ToolSurface` flags removed.
-- [ ] E1 Records (docs, straight to main): stale paths in `docs/architecture` (140), REQ and review ticks that the code does not support, `CLAUDE.md` slip.
+- [ ] A1 FU-20: Mermaid SVG loses its `<style>` in `mvKit.sanitizeMermaidSvg`; test renders a real diagram and checks a computed fill. Code: `sanitizeMermaidSvg` rebuilds the style with `sanitizeScopedStylesheet` and `tools/tests/MermaidSvgWebTests.swift` exists; not ticked, because neither was run or looked at in the count pass.
+- [ ] A2 AR-01 rest (FU-24, 25, 26): CSS parsed not regexed, canvas colour, Insight SVG sink, nonce miss logged and tested. FU-24 and FU-26 are in the code (browser CSS parser; `EditorPage` logs a miss, `EditorPageCSPTests.swift` exists); FU-25 is open: `InsightHTMLTemplate.swift:137` keeps `'unsafe-inline'`.
+- [ ] B1 FU-21 + FU-15: quit must not be refused by a newer session file; one notice. In the code by reading (`saveBeforeTermination` is best-effort, `announceRefusedSave` shows the notice once); the quit path was not driven.
+- [ ] B2 FU-23: document save through `AtomicFile` keeps symlinks, attributes; temp file outside the project folder. In `CoreFiles.swift` by reading (symlinks followed, extended attributes copied, item replacement directory); not run.
+- [ ] C1 FU-22: `Subprocess` really kills the process group. `SubprocessChild` spawns with `POSIX_SPAWN_SETPGROUP`; `SubprocessProcessGroupTests.swift` exists; not run.
+- [x] D1 Cockpit and Remote sockets: token and peer check (AR-40 rest). `CockpitHostBridge` and `RemoteToolBridge` both require `PrivateSocket.peer(of:).isCurrentUser` and `listener.accepts(token:)` before they read a request. Counted 2026-11-15 at the merge tip `ac3001ba` of `feat/architecture-review-finish`, nothing built or run.
+- [ ] D2 FU-27, 28, 29: runner kills its group and has per-tier limits; structural rules become a named lint script; dead `ToolSurface` flags removed. FU-28 closed (the 500-line `todo.md` check and the 21 + 19 folder-name pins: 0 matches in the two phase tests), FU-29 closed (`menuTools`, `WelcomeActions` and `isRestorable` read the flags); FU-27 by reading (`--changed` exits 3 when no suite covers the changed files), the group kill was not exercised.
+- [x] E1 Records (docs, straight to main): stale paths in `docs/architecture` (140), REQ and review ticks that the code does not support, `CLAUDE.md` slip. Living documents: path missing 157 -> 30, `file:line` citations 1,382 -> 0, line beyond end of file 181 -> 0, symbol missing 55 -> 5 (9 of the 35 left are deliberate mentions of removed things, 26 are checker false positives); `CLAUDE.md` Repository Map and How to Add reconciled. Committed on the branch `ar/e1-docs`, not pushed to `main`.
 - [ ] Wave 1 release prep: one version bump, release.
 
 ## Wave 2: migrations to zero (count must reach the target)
-- [ ] AR-25 `Process()` outside `Subprocess`: 17 sites in 15 files -> 0.
-- [ ] AR-26 `CLICompletion.run` outside `AIOperation`: 55 in 28 files -> 0.
-- [ ] AR-31 `ToolRegistry` drives menu, tab icons, titles, restore, welcome tiles: lists to edit 7 -> 1; Workflow/QA icons, Cockpit tile.
-- [ ] AR-35 remaining assistant switches -> provider registry.
-- [ ] AR-36/39 all `.dde` JSON stores through `SchemaVersionedStore`; AR-24 `AtomicFile`, `ProjectPaths`, logger.
-- [ ] AR-27 / AR-04 one `WKWebViewConfiguration` factory; `JS.call` for every `evaluateJavaScript`.
-- [ ] AR-18 settings key registry and one defaults observer.
+- [x] AR-25 `Process()` outside `Subprocess`: 17 sites in 15 files -> 0 (lint `process`: 0 in 0 files, allow-list empty). Counted 2026-11-15 at the merge tip `ac3001ba` of `feat/architecture-review-finish`, nothing built or run.
+- [x] AR-26 `CLICompletion.run` outside `AIOperation`: 55 in 28 files -> 0 (lint `clicompletion`: 0 in 0 files). The old repair loops were not re-counted. Counted 2026-11-15 at the merge tip `ac3001ba` of `feat/architecture-review-finish`, nothing built or run.
+- [ ] AR-31 `ToolRegistry` drives menu, tab icons, titles, restore, welcome tiles: lists to edit 7 -> 2 (target 1: the `ToolID` and descriptor in `ToolRegistry.swift`, and the view in `ToolTabViews.builders`); Workflow/QA icons and the Cockpit tile were not checked.
+- [x] AR-35 remaining assistant switches -> provider registry: about 28 switches in 13 files -> 0 (lint `assistant-switch`: 0 in 0 files; 5 providers in `AssistantProviders.list`). Counted 2026-11-15 at the merge tip `ac3001ba` of `feat/architecture-review-finish`, nothing built or run.
+- [ ] AR-36/39 all `.dde` JSON stores through `SchemaVersionedStore`; AR-24 `AtomicFile`, `ProjectPaths`, logger. `SchemaVersionedStore` users 1 -> 14 files; `NSLog` 124 -> 0 (lint `app-log`), `".dde"` literals 57 -> 0 (lint `project-paths`); open: `.write(to:` 112 -> 35 sites (lint `atomic-write`), 93 `try? decode` sites, `FeatureStore` not on the store.
+- [ ] AR-27 / AR-04 one `WKWebViewConfiguration` factory; `JS.call` for every `evaluateJavaScript`. `WKWebViewConfiguration(` 10 -> 0 (lint `webview-configuration`) is done; `evaluateJavaScript` 57 -> 27 sites and `JS.call` 6 -> 39 (the lint `js-interpolation` passes, but 27 sites do not go through `JS.call`) is open.
+- [x] AR-18 settings key registry and one defaults observer: direct `UserDefaults.standard` 82 -> 0, `didChangeNotification` observers 4 -> 0 outside `Settings.swift` (lints `settings-literal` and `settings-observer`); 70 `Setting` keys. Counted 2026-11-15 at the merge tip `ac3001ba` of `feat/architecture-review-finish`, nothing built or run.
 
 ## Wave 3: structure
-- [ ] AR-20 shared home + dependency lint with a falling violation count; AR-21.
-- [ ] AR-14 `WorkspaceManager` steps 2-11, AR-17 composition root, AR-19 tasks/timers, AR-16 split of the two big stores.
-- [ ] AR-37/38 SQLite off the main actor with real migrations; AR-42/43 main-thread paths and concurrency warnings.
-- [ ] AR-28/29 typed bridge both sides; split the three JS files over 2800 lines.
-- [ ] AR-32/33/34 themes as data with user folder, layout presets with UI, backdrop registry.
+- [ ] AR-20 shared home + dependency lint with a falling violation count; AR-21. The lint exists (`domain-cycles`, ratchet: 104 type references in 29 pairs; `domain-dependencies.py`: 22 `Models/` pairs in cycles, 28 at 6.26.2); the shared home is `Packages/MarkViewCore` (12 files); no layer rule, cycles remain.
+- [ ] AR-14 `WorkspaceManager` steps 2-11, AR-17 composition root, AR-19 tasks/timers, AR-16 split of the two big stores. All 11 steps exist as types, `WorkspaceManager.swift` 5,747 -> 730 lines, `WindowComposition` is the root, `ArchitectureStore.swift` 4,512 -> 1,889 and `UIStudioSession.swift` 3,766 -> 1,958 lines, unowned tasks 391 in 87 files -> 263 in 70, `Timer` 0; open: 56 views still take the whole manager (62), 33 hooks and 4 back-references.
+- [x] AR-37/38 SQLite off the main actor with real migrations: `SemanticDatabase` is an `actor` (lint `semantic-database-actor`), `SemanticSchema.migrations` is an ordered list on `PRAGMA user_version`. Counted 2026-11-15 at the merge tip `ac3001ba` of `feat/architecture-review-finish`, nothing built or run.
+- [ ] AR-42/43 main-thread paths and concurrency warnings: `hasMarkdownFiles` is a stored flag, directory walks in `Views/` 2 -> 0, `waitUntilExit` 11 -> 0, 40 `@unchecked Sendable` and `nonisolated(unsafe)` sites each justified (lint `unchecked-sendable`: exit 0); the warning count (189 at 6.26.2) and the main-thread cost were not measured.
+- [x] AR-28/29 typed bridge both sides; split the three JS files over 2800 lines: `bridge-contract.json` declares 37 messages in 3 channels, string `case` labels in `WebViewBridge.swift` 29 -> 0, JS files over 2,800 lines 3 -> 0 (largest 1,322). Counted 2026-11-15 at the merge tip `ac3001ba` of `feat/architecture-review-finish`, nothing built or run. The module system and bundle of AR-29 are not part of this item and are open (63 `<script>` tags).
+- [ ] AR-32/33/34 themes as data with user folder, layout presets with UI, backdrop registry. In the code: 11 JSON themes read by `ThemeCatalog` with a user folder, 4 JSON layout presets read by `LayoutCatalog`, `BackdropRegistry` with 17 descriptors; not ticked, because the picker, the menu and the registry were not driven in the app.
 
-Status is written here only with the count that proves it.
+Status is written here only with the count that proves it. Result of the count pass of 2026-11-15 (merge tip `ac3001ba`, base 6.26.2 `6facd9f`; nothing built or run): ticked where a lint or a count proves the item, unticked where an item is only in the code, was not run, or has an open part; the table of counts, FU-20 to FU-30 and the recommended order are in `docs/architecture/architecture-review-2026-11-followup.md` section 13, the per-finding results in the `Status (2026-11-15)` lines of `docs/architecture/architecture-review-2026-11.md`. Wave 1 release prep (one version bump, release) is not done and not part of this pass.
 
 # Architecture Review 2026-11 Implementation (2026-11-15, 6.26.0)
 
@@ -68,8 +69,8 @@ Reading of the request (to confirm): "themes" = window appearances in the theme 
 
 Final hex values are tuned by the existing contrast checks (body text and accent >= 4.5 on bg and sidebar), not guessed.
 
-- [ ] `Models/AppTheme.swift`: three cases, `displayName`, `summary`, `isPreset`, `isDark`, `webID`, `pickerChoices`, one `Base` palette each. Stored name of an unknown theme already falls back to Classic Dark, so no migration.
-- [ ] `Resources/Editor/vendor/js/markview-themes.js`: base + `t` + `syn` + `struct` + `term` tokens per theme (the web editor, code colours, terminal).
+- [ ] `Models/Appearance/AppTheme.swift`: three cases, `displayName`, `summary`, `isPreset`, `isDark`, `webID`, `pickerChoices`, one `Base` palette each. Stored name of an unknown theme already falls back to Classic Dark, so no migration.
+- [ ] `Resources/Editor/js/markview-themes.js`: base + `t` + `syn` + `struct` + `term` tokens per theme (the web editor, code colours, terminal).
 - [ ] `tools/tests`: add the three to `ThemeModelTests` (presets), `ThemeWebTests` (Look list, compares Swift and JS base colours), `WindowThemeTests` (list).
 - [ ] Docs: `docs/architecture/modules/app-shell-and-workspace.md`, `editor-and-bridge.md`, README theme list.
 
@@ -83,8 +84,8 @@ Final hex values are tuned by the existing contrast checks (body text and accent
 
 Spare ideas: Snowfall, Paper Planes, Fireflies, Rainy Window.
 
-- [ ] `Models/WelcomeBackdrop.swift`: cases `gitflow`, `deepsea`, `warp`, `typewriter` with title and symbol, added to `animated` (so Shuffle includes them). By Project rules stay as they are.
-- [ ] `Views/BackdropLayerBuilders.swift`: dispatch; new files `Views/DevBackdropLayers.swift` (Git Flow, Typewriter) and `Views/AtmosphereBackdropLayers.swift` (Deep Sea, Warp) (project.yml and `MarkView.xcodeproj` kept aligned) with the four builders as a `BackdropBuilder` extension, `detail` 1...4 respected.
+- [ ] `Models/Appearance/WelcomeBackdrop.swift`: cases `gitflow`, `deepsea`, `warp`, `typewriter` with title and symbol, added to `animated` (so Shuffle includes them). By Project rules stay as they are.
+- [ ] `Views/Appearance/BackdropLayerBuilders.swift`: dispatch; new files `Views/Appearance/DevBackdropLayers.swift` (Git Flow, Typewriter) and `Views/Appearance/AtmosphereBackdropLayers.swift` (Deep Sea, Warp) (project.yml and `MarkView.xcodeproj` kept aligned) with the four builders as a `BackdropBuilder` extension, `detail` 1...4 respected.
 - [ ] Background pill/menu picks the new cases up from `allCases`; check that the menu stays one screen tall.
 - [ ] `tools/tests/WelcomeScreenTests.swift`: new scenes in the dark / light / narrow checks, presentation-layer motion, changing rendered frames, layer-count bound, click-through, Reduce Motion.
 - [ ] `docs/architecture/modules/welcome-backdrops.md` (nine -> thirteen), README.
@@ -216,7 +217,7 @@ Boris, dictated: (1) the toolbar buttons of singleton tabs (Git, Build & Deploym
 
 - [x] Docs: DEC-028 (proposed), REQ-009 (draft), REQ-008 updated, in `copilot-cockpit`.
 - [x] Toolbar: `open` mark next to `selected` in `ContentView.workspaceHeader` for the 7 singleton buttons; Browser and New Prototype unchanged; accessibility value "open"/"current". Checked in the real app (S17): all six states (none open, current, current + open, hidden behind Tasks, re-chosen, closed).
-- [x] Readings: `Models/CockpitInstruments.swift` (Foundation only) + `tools/tests/cockpit-instruments-tests.sh`.
+- [x] Readings: `Models/Cockpit/CockpitInstruments.swift` (Foundation only) + `tools/tests/cockpit-instruments-tests.sh`.
 - [x] Levers: `CockpitLiveSwitches` (cuts only), `CockpitStepPolicy.narrowed(by:)`, registry evaluates the narrowed policy on every call, supervisor checks its cut, `CockpitExecution.setSwitches`, event kind `switched`; checks in `cockpit-policy-tests.sh` and `cockpit-run-tests.sh`.
 - [x] Notes: `CockpitRun.notes`, event kind `note`, supervisor prompt block, next-step briefing, `DictationInput` field.
 - [x] Views: `CockpitInstrumentPanel`, `CockpitFlightPath` (replaces the flow strip), `CockpitLeverPanel`; the four role cards removed, their facts moved; saved runs parked; labels kept for `tools/tests/cockpit-e2e` and `scenarios.py` updated.

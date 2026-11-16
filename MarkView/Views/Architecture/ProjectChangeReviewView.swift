@@ -22,7 +22,7 @@ struct ProjectChangeReviewBar: View {
                 .accessibilityLabel("Refresh observed file changes")
             if !review.changes.isEmpty {
                 // The review is a tab, not a sheet: a sheet could not be enlarged (BUG-109), a tab has the whole centre area.
-                Button("Review") { workspaceManager.openChangeReview() }
+                Button("Review") { workspaceManager.openTool(.changeReview) }
             }
         }
         .uiFont(size: 10)

@@ -38,10 +38,10 @@ MarkView UI Studio running Viva Platform against a development server at http://
 
 ## Suspected code
 
-- `MarkView/Models/UIStudioPolicy.swift` — StudioConnectionPolicy blocks resources by default and permits the application origin and explicitly allowed addresses. It may block Stripe.js when its address is not allowed.
-- `MarkView/Resources/Editor/vendor/js/markview-ui-studio.js` — The runtime reports failed cross-origin resources as blocked and reports page errors. Its event label does not establish the underlying reason for a resource failure.
-- `MarkView/Models/UIStudioSession.swift` — The session records blocked resources as unsupported dependencies and substitutes a simulated page for external navigation; investigate recovery when an in-page SDK fails to initialize.
-- `MarkView/Models/UIStudioAuthMock.swift` — StudioExternalPage supplies a local stand-in for external navigation, including checkout-like pages, but is not itself a Stripe.js replacement.
+- `MarkView/Models/UIStudio/UIStudioPolicy.swift` — StudioConnectionPolicy blocks resources by default and permits the application origin and explicitly allowed addresses. It may block Stripe.js when its address is not allowed.
+- `MarkView/Resources/Editor/js/markview-ui-studio.js` — The runtime reports failed cross-origin resources as blocked and reports page errors. Its event label does not establish the underlying reason for a resource failure.
+- `MarkView/Models/UIStudio/UIStudioSession.swift` — The session records blocked resources as unsupported dependencies and substitutes a simulated page for external navigation; investigate recovery when an in-page SDK fails to initialize.
+- `MarkView/Models/UIStudio/UIStudioAuthMock.swift` — StudioExternalPage supplies a local stand-in for external navigation, including checkout-like pages, but is not itself a Stripe.js replacement.
 - `docs/features/markview-ui-studio/requirements/REQ-017.md` — Defines Fix data as a repair for errors caused by simulated data, explaining why this action does not address the reported script failure.
 
 ## Likely causes

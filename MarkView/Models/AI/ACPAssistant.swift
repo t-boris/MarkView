@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Assistants driven over the Agent Client Protocol (`<cli> --acp`): JSON-RPC 2.0 over
 /// stdio — Cline and GitHub Copilot.
@@ -15,29 +18,9 @@ import Darwin
 /// Neither has a schema flag nor a system prompt over ACP, so the instructions and the
 /// JSON schema lead the prompt, and a malformed JSON answer gets one repair turn.
 enum ACPAssistant {
-    /// How one assistant is started and what it needs around the protocol.
-    private struct Profile {
-        var arguments: [String]
-        /// Session mode that keeps the assistant read-only, set after `session/new`.
-        var readOnlyMode: String?
-        /// A chunk the CLI puts into the answer that is not part of it.
-        var noticePrefix: String?
-    }
-
-    private static func profile(_ tool: CLITool, effort: String?) -> Profile {
-        switch tool {
-        case .copilot:
-            // Only these tools exist for the model: no shell, no edits, no web, no subagents.
-            var arguments = ["--acp", "--no-auto-update", "--no-ask-user", "--disable-builtin-mcps",
-                             "--no-custom-instructions"]
-            if let effort { arguments += ["--reasoning-effort", effort] }
-            arguments += ["--available-tools", "view", "grep", "glob"]
-            return Profile(arguments: arguments, readOnlyMode: nil, noticePrefix: "Info: Disabled tools:")
-        default:
-            var arguments = ["--acp"]
-            if let effort { arguments += ["--thinking", effort] }
-            return Profile(arguments: arguments, readOnlyMode: "plan", noticePrefix: nil)
-        }
+    private static func profile(_ tool: CLITool, effort: String?) -> ACPLaunchProfile {
+        guard let support = tool.provider.acp else { preconditionFailure("\(tool.displayName) does not run over ACP") }
+        return support.launchProfile(effort: effort)
     }
 
     /// Ask `tool` once. Mirrors `CLICompletion.run` for the other assistants.
@@ -401,18 +384,6 @@ enum ACPAssistant {
 
     // MARK: - Models
 
-    private static func modelsKey(_ tool: CLITool) -> String { "settings.cli.\(tool.rawValue)Models" }
-
-    /// Models the signed-in account offers, from the last check (Settings or menus).
-    static func cachedModels(_ tool: CLITool) -> [AIModelOption] {
-        guard let data = UserDefaults.standard.data(forKey: modelsKey(tool)),
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { return [] }
-        return rows.compactMap { row in
-            guard let id = row["id"], !id.isEmpty else { return nil }
-            return AIModelOption(id: id, name: row["name"] ?? id, detail: row["detail"] ?? "")
-        }
-    }
-
     /// Start the assistant, open a session (no prompt, no tokens) and remember its model list.
     static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] {
         let connection = ACPConnection(tool: tool, executable: toolPath, arguments: profile(tool, effort: nil).arguments,
@@ -433,16 +404,14 @@ enum ACPAssistant {
             let usage = ((row["_meta"] as? [String: Any])?["copilotUsage"] as? String).map { " · \($0) premium requests" } ?? ""
             return AIModelOption(id: id, name: row["name"] as? String ?? id, detail: (row["description"] as? String ?? id) + usage)
         }
-        if !models.isEmpty,
-           let data = try? JSONSerialization.data(withJSONObject: models.map { ["id": $0.id, "name": $0.name, "detail": $0.detail] }) {
-            UserDefaults.standard.set(data, forKey: modelsKey(tool))
-        }
+        ACPModelCache.store(models, for: tool.rawValue)
         return models
     }
 
     // MARK: - Streaming state
 
     /// The answer as it streams, and progress for the caller.
+    // unchecked Sendable: `lock` guards the answer and the token counts; the callbacks and the notice prefix are `let`.
     private final class RunState: @unchecked Sendable {
         private let lock = NSLock()
         private var answer = ""
@@ -508,6 +477,7 @@ enum ACPAssistant {
 // MARK: - JSON-RPC connection
 
 /// One `<cli> --acp` process and its JSON-RPC traffic. All state lives on `queue`.
+// unchecked Sendable: all state is touched only on `queue`, a serial queue, except `permit` and `onUpdate`, which the owner sets before `start()`.
 private final class ACPConnection: @unchecked Sendable {
     /// Whether a tool call of `kind` with `input` may run.
     var permit: ((String, [String: Any]) -> Bool)?
@@ -516,9 +486,9 @@ private final class ACPConnection: @unchecked Sendable {
     var sessionId: String?
 
     private let tool: CLITool
-    private let process = Process()
+    private let spec: SubprocessSpec
     private let queue = DispatchQueue(label: "markview.acp")
-    private var stdin: FileHandle?
+    private var child: SubprocessChild?
     private var nextId = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var lineBuffer = Data()
@@ -527,62 +497,56 @@ private final class ACPConnection: @unchecked Sendable {
 
     init(tool: CLITool, executable: String, arguments: [String], workDir: URL) {
         self.tool = tool
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = workDir
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = CLIToolLocator.subprocessPath(toolPath: executable)
-        process.environment = env
+        // Standard input stays open for the JSON-RPC requests; a stop ends the child's whole group two seconds after the request.
+        self.spec = SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: workDir,
+            environment: ["PATH": CLIToolLocator.subprocessPath(toolPath: executable)],
+            timeout: 0, keepsInputOpen: true, terminationGrace: 2)
     }
 
     func start() async throws {
-        signal(SIGPIPE, SIG_IGN)   // a CLI that exits early must not kill the app mid-write
-        let input = Pipe(), output = Pipe(), errors = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = errors
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard let self, !data.isEmpty else { return }
-            self.queue.async { self.consume(data) }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async { self.launch(continuation) }
         }
-        errors.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard let self, !data.isEmpty else { return }
-            self.queue.async { self.stderrTail = String((self.stderrTail + String(decoding: data, as: UTF8.self)).suffix(3000)) }
-        }
-        process.terminationHandler = { [weak self] process in
-            AgentProcesses.remove(process)
-            output.fileHandleForReading.readabilityHandler = nil
-            errors.fileHandleForReading.readabilityHandler = nil
-            guard let self else { return }
-            self.queue.async {
-                let detail = self.stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
-                let killed = process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGKILL
-                let name = self.tool.displayName
-                self.failAll(self.failure ?? CLICompletion.Failure.failed(self.tool, killed && self.tool == .cline
-                    ? "macOS stopped Cline (its binary's signature is invalid — a known problem of the npm package). "
-                      + "Fix: codesign --force --sign - \"$(dirname $(readlink -f $(which cline)))/.cline\""
-                    : "\(name) exited (\(process.terminationStatus))" + (detail.isEmpty ? "" : ": \(detail.suffix(400))")))
-            }
-        }
+    }
+
+    /// Starts the process on `queue`, where its output and its exit are delivered too (in that order).
+    private func launch(_ continuation: CheckedContinuation<Void, Error>) {
         do {
-            try process.run()
-            AgentProcesses.add(process)
+            let started = try Subprocess.start(spec, queue: queue, onStdout: { [weak self] data in
+                self?.consume(data)
+            }, onStderr: { [weak self] data in
+                guard let self else { return }
+                self.stderrTail = String((self.stderrTail + String(decoding: data, as: UTF8.self)).suffix(3000))
+            }, onExit: { [weak self] child, exit in
+                AgentProcesses.remove(child)
+                guard let self else { return }
+                let detail = self.stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
+                let killed = exit.signaled && exit.status == SIGKILL
+                let name = self.tool.displayName
+                let message = (killed ? self.tool.provider.acp?.killedMessage : nil)
+                    ?? "\(name) exited (\(exit.status))" + (detail.isEmpty ? "" : ": \(detail.suffix(400))")
+                self.failAll(self.failure ?? CLICompletion.Failure.failed(self.tool, message))
+            })
+            child = started
+            AgentProcesses.add(started)
+            continuation.resume()
         } catch {
-            throw CLICompletion.Failure.failed(tool, error.localizedDescription)
+            continuation.resume(throwing: CLICompletion.Failure.failed(tool, error.localizedDescription))
         }
-        stdin = input.fileHandleForWriting
     }
 
     /// Send a request and wait for its result.
     func request(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
-        try await withCheckedThrowingContinuation { continuation in
+        // The parameters reach the queue as JSON bytes (a Sendable value), not as a `[String: Any]`.
+        let encoded = try JSONSerialization.data(withJSONObject: params)
+        return try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 if let failure = self.failure { continuation.resume(throwing: failure); return }
                 let id = self.nextId
                 self.nextId += 1
                 self.pending[id] = continuation
+                let params = (try? JSONSerialization.jsonObject(with: encoded)) ?? [String: Any]()
                 self.write(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
             }
         }
@@ -596,6 +560,7 @@ private final class ACPConnection: @unchecked Sendable {
             }
             self.failAll(CancellationError())
         }
+        // task: the kill that follows a polite stop 1 s later; weak self, and terminate() is idempotent
         queue.asyncAfter(deadline: .now() + 1) { [weak self] in self?.terminate() }
     }
 
@@ -614,14 +579,8 @@ private final class ACPConnection: @unchecked Sendable {
     // MARK: - Private (on queue)
 
     private func terminate() {
-        try? stdin?.close()
-        stdin = nil
-        if process.isRunning {
-            process.terminate()
-            queue.asyncAfter(deadline: .now() + 2) { [self] in
-                if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
-            }
-        }
+        child?.closeInput()
+        child?.terminate()
     }
 
     private func failAll(_ error: Error) {
@@ -632,9 +591,9 @@ private final class ACPConnection: @unchecked Sendable {
     }
 
     private func write(_ message: [String: Any]) {
-        guard let stdin, var data = try? JSONSerialization.data(withJSONObject: message) else { return }
+        guard let child, var data = try? JSONSerialization.data(withJSONObject: message) else { return }
         data.append(0x0A)
-        try? stdin.write(contentsOf: data)
+        try? child.writeInput(data)
     }
 
     private func consume(_ data: Data) {

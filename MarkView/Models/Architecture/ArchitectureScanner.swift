@@ -1,5 +1,9 @@
 import Foundation
+import os
 import CryptoKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Deterministic architecture scan of a project folder — no AI.
 ///
@@ -41,8 +45,8 @@ struct ArchitectureScanner {
     /// Folders the scan never enters; `ProjectChangeWatcher` ignores changes inside them too.
     static let skippedDirectories: Set<String> = [
         "node_modules", "build", "dist", "out", "target", "Pods", "DerivedData", ".build",
-        "venv", ".venv", "__pycache__", "coverage", ".next", ".nuxt", ".dde", ".git",
-        ".markview-insight", ".idea", ".vscode", "bower_components",
+        "venv", ".venv", "__pycache__", "coverage", ".next", ".nuxt", ProjectPaths.localFolderName, ".git",
+        ProjectPaths.insightFolderName, ".idea", ".vscode", "bower_components",
     ]
     static let manifestNames: Set<String> = [
         "package.json", "Package.swift", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py",
@@ -72,7 +76,7 @@ struct ArchitectureScanner {
                 textDocs.append(path)
                 continue
             }
-            if Self.isDeploymentHint(path) { hints.append(path) }
+            if ProjectOperationDiscovery.isDeploymentHint(path) { hints.append(path) }
             guard let language = FileType.codeLanguage(for: url) else { continue }
             if let reason = Self.skipReason(name: name, url: url, language: language) {
                 skipped[language.isEmpty ? "text" : language, default: [:]][reason, default: 0] += 1
@@ -229,20 +233,13 @@ struct ArchitectureScanner {
         return hasher.finalize().prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Run a command and return stdout, or nil on failure. Reads the pipe to EOF
-    /// before waiting so a large output cannot deadlock.
+    /// Run a command and return stdout, or nil when it cannot start or exits non-zero (stderr is dropped, nothing is cut,
+    /// no time limit). Blocks the calling thread: the scanner and its callers run on background threads, never the main thread.
     static func runTool(_ executable: String, _ arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        let result = Subprocess.runBlocking(SubprocessSpec(
+            executable: executable, arguments: arguments, timeout: 0, maxOutputBytes: SubprocessSpec.unboundedOutput,
+            stderrRouting: .discard))
+        return result.succeeded ? result.stdout : nil
     }
 
     /// A folder that is a software project: a build manifest at its root, or at
@@ -278,22 +275,6 @@ struct ArchitectureScanner {
         if lower.contains(".min.") || lower.contains(".bundle.") || lower.contains(".bundled.") { return .generatedBundle }
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         return size > maxParseBytes ? .tooLarge : nil
-    }
-
-    static func isDeploymentHint(_ path: String) -> Bool {
-        let lower = path.lowercased()
-        let name = (lower as NSString).lastPathComponent
-        if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") { return true }
-        if name.hasPrefix("docker-compose") || name.hasPrefix("compose.") { return true }
-        if ["procfile", "fly.toml", "vercel.json", "netlify.toml", "serverless.yml", "serverless.yaml",
-            "app.yaml", "render.yaml", "railway.json", "skaffold.yaml", "chart.yaml", "project.yml",
-            "info.plist", "cloudbuild.yaml", "buildspec.yml", "nginx.conf", "makefile"].contains(name) { return true }
-        if name.hasSuffix(".tf") || name.hasSuffix(".entitlements") || name.hasSuffix(".xcconfig") { return true }
-        if lower.hasPrefix(".github/workflows/") { return true }
-        let parts = lower.split(separator: "/")
-        if parts.contains(where: { ["k8s", "kubernetes", "helm", "charts", "deploy", "deployment", "infra", "terraform"].contains(String($0)) })
-            && (name.hasSuffix(".yml") || name.hasSuffix(".yaml") || name.hasSuffix(".json")) { return true }
-        return false
     }
 
     // MARK: - Modules view
@@ -1066,12 +1047,7 @@ private struct ImportResolver {
 }
 
 /// Thread-safe count of finished items for progress reports from concurrent work.
-private final class ProgressCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = 0
-    func increment() -> Int {
-        lock.lock(); defer { lock.unlock() }
-        value += 1
-        return value
-    }
+private final class ProgressCounter: Sendable {
+    private let value = OSAllocatedUnfairLock(initialState: 0)
+    func increment() -> Int { value.withLock { $0 += 1; return $0 } }
 }

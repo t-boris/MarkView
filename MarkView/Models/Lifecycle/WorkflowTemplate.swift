@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // Workflow templates kept in a folder every project shares (feature workflow-templates, REQ-001..003, DEC-001, DEC-003).
 //
@@ -84,7 +87,7 @@ enum WorkflowTemplateError: Error, LocalizedError, Equatable {
     }
 }
 
-final class WorkflowTemplateStore: @unchecked Sendable {
+final class WorkflowTemplateStore: Sendable {
     /// A file that is in the folder but cannot be used.
     struct Unusable: Equatable, Identifiable, Sendable {
         let file: String
@@ -227,7 +230,7 @@ final class WorkflowTemplateStore: @unchecked Sendable {
         let template = WorkflowTemplate(id: target, name: name, note: note.trimmingCharacters(in: .whitespacesAndNewlines), savedAt: now, workflow: workflow)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try Self.encode(template).write(to: file(target), options: .atomic)
+            try AtomicFile.write(Self.encode(template), to: file(target))
         } catch {
             throw WorkflowTemplateError.writeFailed(error.localizedDescription)
         }
@@ -255,7 +258,7 @@ final class WorkflowTemplateStore: @unchecked Sendable {
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: ["template": id], options: [.prettyPrinted, .sortedKeys])
-            try data.write(to: pointerURL, options: .atomic)
+            try AtomicFile.write(data, to: pointerURL)
         } catch {
             throw WorkflowTemplateError.writeFailed(error.localizedDescription)
         }

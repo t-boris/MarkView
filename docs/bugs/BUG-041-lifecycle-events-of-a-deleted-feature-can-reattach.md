@@ -32,7 +32,7 @@ By code reading, `LifecycleLog.events(project:feature:)` filters on slug alone a
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Models/FeatureStore.swift `deleteFeature` (line 400) and MarkView/Models/LifecycleLog.swift line 41; code reading only.
+MarkView current main (ade7910), MarkView/Models/Lifecycle/FeatureStore.swift `deleteFeature` (line 400) and MarkView/Models/Lifecycle/LifecycleLog.swift line 41; code reading only.
 
 ## Cause
 

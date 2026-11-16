@@ -87,11 +87,11 @@ MarkView UI Studio on macOS; unified-partner-portal at /Users/a806318/Projects/u
 
 ## Suspected code
 
-- `MarkView/Models/UIStudioSession.swift` — The local source identifies endpoint reuse, server startup, simulated-connection preparation, owned-process exit handling and page loading as relevant paths. Whether the failing session reused or launched its endpoint remains unknown.
-- `MarkView/Models/WebAppPreview.swift` — Endpoint readiness and firstListening selection warrant investigation. The supplied prior inspection describes TCP-only selection without application identity verification; this does not establish that the wrong endpoint was selected.
-- `MarkView/Models/UIStudioServer.swift` — Read-only inspection confirms that the managed shell runs in a separate process group and remaining group members are terminated when its leader exits. A project-specific launch command could therefore affect listener lifetime, but no correlated exit evidence is available.
-- `MarkView/Models/UIStudioConnections.swift` — Connection discovery and launch overrides are relevant if startup requires backend dependencies. Partner-portal configuration must be inspected before attributing failure to unsupported or undiscovered dependency simulation.
-- `MarkView/Models/UIStudioPolicy.swift` — The supplied prior inspection describes intentional permission for the local application runtime and development resources. That boundary must not be interpreted as proof that backend simulation is missing.
+- `MarkView/Models/UIStudio/UIStudioSession.swift` — The local source identifies endpoint reuse, server startup, simulated-connection preparation, owned-process exit handling and page loading as relevant paths. Whether the failing session reused or launched its endpoint remains unknown.
+- `MarkView/Models/Workspace/WebAppPreview.swift` — Endpoint readiness and firstListening selection warrant investigation. The supplied prior inspection describes TCP-only selection without application identity verification; this does not establish that the wrong endpoint was selected.
+- `MarkView/Models/UIStudio/UIStudioServer.swift` — Read-only inspection confirms that the managed shell runs in a separate process group and remaining group members are terminated when its leader exits. A project-specific launch command could therefore affect listener lifetime, but no correlated exit evidence is available.
+- `MarkView/Models/UIStudio/UIStudioConnections.swift` — Connection discovery and launch overrides are relevant if startup requires backend dependencies. Partner-portal configuration must be inspected before attributing failure to unsupported or undiscovered dependency simulation.
+- `MarkView/Models/UIStudio/UIStudioPolicy.swift` — The supplied prior inspection describes intentional permission for the local application runtime and development resources. That boundary must not be interpreted as proof that backend simulation is missing.
 - `docs/plans/markview-ui-sudio-tech-reqs.md` — The supplied design context specifies real project UI with simulated dependencies, not an HTML imitation. Draft requirements do not prove current support for this project's framework.
 
 ## Likely causes

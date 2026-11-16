@@ -168,9 +168,9 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] Feature создаётся в docs/features/<slug>/overview.md, bug — в docs/bugs/BUG-nnn-….md. — `MarkView/Models/ProjectAgentTools.swift:61`
-- [Project fact] Словарь feature: idea, exploring, draft, review, resolving, ready, implementing, implemented, verified, archived; bug: open, fixing, fixed, closed. — `MarkView/Models/FeatureVocabulary.swift:5`
-- [Project fact] Для фильтра Issues feature считается закрытой при implemented, verified, done, archived, rejected или cancelled; bug — при closed или fixed. — `MarkView/Models/IssueListing.swift:34`
+- [Project fact] Feature создаётся в docs/features/<slug>/overview.md, bug — в docs/bugs/BUG-nnn-….md. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:61`
+- [Project fact] Словарь feature: idea, exploring, draft, review, resolving, ready, implementing, implemented, verified, archived; bug: open, fixing, fixed, closed. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:5`
+- [Project fact] Для фильтра Issues feature считается закрытой при implemented, verified, done, archived, rejected или cancelled; bug — при closed или fixed. — `MarkView/Models/Lifecycle/IssueListing.swift:34`
 
 ### Статусы feature {#n39}
 
@@ -180,7 +180,7 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] Словарь feature содержит десять значений; статусы сохраняются в нижнем регистре в front matter. — `MarkView/Models/FeatureVocabulary.swift:3`
+- [Project fact] Словарь feature содержит десять значений; статусы сохраняются в нижнем регистре в front matter. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:3`
 - [AI inference] Название статуса само по себе не является свидетельством выполнения проверок.
 
 ### idea {#n40}
@@ -191,7 +191,7 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] createFeature записывает idea, если текст идеи пуст; иначе — exploring. — `MarkView/Models/FeatureStore.swift:239`
+- [Project fact] createFeature записывает idea, если текст идеи пуст; иначе — exploring. — `MarkView/Models/Lifecycle/FeatureStore.swift:239`
 
 ### exploring {#n41}
 
@@ -201,7 +201,7 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] Руководство предлагает оставлять exploring до завершения требований; приложение Explore задаёт вопросы о неизвестных аспектах. — `MarkView/Models/ProjectAgentTools.swift:210`
+- [Project fact] Руководство предлагает оставлять exploring до завершения требований; приложение Explore задаёт вопросы о неизвестных аспектах. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:210`
 
 ### draft {#n42}
 
@@ -211,8 +211,8 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] Руководство рекомендует draft, когда требования полны. — `MarkView/Models/ProjectAgentTools.swift:215`
-- [Project fact] adoptedOverview записывает draft для существующих документов feature. — `MarkView/Models/FeatureStore.swift:573`
+- [Project fact] Руководство рекомендует draft, когда требования полны. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:215`
+- [Project fact] adoptedOverview записывает draft для существующих документов feature. — `MarkView/Models/Lifecycle/FeatureStore.swift:573`
 
 ### review {#n43}
 
@@ -222,7 +222,7 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] finishExplore утверждает требования и при условии !isPastExplore устанавливает review. — `MarkView/Models/FeatureStore.swift:481`
+- [Project fact] finishExplore утверждает требования и при условии !isPastExplore устанавливает review. — `MarkView/Models/Lifecycle/FeatureStore.swift:481`
 - [AI inference] Название review обозначает рассмотрение спецификации.
 
 ### resolving {#n44}
@@ -233,7 +233,7 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] resolving находится между review и ready в описанном порядке состояний feature. — `MarkView/Models/ProjectAgentTools.swift:190`
+- [Project fact] resolving находится между review и ready в описанном порядке состояний feature. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:190`
 - [AI inference] Название resolving предполагает разрешение замечаний или вопросов; само имя не задаёт конкретных критериев.
 
 ### ready {#n45}
@@ -244,7 +244,7 @@ Features и bugs хранятся в Markdown и имеют разные сло�
 
 #### Evidence
 
-- [Project fact] Переход в ready или достижение readiness 100 % записывает событие spec ready; передача в реализацию тоже может его записать. — `MarkView/Models/FeatureStore.swift:672`
+- [Project fact] Переход в ready или достижение readiness 100 % записывает событие spec ready; передача в реализацию тоже может его записать. — `MarkView/Models/Lifecycle/FeatureStore.swift:672`
 
 ### implementing {#n46}
 
@@ -254,7 +254,7 @@ Feature передана в реализацию. Сам статус не до�
 
 #### Evidence
 
-- [Project fact] markImplementing переводит разрешённые предшествующие статусы в implementing при передаче feature в реализацию. — `MarkView/Models/FeatureStore.swift:703`
+- [Project fact] markImplementing переводит разрешённые предшествующие статусы в implementing при передаче feature в реализацию. — `MarkView/Models/Lifecycle/FeatureStore.swift:703`
 - [AI inference] Передача работы не доказывает фактического изменения кода.
 
 ### implemented {#n47}
@@ -265,8 +265,8 @@ Feature передана в реализацию. Сам статус не до�
 
 #### Evidence
 
-- [Project fact] Переход в implemented порождает событие implementation finished. — `MarkView/Models/FeatureStore.swift:692`
-- [Project fact] implemented входит в implementedFeature и closedFeature списка Issues. — `MarkView/Models/IssueListing.swift:34`
+- [Project fact] Переход в implemented порождает событие implementation finished. — `MarkView/Models/Lifecycle/FeatureStore.swift:692`
+- [Project fact] implemented входит в implementedFeature и closedFeature списка Issues. — `MarkView/Models/Lifecycle/IssueListing.swift:34`
 
 ### verified {#n48}
 
@@ -276,8 +276,8 @@ Feature отмечена проверенной после реализации.
 
 #### Evidence
 
-- [Project fact] Руководство помещает verified после implemented, а список Issues включает его в закрытые состояния. — `MarkView/Models/ProjectAgentTools.swift:190`
-- [Project fact] verified входит в implementedFeature и closedFeature. — `MarkView/Models/IssueListing.swift:34`
+- [Project fact] Руководство помещает verified после implemented, а список Issues включает его в закрытые состояния. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:190`
+- [Project fact] verified входит в implementedFeature и closedFeature. — `MarkView/Models/Lifecycle/IssueListing.swift:34`
 - [AI inference] Само значение verified не раскрывает, какие именно проверки выполнены.
 
 ### archived {#n49}
@@ -288,8 +288,8 @@ Feature помещена в архив; список Issues считает её 
 
 #### Evidence
 
-- [Project fact] archived входит в словарь feature и в закрытые состояния списка Issues. — `MarkView/Models/IssueListing.swift:36`
-- [Project fact] Инструменты не удаляют feature, но допускают её архивацию. — `MarkView/Models/ProjectAgentTools.swift:200`
+- [Project fact] archived входит в словарь feature и в закрытые состояния списка Issues. — `MarkView/Models/Lifecycle/IssueListing.swift:36`
+- [Project fact] Инструменты не удаляют feature, но допускают её архивацию. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:200`
 - [AI inference] Сам факт архивации не подтверждает реализацию.
 
 ### Статусы bug {#n50}
@@ -300,7 +300,7 @@ Feature помещена в архив; список Issues считает её 
 
 #### Evidence
 
-- [Project fact] Словарь bug содержит open, fixing, fixed и closed; статусы сохраняются в нижнем регистре в front matter. — `MarkView/Models/FeatureVocabulary.swift:3`
+- [Project fact] Словарь bug содержит open, fixing, fixed и closed; статусы сохраняются в нижнем регистре в front matter. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:3`
 
 ### open {#n51}
 
@@ -310,8 +310,8 @@ Bug открыт и ещё не отмечен как исправленный �
 
 #### Evidence
 
-- [Project fact] BugReportDraft создаётся со статусом open. — `MarkView/Models/BugReportWriter.swift:4`
-- [Project fact] При чтении bug пустой статус заменяется на open. — `MarkView/Models/FeatureModels.swift:607`
+- [Project fact] BugReportDraft создаётся со статусом open. — `MarkView/Models/Lifecycle/BugReportWriter.swift:4`
+- [Project fact] При чтении bug пустой статус заменяется на open. — `MarkView/Models/Lifecycle/FeatureModels.swift:607`
 
 ### fixing {#n52}
 
@@ -321,8 +321,8 @@ Bug открыт и ещё не отмечен как исправленный �
 
 #### Evidence
 
-- [Project fact] BugBasket устанавливает fixing для выбранных отчётов. — `MarkView/Models/BugBasket.swift:88`
-- [Project fact] Список Issues относит fixing к состояниям работы в процессе. — `MarkView/Models/IssueListing.swift:38`
+- [Project fact] BugBasket устанавливает fixing для выбранных отчётов. — `MarkView/Models/Lifecycle/BugBasket.swift:88`
+- [Project fact] Список Issues относит fixing к состояниям работы в процессе. — `MarkView/Models/Lifecycle/IssueListing.swift:38`
 
 ### fixed {#n53}
 
@@ -332,8 +332,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] fixed входит в множество закрытых статусов bug в Issues. — `MarkView/Models/IssueListing.swift:37`
-- [Project fact] Инструкция BugBasket требует обновить статус на fixed только после появления коммита исправления. — `MarkView/Models/BugBasket.swift:158`
+- [Project fact] fixed входит в множество закрытых статусов bug в Issues. — `MarkView/Models/Lifecycle/IssueListing.swift:37`
+- [Project fact] Инструкция BugBasket требует обновить статус на fixed только после появления коммита исправления. — `MarkView/Models/Lifecycle/BugBasket.swift:158`
 
 ### closed {#n54}
 
@@ -343,8 +343,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Руководство предписывает закрывать дубликат с заполненным duplicate_of. — `MarkView/Models/ProjectAgentTools.swift:240`
-- [Project fact] BugValidity закрывает отчёт и добавляет причину в обсуждение. — `MarkView/Models/BugValidity.swift:335`
+- [Project fact] Руководство предписывает закрывать дубликат с заполненным duplicate_of. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:240`
+- [Project fact] BugValidity закрывает отчёт и добавляет причину в обсуждение. — `MarkView/Models/Lifecycle/BugValidity.swift:335`
 
 ### Дополнительные значения в Issues {#n55}
 
@@ -354,8 +354,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] IssueStatus отдельно определяет значения для закрытых и находящихся в работе записей. — `MarkView/Models/IssueListing.swift:25`
-- [Project fact] Основные словари feature и bug перечислены отдельно. — `MarkView/Models/FeatureVocabulary.swift:5`
+- [Project fact] IssueStatus отдельно определяет значения для закрытых и находящихся в работе записей. — `MarkView/Models/Lifecycle/IssueListing.swift:25`
+- [Project fact] Основные словари feature и bug перечислены отдельно. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:5`
 
 ### done {#n56}
 
@@ -365,8 +365,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] done допускается для записанных вручную feature и входит в implementedFeature. — `MarkView/Models/IssueListing.swift:33`
-- [Project fact] done отсутствует в featureStatuses. — `MarkView/Models/FeatureVocabulary.swift:5`
+- [Project fact] done допускается для записанных вручную feature и входит в implementedFeature. — `MarkView/Models/Lifecycle/IssueListing.swift:33`
+- [Project fact] done отсутствует в featureStatuses. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:5`
 
 ### rejected и cancelled {#n57}
 
@@ -376,8 +376,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] closedFeature включает rejected, cancelled и canceled. — `MarkView/Models/IssueListing.swift:35`
-- [Project fact] Эти значения отсутствуют в featureStatuses. — `MarkView/Models/FeatureVocabulary.swift:5`
+- [Project fact] closedFeature включает rejected, cancelled и canceled. — `MarkView/Models/Lifecycle/IssueListing.swift:35`
+- [Project fact] Эти значения отсутствуют в featureStatuses. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:5`
 
 ### in-progress {#n58}
 
@@ -387,7 +387,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] IssueStatus нормализует регистр, пробелы и подчёркивания; in-progress включён в inProgress. — `MarkView/Models/IssueListing.swift:27`
+- [Project fact] IssueStatus нормализует регистр, пробелы и подчёркивания; in-progress включён в inProgress. — `MarkView/Models/Lifecycle/IssueListing.swift:27`
 
 ### Неизвестный или отсутствующий статус {#n59}
 
@@ -397,7 +397,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] isClosed возвращает принадлежность нормализованного статуса множеству закрытых; комментарий относит отсутствующий и неизвестный статус к открытым. — `MarkView/Models/IssueListing.swift:41`
+- [Project fact] isClosed возвращает принадлежность нормализованного статуса множеству закрытых; комментарий относит отсутствующий и неизвестный статус к открытым. — `MarkView/Models/Lifecycle/IssueListing.swift:41`
 - [AI inference] Проверка принадлежности при отображении не является исправлением статуса в файле.
 
 ### Доступные операции MCP {#n8}
@@ -409,9 +409,9 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Объявлены markview_list_features, markview_get_feature, markview_list_bugs, markview_get_bug, markview_create_feature, markview_create_bug, markview_set_status, markview_set_bug_status и markview_link_issue. — `MarkView/Models/ProjectAgentTools.swift:43`
-- [Project fact] Агенту доступны статусы feature до ready и archived; стадии реализации исключены из markview_set_status. — `MarkView/Models/ProjectAgentTools.swift:389`
-- [Project fact] markview_link_issue сохраняет связь, но не создаёт issue на GitHub. — `MarkView/Models/ProjectAgentTools.swift:131`
+- [Project fact] Объявлены markview_list_features, markview_get_feature, markview_list_bugs, markview_get_bug, markview_create_feature, markview_create_bug, markview_set_status, markview_set_bug_status и markview_link_issue. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:43`
+- [Project fact] Агенту доступны статусы feature до ready и archived; стадии реализации исключены из markview_set_status. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:389`
+- [Project fact] markview_link_issue сохраняет связь, но не создаёт issue на GitHub. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:131`
 
 ### Чтение features {#n60}
 
@@ -422,7 +422,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Описаны фильтр status, параметры id, full и section и состав возвращаемых сведений. — `MarkView/Models/ProjectAgentTools.swift:47`
+- [Project fact] Описаны фильтр status, параметры id, full и section и состав возвращаемых сведений. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:47`
 
 ### Чтение bugs {#n61}
 
@@ -433,7 +433,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Перечень включает severity, связи, duplicate_of, ready_to_fix и открытые вопросы расследования; get возвращает полный отчёт. — `MarkView/Models/ProjectAgentTools.swift:53`
+- [Project fact] Перечень включает severity, связи, duplicate_of, ready_to_fix и открытые вопросы расследования; get возвращает полный отчёт. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:53`
 
 ### Создание записей {#n62}
 
@@ -444,8 +444,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Схемы создания определяют обязательные и необязательные поля feature и bug. — `MarkView/Models/ProjectAgentTools.swift:61`
-- [Project fact] Для bug обязательны title и summary; доступны severity, steps, expected, actual и environment. — `MarkView/Models/ProjectAgentTools.swift:86`
+- [Project fact] Схемы создания определяют обязательные и необязательные поля feature и bug. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:61`
+- [Project fact] Для bug обязательны title и summary; доступны severity, steps, expected, actual и environment. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:86`
 
 ### Добавление объектов feature {#n63}
 
@@ -456,7 +456,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Схемы инструментов определяют поля требований, решений и вопросов. — `MarkView/Models/ProjectAgentTools.swift:67`
+- [Project fact] Схемы инструментов определяют поля требований, решений и вопросов. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:67`
 
 ### Исправление записей {#n64}
 
@@ -467,8 +467,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Операции обновления feature и её объектов принимают указанные поля; разделы объекта заменяются целиком. — `MarkView/Models/ProjectAgentTools.swift:97`
-- [Project fact] Обновление bug поддерживает поля и разделы отчёта, но статус меняется через отдельный инструмент. — `MarkView/Models/ProjectAgentTools.swift:120`
+- [Project fact] Операции обновления feature и её объектов принимают указанные поля; разделы объекта заменяются целиком. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:97`
+- [Project fact] Обновление bug поддерживает поля и разделы отчёта, но статус меняется через отдельный инструмент. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:120`
 
 ### Операции изменения статуса {#n65}
 
@@ -479,7 +479,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Объявления описывают проверку статусов объектов, признак решения пользователя и закрытие дубликата. — `MarkView/Models/ProjectAgentTools.swift:90`
+- [Project fact] Объявления описывают проверку статусов объектов, признак решения пользователя и закрытие дубликата. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:90`
 
 ### Вопросы и ответы {#n66}
 
@@ -490,8 +490,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Ответ на вопрос feature записывается только с by_user: true, когда его дал человек. — `MarkView/Models/ProjectAgentTools.swift:110`
-- [Project fact] Ответ или пропуск вопроса bug требует by_user; открытые вопросы features доступны отдельным инструментом. — `MarkView/Models/ProjectAgentTools.swift:127`
+- [Project fact] Ответ на вопрос feature записывается только с by_user: true, когда его дал человек. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:110`
+- [Project fact] Ответ или пропуск вопроса bug требует by_user; открытые вопросы features доступны отдельным инструментом. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:127`
 
 ### Источники и заметки feature {#n67}
 
@@ -502,7 +502,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Объявлены инструменты добавления источника и реплики в discussion.md. — `MarkView/Models/ProjectAgentTools.swift:114`
+- [Project fact] Объявлены инструменты добавления источника и реплики в discussion.md. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:114`
 
 ### Связи с GitHub issues {#n68}
 
@@ -513,7 +513,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Схема инструмента определяет target, issues и remove и прямо указывает, что на GitHub ничего не создаётся. — `MarkView/Models/ProjectAgentTools.swift:131`
+- [Project fact] Схема инструмента определяет target, issues и remove и прямо указывает, что на GitHub ничего не создаётся. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:131`
 
 ### Справка, проект и прототипы {#n69}
 
@@ -524,7 +524,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Объявлены справка, сведения о проекте и операции чтения прототипов, в том числе отдельного файла прототипа. — `MarkView/Models/ProjectAgentTools.swift:43`
+- [Project fact] Объявлены справка, сведения о проекте и операции чтения прототипов, в том числе отдельного файла прототипа. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:43`
 
 ### Операции обсуждений {#n70}
 
@@ -535,8 +535,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Сервер markview включает четыре инструмента обсуждений и перечисленные действия над элементами. — `MarkView/Models/DiscussionAgentTools.swift:14`
-- [Project fact] Инструменты обсуждений добавляются к списку инструментов проекта. — `MarkView/Models/ProjectAgentTools.swift:137`
+- [Project fact] Сервер markview включает четыре инструмента обсуждений и перечисленные действия над элементами. — `MarkView/Models/AgentTools/DiscussionAgentTools.swift:14`
+- [Project fact] Инструменты обсуждений добавляются к списку инструментов проекта. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:137`
 
 ### Операции Deployments {#n71}
 
@@ -547,8 +547,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Перечислены шесть инструментов Deployments и условия выполнения команд и запросов к базе. — `MarkView/Models/DeploymentAgentTools.swift:20`
-- [Project fact] Инструменты Deployments добавляются к списку инструментов проекта. — `MarkView/Models/ProjectAgentTools.swift:137`
+- [Project fact] Перечислены шесть инструментов Deployments и условия выполнения команд и запросов к базе. — `MarkView/Models/AgentTools/DeploymentAgentTools.swift:20`
+- [Project fact] Инструменты Deployments добавляются к списку инструментов проекта. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:137`
 
 ### Что уже запускает переходы {#n9}
 
@@ -559,8 +559,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] FeatureStore.markImplementing меняет подходящий предыдущий статус на implementing. — `MarkView/Models/FeatureStore.swift:703`
-- [Project fact] Инструкции агенту утверждают, что MarkView записывает implementing, implemented и verified по git и GitHub. — `MarkView/Models/ProjectAgentTools.swift:288`
+- [Project fact] FeatureStore.markImplementing меняет подходящий предыдущий статус на implementing. — `MarkView/Models/Lifecycle/FeatureStore.swift:703`
+- [Project fact] Инструкции агенту утверждают, что MarkView записывает implementing, implemented и verified по git и GitHub. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:288`
 
 ### Успешное исследование feature {#n72}
 
@@ -570,7 +570,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] После получения структурированного результата и применения discovery код меняет `idea` на `exploring`. — `MarkView/Models/FeatureAI.swift:528`
+- [Project fact] После получения структурированного результата и применения discovery код меняет `idea` на `exploring`. — `MarkView/Models/Lifecycle/FeatureAI.swift:528`
 
 ### Завершение Explore и AI Review {#n73}
 
@@ -580,8 +580,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] `finishExplore` утверждает требования и условно записывает `review`. — `MarkView/Models/FeatureStore.swift:489`
-- [Project fact] После AI Review код устанавливает `review` для трёх ранних статусов. — `MarkView/Models/FeatureAI.swift:1132`
+- [Project fact] `finishExplore` утверждает требования и условно записывает `review`. — `MarkView/Models/Lifecycle/FeatureStore.swift:489`
+- [Project fact] После AI Review код устанавливает `review` для трёх ранних статусов. — `MarkView/Models/Lifecycle/FeatureAI.swift:1132`
 
 ### Быстрый приём feature {#n74}
 
@@ -591,7 +591,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] После получения структурированного ответа и создания feature quick intake записывает `status: ready` и `questions_left: 0`. — `MarkView/Models/FeatureIntake.swift:80`
+- [Project fact] После получения структурированного ответа и создания feature quick intake записывает `status: ready` и `questions_left: 0`. — `MarkView/Models/Lifecycle/FeatureIntake.swift:80`
 
 ### Создание GitHub issues {#n75}
 
@@ -601,7 +601,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Успешная ветка создания issues вызывает `markImplementing` после сохранения плана; обработчик ошибки этого не делает. — `MarkView/Models/FeatureAI.swift:1793`
+- [Project fact] Успешная ветка создания issues вызывает `markImplementing` после сохранения плана; обработчик ошибки этого не делает. — `MarkView/Models/Lifecycle/FeatureAI.swift:1793`
 
 ### Передача feature агенту {#n76}
 
@@ -611,8 +611,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] `startImplementation` сначала отправляет задачу, затем определяет feature и вызывает `markImplementing`. — `MarkView/Models/WorkspaceManager.swift:4490`
-- [Project fact] `markImplementing` проверяет предыдущий статус перед записью `implementing`. — `MarkView/Models/FeatureStore.swift:703`
+- [Project fact] `startImplementation` сначала отправляет задачу, затем определяет feature и вызывает `markImplementing`. — `MarkView/Models/Workspace/WorkspaceManager.swift:4490`
+- [Project fact] `markImplementing` проверяет предыдущий статус перед записью `implementing`. — `MarkView/Models/Lifecycle/FeatureStore.swift:703`
 
 ### Передача bug на исправление {#n77}
 
@@ -622,8 +622,8 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] `fixBugWithAI` записывает `fixing` до вызова `sendToAssistant`. — `MarkView/Models/WorkspaceManager.swift:4519`
-- [Project fact] `BatchStart` отмечает bugs как `fixing` и при неудачном старте пытается вернуть прежние статусы, сообщая о невосстановленных записях. — `MarkView/Models/BugBasket.swift:68`
+- [Project fact] `fixBugWithAI` записывает `fixing` до вызова `sendToAssistant`. — `MarkView/Models/Workspace/WorkspaceManager.swift:4519`
+- [Project fact] `BatchStart` отмечает bugs как `fixing` и при неудачном старте пытается вернуть прежние статусы, сообщая о невосстановленных записях. — `MarkView/Models/Lifecycle/BugBasket.swift:68`
 
 ### Проверка актуальности bug {#n78}
 
@@ -633,7 +633,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] `BugValidity.record` при `alreadyFixed` устанавливает `closed`, очищает `ready_to_fix` и добавляет запись с объяснением и ссылками на свидетельства. — `MarkView/Models/BugValidity.swift:334`
+- [Project fact] `BugValidity.record` при `alreadyFixed` устанавливает `closed`, очищает `ready_to_fix` и добавляет запись с объяснением и ссылками на свидетельства. — `MarkView/Models/Lifecycle/BugValidity.swift:334`
 
 ### Шаг готовности в MCP {#n79}
 
@@ -643,7 +643,7 @@ Bug отмечен как исправленный; список Issues счит
 
 #### Evidence
 
-- [Project fact] Ветка `.ready` проверяет прохождение Explore, отсутствие открытых вопросов и findings и наличие активных требований перед записью статуса. — `MarkView/Models/ControlToolRunner+Flow.swift:337`
+- [Project fact] Ветка `.ready` проверяет прохождение Explore, отсутствие открытых вопросов и findings и наличие активных требований перед записью статуса. — `MarkView/Models/AgentTools/ControlToolRunner+Flow.swift:337`
 
 ### Отслеживание изменений UI Studio {#n80}
 
@@ -653,8 +653,8 @@ UI Studio записывает `implementing` при создании feature д
 
 #### Evidence
 
-- [Project fact] `trackingFeature` создаёт feature при первом отслеживаемом изменении и устанавливает `implementing`. — `MarkView/Models/UIStudioSession+Tracking.swift:81`
-- [Project fact] `StudioFeatureWriter.write` создаёт feature из пакета и записывает `implementing`. — `MarkView/Models/UIStudioSession.swift:3035`
+- [Project fact] `trackingFeature` создаёт feature при первом отслеживаемом изменении и устанавливает `implementing`. — `MarkView/Models/UIStudio/UIStudioSession+Tracking.swift:81`
+- [Project fact] `StudioFeatureWriter.write` создаёт feature из пакета и записывает `implementing`. — `MarkView/Models/UIStudio/UIStudioSession.swift:3035`
 
 ### Перезапуск feature {#n81}
 
@@ -664,7 +664,7 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] `restartFeature` допускает структурированные feature до реализации, удаляет производные материалы через корзину и записывает `idea`. — `MarkView/Models/FeatureStore.swift:440`
+- [Project fact] `restartFeature` допускает структурированные feature до реализации, удаляет производные материалы через корзину и записывает `idea`. — `MarkView/Models/Lifecycle/FeatureStore.swift:440`
 
 ### Передача спецификации и прототипа {#n82}
 
@@ -674,8 +674,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] `SpecificationHandoff.markReady` устанавливает `ready` для перечисленных ранних и пустого статусов. — `MarkView/Models/SpecificationHandoff.swift:82`
-- [Project fact] `PrototypeFeatureWriter.write` создаёт feature и записывает `ready`. — `MarkView/Models/PrototypeFeatureWriter.swift:25`
+- [Project fact] `SpecificationHandoff.markReady` устанавливает `ready` для перечисленных ранних и пустого статусов. — `MarkView/Models/Lifecycle/SpecificationHandoff.swift:82`
+- [Project fact] `PrototypeFeatureWriter.write` создаёт feature и записывает `ready`. — `MarkView/Models/Prototype/PrototypeFeatureWriter.swift:25`
 
 ### Исправления и отмена в UI Studio {#n83}
 
@@ -685,9 +685,9 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] `trackChange` записывает применённое исправление как bug после проверки изменения. — `MarkView/Models/UIStudioSession+Tracking.swift:15`
-- [Project fact] Черновик bug для исправления UI Studio создаётся со статусом `fixed`. — `MarkView/Models/UIStudioTracking.swift:210`
-- [Project fact] `trackUndo` и `switchTracking` отмечают соответствующий bug как `closed`. — `MarkView/Models/UIStudioSession+Tracking.swift:41`
+- [Project fact] `trackChange` записывает применённое исправление как bug после проверки изменения. — `MarkView/Models/UIStudio/UIStudioSession+Tracking.swift:15`
+- [Project fact] Черновик bug для исправления UI Studio создаётся со статусом `fixed`. — `MarkView/Models/UIStudio/UIStudioTracking.swift:210`
+- [Project fact] `trackUndo` и `switchTracking` отмечают соответствующий bug как `closed`. — `MarkView/Models/UIStudio/UIStudioSession+Tracking.swift:41`
 
 ### Синхронизация с GitHub {#n10}
 
@@ -699,7 +699,7 @@ Restart возвращает структурированную feature, ещё 
 #### Evidence
 
 - [Project fact] Решение ограничивает Sync ручным запуском, исключает фоновую синхронизацию, reopening и чтение состояния GitHub обратно в документы. — `docs/features/sync-github-issues-with-feature-bug-status-from/decisions/DEC-006.md:27`
-- [Project fact] Закрытый GitHub issue не открывается повторно; открытый закрывается только если среди связанных записей нет незавершённых. — `MarkView/Models/IssueSync.swift:251`
+- [Project fact] Закрытый GitHub issue не открывается повторно; открытый закрывается только если среди связанных записей нет незавершённых. — `MarkView/Models/Lifecycle/IssueSync.swift:251`
 
 ### Разрыв между журналом и статусом {#n11}
 
@@ -710,9 +710,9 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] syncLifecycle вызывает recordCapture для событий GitHub; recordCapture добавляет запись в LifecycleLog. — `MarkView/Models/FeatureStore.swift:751`
-- [Project fact] Открытие PR сопоставляется событию implementationFinished, а merge в default branch — событию mergedToMain. — `MarkView/Models/LifecycleCapture.swift:113`
-- [Project fact] Кнопка в отчёте Sync отдельно и явно записывает feature status implemented или bug status fixed. — `MarkView/Views/IssueSyncViews.swift:176`
+- [Project fact] syncLifecycle вызывает recordCapture для событий GitHub; recordCapture добавляет запись в LifecycleLog. — `MarkView/Models/Lifecycle/FeatureStore.swift:751`
+- [Project fact] Открытие PR сопоставляется событию implementationFinished, а merge в default branch — событию mergedToMain. — `MarkView/Models/Lifecycle/LifecycleCapture.swift:113`
+- [Project fact] Кнопка в отчёте Sync отдельно и явно записывает feature status implemented или bug status fixed. — `MarkView/Views/Lifecycle/IssueSyncViews.swift:176`
 - [AI inference] Запись события implementationFinished нельзя считать доказательством изменения feature status; открытие PR также не доказывает завершение и проверку работы.
 
 ### Модель переходов {#n3}
@@ -735,7 +735,7 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] При создании feature статус по умолчанию зависит от наличия текста идеи; инструмент создания bug пишет отдельный отчёт. — `MarkView/Models/ProjectAgentTools.swift:61`
+- [Project fact] При создании feature статус по умолчанию зависит от наличия текста идеи; инструмент создания bug пишет отдельный отчёт. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:61`
 - [AI inference] Поиск существующих записей до создания уменьшает дубликаты и позволяет продолжать работу в существующем контексте.
 
 ### Начало реальной работы {#n13}
@@ -747,8 +747,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] startImplementation сначала отправляет цель агенту, а затем вызывает markImplementing и записывает начало жизненного цикла. — `MarkView/Models/WorkspaceManager.swift:4490`
-- [Project fact] fixBugWithAI выставляет fixing до отправки промпта, поэтому порядок отличается от feature. — `MarkView/Models/WorkspaceManager.swift:4520`
+- [Project fact] startImplementation сначала отправляет цель агенту, а затем вызывает markImplementing и записывает начало жизненного цикла. — `MarkView/Models/Workspace/WorkspaceManager.swift:4490`
+- [Project fact] fixBugWithAI выставляет fixing до отправки промпта, поэтому порядок отличается от feature. — `MarkView/Models/Workspace/WorkspaceManager.swift:4520`
 - [AI inference] Для строгого перехода нужен единый подтверждаемый сигнал начала; при неудачной отправке статус не должен ошибочно остаться активным.
 
 ### Завершение и закрытие {#n14}
@@ -761,7 +761,7 @@ Restart возвращает структурированную feature, ещё 
 #### Evidence
 
 - [Project fact] По правилам репозитория app feature или bug проходит PR, проверки и merge; завершение app-изменений включает Release и DMG с merged commit. — `CLAUDE.md:45`
-- [Project fact] Текущий Sync считает archived достаточным для закрытия GitHub issue как completed. — `MarkView/Models/IssueSync.swift:23`
+- [Project fact] Текущий Sync считает archived достаточным для закрытия GitHub issue как completed. — `MarkView/Models/Lifecycle/IssueSync.swift:23`
 - [AI inference] Отмена или архивирование не доказывают реализацию; причину закрытия следует отличать от completed. Для этого потребуется изменить существующее правило Sync.
 - [Open assumption] Нужно согласовать, входят ли Release, подписанный DMG и публикация в условия implemented или verified для этого проекта.
 
@@ -774,7 +774,7 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] Словари feature и bug не содержат отдельного статуса blocked; существующий Sync не выполняет reopening. — `MarkView/Models/FeatureVocabulary.swift:5`
+- [Project fact] Словари feature и bug не содержат отдельного статуса blocked; существующий Sync не выполняет reopening. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:5`
 - [AI inference] Отдельный признак блокировки сохраняет информацию о стадии работы; повторное открытие должно сопровождаться доказательством и причиной.
 - [Open assumption] Политику выбора между reopen существующей записи и созданием новой при регрессе необходимо согласовать.
 
@@ -802,12 +802,12 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] FeatureStore.updateFeature и updateBug предоставляют пути изменения данных, а отдельный UI записывает статусы напрямую через эти методы. — `MarkView/Models/FeatureStore.swift:518`
+- [Project fact] FeatureStore.updateFeature и updateBug предоставляют пути изменения данных, а отдельный UI записывает статусы напрямую через эти методы. — `MarkView/Models/Lifecycle/FeatureStore.swift:518`
 - [AI inference] Проверки только в подсказке AI или только в MCP обходятся другими путями записи; единая серверная проверка делает правила общими.
-- [Project fact] MCP проверяет принадлежность целевого статуса допустимому набору; для некоторых решений по объектам требует by_user, а для bug-дубликата проверяет существование исходного bug и закрывает дубликат. — `MarkView/Models/ProjectToolRunner.swift:402`
-- [Project fact] updateFeature возвращает Void: ошибка записи сохраняется в lastError, тогда как обработчик MCP после вызова сообщает об успешной смене статуса; updateBug возвращает признак успеха. — `MarkView/Models/FeatureStore.swift:519`
-- [Project fact] Наблюдатель сравнивает последовательные снимки features, включая изменения через редактор, git и AI terminal, и записывает отдельные события жизненного цикла; новые или переименованные записи он пропускает. — `MarkView/Models/FeatureStore.swift:672`
-- [Project fact] LifecycleLog хранит дополняемый JSON-lines журнал локально в Application Support; запись в файл выполняется асинхронно, а ошибка сохранения сообщается отдельно. — `MarkView/Models/LifecycleLog.swift:3`
+- [Project fact] MCP проверяет принадлежность целевого статуса допустимому набору; для некоторых решений по объектам требует by_user, а для bug-дубликата проверяет существование исходного bug и закрывает дубликат. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:402`
+- [Project fact] updateFeature возвращает Void: ошибка записи сохраняется в lastError, тогда как обработчик MCP после вызова сообщает об успешной смене статуса; updateBug возвращает признак успеха. — `MarkView/Models/Lifecycle/FeatureStore.swift:519`
+- [Project fact] Наблюдатель сравнивает последовательные снимки features, включая изменения через редактор, git и AI terminal, и записывает отдельные события жизненного цикла; новые или переименованные записи он пропускает. — `MarkView/Models/Lifecycle/FeatureStore.swift:672`
+- [Project fact] LifecycleLog хранит дополняемый JSON-lines журнал локально в Application Support; запись в файл выполняется асинхронно, а ошибка сохранения сообщается отдельно. — `MarkView/Models/Lifecycle/LifecycleLog.swift:3`
 - [AI inference] Единая проверка ожидаемого состояния, повторов и результатов сохранения уменьшит риск потерянных изменений и ложного подтверждения, но потребует согласованного способа обработки конкурентных записей и частичных сбоев.
 - [Open assumption] Состав допустимых переходов, полномочия инициаторов и свидетельства, достаточные для автоматического перехода или закрытия, ещё необходимо согласовать.
 
@@ -831,15 +831,15 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] MCP проверяет допустимость целевого статуса feature и bug, а для некоторых статусов объектов требует признак решения пользователя. — `MarkView/Models/ProjectToolRunner.swift:402`
+- [Project fact] MCP проверяет допустимость целевого статуса feature и bug, а для некоторых статусов объектов требует признак решения пользователя. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:402`
 - [AI inference] Проверка принадлежности значения словарю не задаёт допустимость конкретного перехода из текущего состояния; для неё нужна отдельная таблица переходов.
 - [Open assumption] Таблицы переходов, полномочия и достаточные условия ещё должны быть согласованы.
-- [Project fact] Противоречие текущей реализации: проверки и запись совмещены в вызывающих операциях. Например, шаг ready проверяет условия и сразу вызывает updateFeature; отдельного возвращаемого решения без записи в этом пути нет. — `MarkView/Models/ControlToolRunner+Flow.swift:337`
-- [Project fact] Условия для ready различаются между интерфейсами: шаг ready требует завершения Explore, отсутствия открытых вопросов и findings и наличия активных требований, тогда как markview_set_status записывает разрешённый статус feature непосредственно, без этих проверок. — `MarkView/Models/ProjectToolRunner.swift:424`
-- [Project fact] Существующий расчёт готовности проверяет также утверждение требований, наличие критериев приёмки, принятие решений и, при наличии плана, покрытие требований. Шаг ready не проверяет все эти условия напрямую. — `MarkView/Models/FeatureModels.swift:455`
-- [Project fact] isPastExplore определяется исключением только idea, exploring и draft; поэтому любое другое значение статуса считается прошедшим Explore, в том числе неизвестное значение. — `MarkView/Models/FeatureModels.swift:280`
-- [Project fact] Отклонение применённого решения может создать finding о противоречии в связанных активных требованиях. При отделении решения от записи движку понадобится передавать вызывающему коду сведения о таких необходимых сопутствующих действиях. — `MarkView/Models/FeatureStore.swift:502`
-- [Project fact] updateFeature возвращает Void и сохраняет ошибку в lastError, если YAML нельзя безопасно переписать или запись не удалась; вызывающий setStatus при этом формирует сообщение об успешном изменении статуса. — `MarkView/Models/FeatureStore.swift:519`
+- [Project fact] Противоречие текущей реализации: проверки и запись совмещены в вызывающих операциях. Например, шаг ready проверяет условия и сразу вызывает updateFeature; отдельного возвращаемого решения без записи в этом пути нет. — `MarkView/Models/AgentTools/ControlToolRunner+Flow.swift:337`
+- [Project fact] Условия для ready различаются между интерфейсами: шаг ready требует завершения Explore, отсутствия открытых вопросов и findings и наличия активных требований, тогда как markview_set_status записывает разрешённый статус feature непосредственно, без этих проверок. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:424`
+- [Project fact] Существующий расчёт готовности проверяет также утверждение требований, наличие критериев приёмки, принятие решений и, при наличии плана, покрытие требований. Шаг ready не проверяет все эти условия напрямую. — `MarkView/Models/Lifecycle/FeatureModels.swift:455`
+- [Project fact] isPastExplore определяется исключением только idea, exploring и draft; поэтому любое другое значение статуса считается прошедшим Explore, в том числе неизвестное значение. — `MarkView/Models/Lifecycle/FeatureModels.swift:280`
+- [Project fact] Отклонение применённого решения может создать finding о противоречии в связанных активных требованиях. При отделении решения от записи движку понадобится передавать вызывающему коду сведения о таких необходимых сопутствующих действиях. — `MarkView/Models/Lifecycle/FeatureStore.swift:502`
+- [Project fact] updateFeature возвращает Void и сохраняет ошибку в lastError, если YAML нельзя безопасно переписать или запись не удалась; вызывающий setStatus при этом формирует сообщение об успешном изменении статуса. — `MarkView/Models/Lifecycle/FeatureStore.swift:519`
 
 ### Контракт вычисления {#n92}
 
@@ -850,7 +850,7 @@ Restart возвращает структурированную feature, ещё 
 #### Evidence
 
 - [AI inference] Чистое вычисление отделяет правила от интерфейсов и позволяет заранее объяснить результат; проверка снимка при применении предотвращает использование устаревшего решения.
-- [Project fact] Шаг ready сейчас совмещает проверку условий и вызов updateFeature. — `MarkView/Models/ControlToolRunner+Flow.swift:338`
+- [Project fact] Шаг ready сейчас совмещает проверку условий и вызов updateFeature. — `MarkView/Models/AgentTools/ControlToolRunner+Flow.swift:338`
 
 ### Выбор и приоритет правила {#n93}
 
@@ -860,7 +860,7 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] Для bug установка duplicate_of принудительно выбирает closed и предварительно проверяет, что исходный bug существует и не совпадает с текущим. — `MarkView/Models/ProjectToolRunner.swift:403`
+- [Project fact] Для bug установка duplicate_of принудительно выбирает closed и предварительно проверяет, что исходный bug существует и не совпадает с текущим. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:403`
 - [AI inference] Явное разрешение совпадений и обнаружение конфликтов предотвращают зависимость решения от порядка перебора таблицы.
 - [Open assumption] Набор событий, допустимость повторов и порядок разрешения специальных случаев ещё нужно согласовать.
 
@@ -872,8 +872,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] readiness вычисляется как округлённое среднее долей выполненных условий; условия с нулевым total исключаются из среднего. — `MarkView/Models/FeatureModels.swift:481`
-- [Project fact] Шаг ready проверяет отсутствие всех открытых вопросов и findings, а расчёт готовности выделяет блокирующие вопросы и findings высокой серьёзности, среди других условий. — `MarkView/Models/ControlToolRunner+Flow.swift:338`
+- [Project fact] readiness вычисляется как округлённое среднее долей выполненных условий; условия с нулевым total исключаются из среднего. — `MarkView/Models/Lifecycle/FeatureModels.swift:481`
+- [Project fact] Шаг ready проверяет отсутствие всех открытых вопросов и findings, а расчёт готовности выделяет блокирующие вопросы и findings высокой серьёзности, среди других условий. — `MarkView/Models/AgentTools/ControlToolRunner+Flow.swift:338`
 - [Open assumption] Какие из этих условий являются обязательными для ready, ещё требуется согласовать.
 
 ### Точная семантика условий {#n100}
@@ -884,7 +884,7 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] Для question закрыты answered и deferred; для finding — resolved, accepted-risk и dismissed. — `MarkView/Models/FeatureModels.swift:137`
+- [Project fact] Для question закрыты answered и deferred; для finding — resolved, accepted-risk и dismissed. — `MarkView/Models/Lifecycle/FeatureModels.swift:137`
 - [Project fact] Тест фиксирует случай, когда discoveryDone истинно после ответа на все вопросы, но условие Feature understood ещё не выполнено, поскольку ожидаются новые вопросы. — `tools/tests/FeatureDiscoveryTests.swift:47`
 - [Open assumption] Допустимость deferred и принятых рисков для каждого перехода должна быть определена правилами.
 
@@ -896,8 +896,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] Для статусов объектов approved, accepted, rejected, answered и superseded требуется by_user; стадии реализации feature исключены из списка статусов, устанавливаемых агентом. — `MarkView/Models/ProjectAgentTools.swift:389`
-- [Project fact] requirePerson проверяет значение by_user в аргументах вызова. — `MarkView/Models/ControlToolRunner+Flow.swift:112`
+- [Project fact] Для статусов объектов approved, accepted, rejected, answered и superseded требуется by_user; стадии реализации feature исключены из списка статусов, устанавливаемых агентом. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:389`
+- [Project fact] requirePerson проверяет значение by_user в аргументах вызова. — `MarkView/Models/AgentTools/ControlToolRunner+Flow.swift:112`
 - [AI inference] Булево значение в аргументах не удостоверяет личность или содержание решения человека.
 - [Open assumption] Источник доверенного подтверждения и роли инициаторов необходимо определить.
 
@@ -909,8 +909,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] При пустом статусе feature использует idea или draft в зависимости от структуры, а bug — open; bug дополнительно хранит признак наличия статуса. — `MarkView/Models/FeatureModels.swift:265`
-- [Project fact] isPastExplore исключает только idea, exploring и draft, поэтому и неизвестный непустой статус проходит эту проверку. — `MarkView/Models/FeatureModels.swift:280`
+- [Project fact] При пустом статусе feature использует idea или draft в зависимости от структуры, а bug — open; bug дополнительно хранит признак наличия статуса. — `MarkView/Models/Lifecycle/FeatureModels.swift:265`
+- [Project fact] isPastExplore исключает только idea, exploring и draft, поэтому и неизвестный непустой статус проходит эту проверку. — `MarkView/Models/Lifecycle/FeatureModels.swift:280`
 - [AI inference] Различение отсутствующего и неизвестного значения позволяет не принимать опечатку за пройденный этап и не терять сведения о старых записях.
 
 ### План сопутствующих действий {#n97}
@@ -922,8 +922,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] finishExplore утверждает ожидающие требования и затем переводит feature в review, если Explore ещё не завершён. — `MarkView/Models/FeatureStore.swift:480`
-- [Project fact] rejectDecision меняет статус решения и при наличии применённого решения и связанных активных требований создаёт finding о противоречии. — `MarkView/Models/FeatureStore.swift:504`
+- [Project fact] finishExplore утверждает ожидающие требования и затем переводит feature в review, если Explore ещё не завершён. — `MarkView/Models/Lifecycle/FeatureStore.swift:480`
+- [Project fact] rejectDecision меняет статус решения и при наличии применённого решения и связанных активных требований создаёт finding о противоречии. — `MarkView/Models/Lifecycle/FeatureStore.swift:504`
 - [AI inference] Явный план действий позволяет вызывающему коду увидеть состав изменений и не считать частичную запись полным успехом.
 
 ### Граница исполнения плана {#n101}
@@ -934,8 +934,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] updateMany пропускает объекты с неподходящим front matter и игнорирует ошибки отдельных записей через try?. — `MarkView/Models/FeatureStore.swift:469`
-- [Project fact] Вспомогательный write использует атомарную запись текста отдельного файла. — `MarkView/Models/FeatureStore.swift:219`
+- [Project fact] updateMany пропускает объекты с неподходящим front matter и игнорирует ошибки отдельных записей через try?. — `MarkView/Models/Lifecycle/FeatureStore.swift:469`
+- [Project fact] Вспомогательный write использует атомарную запись текста отдельного файла. — `MarkView/Models/Lifecycle/FeatureStore.swift:219`
 - [AI inference] При нескольких файлах атомарность каждой записи отдельно не гарантирует атомарность всей операции.
 
 ### Структура ответа движка {#n98}
@@ -946,7 +946,7 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] setStatus после вызова updateFeature возвращает сообщение об успехе, тогда как updateFeature сообщает об ошибках через lastError и не возвращает признак записи. — `MarkView/Models/ProjectToolRunner.swift:432`
+- [Project fact] setStatus после вызова updateFeature возвращает сообщение об успехе, тогда как updateFeature сообщает об ошибках через lastError и не возвращает признак записи. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:432`
 - [AI inference] Раздельные результаты вычисления и применения делают отказ проверяемым разными интерфейсами и исключают ложное подтверждение сохранения.
 
 ### Версия и совместимость правил {#n99}
@@ -957,8 +957,8 @@ Restart возвращает структурированную feature, ещё 
 
 #### Evidence
 
-- [Project fact] Issues нормализует пробелы, регистр и подчёркивания и признаёт дополнительные статусы feature, включая done, rejected и cancelled; словарь feature содержит другой набор значений. — `MarkView/Models/IssueListing.swift:28`
-- [Project fact] Словарь feature и bug определён отдельно от правил отображения Issues. — `MarkView/Models/FeatureVocabulary.swift:4`
+- [Project fact] Issues нормализует пробелы, регистр и подчёркивания и признаёт дополнительные статусы feature, включая done, rejected и cancelled; словарь feature содержит другой набор значений. — `MarkView/Models/Lifecycle/IssueListing.swift:28`
+- [Project fact] Словарь feature и bug определён отдельно от правил отображения Issues. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:4`
 - [Open assumption] Сопоставление старых значений с состояниями движка и политика изменения версий правил ещё не согласованы.
 
 ### Проверка самого движка {#n102}
@@ -980,8 +980,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Интерфейс bug вызывает updateBug с непосредственной установкой status, а MCP отдельно устанавливает статусы через FeatureStore. — `MarkView/Views/FeaturePanelView.swift:826`
-- [Project fact] Наблюдатель сравнивает снимки feature и пропускает записи без предыдущего снимка, в том числе новые и переименованные. — `MarkView/Models/FeatureStore.swift:679`
+- [Project fact] Интерфейс bug вызывает updateBug с непосредственной установкой status, а MCP отдельно устанавливает статусы через FeatureStore. — `MarkView/Views/Lifecycle/FeaturePanelView.swift:826`
+- [Project fact] Наблюдатель сравнивает снимки feature и пропускает записи без предыдущего снимка, в том числе новые и переименованные. — `MarkView/Models/Lifecycle/FeatureStore.swift:679`
 - [AI inference] Единственный адаптер MCP не охватит UI и другие существующие пути записи.
 
 ### Чтение и идентификация {#n87}
@@ -992,8 +992,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] IssueFacts различает feature и bug, использует slug или ключ bug и сохраняет пустую строку, если статус отсутствует. — `MarkView/Models/IssueListing.swift:7`
-- [Project fact] Фильтр нормализует написание статусов и считает отсутствующий или неизвестный статус открытым. — `MarkView/Models/IssueListing.swift:26`
+- [Project fact] IssueFacts различает feature и bug, использует slug или ключ bug и сохраняет пустую строку, если статус отсутствует. — `MarkView/Models/Lifecycle/IssueListing.swift:7`
+- [Project fact] Фильтр нормализует написание статусов и считает отсутствующий или неизвестный статус открытым. — `MarkView/Models/Lifecycle/IssueListing.swift:26`
 - [AI inference] Правила переходов должны явно обрабатывать неизвестный статус, поскольку классификация для фильтра не доказывает допустимость перехода.
 
 ### Хранилище и конкурентная запись {#n88}
@@ -1004,8 +1004,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] FeatureStore атомарно записывает текст файла и отказывает в перезаписи front matter, который нельзя безопасно восстановить. — `MarkView/Models/FeatureStore.swift:219`
-- [Project fact] updateFeature возвращает Void и сообщает об ошибке через lastError; updateBug возвращает Bool. — `MarkView/Models/FeatureStore.swift:519`
+- [Project fact] FeatureStore атомарно записывает текст файла и отказывает в перезаписи front matter, который нельзя безопасно восстановить. — `MarkView/Models/Lifecycle/FeatureStore.swift:219`
+- [Project fact] updateFeature возвращает Void и сообщает об ошибке через lastError; updateBug возвращает Bool. — `MarkView/Models/Lifecycle/FeatureStore.swift:519`
 - [AI inference] Атомарная замена файла сама по себе не объединяет сравнение версии и запись в единую операцию и не защищает от внешних редакторов, не участвующих в координации.
 
 ### Результат команды {#n89}
@@ -1016,7 +1016,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Обработчик MCP для bug проверяет результат updateBug, а обработчик статуса feature сообщает об успехе после вызова updateFeature без проверки результата записи. — `MarkView/Models/ProjectToolRunner.swift:402`
+- [Project fact] Обработчик MCP для bug проверяет результат updateBug, а обработчик статуса feature сообщает об успехе после вызова updateFeature без проверки результата записи. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:402`
 - [AI inference] Общий тип результата устранит неоднозначность между отказом правила, конфликтом и ошибкой записи и позволит вызывающему коду реагировать на каждый случай.
 
 ### Учёт команд и восстановление {#n90}
@@ -1028,7 +1028,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] LifecycleLog добавляет событие в память, затем асинхронно записывает его в локальный файл; ошибка записи появляется отдельно. — `MarkView/Models/LifecycleLog.swift:73`
+- [Project fact] LifecycleLog добавляет событие в память, затем асинхронно записывает его в локальный файл; ошибка записи появляется отдельно. — `MarkView/Models/Lifecycle/LifecycleLog.swift:73`
 - [AI inference] Существующий журнал не связывает транзакционно запись Markdown с фиксацией результата, поэтому одного наличия события в памяти недостаточно для подтверждения восстановимого перехода.
 - [Open assumption] Место хранения ключей повторов и протокол восстановления после сбоя необходимо выбрать и согласовать.
 
@@ -1041,8 +1041,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] FeatureStore периодически проверяет изменения файлов и перечитывает features и bugs; наблюдатель жизненного цикла анализирует снимки features. — `MarkView/Models/FeatureStore.swift:88`
-- [Project fact] Наблюдатель пропускает новые и переименованные feature без предыдущего снимка. — `MarkView/Models/FeatureStore.swift:679`
+- [Project fact] FeatureStore периодически проверяет изменения файлов и перечитывает features и bugs; наблюдатель жизненного цикла анализирует снимки features. — `MarkView/Models/Lifecycle/FeatureStore.swift:88`
+- [Project fact] Наблюдатель пропускает новые и переименованные feature без предыдущего снимка. — `MarkView/Models/Lifecycle/FeatureStore.swift:679`
 - [AI inference] Для строгой обработки внешних изменений нужны отдельные правила сверки для обоих типов issue, включая отсутствие предыдущего снимка.
 
 ### События и свидетельства {#n17}
@@ -1054,8 +1054,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Текущее отслеживание GitHub и git ограничено features с событием implementationStarted; предыдущая история не восстанавливается, список связанных номеров ограничен 40. — `MarkView/Models/FeatureStore.swift:740`
-- [Project fact] Текущий локальный сбор связывает commit с feature по упоминанию папки или номера issue в сообщении. — `MarkView/Models/FeatureStore.swift:810`
+- [Project fact] Текущее отслеживание GitHub и git ограничено features с событием implementationStarted; предыдущая история не восстанавливается, список связанных номеров ограничен 40. — `MarkView/Models/Lifecycle/FeatureStore.swift:740`
+- [Project fact] Текущий локальный сбор связывает commit с feature по упоминанию папки или номера issue в сообщении. — `MarkView/Models/Lifecycle/FeatureStore.swift:810`
 - [AI inference] Упоминание в сообщении commit и открытие PR – недостаточные по отдельности свидетельства завершения всех требований.
 
 ### Сверка и надёжность {#n18}
@@ -1067,7 +1067,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Сбор lifecycle GitHub запускается при опросе интеграции и не работает при её отключении; автоматические события дедуплицируются по стадии и примечанию. — `MarkView/Models/FeatureStore.swift:751`
+- [Project fact] Сбор lifecycle GitHub запускается при опросе интеграции и не работает при её отключении; автоматические события дедуплицируются по стадии и примечанию. — `MarkView/Models/Lifecycle/FeatureStore.swift:751`
 - [AI inference] Фоновая сверка восполняет пропущенные события, а проверка версии защищает от перезаписи действий человека или другой сессии.
 
 ### Связь с GitHub issues {#n19}
@@ -1101,8 +1101,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] MarkView регистрирует проектный MCP для поддерживаемых агентов и предусматривает Skill с командой --project-call для случаев, когда MCP недоступен. — `MarkView/Models/AgentBrowserRegistration.swift:31`
-- [Project fact] markview_guide описывает features, bugs, поля, статусы и workflow. — `MarkView/Models/ProjectAgentTools.swift:44`
+- [Project fact] MarkView регистрирует проектный MCP для поддерживаемых агентов и предусматривает Skill с командой --project-call для случаев, когда MCP недоступен. — `MarkView/Models/Browser/AgentBrowserRegistration.swift:31`
+- [Project fact] markview_guide описывает features, bugs, поля, статусы и workflow. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:44`
 - [AI inference] Само наличие зарегистрированного сервера или Skill не гарантирует, что агент прочитает правила и применит их в каждой сессии.
 
 ### Привязка работы к issue {#n21}
@@ -1113,7 +1113,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Проектный MCP предоставляет списки и полное чтение features и bugs. — `MarkView/Models/ProjectAgentTools.swift:47`
+- [Project fact] Проектный MCP предоставляет списки и полное чтение features и bugs. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:47`
 - [AI inference] Явная привязка сессии к стабильному ID позволяет отличить работу над issue от простого просмотра проекта.
 
 ### Обязанности агента {#n22}
@@ -1124,8 +1124,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Существующий guide ставит инструкции проекта выше стандартного процесса и требует проверять критерии приёмки. — `MarkView/Models/ProjectAgentTools.swift:274`
-- [Project fact] Для решений человека, включая утверждение требований, инструменты предусматривают by_user. — `MarkView/Models/ProjectAgentTools.swift:90`
+- [Project fact] Существующий guide ставит инструкции проекта выше стандартного процесса и требует проверять критерии приёмки. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:274`
+- [Project fact] Для решений человека, включая утверждение требований, инструменты предусматривают by_user. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:90`
 - [AI inference] Сообщение агента является свидетельством события, но не заменяет проверку результатов GitHub, CI и ревизии.
 
 ### Видимость и ограничения {#n23}
@@ -1136,8 +1136,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Проектные инструменты привязаны к проекту окна, в котором работает агент; control-сервер регистрируется отдельно для управляющего агента. — `MarkView/Models/ProjectAgentTools.swift:3`
-- [Project fact] Агенты внутри терминалов MarkView не получают управляющие инструменты запуска других агентов. — `MarkView/Models/ControlAgentTools.swift:9`
+- [Project fact] Проектные инструменты привязаны к проекту окна, в котором работает агент; control-сервер регистрируется отдельно для управляющего агента. — `MarkView/Models/AgentTools/ProjectAgentTools.swift:3`
+- [Project fact] Агенты внутри терминалов MarkView не получают управляющие инструменты запуска других агентов. — `MarkView/Models/AgentTools/ControlAgentTools.swift:9`
 - [AI inference] Наблюдаемость ограничена подключёнными источниками и не распространяется автоматически на произвольную внешнюю сессию.
 
 ### Внедрение и проверка {#n6}
@@ -1161,7 +1161,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Feature и bug имеют разные словари, а отображение Issues и синхронизация GitHub используют собственные множества завершённых состояний. — `MarkView/Models/IssueListing.swift:34`
+- [Project fact] Feature и bug имеют разные словари, а отображение Issues и синхронизация GitHub используют собственные множества завершённых состояний. — `MarkView/Models/Lifecycle/IssueListing.swift:34`
 - [Open assumption] Порог завершения и полномочия человека и автоматических источников ещё не определены однозначно.
 
 ### Внедрять по этапам {#n25}
@@ -1175,12 +1175,12 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] В проекте уже есть журнал жизненного цикла и сбор некоторых событий git и GitHub, которые можно оценить как основу наблюдения. — `MarkView/Models/FeatureStore.swift:651`
+- [Project fact] В проекте уже есть журнал жизненного цикла и сбор некоторых событий git и GitHub, которые можно оценить как основу наблюдения. — `MarkView/Models/Lifecycle/FeatureStore.swift:651`
 - [AI inference] Режим наблюдения позволяет измерить ошибочные срабатывания до автоматического изменения статусов и GitHub issues.
-- [Project fact] Уточнение к последовательности: сбор событий PR, review и CI уже выполняется при опросе GitHub, а история локального git проверяется примерно раз в минуту. Это сбор событий для журнала; сам по себе он не устанавливает строгие переходы статусов. — `MarkView/Models/FeatureStore.swift:759`
-- [Project fact] Охват существующего наблюдения ограничен: git и GitHub отслеживаются только для feature с событием implementationStarted, начиная с его времени; число связанных issues ограничено 40. При первом чтении списка создаётся базовый снимок без восстановления пропущенных переходов. — `MarkView/Models/FeatureStore.swift:740`
+- [Project fact] Уточнение к последовательности: сбор событий PR, review и CI уже выполняется при опросе GitHub, а история локального git проверяется примерно раз в минуту. Это сбор событий для журнала; сам по себе он не устанавливает строгие переходы статусов. — `MarkView/Models/Lifecycle/FeatureStore.swift:759`
+- [Project fact] Охват существующего наблюдения ограничен: git и GitHub отслеживаются только для feature с событием implementationStarted, начиная с его времени; число связанных issues ограничено 40. При первом чтении списка создаётся базовый снимок без восстановления пропущенных переходов. — `MarkView/Models/Lifecycle/FeatureStore.swift:740`
 - [Project fact] Уточнение к отложенному включению закрытия: уже существует запускаемая пользователем синхронизация, которая без предварительного просмотра закрывает открытый GitHub issue, если все связанные элементы завершены. Закрытые issues она не открывает повторно. — `docs/architecture/modules/feature-workflow.md:404`
-- [Project fact] Существующий журнал допускает только добавление записей; повреждённые или нераспознаваемые строки при чтении пропускаются. Событие сначала появляется в памяти, а ошибка последующей записи на диск сообщается отдельно. — `MarkView/Models/LifecycleLog.swift:3`
+- [Project fact] Существующий журнал допускает только добавление записей; повреждённые или нераспознаваемые строки при чтении пропускаются. Событие сначала появляется в памяти, а ошибка последующей записи на диск сообщается отдельно. — `MarkView/Models/Lifecycle/LifecycleLog.swift:3`
 - [Project fact] Для поэтапного внедрения есть отдельные тесты правил синхронизации: они проверяют, что закрытый issue остаётся закрытым, а также обработку ошибок доступа и предварительную проверку прав. — `tools/tests/IssueSyncTests.swift:100`
 - [AI inference] Перед расширением автоматизации полезно отдельно учитывать текущую ручную синхронизацию: её реальные закрытия и будущие предлагаемые переходы в режиме наблюдения следует различать при анализе расхождений.
 
@@ -1193,8 +1193,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Существуют отдельный журнал событий и отдельный механизм синхронизации документированных статусов с GitHub issues. — `MarkView/Models/LifecycleLog.swift:3`
-- [Project fact] Правила синхронизации реализованы отдельно от выполнения запуска. — `MarkView/Models/IssueSync.swift:3`
+- [Project fact] Существуют отдельный журнал событий и отдельный механизм синхронизации документированных статусов с GitHub issues. — `MarkView/Models/Lifecycle/LifecycleLog.swift:3`
+- [Project fact] Правила синхронизации реализованы отдельно от выполнения запуска. — `MarkView/Models/Lifecycle/IssueSync.swift:3`
 - [AI inference] Матрица точек записи и контрольный снимок нужны, чтобы отличать существующие эффекты от поведения новой автоматизации.
 
 ### Ввести наблюдение за предложениями {#n29}
@@ -1206,8 +1206,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Наблюдатель сравнивает свежий список со снимком и пропускает новые или переименованные элементы без предыдущего снимка. — `MarkView/Models/FeatureStore.swift:679`
-- [Project fact] Автоматическая дедупликация захвата сейчас сопоставляет стадию и текст note. — `MarkView/Models/FeatureStore.swift:750`
+- [Project fact] Наблюдатель сравнивает свежий список со снимком и пропускает новые или переименованные элементы без предыдущего снимка. — `MarkView/Models/Lifecycle/FeatureStore.swift:679`
+- [Project fact] Автоматическая дедупликация захвата сейчас сопоставляет стадию и текст note. — `MarkView/Models/Lifecycle/FeatureStore.swift:750`
 - [AI inference] Отдельные записи предложений и результатов дадут возможность оценить пропуски и ложные срабатывания до включения автоматических изменений.
 
 ### Вынести переходы в сервис {#n30}
@@ -1220,8 +1220,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] FeatureStore перечитывает объект с диска и отказывается переписывать YAML, если представление не является lossless; отдельные методы обновляют feature и bug. — `MarkView/Models/FeatureStore.swift:311`
-- [Project fact] Журнал добавляет событие в память до асинхронной записи на диск, ошибка которой сообщается позднее. — `MarkView/Models/LifecycleLog.swift:79`
+- [Project fact] FeatureStore перечитывает объект с диска и отказывается переписывать YAML, если представление не является lossless; отдельные методы обновляют feature и bug. — `MarkView/Models/Lifecycle/FeatureStore.swift:311`
+- [Project fact] Журнал добавляет событие в память до асинхронной записи на диск, ошибка которой сообщается позднее. — `MarkView/Models/Lifecycle/LifecycleLog.swift:79`
 - [AI inference] Проверка ожидаемого статуса и подтверждение сохранения снижают риск затереть параллельное изменение и ошибочно объявить переход успешным.
 
 ### Граница сервиса {#n103}
@@ -1232,7 +1232,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] FeatureStore работает на MainActor и содержит отдельные операции записи feature и bug. — `MarkView/Models/FeatureStore.swift:7`
+- [Project fact] FeatureStore работает на MainActor и содержит отдельные операции записи feature и bug. — `MarkView/Models/Lifecycle/FeatureStore.swift:7`
 - [AI inference] Единая граница позволяет вызывающим сторонам использовать одинаковую семантику, не смешивая вычисление правил с файловым вводом-выводом.
 
 ### Результат для вызывающего кода {#n104}
@@ -1243,8 +1243,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] updateFeature не возвращает результат и сообщает об ошибке через lastError; MCP setStatus после его вызова отвечает, что статус изменён. — `MarkView/Models/FeatureStore.swift:519`
-- [Project fact] Для bug updateBug возвращает Bool, а MCP проверяет его перед ответом об успехе. — `MarkView/Models/ProjectToolRunner.swift:417`
+- [Project fact] updateFeature не возвращает результат и сообщает об ошибке через lastError; MCP setStatus после его вызова отвечает, что статус изменён. — `MarkView/Models/Lifecycle/FeatureStore.swift:519`
+- [Project fact] Для bug updateBug возвращает Bool, а MCP проверяет его перед ответом об успехе. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:417`
 - [AI inference] Типизированный результат устраняет неоднозначность общего lastError и позволяет клиентам корректно показывать конфликт или отказ.
 
 ### Исполнитель и сохранение {#n105}
@@ -1255,8 +1255,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] updateFeature при неудачном чтении использует adoptedOverview, тогда как updateBug возвращает ошибку чтения. — `MarkView/Models/FeatureStore.swift:519`
-- [Project fact] FrontMatter помечает представление как небезопасное для записи, если парсер отбросил данные; join заново формирует front matter и тело. — `MarkView/Models/FrontMatter.swift:50`
+- [Project fact] updateFeature при неудачном чтении использует adoptedOverview, тогда как updateBug возвращает ошибку чтения. — `MarkView/Models/Lifecycle/FeatureStore.swift:519`
+- [Project fact] FrontMatter помечает представление как небезопасное для записи, если парсер отбросил данные; join заново формирует front matter и тело. — `MarkView/Models/Workspace/FrontMatter.swift:50`
 - [AI inference] Для перехода существующей записи не следует незаметно заменять ошибку чтения созданием документа.
 
 ### Конкурентная запись {#n106}
@@ -1267,7 +1267,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] FeatureStore записывает текст с atomically: true после отдельного чтения и преобразования содержимого. — `MarkView/Models/FeatureStore.swift:219`
+- [Project fact] FeatureStore записывает текст с atomically: true после отдельного чтения и преобразования содержимого. — `MarkView/Models/Lifecycle/FeatureStore.swift:219`
 - [AI inference] Атомарная замена файла сама по себе не делает последовательность чтение – проверка – запись атомарной и не защищает от внешнего процесса, не участвующего в протоколе блокировки.
 
 ### Порядок исполнения {#n107}
@@ -1278,7 +1278,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] После записи FeatureStore перечитывает данные через reloadSync; изменение списка features запускает observeLifecycle. — `MarkView/Models/FeatureStore.swift:259`
+- [Project fact] После записи FeatureStore перечитывает данные через reloadSync; изменение списка features запускает observeLifecycle. — `MarkView/Models/Lifecycle/FeatureStore.swift:259`
 - [AI inference] Явный порядок позволяет не объявлять переход выполненным до сохранения и не регистрировать его повторно через наблюдатель.
 
 ### Фактический и вычисленный статус {#n108}
@@ -1289,7 +1289,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Feature.status подставляет idea для структурированной feature и draft для неструктурированной, если поле status пусто. — `MarkView/Models/FeatureModels.swift:265`
+- [Project fact] Feature.status подставляет idea для структурированной feature и draft для неструктурированной, если поле status пусто. — `MarkView/Models/Lifecycle/FeatureModels.swift:265`
 - [Open assumption] Согласовано ли считать подставленный статус фактическим исходным состоянием при переходе, пока не установлено.
 
 ### Подтверждение журнала {#n109}
@@ -1300,7 +1300,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] LifecycleLog сначала добавляет событие в память и возвращает его, а запись в файл выполняет асинхронно; ошибка записи появляется позднее в lastError. — `MarkView/Models/LifecycleLog.swift:64`
+- [Project fact] LifecycleLog сначала добавляет событие в память и возвращает его, а запись в файл выполняет асинхронно; ошибка записи появляется позднее в lastError. — `MarkView/Models/Lifecycle/LifecycleLog.swift:64`
 - [AI inference] Два отдельных файла не дают общей транзакции: между сохранением статуса и записью журнала возможен сбой.
 
 ### Потоки и обновление UI {#n110}
@@ -1312,7 +1312,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 #### Evidence
 
 - [Project fact] CLAUDE.md требует выполнять изменения состояния UI на MainActor, а файловую работу — вне главного потока. — `CLAUDE.md`
-- [Project fact] FeatureStore отбрасывает фоновую загрузку, если после её начала изменилась generation; reloadSync увеличивает generation. — `MarkView/Models/FeatureStore.swift:121`
+- [Project fact] FeatureStore отбрасывает фоновую загрузку, если после её начала изменилась generation; reloadSync увеличивает generation. — `MarkView/Models/Lifecycle/FeatureStore.swift:121`
 
 ### Проверка контракта сервиса {#n111}
 
@@ -1336,9 +1336,9 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] MCP отдельно обновляет статус feature и bug; ответ для feature сейчас формируется после вызова updateFeature без проверки результата записи. — `MarkView/Models/ProjectToolRunner.swift:424`
-- [Project fact] UI Issues напрямую устанавливает статусы implemented и fixed, а панель feature также напрямую изменяет статус bug. — `MarkView/Views/IssueSyncViews.swift:180`
-- [Project fact] Внутренний сценарий AI вызывает markImplementing после создания issues. — `MarkView/Models/FeatureAI.swift:1815`
+- [Project fact] MCP отдельно обновляет статус feature и bug; ответ для feature сейчас формируется после вызова updateFeature без проверки результата записи. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:424`
+- [Project fact] UI Issues напрямую устанавливает статусы implemented и fixed, а панель feature также напрямую изменяет статус bug. — `MarkView/Views/Lifecycle/IssueSyncViews.swift:180`
+- [Project fact] Внутренний сценарий AI вызывает markImplementing после создания issues. — `MarkView/Models/Lifecycle/FeatureAI.swift:1815`
 - [AI inference] Внешний редактор может менять Markdown в обход приложения, поэтому строгая проверка доступна только для управляемых приложением операций.
 
 ### Меню и действия Issues {#n112}
@@ -1349,9 +1349,9 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Навигатор и панель feature вызывают updateFeature и updateBug для выбранного статуса; Issues напрямую устанавливает implemented или fixed. — `MarkView/Views/FeatureNavigatorView.swift:599`
-- [Project fact] Панель bug и действие Issues записывают статус напрямую. — `MarkView/Views/FeaturePanelView.swift:826`
-- [Project fact] Действие Issues устанавливает implemented или fixed. — `MarkView/Views/IssueSyncViews.swift:180`
+- [Project fact] Навигатор и панель feature вызывают updateFeature и updateBug для выбранного статуса; Issues напрямую устанавливает implemented или fixed. — `MarkView/Views/Lifecycle/FeatureNavigatorView.swift:599`
+- [Project fact] Панель bug и действие Issues записывают статус напрямую. — `MarkView/Views/Lifecycle/FeaturePanelView.swift:826`
+- [Project fact] Действие Issues устанавливает implemented или fixed. — `MarkView/Views/Lifecycle/IssueSyncViews.swift:180`
 - [AI inference] Эти UI-вызовы нужно заменить вызовами сервиса с обработкой отказов и ошибок.
 
 ### Команды MCP для статуса {#n113}
@@ -1362,7 +1362,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] setBugStatus проверяет duplicate_of и результат updateBug; setStatus отдельно обрабатывает саму feature и её объекты, но после updateFeature сообщает об успехе без проверки записи. — `MarkView/Models/ProjectToolRunner.swift:403`
+- [Project fact] setBugStatus проверяет duplicate_of и результат updateBug; setStatus отдельно обрабатывает саму feature и её объекты, но после updateFeature сообщает об успехе без проверки записи. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:403`
 - [AI inference] При миграции важно не применять правила статуса issue к отдельным объектам feature.
 
 ### Создание feature и bug {#n114}
@@ -1373,11 +1373,11 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] createFeature сразу записывает idea или exploring; MCP затем отдельно задаёт запрошенный статус и отвечает об успешном создании. — `MarkView/Models/FeatureStore.swift:226`
-- [Project fact] MCP создаёт feature и затем вызывает updateFeature для записи запрошенного статуса. — `MarkView/Models/ProjectToolRunner.swift:274`
-- [Project fact] Быстрый intake устанавливает ready, а UI Studio после создания устанавливает implementing. — `MarkView/Models/FeatureIntake.swift:82`
-- [Project fact] UI Studio создаёт feature, затем устанавливает implementing. — `MarkView/Models/UIStudioSession+Tracking.swift:85`
-- [Project fact] createBug передаёт draft в BugReportWriter; MCP создаёт bug со статусом open. — `MarkView/Models/ProjectToolRunner.swift:382`
+- [Project fact] createFeature сразу записывает idea или exploring; MCP затем отдельно задаёт запрошенный статус и отвечает об успешном создании. — `MarkView/Models/Lifecycle/FeatureStore.swift:226`
+- [Project fact] MCP создаёт feature и затем вызывает updateFeature для записи запрошенного статуса. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:274`
+- [Project fact] Быстрый intake устанавливает ready, а UI Studio после создания устанавливает implementing. — `MarkView/Models/Lifecycle/FeatureIntake.swift:82`
+- [Project fact] UI Studio создаёт feature, затем устанавливает implementing. — `MarkView/Models/UIStudio/UIStudioSession+Tracking.swift:85`
+- [Project fact] createBug передаёт draft в BugReportWriter; MCP создаёт bug со статусом open. — `MarkView/Models/AgentTools/ProjectToolRunner.swift:382`
 - [AI inference] Двухшаговое создание требует явно различать успешное создание и неуспешный последующий переход.
 
 ### Explore, Review и готовность {#n115}
@@ -1388,10 +1388,10 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] После успешного исследования FeatureAI переводит idea в exploring, а после review переводит ранние статусы в review. — `MarkView/Models/FeatureAI.swift:532`
-- [Project fact] AI Review устанавливает review для exploring, draft и idea. — `MarkView/Models/FeatureAI.swift:1138`
-- [Project fact] finishExplore сначала утверждает требования, затем может установить review; Control MCP использует его и отдельно устанавливает ready. — `MarkView/Models/FeatureStore.swift:491`
-- [Project fact] Команда готовности Control MCP напрямую записывает ready. — `MarkView/Models/ControlToolRunner+Flow.swift:335`
+- [Project fact] После успешного исследования FeatureAI переводит idea в exploring, а после review переводит ранние статусы в review. — `MarkView/Models/Lifecycle/FeatureAI.swift:532`
+- [Project fact] AI Review устанавливает review для exploring, draft и idea. — `MarkView/Models/Lifecycle/FeatureAI.swift:1138`
+- [Project fact] finishExplore сначала утверждает требования, затем может установить review; Control MCP использует его и отдельно устанавливает ready. — `MarkView/Models/Lifecycle/FeatureStore.swift:491`
+- [Project fact] Команда готовности Control MCP напрямую записывает ready. — `MarkView/Models/AgentTools/ControlToolRunner+Flow.swift:335`
 - [AI inference] Результат составного действия должен показывать, какие изменения действительно выполнены.
 
 ### Передача работы агенту {#n116}
@@ -1402,9 +1402,9 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] startImplementation отправляет запрос помощнику и затем вызывает markImplementing; fixBugWithAI сначала вызывает updateBug с fixing, не проверяя результат, затем отправляет запрос. — `MarkView/Models/WorkspaceManager.swift:4489`
-- [Project fact] Пакетное исправление использует результат записи каждого bug, исключает неотмеченные записи и предусматривает отмену отметок при неудачном запуске. — `MarkView/Models/WorkspaceManager.swift:4528`
-- [Project fact] После создания issues сценарий FeatureAI сохраняет план и вызывает markImplementing. — `MarkView/Models/FeatureAI.swift:1814`
+- [Project fact] startImplementation отправляет запрос помощнику и затем вызывает markImplementing; fixBugWithAI сначала вызывает updateBug с fixing, не проверяя результат, затем отправляет запрос. — `MarkView/Models/Workspace/WorkspaceManager.swift:4489`
+- [Project fact] Пакетное исправление использует результат записи каждого bug, исключает неотмеченные записи и предусматривает отмену отметок при неудачном запуске. — `MarkView/Models/Workspace/WorkspaceManager.swift:4528`
+- [Project fact] После создания issues сценарий FeatureAI сохраняет план и вызывает markImplementing. — `MarkView/Models/Lifecycle/FeatureAI.swift:1814`
 - [AI inference] Сервисный отказ не должен маскировать факт уже выполненной внешней операции или отправленного задания.
 
 ### Прямая запись bug intake {#n117}
@@ -1415,7 +1415,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Bug intake сам формирует front matter со статусом open и записывает файл напрямую; после создания GitHub issue он повторно записывает ранее сформированный front matter с номером issue. — `MarkView/Models/FeatureIntake.swift:296`
+- [Project fact] Bug intake сам формирует front matter со статусом open и записывает файл напрямую; после создания GitHub issue он повторно записывает ранее сформированный front matter с номером issue. — `MarkView/Models/Lifecycle/FeatureIntake.swift:296`
 - [AI inference] Повторная запись старого содержимого может затереть изменение статуса, произошедшее между двумя записями.
 
 ### Передача спецификации и прототипа {#n118}
@@ -1426,9 +1426,9 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] SpecificationHandoff самостоятельно читает overview и устанавливает ready для ранних статусов. — `MarkView/Models/SpecificationHandoff.swift:80`
-- [Project fact] Перед записью overview handoff повторно проверяет его содержимое; при ошибке удаляет только что созданную ревизию. — `MarkView/Models/SpecificationHandoff.swift:119`
-- [Project fact] PrototypeFeatureWriter создаёт feature и затем устанавливает ready вместе с полями и содержимым overview. — `MarkView/Models/PrototypeFeatureWriter.swift:25`
+- [Project fact] SpecificationHandoff самостоятельно читает overview и устанавливает ready для ранних статусов. — `MarkView/Models/Lifecycle/SpecificationHandoff.swift:80`
+- [Project fact] Перед записью overview handoff повторно проверяет его содержимое; при ошибке удаляет только что созданную ревизию. — `MarkView/Models/Lifecycle/SpecificationHandoff.swift:119`
+- [Project fact] PrototypeFeatureWriter создаёт feature и затем устанавливает ready вместе с полями и содержимым overview. — `MarkView/Models/Prototype/PrototypeFeatureWriter.swift:25`
 
 ### Записи UI Studio {#n119}
 
@@ -1438,8 +1438,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] StudioFeatureWriter создаёт feature из пакета и устанавливает implementing. — `MarkView/Models/UIStudioSession.swift:3043`
-- [Project fact] UI Studio создаёт bug через createBug; функция mark отдельно обновляет объект feature или bug и добавляет заметку. — `MarkView/Models/UIStudioSession+Tracking.swift:165`
+- [Project fact] StudioFeatureWriter создаёт feature из пакета и устанавливает implementing. — `MarkView/Models/UIStudio/UIStudioSession.swift:3043`
+- [Project fact] UI Studio создаёт bug через createBug; функция mark отдельно обновляет объект feature или bug и добавляет заметку. — `MarkView/Models/UIStudio/UIStudioSession+Tracking.swift:165`
 - [AI inference] При подключении сервиса надо сохранить связь между изменением статуса bug и сопровождающей заметкой.
 
 ### Проверка актуальности bug {#n120}
@@ -1450,8 +1450,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] BugValidity.record устанавливает closed и добавляет объяснение в обсуждение при alreadyFixed. — `MarkView/Models/BugValidity.swift:332`
-- [Project fact] recordValidity сообщает об ошибке сохранения закрытия; для остальных вердиктов ошибка записи заметки не блокирует анализ. — `MarkView/Models/FeatureBugValidity.swift:44`
+- [Project fact] BugValidity.record устанавливает closed и добавляет объяснение в обсуждение при alreadyFixed. — `MarkView/Models/Lifecycle/BugValidity.swift:332`
+- [Project fact] recordValidity сообщает об ошибке сохранения закрытия; для остальных вердиктов ошибка записи заметки не блокирует анализ. — `MarkView/Models/Lifecycle/FeatureBugValidity.swift:44`
 
 ### Перезапуск feature {#n121}
 
@@ -1461,7 +1461,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] restartFeature перемещает созданные материалы в Trash, затем устанавливает idea и очищает поля понимания; ошибка перемещения прекращает операцию. — `MarkView/Models/FeatureStore.swift:440`
+- [Project fact] restartFeature перемещает созданные материалы в Trash, затем устанавливает idea и очищает поля понимания; ошибка перемещения прекращает операцию. — `MarkView/Models/Lifecycle/FeatureStore.swift:440`
 - [AI inference] Проверка допустимости перехода до удаления материалов уменьшит риск частичного перезапуска при отказе сервиса.
 
 ### Неявное принятие старых записей {#n122}
@@ -1472,8 +1472,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] При отсутствии overview updateFeature может построить adoptedOverview со статусом draft и записать его при обычном обновлении. — `MarkView/Models/FeatureStore.swift:519`
-- [Project fact] Анализ bug устанавливает open, если поле status отсутствует. — `MarkView/Models/FeatureIntake.swift:506`
+- [Project fact] При отсутствии overview updateFeature может построить adoptedOverview со статусом draft и записать его при обычном обновлении. — `MarkView/Models/Lifecycle/FeatureStore.swift:519`
+- [Project fact] Анализ bug устанавливает open, если поле status отсутствует. — `MarkView/Models/Lifecycle/FeatureIntake.swift:506`
 - [Open assumption] Правила ещё должны определить, считать ли добавление отсутствующего статуса переходом или первоначальным принятием записи.
 
 ### Подключить источники событий {#n32}
@@ -1486,8 +1486,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Сбор GitHub использует связанные PR, ограничивает выборку связанных PR и контекстов проверок, а закрытый без merge PR не считается завершением. — `MarkView/Models/LifecycleCapture.swift:97`
-- [Project fact] Локальный git связывает коммит с feature по упоминанию папки или номера issue после начала реализации. — `MarkView/Models/FeatureStore.swift:809`
+- [Project fact] Сбор GitHub использует связанные PR, ограничивает выборку связанных PR и контекстов проверок, а закрытый без merge PR не считается завершением. — `MarkView/Models/Lifecycle/LifecycleCapture.swift:97`
+- [Project fact] Локальный git связывает коммит с feature по упоминанию папки или номера issue после начала реализации. — `MarkView/Models/Lifecycle/FeatureStore.swift:809`
 - [AI inference] Упоминание в коммите и ограниченные выборки не доказывают полноту связи; сомнительные случаи следует оставлять на сверку, а не автоматически менять статус.
 
 ### Добавить фоновую сверку {#n33}
@@ -1500,8 +1500,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Журнал хранится локально на одном Mac и совместно используется окнами; автоматические события проекта записывает один выбранный FeatureStore. — `MarkView/Models/LifecycleLog.swift:3`
-- [Project fact] При сборе GitHub ошибки отдельных запросов сейчас подавляются через try?, поэтому отсутствие события не доказывает отсутствие действия. — `MarkView/Models/FeatureStore.swift:770`
+- [Project fact] Журнал хранится локально на одном Mac и совместно используется окнами; автоматические события проекта записывает один выбранный FeatureStore. — `MarkView/Models/Lifecycle/LifecycleLog.swift:3`
+- [Project fact] При сборе GitHub ошибки отдельных запросов сейчас подавляются через try?, поэтому отсутствие события не доказывает отсутствие действия. — `MarkView/Models/Lifecycle/FeatureStore.swift:770`
 - [AI inference] Сверка должна отличать недоступный источник от подтверждённого отсутствия события и сохранять расхождения для последующего разбора.
 
 ### Поэтапно включить GitHub изменения {#n34}
@@ -1514,8 +1514,8 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Ручной Sync закрывает открытый issue, когда все связанные элементы завершены, и никогда не открывает закрытый повторно. — `MarkView/Models/IssueSync.swift:241`
-- [Project fact] Клиент уже умеет закрывать и открывать issue, а ручной Sync перед запуском проверяет доступ. — `MarkView/Models/GitHubClient.swift:909`
+- [Project fact] Ручной Sync закрывает открытый issue, когда все связанные элементы завершены, и никогда не открывает закрытый повторно. — `MarkView/Models/Lifecycle/IssueSync.swift:241`
+- [Project fact] Клиент уже умеет закрывать и открывать issue, а ручной Sync перед запуском проверяет доступ. — `MarkView/Models/Git/GitHubClient.swift:909`
 - [Open assumption] Критерии допустимой доли расхождений, состав пилотных проектов и правила reopening ещё нужно согласовать до включения записи в GitHub.
 
 ### Отключение и восстановление {#n35}
@@ -1526,7 +1526,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Закрытие проекта очищает отчёт ручного Sync, но уже выполняющийся запуск продолжает работу на GitHub. — `MarkView/Models/IssueSyncRun.swift:37`
+- [Project fact] Закрытие проекта очищает отчёт ручного Sync, но уже выполняющийся запуск продолжает работу на GitHub. — `MarkView/Models/Lifecycle/IssueSyncRun.swift:37`
 - [AI inference] Отключение не отменяет уже отправленный сетевой запрос; результат такой операции нужно дочитать и показать пользователю.
 
 ### Установить условия перехода этапов {#n36}
@@ -1551,7 +1551,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 #### Evidence
 
 - [Project fact] Существующая самостоятельная проверка Sync компилирует правила и тестовый main без XCTest target. — `tools/tests/issue-sync-tests.sh:1`
-- [Project fact] Текущий запуск Sync допускает только один запуск на проект в процессе приложения и обрабатывает ошибки отдельных issues по отдельности. — `MarkView/Models/IssueSyncRun.swift:15`
+- [Project fact] Текущий запуск Sync допускает только один запуск на проект в процессе приложения и обрабатывает ошибки отдельных issues по отдельности. — `MarkView/Models/Lifecycle/IssueSyncRun.swift:15`
 - [AI inference] Проверки на повтор и частичный отказ необходимы до разрешения фоновых изменений, поскольку запрос мог выполниться, даже если его результат не был получен.
 
 ### Разбить поставку на PR {#n38}
@@ -1578,7 +1578,7 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] В пакетном исправлении bugs предусмотрен откат статусов, если промпт не удалось отправить. — `MarkView/Models/WorkspaceManager.swift:4527`
+- [Project fact] В пакетном исправлении bugs предусмотрен откат статусов, если промпт не удалось отправить. — `MarkView/Models/Workspace/WorkspaceManager.swift:4527`
 - [AI inference] Эти сценарии проверяют, что статус отражает подтверждённое состояние даже при сбоях и повторной доставке событий.
 
 ### Контроль качества и исследования {#n27}
@@ -1591,5 +1591,5 @@ UI, MCP и автоматические наблюдатели преобраз�
 
 #### Evidence
 
-- [Project fact] Lifecycle log записывает события с источником, актором и примечанием; текущие GitHub-события связываются с PR или commit через примечание. — `MarkView/Models/FeatureStore.swift:751`
+- [Project fact] Lifecycle log записывает события с источником, актором и примечанием; текущие GitHub-события связываются с PR или commit через примечание. — `MarkView/Models/Lifecycle/FeatureStore.swift:751`
 - [AI inference] Полный журнал решений о переходах и метрики расхождений позволят проверять доверие к автоматизации.

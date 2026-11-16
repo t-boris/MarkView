@@ -1,0 +1,3 @@
+# Lines outside Models/AI/Providers that name an assistant (`.claude`, `.codex`, ...): a switch case, a comparison or a
+# default (AR-35). `<count> <path>`; a ratchet that only falls. Run tools/lint/architecture-lint.sh --tighten after removing
+# a site; the goal is an empty list: an assistant is described by its provider and nowhere else.

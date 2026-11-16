@@ -1,11 +1,14 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Search tab of the right panel: the whole project (file names and the text of any file, plus the
 /// names inside archives), or the meaning search of the Markdown documents.
 struct WorkspaceSearchView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @WindowStorage("search.panelMode") private var mode = Mode.project.rawValue
+    @WindowStorage(Setting.searchPanelMode) private var mode: String
 
     enum Mode: String, CaseIterable, Identifiable {
         case project = "Project"
@@ -51,7 +54,7 @@ struct ProjectSearchPanel: View {
                         Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain)
                 }
-                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
+                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } } label: {
                     Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Refresh the search index")
             }
@@ -62,8 +65,8 @@ struct ProjectSearchPanel: View {
             }
             results
         }
-        .task(id: workspaceManager.searchRootsKey) {
-            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders)
+        .task(id: workspaceManager.project.searchRootsKey) {
+            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders)
         }
     }
 

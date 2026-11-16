@@ -32,7 +32,7 @@ The changed field keeps the user's value; only discovery metadata (provenance, c
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Models/ProjectOperation.swift (`isEdited`) and MarkView/Models/ProjectOperationsStore.swift lines 443-456; code reading only.
+MarkView current main (ade7910), MarkView/Models/ProjectOps/ProjectOperation.swift (`isEdited`) and MarkView/Models/ProjectOps/ProjectOperationsStore.swift lines 443-456; code reading only.
 
 ## Cause
 

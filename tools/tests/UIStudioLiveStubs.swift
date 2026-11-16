@@ -2,7 +2,7 @@
 // small stand-ins, so that tools/tests/ui-studio-live-run.sh can run a real UI Studio session outside the app.
 import Foundation
 
-final class SemanticDatabase {
+actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
     nonisolated static func documentId(for fileURL: URL, root: URL) -> String { fileURL.path.replacingOccurrences(of: root.path + "/", with: "") }
 }

@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// An editor tab showing an image (any format ImageIO / NSImage reads: PNG, JPEG, GIF,
 /// HEIC, WebP, TIFF, BMP, ICO, SVG, RAW…). Wheel or pinch zooms around the cursor,
@@ -9,12 +12,13 @@ import UniformTypeIdentifiers
 struct ImageViewerView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     let url: URL
     @StateObject private var canvas = ImageCanvasController()
     /// The folder's images, for the arrows and the slideshow.
     @State private var siblings: [URL] = []
     @State private var playing = false
-    @WindowStorage("imageSlideshowSeconds") private var interval = 4.0
+    @WindowStorage(Setting.imageSlideshowSeconds) private var interval: Double
 
     private var previous: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: -1, wrap: false) }
     private var next: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: 1, wrap: false) }
@@ -60,7 +64,7 @@ struct ImageViewerView: View {
     /// Show the neighbouring image in this tab.
     private func go(_ step: Int, wrap: Bool) {
         guard let target = ImageSiblings.neighbour(of: url, in: siblings, step: step, wrap: wrap) else { return }
-        workspaceManager.showImage(target, replacing: url)
+        tabs.showImage(target, replacing: url)
     }
 
     private func togglePlay() {
@@ -118,7 +122,7 @@ struct ImageViewerView: View {
                 textButton("1:1", "Actual size (one image pixel per screen pixel)") { canvas.actualSize() }
             }
             if url.pathExtension.lowercased() == "svg" {
-                textButton("Source", "Open the SVG as XML text") { workspaceManager.openImageAsText(url) }
+                textButton("Source", "Open the SVG as XML text") { tabs.openImageAsText(url) }
             }
             Image(systemName: "hand.draw")
                 .uiFont(size: 11).foregroundColor(palette.textDim)

@@ -84,9 +84,9 @@ MarkView macOS app (Darwin 27.0.0); AI panel terminals for Claude Code, Codex, C
 
 ## Suspected code
 
-- `MarkView/Models/WorkspaceManager.swift` — startupCommand(for:) (~3096) builds startup commands with no per-tool resume argument. openAITerminal (~3122) and restartAITerminal (~3150) use it. No logic was found that reopens AI terminals at app launch.
-- `MarkView/Models/TerminalSession.swift` — Stores startupCommand and types it into the shell (~418). restart() (~288–301) reuses the same command. Session state does not appear to be persisted.
-- `MarkView/Models/CLICompletion.swift` — Holds per-tool CLI knowledge (binaryName, modelArgs); the natural place to add a per-tool resume argument.
+- `MarkView/Models/Workspace/WorkspaceManager.swift` — startupCommand(for:) (~3096) builds startup commands with no per-tool resume argument. openAITerminal (~3122) and restartAITerminal (~3150) use it. No logic was found that reopens AI terminals at app launch.
+- `MarkView/Models/Terminal/TerminalSession.swift` — Stores startupCommand and types it into the shell (~418). restart() (~288–301) reuses the same command. Session state does not appear to be persisted.
+- `MarkView/Models/AI/CLICompletion.swift` — Holds per-tool CLI knowledge (binaryName, modelArgs); the natural place to add a per-tool resume argument.
 
 ## Likely causes
 

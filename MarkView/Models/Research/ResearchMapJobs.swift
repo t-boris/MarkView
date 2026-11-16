@@ -10,7 +10,7 @@ extension ResearchJobs {
     /// Creates the map file at `relativePath` (a free name is chosen if it was taken meanwhile),
     /// opens it in a tab and starts the research.
     func start(question: String, relativePath: String, targets: [URL], attachments: [URL]) {
-        guard let workspace, let root = workspace.rootNode?.url else { return }
+        guard let host, let maps, let root = project.root else { return }
         let file = Self.freeFile(root.appendingPathComponent(relativePath), root: root)
         let id = ResearchDocument.id(forPath: file.path)
         let map = ResearchMap.new(id: id, question: question, created: FeatureStore.today, targets: [], attachments: [])
@@ -21,19 +21,19 @@ extension ResearchJobs {
             message = "Could not create the research map: \(error.localizedDescription)"
             return
         }
-        workspace.refreshFileTree()
-        workspace.openFile(file)
+        host.refreshFileTree()
+        host.openFile(file)
         let label = "Research: " + Self.title(question)
         launchMapRun(file: file, root: root, kind: .map, title: label, mode: .research) { job, driver in
-            let targetPaths = await Task.detached { ResearchScope.targetFiles(root: root, targets: targets) }.value
+            let targetPaths = await ResearchScope.targetFiles(root: root, targets: targets)
             job.update("Copying attachments")
             let copied = Self.copyAttachments(attachments, root: root, id: id)
-            workspace.updateResearchMap(file) { map in
+            maps.update(file) { map in
                 map.targets = targetPaths
                 map.attachments = copied
             }
             job.update("Listing the repository")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: targetPaths + copied) }.value
+            let scope = await ResearchScope.files(root: root, always: targetPaths + copied)
             let web = Self.web(root)
             let limits = ResearchMapRun.limits(for: .research)
             let prompt = ResearchMapPrompt.research(question: question, targets: targetPaths, attachments: copied,
@@ -47,17 +47,17 @@ extension ResearchJobs {
     /// Expand topic: the AI develops `node` of the map in `file`, in the direction the person gave (empty: its own
     /// choice). Returns a one-line reason when it cannot start.
     func developMap(file: URL, node: String, direction: String) -> String? {
-        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        guard host != nil, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; develop the branch when it has finished." }
-        guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
+        guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
         }
         launchMapRun(file: file, root: root, kind: .mapDevelop, title: "Expand topic: " + Self.title(target.title), mode: .develop(node: node)) { job, _ in
             job.update("Listing the repository")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: map.targets) }.value
+            let scope = await ResearchScope.files(root: root, always: map.targets)
             let limits = ResearchMapRun.limits(for: .develop(node: node))
             // The map as it is now, not as it was when the sheet opened.
-            let current = workspace.researchMapText(file).flatMap { text -> ResearchMap? in
+            let current = maps.text(of: file).flatMap { text -> ResearchMap? in
                 if case .success(let m) = ResearchMap.parse(text) { return m }
                 return nil
             } ?? map
@@ -96,21 +96,21 @@ extension ResearchJobs {
     /// whose evidence lists the files the diagram rests on. The node itself is unchanged. Returns a one-line reason when it
     /// cannot start.
     func drawMap(file: URL, node: String, kindID: String, instruction: String) -> String? {
-        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        guard let host, let maps, let root = project.root else { return "No project is open." }
         guard let kind = DiagramKind(rawValue: kindID), ResearchMap.drawKinds.contains(where: { $0.id == kindID }) else {
             return "Choose one of the diagram types."
         }
         let wanted = String(instruction.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
         if kind == .custom && wanted.isEmpty { return "Say what the diagram should show." }
         if isRunning(on: file) { return "An AI job is already working on this map; draw when it has finished." }
-        guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
+        guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
         }
         let name = kind == .custom ? "Diagram" : kind.title
-        launch(kind: .mapDraw, file: file, title: "Draw \(name.lowercased()): " + Self.title(target.title)) { [weak workspace] job in
-            guard let workspace else { return nil }
+        launch(kind: .mapDraw, file: file, title: "Draw \(name.lowercased()): " + Self.title(target.title)) { [weak host, weak maps, weak project] job in
+            guard host != nil, let maps, let project else { return nil }
             // The map as it is now, not as it was when the action was chosen.
-            guard case .success(let current)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }),
+            guard case .success(let current)? = maps.text(of: file).map({ ResearchMap.parse($0) }),
                   let from = current.node(node) else { return "That node no longer exists." }
             var path: [String] = []
             var cursor: ResearchMap.Node? = from
@@ -126,7 +126,7 @@ extension ResearchJobs {
                 let spec = try await DiagramAI.generate(prompt: prompt, root: root, label: "map-draw:\(kind.rawValue)", system: DiagramAI.mapSystem,
                                                         expectedLanguage: language,
                                                         onStage: { stage in Task { @MainActor in job.update(stage) } },
-                                                        record: { result in Task { @MainActor in result.record(in: workspace.semanticDatabase) } })
+                                                        record: { result in Task { @MainActor in result.record(in: project.database) } })
                 job.update("Adding the diagram to the map")
                 var description = "```mermaid\n\(DiagramAI.plainMermaid(spec, kind: kind))\n```"
                 if !spec.question.isEmpty { description += "\n\n**Question:** \(spec.question)" }
@@ -137,16 +137,16 @@ extension ResearchJobs {
                     return ResearchMap.Evidence(label: .projectFact, text: item.label + (item.note.map { ": " + $0 } ?? ""), source: source)
                 }
                 let key = file.standardizedFileURL.path
-                let result = workspace.updateResearchMap(file) { map in
+                let result = maps.update(file) { map in
                     guard map.node(node) != nil else { throw ResearchMap.Rejection(message: "That node no longer exists.") }
                     let id = try map.addNode(parent: node, draft: ResearchMap.Draft(title: spec.title.isEmpty ? name : spec.title, description: description, evidence: evidence))
                     try map.update(id: id, visual: "diagram")
                     // The next snapshot of this map tells the page to show and select the new child.
-                    workspace.researchMapJobCreated[key] = id
+                    maps.jobCreated[key] = id
                 }
                 switch result {
                 case .rejected(let problem), .unreadable(let problem):
-                    workspace.researchMapJobCreated[key] = nil
+                    maps.jobCreated[key] = nil
                     return "The diagram could not be added to the map: \(problem)"
                 case .done:
                     return nil
@@ -163,16 +163,16 @@ extension ResearchJobs {
     /// Starts one of the single-node actions. Returns a one-line reason when it cannot start.
     private func runOnNode(file: URL, node: String, kind: Job.Kind, label: String, mode: ResearchMapRun.Mode,
                            prompt: @escaping (ResearchMap, ResearchMap.Node, String) -> String) -> String? {
-        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        guard host != nil, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; run this action when it has finished." }
-        guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
+        guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
         }
         launchMapRun(file: file, root: root, kind: kind, title: label + ": " + Self.title(target.title), mode: mode) { job, _ in
             job.update("Listing the repository")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: map.targets) }.value
+            let scope = await ResearchScope.files(root: root, always: map.targets)
             // The map as it is now, not as it was when the action was chosen.
-            let current = workspace.researchMapText(file).flatMap { text -> ResearchMap? in
+            let current = maps.text(of: file).flatMap { text -> ResearchMap? in
                 if case .success(let m) = ResearchMap.parse(text) { return m }
                 return nil
             } ?? map
@@ -184,17 +184,17 @@ extension ResearchJobs {
 
     /// Continues a map whose research stopped early.
     func continueMap(file: URL) -> String? {
-        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        guard host != nil, let maps, let root = project.root else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map." }
-        guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }) else {
+        guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }) else {
             return "This file is not a readable research map."
         }
-        workspace.updateResearchMap(file) { $0.markResearching() }
+        maps.update(file) { $0.markResearching() }
         launchMapRun(file: file, root: root, kind: .mapContinue, title: "Continue: " + Self.title(map.title), mode: .continuation) { job, _ in
             job.update("Listing the repository")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: map.targets + map.attachments) }.value
+            let scope = await ResearchScope.files(root: root, always: map.targets + map.attachments)
             let limits = ResearchMapRun.limits(for: .continuation)
-            let current = workspace.researchMapText(file).flatMap { text -> ResearchMap? in
+            let current = maps.text(of: file).flatMap { text -> ResearchMap? in
                 if case .success(let m) = ResearchMap.parse(text) { return m }
                 return nil
             } ?? map
@@ -242,8 +242,8 @@ extension ResearchJobs {
     private func launchMapRun(file: URL, root: URL, kind: Job.Kind, title: String, mode: ResearchMapRun.Mode,
                               prepare: @escaping (JobHandle, MapRunDriver) async -> MapTask) {
         launch(kind: kind, file: file, title: title) { [weak self] job in
-            guard let self, let workspace = self.workspace else { return nil }
-            let driver = MapRunDriver(file: file, root: root, mode: mode, workspace: workspace)
+            guard let self, let maps = self.maps else { return nil }
+            let driver = MapRunDriver(file: file, root: root, mode: mode, maps: maps)
             let task = await prepare(job, driver)
             let single = mode.singleNode != nil
             let system = ResearchMapPrompt.system(web: task.web.allowed, webRules: ResearchPrompt.webRules, languageLine: ResearchPrompt.languageLine, singleNode: single)
@@ -254,7 +254,7 @@ extension ResearchJobs {
             let reason = Self.incompleteReason(outcome, web: task.web)
                 ?? (summary.lost > 0 ? "the map file could not be read, so \(summary.lost) nodes were not saved" : nil)
                 ?? (mode.isResearch && summary.added == 0 ? "the assistant wrote no map nodes" : nil)
-            let final = workspace.updateResearchMap(file) { map in
+            let final = maps.update(file) { map in
                 if let note = task.web.note ?? task.web.unavailable.map({ "Web search was unavailable (\($0))." }), mode.isResearch,
                    !(map.root?.evidence.contains { $0.text == note } ?? true) {
                     map.nodes[0].evidence.append(ResearchMap.Evidence(label: .openAssumption, text: note, source: ""))
@@ -308,18 +308,19 @@ final class MapRunDriver {
     let stream: ResearchMapStream
     private let root: URL
     private var applier: ResearchMapRun
-    private weak var workspace: WorkspaceManager?
+    private weak var maps: ResearchMapController?
     private var scheduled = false
+    private var flushTask: Task<Void, Never>?
     private var sentQueries: [String] = []
     private var pendingEvents: [ResearchMapRun.Event] = []
     private var pendingQueries: [String] = []
     private(set) var added = 0
     private(set) var updated = 0
 
-    init(file: URL, root: URL, mode: ResearchMapRun.Mode, workspace: WorkspaceManager) {
+    init(file: URL, root: URL, mode: ResearchMapRun.Mode, maps: ResearchMapController) {
         self.file = file
         self.root = root
-        self.workspace = workspace
+        self.maps = maps
         self.applier = ResearchMapRun(mode: mode)
         self.stream = ResearchMapStream(mode: mode)
         stream.onReady = { [weak self] in
@@ -330,10 +331,12 @@ final class MapRunDriver {
     private func poke() {
         guard !scheduled else { return }
         scheduled = true
-        Task { @MainActor [weak self] in
+        flushTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
-            self?.scheduled = false
-            self?.flush(final: false)
+            // `finish` cancels this wait and applies the rest itself.
+            guard !Task.isCancelled, let self else { return }
+            self.scheduled = false
+            self.flush(final: false)
         }
     }
 
@@ -341,14 +344,14 @@ final class MapRunDriver {
         let batch = final ? stream.finish() : stream.take()
         pendingEvents += batch.events
         for query in batch.queries where !pendingQueries.contains(query) { pendingQueries.append(query) }
-        guard !pendingEvents.isEmpty || !pendingQueries.isEmpty, let workspace else { return }
+        guard !pendingEvents.isEmpty || !pendingQueries.isEmpty, let maps else { return }
         let exists = ResearchJobs.existsIn(root)
         let events = pendingEvents
         let queries = pendingQueries
         // The applier's references and counters advance only when the file took the batch.
         var attempt = applier
         var createdCount = 0
-        let result = workspace.updateResearchMap(file) { map in
+        let result = maps.update(file) { map in
             createdCount = attempt.apply(events, to: &map, pathExists: exists).count
             map.addWebQueries(queries)
         }
@@ -364,11 +367,12 @@ final class MapRunDriver {
     /// Applies the rest of the stream. Web queries the CLI refused leave the map's history. `lost` is the
     /// number of node lines the file never took.
     func finish(outcome: JobOutcome) -> (added: Int, updated: Int, lost: Int) {
+        flushTask?.cancel()
         flush(final: true)
         let kept = Set(outcome.queries)
         let dropped = sentQueries.filter { !kept.contains($0) }
-        if !dropped.isEmpty, let workspace {
-            workspace.updateResearchMap(file) { map in map.webQueries.removeAll { dropped.contains($0) } }
+        if !dropped.isEmpty, let maps {
+            maps.update(file) { map in map.webQueries.removeAll { dropped.contains($0) } }
         }
         return (added, updated, pendingEvents.count)
     }
@@ -376,6 +380,7 @@ final class MapRunDriver {
 
 /// The thread-safe half of a map run: parses the agent's text into node events and collects them
 /// until the driver takes them.
+// unchecked Sendable: `lock` guards every field except `onReady`, which the owner assigns once in its init before any callback can run.
 final class ResearchMapStream: @unchecked Sendable {
     private let lock = NSLock()
     private var parser: ResearchMapRun

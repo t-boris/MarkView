@@ -68,10 +68,55 @@ check("old file: a removed built-in does not linger", !merged.items.contains { $
 try? Data("not json".utf8).write(to: root.appendingPathComponent(".dde/definition-of-done.json"))
 check("a broken file falls back to standard", DefinitionOfDone.load(root: root) == .standard)
 
+// The file is a schema-versioned store (AR-36): a saved checklist is in an envelope; a file written before it still loads; a file
+// that cannot be read is never replaced without a backup; a newer file is never replaced.
+let dod = root.appendingPathComponent(".dde/definition-of-done.json")
+let legacyFixture = """
+{
+  "items" : [
+    { "custom" : false, "id" : "branch", "instruction" : "old words", "mode" : "skip", "title" : "old title" },
+    { "custom" : false, "id" : "merge", "instruction" : "old merge words", "mode" : "ask", "title" : "Merge" },
+    { "custom" : true, "id" : "x9", "instruction" : "Add an entry to CHANGELOG.md", "mode" : "require", "title" : "Changelog" }
+  ]
+}
+"""
+StoreFixture.write(legacyFixture, to: dod)
+let upgraded = DefinitionOfDone.load(root: root)
+check("legacy file: the person's choices and custom item survive the upgrade",
+      upgraded.items.first { $0.id == "branch" }?.mode == .skip && upgraded.items.first { $0.id == "merge" }?.mode == .ask
+      && upgraded.items.contains { $0.id == "x9" && $0.custom && $0.mode == .require })
+check("legacy file: it is left as written until a save", StoreFixture.envelope(dod) == nil)
+try upgraded.save(root: root)
+check("legacy file: the next save writes the envelope", StoreFixture.envelope(dod)?.schema == 1)
+check("legacy file: the envelope reloads to the same checklist", DefinitionOfDone.load(root: root) == upgraded)
+check("legacy file: nothing was damaged, so no backup", StoreFixture.backups(of: dod).isEmpty)
+
+let damaged = "{ \"items\": [ truncated"
+StoreFixture.write(damaged, to: dod)
+check("damaged file: the standard checklist is used in memory", DefinitionOfDone.load(root: root) == .standard)
+check("damaged file: loading does not touch it", StoreFixture.bytes(dod) == Data(damaged.utf8) && StoreFixture.backups(of: dod).isEmpty)
+try withCustom.save(root: root)
+check("damaged file: a save keeps the old bytes in a dated backup",
+      StoreFixture.backups(of: dod).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: dod)[0]) == Data(damaged.utf8))
+check("damaged file: and writes the new checklist", DefinitionOfDone.load(root: root).items.contains { $0.id == "x1" })
+
+let newer = StoreFixture.newerFile(payload: #"{"items":[],"somethingNew":true}"#)
+StoreFixture.write(newer, to: dod)
+check("newer file: it is not used", DefinitionOfDone.loadIfPresent(root: root) == nil)
+var refused = false
+do { try withCustom.save(root: root) } catch SchemaStoreError.newerSchemaVersion { refused = true } catch {}
+check("newer file: a save is refused and the file stays as it is", refused && StoreFixture.bytes(dod) == Data(newer.utf8))
+check("newer file: the policy readers see a declared checklist with no item set", DefinitionOfDone.policyData(root: root) == Data("{}".utf8))
+
 // The prompt.
-let prompt = HandoffPrompt.feature("docs/features/x", backend: .claude, done: standard)
+let prompt = HandoffPrompt.feature("docs/features/x", tool: .claude, done: standard)
 check("prompt keeps the objective and adds the checklist", prompt.hasPrefix("/goal Implement what docs/features/x") && prompt.contains("Definition of done"))
 check("prompt stays on one line", !prompt.contains("\n"))
-check("prompt without a checklist is unchanged", HandoffPrompt.feature("docs/features/x", backend: .claude) == HandoffPrompt.feature("docs/features/x", backend: .claude, done: DefinitionOfDone(items: [])))
+check("prompt without a checklist is unchanged", HandoffPrompt.feature("docs/features/x", tool: .claude) == HandoffPrompt.feature("docs/features/x", tool: .claude, done: DefinitionOfDone(items: [])))
 
 exit(failures == 0 ? 0 : 1)
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+}

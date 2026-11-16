@@ -58,10 +58,10 @@ struct Gate { var canPrepare: Bool; var approvedFingerprint: String? }
         }
     }
 }
-@MainActor final class WorkspaceManager {
+@MainActor final class WorkspaceManager: CockpitQAWindow {
     let qa = QAModel()
     var opened = false
-    func openQA() { opened = true }
+    func openTool(_ id: ToolID) { if id == .qa { opened = true } }
 }
 struct CockpitHostResult: Codable { var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil; var progress: CockpitProgress? = nil; var interrupted: Bool? = nil }
 struct CockpitHostReply { var result: CockpitHostResult; var error: String }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // Start a Project from Scratch (docs/features/start-a-project-from-scratch): the rules that need
 // no UI, no process and no main actor, so tools/tests/new-project-tests.sh compiles them alone.
@@ -132,7 +135,7 @@ enum ProjectConfirmation {
 /// The files bootstrap writes next to the specification (DEC-023).
 enum ProjectFoundation {
     /// MarkView's local metadata never goes into the project's history.
-    static let gitignore = ".dde/\n.DS_Store\n"
+    static let gitignore = ProjectPaths.localFolderName + "/\n.DS_Store\n"
 
     /// A "## Name" section of a Markdown body (the overview's Idea, Problem, Scope).
     static func section(_ name: String, of body: String) -> String {
@@ -204,7 +207,17 @@ struct GitHubConnectionRecord: Codable, Equatable {
 
     var slug: String { owner + "/" + name }
 
-    static let relativePath = ".dde/github-connection.json"
+    static let relativePath = ProjectPaths.githubConnectionRelativePath
+
+    private static let store = SchemaVersionedStore<GitHubConnectionRecord>()
+
+    static func url(root: URL) -> URL { root.appendingPathComponent(relativePath) }
+
+    /// What the project's record holds. A record that cannot be read is never taken for "no record": it may stand for a repository
+    /// that exists, so the caller must stop and show `problem` rather than create another one.
+    static func load(root: URL) -> StoreLoadResult<GitHubConnectionRecord> { store.load(from: url(root: root)) }
+
+    func save(root: URL) throws { try Self.store.save(self, to: Self.url(root: root)) }
 }
 
 /// Checks on git's answers during publication.

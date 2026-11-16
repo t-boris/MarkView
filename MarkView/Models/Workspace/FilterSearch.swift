@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import MarkViewCore
 
 /// Fast AI filters: a criterion ("payment flow") becomes search terms once (one short
 /// AI call, cached), then every file and section is scored locally from where those
@@ -38,8 +39,8 @@ enum FilterSearch {
         request.model = request.xrayModel
         request.effort = "low"
         request.timeout = 90
-        let result = try await CLICompletion.run(request)
-        var terms = ((result.structured as? [String: Any])?["terms"] as? [String] ?? [])
+        let (object, _) = try await AIOperation<CLICompletion.Request, [String: Any]>.object(name: "search-terms").execute(request)
+        var terms = (object["terms"] as? [String] ?? [])
             .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
             .filter { $0.count >= 3 }
         // The criterion's own words always count.
@@ -52,7 +53,7 @@ enum FilterSearch {
         terms = terms.filter { seen.insert($0).inserted }
         if let file, let data = try? JSONEncoder().encode(terms) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            try? AtomicFile.write(data, to: file)
         }
         return terms
     }

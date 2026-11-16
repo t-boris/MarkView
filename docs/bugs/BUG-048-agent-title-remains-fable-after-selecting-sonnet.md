@@ -85,13 +85,13 @@ panel's observer follows only the project's own assistant, and the activity pars
 
 ## Suspected code
 
-- `MarkView/Models/TerminalSession.swift:83` — model explicitly records the launch model. Initialization and restart assign model and title; the inspected bridge has no runtime-model update handler.
-- `MarkView/Models/WorkspaceManager.swift:4036` — terminalTitle derives its model suffix from chosenModel, which reads application preferences. relaunch updates both title and launch metadata.
-- `MarkView/Models/WorkspaceManager.swift:4182` — aiModelChanged restarts the active local terminal when launch metadata differs from preferences. It cannot detect /model when those values remain unchanged; changing model metadata alone could introduce an unintended restart.
-- `MarkView/Views/TerminalView.swift:218` — Panel appearance and preference notifications trigger reconciliation, rather than observing the CLI's current model.
-- `MarkView/Views/TerminalView.swift:288` — Agents controls provide creation, dictation, stop and restart, with no dedicated per-agent model picker.
-- `MarkView/Views/ContentView.swift:944` — The general toolbar picker edits application/project preferences. It is not a dedicated model control inside Agents, although reconciliation can apply those preferences to the active local terminal.
-- `MarkView/Models/LifecycleCapture.swift:9` — AgentModelProbe reads execution-model evidence from Claude assistant logs for lifecycle capture, not title synchronization. Workspace/time matching does not establish exact terminal identity or immediate selection state.
+- `MarkView/Models/Terminal/TerminalSession.swift:83` — model explicitly records the launch model. Initialization and restart assign model and title; the inspected bridge has no runtime-model update handler.
+- `MarkView/Models/Workspace/WorkspaceManager.swift:4036` — terminalTitle derives its model suffix from chosenModel, which reads application preferences. relaunch updates both title and launch metadata.
+- `MarkView/Models/Workspace/WorkspaceManager.swift:4182` — aiModelChanged restarts the active local terminal when launch metadata differs from preferences. It cannot detect /model when those values remain unchanged; changing model metadata alone could introduce an unintended restart.
+- `MarkView/Views/Terminal/TerminalView.swift:218` — Panel appearance and preference notifications trigger reconciliation, rather than observing the CLI's current model.
+- `MarkView/Views/Terminal/TerminalView.swift:288` — Agents controls provide creation, dictation, stop and restart, with no dedicated per-agent model picker.
+- `MarkView/Views/Workspace/ContentView.swift:944` — The general toolbar picker edits application/project preferences. It is not a dedicated model control inside Agents, although reconciliation can apply those preferences to the active local terminal.
+- `MarkView/Models/Lifecycle/LifecycleCapture.swift:9` — AgentModelProbe reads execution-model evidence from Claude assistant logs for lifecycle capture, not title synchronization. Workspace/time matching does not establish exact terminal identity or immediate selection state.
 - `tasks/todo.md:112` — The 4.63.2 fix documents reconciliation after application-picker changes while Agents was hidden; it does not cover this visible-panel /model scenario.
 
 ## Likely causes

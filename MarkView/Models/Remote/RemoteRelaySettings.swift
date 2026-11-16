@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import Security
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Keeps the relay's registration credential in the login Keychain, never in preferences.
 /// Serial Keychain calls run off the main actor and update an existing item in place.
@@ -90,7 +93,7 @@ final class RemoteRelaySettings: ObservableObject {
 
     @Published var relayURL: String {
         didSet {
-            defaults.set(relayURL, forKey: "remote.relayURL")
+            Settings(defaults).set(relayURL, for: Setting.remoteRelayURL)
             selectRelay()
         }
     }
@@ -108,7 +111,7 @@ final class RemoteRelaySettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard, keychain: RemoteRelayKeychain = RemoteRelayKeychain()) {
         self.defaults = defaults; self.keychain = keychain
-        relayURL = defaults.string(forKey: "remote.relayURL") ?? ""
+        relayURL = Settings(defaults).value(Setting.remoteRelayURL)
         selectRelay()
     }
 

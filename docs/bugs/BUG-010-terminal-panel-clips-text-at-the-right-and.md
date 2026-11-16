@@ -52,8 +52,8 @@ MarkView on macOS; Terminal tab in the right panel with a Copilot session. App v
 ## Suspected code
 
 - `MarkView/Resources/Editor/terminal.html` — Defines the terminal's edge insets, xterm row padding, FitAddon sizing, and ResizeObserver. It also contains the fix recorded for the earlier right-edge clipping bug.
-- `MarkView/Views/TerminalView.swift` — TerminalHostView attaches the WKWebView to a resizable native container; its bounds determine the visible terminal area.
-- `MarkView/Models/TerminalSession.swift` — Receives terminal resize messages and updates PTY dimensions, which can affect wrapping and full-screen terminal UI layout.
+- `MarkView/Views/Terminal/TerminalView.swift` — TerminalHostView attaches the WKWebView to a resizable native container; its bounds determine the visible terminal area.
+- `MarkView/Models/Terminal/TerminalSession.swift` — Receives terminal resize messages and updates PTY dimensions, which can affect wrapping and full-screen terminal UI layout.
 - `docs/bugs/BUG-007-embedded-terminal-clips-the-rightmost-characters-o.md` — Records the previous right-edge clipping symptom, its reported environment, and its fix; useful for checking whether this is a regression.
 
 ## Root cause

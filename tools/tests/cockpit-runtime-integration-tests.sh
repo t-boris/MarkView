@@ -11,7 +11,8 @@ if [ -z "${MARKVIEW_TEST_RUNTIME:-}" ]; then
     for candidate in \
         "$PWD/build/DerivedData/Build/Products/Debug/MarkView.app/Contents/Resources/Cockpit/arm64" \
         "/tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app/Contents/Resources/Cockpit/arm64"; do
-        if [ -x "$candidate/bin/server" ]; then
+        # A runtime built before the last change to the Go sources is stale: use it only when it is newer than every source.
+        if [ -x "$candidate/bin/server" ] && [ -z "$(find tools/cockpit-temporal -name '*.go' -newer "$candidate/bin/server" -print -quit)" ]; then
             export MARKVIEW_TEST_RUNTIME="$candidate"
             break
         fi
@@ -23,11 +24,5 @@ if [ -z "${MARKVIEW_TEST_RUNTIME:-}" ]; then
         export MARKVIEW_TEST_RUNTIME="$runtime_stage/MarkView.app/Contents/Resources/Cockpit/arm64"
     fi
 fi
-python3 - "$out/ProcessRunner.swift" <<'PY'
-from pathlib import Path
-import sys
-source = Path('MarkView/Models/Deployments/DeploymentExecutor.swift').read_text()
-Path(sys.argv[1]).write_text(source.split('protocol DeploymentExecutor')[0])
-PY
-swiftc -parse-as-library -o "$out/checks" "$out/ProcessRunner.swift" MarkView/Models/AI/AgentProcesses.swift MarkView/Models/Cockpit/CockpitPlan.swift MarkView/Models/Cockpit/CockpitRun.swift MarkView/Models/Cockpit/CockpitRunStore.swift MarkView/Models/Cockpit/CockpitSupervisor.swift MarkView/Models/Cockpit/CockpitStepMeter.swift MarkView/Models/Cockpit/CockpitChild.swift MarkView/Models/Cockpit/CockpitHostBridge.swift MarkView/Models/Cockpit/CockpitRuntime.swift MarkView/Models/Cockpit/CockpitExecution.swift tools/tests/CockpitRuntimeChecks.swift
+swiftc -parse-as-library -o "$out/checks" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/Cockpit/CockpitPlan.swift MarkView/Models/Cockpit/CockpitRun.swift MarkView/Models/Cockpit/CockpitRunStore.swift MarkView/Models/Workspace/SchemaVersionedStore.swift MarkView/Models/Cockpit/CockpitSupervisor.swift MarkView/Models/Cockpit/CockpitStepMeter.swift MarkView/Models/Cockpit/CockpitChild.swift MarkView/Models/Cockpit/CockpitHostBridge.swift MarkView/Models/Cockpit/CockpitRuntime.swift MarkView/Models/Cockpit/CockpitExecution.swift tools/tests/CockpitRuntimeChecks.swift
 "$out/checks"

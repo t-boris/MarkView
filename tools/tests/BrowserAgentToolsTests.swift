@@ -108,7 +108,7 @@ check((BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 5, "method": "resources
 let socketPath = BrowserAgentTools.socketPath(forApp: getpid())
 unlink(socketPath)
 let listener = socket(AF_UNIX, SOCK_STREAM, 0)
-var address = BrowserAgentTools.unixAddress(socketPath)!
+var address = PrivateSocket.address(socketPath)!
 _ = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
 listen(listener, 4)
 nonisolated(unsafe) var received: [String: Any] = [:]

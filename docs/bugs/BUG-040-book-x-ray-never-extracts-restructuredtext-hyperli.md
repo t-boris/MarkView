@@ -32,7 +32,7 @@ No link is extracted for that line; the cross-reference is absent.
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Models/BookBuilder.swift lines 409-410, 435 and 464-467; code reading only.
+MarkView current main (ade7910), MarkView/Models/Book/BookBuilder.swift lines 409-410, 435 and 464-467; code reading only.
 
 ## Cause
 

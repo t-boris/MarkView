@@ -1,7 +1,7 @@
 // MarkView UI Studio Node preload. MarkView starts a project's development server with
 // `NODE_OPTIONS=--require "<this file>"` and `MARKVIEW_STUDIO_CLOCK=<absolute path of a JSON file>`, so every Node process
 // of the server (and every child Node process, which inherits NODE_OPTIONS) renders with the same test clock, time zone
-// and locale as the page runtime (markview-ui-studio.js) gives the browser page. Without it the server renders with the
+// and locale as the page runtime (markview-ui-studio-*.js) gives the browser page. Without it the server renders with the
 // real clock and the client with the test clock, and React reports a hydration mismatch.
 //
 // The clock file, written by MarkView and rewritten at any time while the server runs:

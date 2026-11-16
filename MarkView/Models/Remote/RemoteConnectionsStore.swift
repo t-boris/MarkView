@@ -77,13 +77,13 @@ final class RemoteConnectionsStore: ObservableObject {
         startHost(entry)
     }
 
-    func connect(name: String, code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool,
-                 workspace: WorkspaceManager) async throws {
+    func connect(name: String, code: String, provider: CLITool, model: String?, resume: Bool,
+                 host: any RemoteAssistantHost) async throws {
         await ready()
         guard storageError == nil else { throw RemoteFailure.invalid(storageError!) }
         let invitation = try RemoteInvitation(code: code)
         guard invitation.isPersistent else { throw RemoteFailure.invalid("Create a saved connection code with the updated MarkView on the home Mac first.") }
-        guard let root = workspace.aiWorkspaceRoot ?? workspace.rootNode?.url else { throw RemoteFailure.invalid("Open a project folder first.") }
+        guard let root = host.root else { throw RemoteFailure.invalid("Open a project folder first.") }
         guard !entries.contains(where: { (try? RemoteInvitation(code: $0.code).room) == invitation.room }) else {
             throw RemoteFailure.invalid("This connection is already saved. Use its existing row, or create another connection on the home Mac.")
         }
@@ -91,37 +91,38 @@ final class RemoteConnectionsStore: ObservableObject {
                                           rootPath: canonical(root.path), provider: provider.rawValue, model: model, resume: resume)
         entries.append(entry)
         do { try await persist() } catch { entries.removeAll { $0.id == entry.id }; throw error }
-        try await open(entry, workspace: workspace)
+        try await open(entry, host: host)
     }
 
-    func attach(_ workspace: WorkspaceManager) {
-        Task { [weak self, weak workspace] in
+    func attach(_ host: any RemoteAssistantHost) {
+        // task: attaches a window to its saved connections; the store is process-wide and ends them itself when it shuts down
+        Task { [weak self, weak host] in
             guard let self else { return }; await ready()
-            guard let workspace, !shuttingDown, let root = workspace.aiWorkspaceRoot ?? workspace.rootNode?.url else { return }
+            guard let host, !shuttingDown, let root = host.root else { return }
             for entry in entries where entry.role == .work && !entry.revoking && entry.rootPath.map(canonical) == canonical(root.path) {
                 guard connections[entry.id] == nil, !paused.contains(entry.id), !starting.contains(entry.id) else { continue }
-                do { try await open(entry, workspace: workspace) }
+                do { try await open(entry, host: host) }
                 catch { update(entry.id, .offline, error.localizedDescription) }
             }
         }
     }
 
-    func reconnect(_ entry: SavedRemoteConnection, workspace: WorkspaceManager) async throws {
+    func reconnect(_ entry: SavedRemoteConnection, host: any RemoteAssistantHost) async throws {
         guard !entry.revoking else { return }
         if entry.role == .home { hosts[entry.id]?.suspend(); startHost(entry); return }
-        guard entry.rootPath.map(canonical) == (workspace.aiWorkspaceRoot ?? workspace.rootNode?.url).map({ canonical($0.path) }) else {
+        guard entry.rootPath.map(canonical) == host.root.map({ canonical($0.path) }) else {
             throw RemoteFailure.invalid("Open the saved project folder before reconnecting: " + (entry.rootPath ?? ""))
         }
         connections[entry.id]?.stop(); connections[entry.id] = nil
         paused.remove(entry.id)
-        try await open(entry, workspace: workspace)
+        try await open(entry, host: host)
     }
 
-    private func open(_ entry: SavedRemoteConnection, workspace: WorkspaceManager) async throws {
+    private func open(_ entry: SavedRemoteConnection, host: any RemoteAssistantHost) async throws {
         guard !starting.contains(entry.id), !entry.revoking else { return }
         starting.insert(entry.id); defer { starting.remove(entry.id) }
-        let session = try await workspace.openRemoteAITerminal(code: entry.code,
-            provider: .init(rawValue: entry.provider ?? "claude") ?? .claude, model: entry.model, resume: entry.resume,
+        let session = try await host.openRemoteAITerminal(code: entry.code,
+            provider: RemoteProviderConfiguration.tool(named: entry.provider ?? "") ?? RemoteProviderConfiguration.defaultTool, model: entry.model, resume: entry.resume,
             savedConnectionID: entry.id)
         if let connection = session.connection as? RemoteTerminalConnection { connections[entry.id] = connection }
     }

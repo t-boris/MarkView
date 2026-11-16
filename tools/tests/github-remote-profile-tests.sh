@@ -7,8 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-swiftc -parse-as-library -o "$out/github-remote-profile-tests" \
-    MarkView/Models/Git/GitHubClient.swift MarkView/Models/Lifecycle/EvidenceTimings.swift \
-    MarkView/Models/Lifecycle/LifecycleCapture.swift tools/tests/CLIToolLocatorStub.swift \
+swiftc -parse-as-library -o "$out/github-remote-profile-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
+    MarkView/Models/Git/GitHubClient.swift \
+    tools/tests/CLIToolLocatorStub.swift \
     tools/tests/GitHubRemoteProfileTests.swift
 "$out/github-remote-profile-tests"

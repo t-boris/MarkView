@@ -1,30 +1,23 @@
 import Foundation
 
-enum CLITool: String {
-    case claude, codex, antigravity, cline, copilot
-    var usesACP: Bool { self == .copilot || self == .cline }
-    var displayName: String { rawValue }
-    var binaryName: String { rawValue }
-    var loginCommand: String { "login" }
-    func modelArgs(_ model: String?) -> [String] { [] }
-    func additionalFolderArgs(_ folders: [URL]) -> [String] { [] }
-}
 enum AIAssistantPreferences {
     static func backend(project: URL?) -> CLITool { .copilot }
     static func model(for tool: CLITool, project: URL?) -> String? { nil }
     static func xrayModel(for tool: CLITool, project: URL?) -> String? { nil }
+    static func summary(tool: CLITool, model: String) -> String { "\(tool.displayName) · \(model.isEmpty ? "default model" : model)" }
 }
 enum CLIToolLocator {
     static func resolve(_ tool: CLITool) -> String? {
-        ProcessInfo.processInfo.environment["MARKVIEW_COMPLETION_LIVE_COPILOT"]
+        // A check that needs the assistant's CLI to be missing sets this.
+        if ProcessInfo.processInfo.environment["MARKVIEW_TEST_CLI_MISSING"] != nil { return nil }
+        return ProcessInfo.processInfo.environment["MARKVIEW_COMPLETION_LIVE_COPILOT"]
             ?? URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path
     }
     static func override(for tool: CLITool) -> String? { nil }
     static func searchDirectories() -> [String] { [] }
     static func subprocessPath(toolPath: String?) -> String { ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin" }
 }
-struct AIModelOption { let id: String; let name: String; let detail: String }
-@MainActor final class SemanticDatabase {
+actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
 }
 enum LinkedFolders {
@@ -40,4 +33,11 @@ enum AICallLog {
         let outcome: String
     }
     static func record(_ entry: Entry) {}
+}
+
+// The suite names the assistants by their stored identity; the app names none outside its providers.
+extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
 }

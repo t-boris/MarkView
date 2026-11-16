@@ -70,35 +70,6 @@ struct SemanticBlock: Identifiable, Codable {
     let position: Int
     let language: String?
     let anchor: String?
-
-    /// Initialize from JS dictionary (bridge message payload)
-    init?(from dict: [String: Any]) {
-        guard let id = dict["id"] as? String,
-              let typeStr = dict["type"] as? String,
-              let content = dict["content"] as? String,
-              let contentHash = dict["contentHash"] as? String,
-              let lineStart = dict["lineStart"] as? Int,
-              let lineEnd = dict["lineEnd"] as? Int,
-              let position = dict["position"] as? Int else {
-            return nil
-        }
-
-        self.id = id
-        self.documentId = dict["documentId"] as? String ?? ""
-        self.type = BlockType(rawValue: typeStr) ?? .paragraph
-        self.level = dict["level"] as? Int
-        self.content = content
-        self.plainText = dict["plainText"] as? String ?? content
-        self.contentHash = contentHash
-        self.semanticHash = dict["semanticHash"] as? String
-        self.headingPath = dict["headingPath"] as? [String] ?? []
-        self.parentBlockId = dict["parentBlockId"] as? String
-        self.lineStart = lineStart
-        self.lineEnd = lineEnd
-        self.position = position
-        self.language = dict["language"] as? String
-        self.anchor = dict["anchor"] as? String
-    }
 }
 
 // MARK: - Blocks Delta
@@ -112,15 +83,6 @@ struct BlocksDelta {
     var isEmpty: Bool {
         added.isEmpty && removed.isEmpty && changed.isEmpty
     }
-}
-
-// MARK: - Block Compilation State
-
-enum BlockCompilationState: Equatable {
-    case pending
-    case compiling
-    case compiled
-    case error(String)
 }
 
 // MARK: - Semantic Entity (§3.2)

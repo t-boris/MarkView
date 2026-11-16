@@ -4,7 +4,8 @@ import SwiftUI
 /// decisions and open questions it brings are kept beside the conversation and can be edited.
 struct DiscussionsView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    let host: DiscussionsHost
     @ObservedObject var store: DiscussionStore
     @State private var creating = false
     @State private var newTitle = ""
@@ -117,7 +118,7 @@ struct DiscussionsView: View {
     private func scopeMenu(_ discussion: Discussion) -> some View {
         Menu {
             Button("Whole project") { store.setScope(discussion.slug, to: nil) }
-            if let tab = workspaceManager.activeTab, case .file = tab.kind, tab.url.isFileURL, FileManager.default.fileExists(atPath: tab.url.path) {
+            if let tab = tabs.activeTab, case .file = tab.kind, tab.url.isFileURL, FileManager.default.fileExists(atPath: tab.url.path) {
                 Button("This document: \(tab.url.lastPathComponent)") { store.setScope(discussion.slug, to: scopePath(tab.url)) }
             }
             Button("Choose a file or folder…") {
@@ -156,7 +157,7 @@ struct DiscussionsView: View {
                         .disabled(store.asking != nil)
                     voice.mic()
                     if store.asking == discussion.slug {
-                        Button { workspaceManager.stopDiscussion() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(palette.orange) }
+                        Button { host.stop() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(palette.orange) }
                             .buttonStyle(.plain).help("Stop the answer")
                     } else {
                         Button { send(discussion) } label: { Image(systemName: "arrow.up.circle.fill").uiFont(size: 18).foregroundColor(palette.blue) }
@@ -176,7 +177,7 @@ struct DiscussionsView: View {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, store.asking == nil else { return }
         question = ""
-        workspaceManager.askDiscussion(discussion.slug, question: text)
+        host.ask(discussion.slug, question: text)
     }
 
     // MARK: Decisions and open questions

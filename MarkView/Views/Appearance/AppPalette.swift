@@ -1,5 +1,8 @@
 import AppKit
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 extension Color {
     init(_ color: ThemeColor) {
@@ -44,7 +47,6 @@ struct AppPalette: Equatable {
         purple = Color(model.purple); red = Color(model.red); cyan = Color(model.cyan)
     }
 
-    var theme: AppTheme { model.theme }
     var isDark: Bool { model.isDark }
 
     /// The same colour for AppKit drawing.
@@ -56,7 +58,9 @@ struct AppPalette: Equatable {
 }
 
 private struct PaletteKey: EnvironmentKey {
-    static let defaultValue = AppPalette(ThemePalette.make(.classicDark))
+    /// What a view draws with when no window gave it a palette: Classic Dark, from the bundled themes.
+    static let defaultValue = AppPalette(ThemePalette.make(
+        ThemeLibrary.load(builtInFolder: ThemeCatalog.bundledFolder, userFolder: nil).resolve(.classicDark, systemIsDark: true).definition))
 }
 
 extension EnvironmentValues {
@@ -102,13 +106,12 @@ extension View {
 @MainActor
 final class ProjectTransparencyStore: ObservableObject {
     static let shared = ProjectTransparencyStore()
-    private static let key = "project.workspaceTransparency"
     @Published private var values: [String: Double]
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.values = defaults.dictionary(forKey: Self.key) as? [String: Double] ?? [:]
+        self.values = Settings(defaults).value(Setting.projectTransparency) as? [String: Double] ?? [:]
     }
 
     private func key(for root: URL) -> String { root.resolvingSymlinksInPath().standardizedFileURL.path }
@@ -120,7 +123,7 @@ final class ProjectTransparencyStore: ObservableObject {
         guard let root, value.isFinite else { return }
         let amount = min(0.7, max(0, value))
         values[key(for: root)] = amount == 0 ? nil : amount
-        defaults.set(values, forKey: Self.key)
+        Settings(defaults).set(values as [String: Any], for: Setting.projectTransparency)
     }
     func binding(for root: URL?) -> Binding<Double> {
         Binding(get: { self.value(for: root) }, set: { self.set($0, for: root) })

@@ -1,6 +1,6 @@
 import Foundation
 
-// Feature workflow-flows, REQ-003: the catalogue of classic flows (Models/WorkflowFlow.swift): every flow is a valid workflow, the
+// Feature workflow-flows, REQ-003: the catalogue of classic flows (Models/Lifecycle/WorkflowFlow.swift): every flow is a valid workflow, the
 // transitions generated from the roles are the ones a board has, and applying a flow keeps what is the project's own.
 // Run through tools/tests/workflow-flow-tests.sh.
 

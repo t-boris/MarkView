@@ -15,17 +15,34 @@ func check(_ ok: Bool, _ message: String, _ detail: String = "") {
 
 func finite(_ value: CGFloat) -> Bool { value.isFinite }
 
+// MARK: - The themes (files in MarkView/Resources/Themes, copied next to this program by the script)
+
+extension AppTheme { static let midnight = AppTheme("midnight") }
+
+/// Shorthand for the backdrops the app registers: the app's code names none of them (AR-34); a check names the ones it looks at.
+extension WelcomeBackdrop {
+    static let matrix = WelcomeBackdrop(rawValue: "matrix")!, aurora = WelcomeBackdrop(rawValue: "aurora")!, bugs = WelcomeBackdrop(rawValue: "bugs")!
+    static let network = WelcomeBackdrop(rawValue: "network")!, blueprint = WelcomeBackdrop(rawValue: "blueprint")!, circuit = WelcomeBackdrop(rawValue: "circuit")!
+    static let gitflow = WelcomeBackdrop(rawValue: "gitflow")!, typewriter = WelcomeBackdrop(rawValue: "typewriter")!
+    static let deepsea = WelcomeBackdrop(rawValue: "deepsea")!, warp = WelcomeBackdrop(rawValue: "warp")!
+}
+let shippedThemes = ThemeLibrary.load(builtInFolder: ThemeCatalog.bundledFolder, userFolder: nil)
+/// The palette of a shipped theme, as a window with that theme draws it.
+func themePalette(_ theme: AppTheme, accent: ThemeColor? = nil) -> ThemePalette {
+    ThemePalette.make(shippedThemes.resolve(theme, systemIsDark: true).definition, accent: accent)
+}
+
 // MARK: - The choice
 
 func choiceChecks() {
     check(WelcomeBackdrop.stored(nil) == .matrix, "no stored choice: Matrix Rain is the default")
     check(WelcomeBackdrop.stored("bogus") == .matrix, "a stored value that names nothing: the default")
     check(WelcomeBackdrop.stored("aurora") == .aurora, "a stored name is read back")
-    check(WelcomeBackdrop.allCases.map(\.rawValue).count == Set(WelcomeBackdrop.allCases.map(\.rawValue)).count, "every backdrop has its own stored name")
-    check(Set(WelcomeBackdrop.allCases.map(\.title)).count == WelcomeBackdrop.allCases.count, "every backdrop has its own title")
+    check(WelcomeBackdrop.all.map(\.rawValue).count == Set(WelcomeBackdrop.all.map(\.rawValue)).count, "every backdrop has its own stored name")
+    check(Set(WelcomeBackdrop.all.map(\.title)).count == WelcomeBackdrop.all.count, "every backdrop has its own title")
     let picked = Set((-9...30).map { WelcomeBackdrop.shuffle.scene(pick: $0) })
     check(picked == Set(WelcomeBackdrop.animated), "Shuffle reaches every animated backdrop and nothing else", "\(picked.map(\.rawValue).sorted())")
-    check(WelcomeBackdrop.allCases.filter { $0 != .shuffle && $0 != .project }.allSatisfy { $0.scene(pick: 3) == $0 }, "a chosen backdrop is drawn as itself")
+    check(WelcomeBackdrop.all.filter { $0 != .shuffle && $0 != .project }.allSatisfy { $0.scene(pick: 3) == $0 }, "a chosen backdrop is drawn as itself")
     check(!WelcomeBackdrop.animated.contains(.off) && !WelcomeBackdrop.animated.contains(.shuffle), "Off and Shuffle are not among the animated ones")
     var a = BackdropRandom(seed: 7), b = BackdropRandom(seed: 7), c = BackdropRandom(seed: 8)
     check((0..<20).map { _ in a.next() } == (0..<20).map { _ in b.next() }, "the same seed gives the same numbers")
@@ -173,23 +190,35 @@ func catalogueChecks() {
     let idsWith = withGit.flatMap { $0.actions.map(\.id) }, idsWithout = withoutGit.flatMap { $0.actions.map(\.id) }
     check(withGit.map(\.section) == WelcomeSection.allCases, "catalogue: Start, Explore and Build & Run, in that order")
     check(Set(idsWith).count == idsWith.count, "catalogue: no action twice")
-    check(idsWith.contains(.git) && !idsWithout.contains(.git), "catalogue: Git only for a Git repository")
-    check(Set(idsWith).subtracting(idsWithout) == [.git], "catalogue: Git is the only difference")
+    check(idsWith.contains(.tool(.git)) && !idsWithout.contains(.tool(.git)), "catalogue: Git only for a Git repository")
+    check(Set(idsWith).subtracting(idsWithout) == [.tool(.git)], "catalogue: Git is the only difference")
     check(withGit.allSatisfy { !$0.actions.isEmpty }, "catalogue: no empty section")
-    let expected: Set<WelcomeActionID> = [.terminal, .newFeature, .quickFeature, .newBug, .discussions, .tasks, .xray, .understand, .research, .search, .files, .openFile, .git, .deployments, .workflow, .qa, .uiStudio, .browser]
-    check(Set(idsWith) == expected, "catalogue: the tiles REQ-001 names", "\(Set(idsWith).symmetricDifference(expected))")
+    let expected: Set<WelcomeActionID> = [.terminal, .newFeature, .quickFeature, .newBug, .tool(.discussions), .tasks, .xray, .understand, .research, .search, .files, .openFile,
+                                          .tool(.git), .tool(.deployments), .tool(.workflow), .tool(.qa), .tool(.uiStudio), .tool(.cockpit), .browser]
+    check(Set(idsWith) == expected, "catalogue: the tiles REQ-001 names, and the Cockpit", "\(Set(idsWith).symmetricDifference(expected))")
+    // The order the screen has always had, with the Cockpit after UI Studio.
+    check(withGit[0].actions.map(\.id) == [.terminal, .newFeature, .quickFeature, .newBug, .tool(.discussions), .tasks], "catalogue: Start keeps its order")
+    check(withGit[1].actions.map(\.id) == [.xray, .understand, .research, .search, .files, .openFile], "catalogue: Explore keeps its order")
+    check(withGit[2].actions.map(\.id) == [.tool(.git), .tool(.deployments), .tool(.workflow), .tool(.qa), .tool(.uiStudio), .tool(.cockpit), .browser],
+          "catalogue: Build & Run keeps its order, with the Cockpit after UI Studio")
     check(WelcomeCatalogue.emptyWindow.map(\.id) == [.openFolder, .openFile, .newProject], "catalogue: the window without a folder offers Open Folder, Open File, New Project")
-    check(Set(idsWith).union(WelcomeCatalogue.emptyWindow.map(\.id)) == Set(WelcomeActionID.allCases), "catalogue: every action id is offered somewhere")
-    let all = WelcomeActionID.allCases.map(WelcomeCatalogue.action)
-    check(all.allSatisfy { !$0.title.isEmpty && !$0.hint.isEmpty && !$0.symbol.isEmpty && $0.id == WelcomeCatalogue.action($0.id).id }, "catalogue: every action has a title, a hint and an icon")
+    // A tool's tile is its descriptor: the same title, the same icon as its toolbar button and tab, the same shortcut as its menu item.
+    for tool in ToolRegistry.shared.welcomeTools {
+        let tile = withGit.flatMap(\.actions).first { $0.id == .tool(tool.id) }
+        check(tile?.title == tool.title && tile?.symbol == tool.icon && tile?.shortcut == tool.shortcut?.hint && tile?.hint == tool.welcome?.hint,
+              "catalogue: the tile of \(tool.title) is generated from its descriptor")
+    }
+    let all = withGit.flatMap(\.actions) + WelcomeCatalogue.emptyWindow
+    check(all.allSatisfy { !$0.title.isEmpty && !$0.hint.isEmpty && !$0.symbol.isEmpty }, "catalogue: every action has a title, a hint and an icon")
     check(all.allSatisfy { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) != nil }, "catalogue: every icon is a symbol this macOS has",
           all.filter { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) == nil }.map(\.symbol).joined(separator: ","))
-    check(withGit[0].actions.first?.isProminent == true && all.filter(\.isProminent).count == 2, "catalogue: Open Terminal (and Open Folder, in its own window) stand out")
-    // A shortcut a tile shows must be one the app's menus really have.
+    check(withGit[0].actions.first?.isProminent == true && Set(all.filter(\.isProminent).map(\.id)) == [.terminal, .openFolder], "catalogue: Open Terminal (and Open Folder, in its own window) stand out")
+    // A shortcut a tile shows must be one the app's menus really have: a tool's comes from the registry that generates its menu item.
     let menus = (try? String(contentsOfFile: "MarkView/App/MarkViewApp.swift")) ?? ""
+    let toolShortcuts = Set(ToolRegistry.shared.tools.compactMap { $0.shortcut?.hint })
     for action in all {
         guard let shortcut = action.shortcut, let key = shortcut.last else { continue }
-        check(menus.contains("keyboardShortcut(\"\(key.lowercased())\""), "catalogue: \(action.title) shows \(shortcut), which the menus have")
+        check(toolShortcuts.contains(shortcut) || menus.contains("keyboardShortcut(\"\(key.lowercased())\""), "catalogue: \(action.title) shows \(shortcut), which the menus have")
     }
 }
 
@@ -224,8 +253,8 @@ func catalogueChecks() {
 func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []).flatMap(allLayers) }
 
 @MainActor func layerChecks() {
-    let darkColors = BackdropColors(AppPalette(ThemePalette.make(.classicDark)))
-    let lightColors = BackdropColors(AppPalette(ThemePalette.make(.classicLight)))
+    let darkColors = BackdropColors(AppPalette(themePalette(.classicDark)))
+    let lightColors = BackdropColors(AppPalette(themePalette(.classicLight)))
     check(darkColors.isDark && !lightColors.isDark, "colours: the theme says whether it is dark")
     let font = NSFont.monospacedSystemFont(ofSize: 15, weight: .medium)
     let glyphs = Array("ｦｱｳｴｵｶｷｹｺｻｼｽｾﾀﾂﾃﾅﾆ")
@@ -336,7 +365,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
     let stillBugs = BackdropBuilder(size: CGSize(width: 800, height: 600), colors: darkColors, scale: 2, animated: false, seed: 11).layers(for: .bugs)
     check(stillBugs.allSatisfy { abs($0.transform.m11 * $0.transform.m11 + $0.transform.m12 * $0.transform.m12 - 1) < 0.0001 }, "bugs: a still bug is turned, not skewed")
     check(BackdropBuilder(size: CGSize(width: 10, height: 10), colors: darkColors, scale: 2, animated: true, seed: 1).layers(for: .matrix).isEmpty, "a window too small gets no layers")
-    check(WelcomeBackdrop.allCases.filter { $0 == .off || $0 == .shuffle }.allSatisfy {
+    check(WelcomeBackdrop.all.filter { $0 == .off || $0 == .shuffle }.allSatisfy {
         BackdropBuilder(size: CGSize(width: 800, height: 600), colors: darkColors, scale: 2, animated: true, seed: 1).layers(for: $0).isEmpty }, "Off and Shuffle draw no layers of their own")
 }
 
@@ -357,7 +386,7 @@ private struct ProjectContextScreen: View {
 
 @MainActor func projectContextChecks() {
     let fixture = ProjectContextFixture()
-    let hosting = NSHostingView(rootView: ProjectContextScreen(fixture: fixture).environment(\.palette, AppPalette(ThemePalette.make(.midnight))))
+    let hosting = NSHostingView(rootView: ProjectContextScreen(fixture: fixture).environment(\.palette, AppPalette(themePalette(.midnight))))
     let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1000, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = hosting
@@ -411,7 +440,7 @@ private struct ProjectContextScreen: View {
             Text("Recent projects").font(.system(size: 13, weight: .semibold))
         }
     }
-    let hosting = NSHostingView(rootView: AnyView(screen.environment(\.palette, AppPalette(ThemePalette.make(theme, accent: accent)))))
+    let hosting = NSHostingView(rootView: AnyView(screen.environment(\.palette, AppPalette(themePalette(theme, accent: accent)))))
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = hosting
@@ -428,12 +457,12 @@ private struct ProjectContextScreen: View {
 
 @MainActor func hostedChecks() {
     // Every backdrop, in a dark and a light theme, in a project window and in a window without a folder.
-    for backdrop in WelcomeBackdrop.allCases where backdrop != .shuffle {
+    for backdrop in WelcomeBackdrop.all where backdrop != .shuffle {
         for theme in [AppTheme.classicDark, .classicLight, .midnight] {
             for (project, git, size) in [("MarkView", true, NSSize(width: 1142, height: 1068)), (nil, false, NSSize(width: 900, height: 700)), ("A-long-project-folder-name", false, NSSize(width: 560, height: 800))] as [(String?, Bool, NSSize)] {
                 let (window, hosting) = host(project: project, git: git, theme: theme, size: size, still: true, backdrop: backdrop)
                 settle(hosting)
-                let name = "\(backdrop.rawValue)-\(theme.rawValue)-\(project == nil ? "empty" : (size.width < 600 ? "narrow" : "project"))"
+                let name = "\(backdrop.rawValue)-\(theme.id)-\(project == nil ? "empty" : (size.width < 600 ? "narrow" : "project"))"
                 let views = descendants(hosting)
                 let backdropViews = views.compactMap { $0 as? BackdropHostView }
                 check(backdropViews.count == (backdrop == .off ? 0 : 1), "\(name): \(backdrop == .off ? "no backdrop view" : "one backdrop view")")
@@ -442,7 +471,7 @@ private struct ProjectContextScreen: View {
                     check(!layers.isEmpty, "\(name): the backdrop has \(layers.count) layers", "bounds \(view.bounds)")
                     check(view.hitTest(NSPoint(x: view.bounds.midX, y: view.bounds.midY)) == nil, "\(name): the backdrop takes no mouse event")
                     let builds = view.buildCount
-                    view.configure(kind: backdrop.scene(pick: 0), colors: BackdropColors(AppPalette(ThemePalette.make(theme))), seed: view.currentSeed, still: true)
+                    view.configure(kind: backdrop.scene(pick: 0), colors: BackdropColors(AppPalette(themePalette(theme))), seed: view.currentSeed, still: true)
                     check(view.buildCount == builds, "\(name): an update that changes nothing does not rebuild (the animation keeps running)")
                     check(view.frame.size == hosting.bounds.size, "\(name): the backdrop fills the window")
                 }
@@ -456,10 +485,10 @@ private struct ProjectContextScreen: View {
 /// BUG-120: the background belongs to the window that chose it. The screen shows only the binding it is given, so the stored value that
 /// the old @AppStorage shared with every window cannot reach it, and two windows hold two different choices at once.
 @MainActor func perWindowChecks() {
-    let defaults = UserDefaults.standard
-    let previous = defaults.object(forKey: WelcomeBackdrop.storageKey)
-    defer { if let previous { defaults.set(previous, forKey: WelcomeBackdrop.storageKey) } else { defaults.removeObject(forKey: WelcomeBackdrop.storageKey) } }
-    defaults.set(WelcomeBackdrop.aurora.rawValue, forKey: WelcomeBackdrop.storageKey)
+    let settings = Settings.standard
+    let previous = settings.stored(Setting.welcomeBackdrop)
+    defer { settings.set(previous, for: Setting.welcomeBackdrop) }
+    settings.set(WelcomeBackdrop.aurora.rawValue, for: Setting.welcomeBackdrop)
     let size = NSSize(width: 900, height: 700)
     let (first, firstHosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: true, backdrop: .network)
     let (second, secondHosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: true, backdrop: .bugs)
@@ -575,7 +604,7 @@ private struct ProjectContextScreen: View {
             ? Set(WelcomeCatalogue.emptyWindow.map(\.id))
             : Set(WelcomeCatalogue.project(isGitRepo: git).flatMap { $0.actions.map(\.id) })
         let name = project == nil ? "a window without a folder" : (git ? "a Git project" : "a project that is not a Git repository")
-        check(fired == expected, "tiles, \(name): a click reaches exactly the \(expected.count) tiles of the catalogue", "missing \(expected.subtracting(fired).map(\.rawValue).sorted()), extra \(fired.subtracting(expected).map(\.rawValue).sorted())")
+        check(fired == expected, "tiles, \(name): a click reaches exactly the \(expected.count) tiles of the catalogue", "missing \(expected.subtracting(fired).map { "\($0)" }.sorted()), extra \(fired.subtracting(expected).map { "\($0)" }.sorted())")
     }
 }
 
@@ -633,7 +662,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
         guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else {
             check(false, "frames \(backdrop.rawValue): the backdrop view exists"); continue
         }
-        let background = NSColor(AppPalette(ThemePalette.make(.classicDark)).model.bg)
+        let background = NSColor(AppPalette(themePalette(.classicDark)).model.bg)
         CATransaction.flush()
         guard let early = presentationImage(root, size: view.bounds.size, background: background) else { check(false, "frames \(backdrop.rawValue): a frame can be drawn"); continue }
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))

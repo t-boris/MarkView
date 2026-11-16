@@ -66,9 +66,9 @@
                 }
             } catch (e) {
                 // Parse error — show error + syntax-highlighted source
-                html = '<div class="struct-error">Parse Error: ' + escapeHTML(e.message) + '</div>'
+                html = '<div class="struct-error">Parse Error: ' + window.mvKit.escapeHtml(e.message) + '</div>'
                      + '<pre class="language-' + state.fileType + '" style="padding:12px;margin:0;overflow:auto;"><code>'
-                     + escapeHTML(state.markdown) + '</code></pre>';
+                     + window.mvKit.escapeHtml(state.markdown) + '</code></pre>';
                 if (typeof Prism !== 'undefined') {
                     setTimeout(() => Prism.highlightAllUnder(DOM.rendered), 50);
                 }
@@ -111,8 +111,8 @@
             if (value === null) return renderJSONLeaf(key, '<span class="struct-null struct-value">null</span>', isLast, path);
             if (typeof value === 'boolean') return renderJSONLeaf(key, '<span class="struct-boolean struct-value">' + value + '</span>', isLast, path);
             if (typeof value === 'number') return renderJSONLeaf(key, '<span class="struct-number struct-value">' + value + '</span>', isLast, path);
-            if (typeof value === 'string') return renderJSONLeaf(key, '<span class="struct-string struct-value">"' + escapeHTML(value) + '"</span>', isLast, path);
-            if (value instanceof Date) return renderJSONLeaf(key, '<span class="struct-string struct-value">' + escapeHTML(value.toISOString()) + '</span>', isLast, path);
+            if (typeof value === 'string') return renderJSONLeaf(key, '<span class="struct-string struct-value">"' + window.mvKit.escapeHtml(value) + '"</span>', isLast, path);
+            if (value instanceof Date) return renderJSONLeaf(key, '<span class="struct-string struct-value">' + window.mvKit.escapeHtml(value.toISOString()) + '</span>', isLast, path);
 
             const isArray = Array.isArray(value);
             const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
@@ -121,10 +121,10 @@
             const count = entries.length;
             const id = 'sn-' + Math.random().toString(36).substr(2, 8);
 
-            let html = '<div class="struct-node" id="' + id + '" data-path="' + escapeHTML(JSON.stringify(path)) + '" data-container="' + (isArray ? 'array' : 'object') + '">';
+            let html = '<div class="struct-node" id="' + id + '" data-path="' + window.mvKit.escapeHtml(JSON.stringify(path)) + '" data-container="' + (isArray ? 'array' : 'object') + '">';
             html += '<div class="struct-line">';
             html += '<span class="struct-toggle" data-target="' + id + '-children">▼</span>';
-            if (key !== '') html += '<span class="struct-key">' + (typeof key === 'number' ? key : '"' + escapeHTML(String(key)) + '"') + '</span><span class="struct-colon">: </span>';
+            if (key !== '') html += '<span class="struct-key">' + (typeof key === 'number' ? key : '"' + window.mvKit.escapeHtml(String(key)) + '"') + '</span><span class="struct-colon">: </span>';
             html += '<span class="struct-bracket">' + open + '</span>';
             html += '<span class="struct-count">' + count + (count === 1 ? ' item' : ' items') + '</span>';
             html += structActions(path, true);
@@ -140,8 +140,8 @@
         }
 
         function renderJSONLeaf(key, valueHtml, isLast, path) {
-            let html = '<div class="struct-node" data-path="' + escapeHTML(JSON.stringify(path || [])) + '"><div class="struct-line"><span class="struct-placeholder"></span>';
-            if (key !== '') html += '<span class="struct-key">' + (typeof key === 'number' ? key : '"' + escapeHTML(String(key)) + '"') + '</span><span class="struct-colon">: </span>';
+            let html = '<div class="struct-node" data-path="' + window.mvKit.escapeHtml(JSON.stringify(path || [])) + '"><div class="struct-line"><span class="struct-placeholder"></span>';
+            if (key !== '') html += '<span class="struct-key">' + (typeof key === 'number' ? key : '"' + window.mvKit.escapeHtml(String(key)) + '"') + '</span><span class="struct-colon">: </span>';
             html += valueHtml;
             if (!isLast) html += '<span class="struct-comma">,</span>';
             html += structActions(path || [], false);
@@ -162,10 +162,10 @@
             if (node.nodeType === Node.TEXT_NODE) {
                 const text = node.textContent.trim();
                 if (!text) return '';
-                return '<div class="struct-node"><div class="struct-line"><span class="struct-placeholder"></span><span class="struct-text">' + escapeHTML(text) + '</span></div></div>';
+                return '<div class="struct-node"><div class="struct-line"><span class="struct-placeholder"></span><span class="struct-text">' + window.mvKit.escapeHtml(text) + '</span></div></div>';
             }
             if (node.nodeType === Node.COMMENT_NODE) {
-                return '<div class="struct-node"><div class="struct-line"><span class="struct-placeholder"></span><span class="struct-comment">&lt;!-- ' + escapeHTML(node.textContent) + ' --&gt;</span></div></div>';
+                return '<div class="struct-node"><div class="struct-line"><span class="struct-placeholder"></span><span class="struct-comment">&lt;!-- ' + window.mvKit.escapeHtml(node.textContent) + ' --&gt;</span></div></div>';
             }
             if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
@@ -174,7 +174,7 @@
             const id = 'sn-' + Math.random().toString(36).substr(2, 8);
             let attrs = '';
             for (const attr of node.attributes) {
-                attrs += ' <span class="struct-attr-name">' + escapeHTML(attr.name) + '</span>=<span class="struct-attr-value">"' + escapeHTML(attr.value) + '"</span>';
+                attrs += ' <span class="struct-attr-name">' + window.mvKit.escapeHtml(attr.name) + '</span>=<span class="struct-attr-value">"' + window.mvKit.escapeHtml(attr.value) + '"</span>';
             }
 
             let html = '<div class="struct-node" id="' + id + '">';
@@ -184,14 +184,14 @@
             } else {
                 html += '<span class="struct-placeholder"></span>';
             }
-            html += '<span class="struct-bracket">&lt;</span><span class="struct-tag">' + escapeHTML(node.tagName) + '</span>' + attrs;
+            html += '<span class="struct-bracket">&lt;</span><span class="struct-tag">' + window.mvKit.escapeHtml(node.tagName) + '</span>' + attrs;
 
             if (!hasChildren) {
                 // Self-closing or text-only
                 const textContent = node.textContent.trim();
                 if (textContent && textContent.length < 80) {
-                    html += '<span class="struct-bracket">&gt;</span><span class="struct-text">' + escapeHTML(textContent) + '</span>';
-                    html += '<span class="struct-bracket">&lt;/</span><span class="struct-tag">' + escapeHTML(node.tagName) + '</span><span class="struct-bracket">&gt;</span>';
+                    html += '<span class="struct-bracket">&gt;</span><span class="struct-text">' + window.mvKit.escapeHtml(textContent) + '</span>';
+                    html += '<span class="struct-bracket">&lt;/</span><span class="struct-tag">' + window.mvKit.escapeHtml(node.tagName) + '</span><span class="struct-bracket">&gt;</span>';
                 } else {
                     html += '<span class="struct-bracket"> /&gt;</span>';
                 }
@@ -207,7 +207,7 @@
                 html += renderXML(child, indent + '  ', i === children.length - 1);
             });
             html += '</div>';
-            html += '<div class="struct-line"><span class="struct-placeholder"></span><span class="struct-bracket">&lt;/</span><span class="struct-tag">' + escapeHTML(node.tagName) + '</span><span class="struct-bracket">&gt;</span></div>';
+            html += '<div class="struct-line"><span class="struct-placeholder"></span><span class="struct-bracket">&lt;/</span><span class="struct-tag">' + window.mvKit.escapeHtml(node.tagName) + '</span><span class="struct-bracket">&gt;</span></div>';
             html += '</div>';
             return html;
         }
@@ -327,11 +327,6 @@
                 }
             }
             sendToSwift('headingsUpdated', headings);
-        }
-
-        function escapeHTML(str) {
-            if (typeof str !== 'string') return String(str);
-            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
         // Override mode toggle for structured files

@@ -1,7 +1,6 @@
 import SwiftUI
 import WebKit
 import Combine
-import Security
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -9,47 +8,37 @@ import MarkViewCore
 /// NSViewRepresentable wrapper for WKWebView markdown editor
 struct EditorView: NSViewRepresentable {
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject var tabs: TabsController
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
 
     func makeNSView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        let userController = WKUserContentController()
-
-        // Set up script message handler wrapped in WeakScriptMessageHandler (`AR-27`)
-        // to avoid WKUserContentController retaining Coordinator -> WebView cycles.
-        let bridge = context.coordinator.bridge
-        userController.add(WeakScriptMessageHandler(bridge), name: "bridge")
-
-        config.userContentController = userController
-        #if DEBUG
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        #endif
         // Data viewers read their file through `markview-data:` (only files open in a data tab).
         let dataFiles = DataFileSchemeHandler()
-        dataFiles.isAllowed = { [weak workspaceManager] url in
+        dataFiles.isAllowed = { [weak tabs] url in
             MainActor.assumeIsolated {
-                workspaceManager?.openTabs.contains { tab in
+                tabs?.openTabs.contains { tab in
                     if case .data = tab.kind { return tab.url.standardizedFileURL.path == url.standardizedFileURL.path }
                     return false
                 } ?? false
             }
         }
-        config.setURLSchemeHandler(dataFiles, forURLScheme: DataFileSchemeHandler.scheme)
         // The pictures a document refers to by a relative path (BUG-061): the project folder and the folder of each open document.
         let documentFiles = context.coordinator.documentFiles
-        documentFiles.allowedRoots = { [weak workspaceManager] in
+        documentFiles.allowedRoots = { [weak workspaceManager, weak tabs] in
             MainActor.assumeIsolated {
-                guard let workspaceManager else { return [] }
-                return DocumentFiles.roots(project: workspaceManager.rootNode?.url,
-                                           documents: workspaceManager.openTabs.filter(\.isFileBacked).map(\.url))
+                guard let workspaceManager, let tabs else { return [] }
+                return DocumentFiles.roots(project: workspaceManager.project.root,
+                                           documents: tabs.openTabs.filter(\.isFileBacked).map(\.url))
             }
         }
-        config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let config = WebHost.makeConfiguration(
+            handlers: [.message("bridge", context.coordinator.bridge.messages)],
+            urlSchemeHandlers: [(DataFileSchemeHandler.scheme, dataFiles), (DocumentFileSchemeHandler.scheme, documentFiles)])
+        let webView = WebHost.makeWebView(configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
@@ -73,9 +62,7 @@ struct EditorView: NSViewRepresentable {
         let coordinator = context.coordinator
 
         // Load content when tab changes
-        if workspaceManager.activeTabIndex >= 0,
-           workspaceManager.activeTabIndex < workspaceManager.openTabs.count {
-            let tab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+        if let tab = tabs.activeTab {
             coordinator.pendingTab = tab
             coordinator.loadContentIfNeeded(tab.content, documentURL: tab.url, tab: tab)
         }
@@ -111,7 +98,7 @@ struct EditorView: NSViewRepresentable {
         private var currentCodeURL: URL?
         private var pendingCodeReveal: (url: URL, line: Int, endLine: Int?)?
         private var currentLineRevealURL: URL?
-        private var lastTheme: String?
+        private var lastTheme: WebThemeArguments?
         private var isEditorReady = false
         private var pendingContent: String?
         private var pendingDocumentURL: URL?
@@ -128,6 +115,8 @@ struct EditorView: NSViewRepresentable {
         /// every kind switch (and on switch to a different insight session) to avoid
         /// retain cycles and stale forwarding.
         var insightCancellables = Set<AnyCancellable>()
+        /// Listens for the close of an insight tab; kept while the page lives, whatever tab is shown (the blobs outlive the tab).
+        private var insightBlobRelease: AnyCancellable?
         /// Re-renders the Architecture tab whenever `ArchitectureStore` changes.
         private var architectureCancellable: AnyCancellable?
         /// Which X-Ray the subscription above follows ("" = the project's).
@@ -208,7 +197,9 @@ struct EditorView: NSViewRepresentable {
                 forName: .codeNavEvent,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.object as AnyObject? === self.parent.workspaceManager.codeNav,
+                // Delivered on the main queue, where the window's models live.
+                guard let self,
+                      MainActor.assumeIsolated({ notification.object as AnyObject? === self.parent.workspaceManager.codeXRay.codeNav }),
                       let webView = self.webView,
                       let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
                       let json = notification.userInfo?["json"] as? String else { return }
@@ -238,15 +229,6 @@ struct EditorView: NSViewRepresentable {
 
         // MARK: - Page Loading
 
-        private static func makeCSPNonce() -> String {
-            var bytes = [UInt8](repeating: 0, count: 16)
-            if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess {
-                return bytes.map { String(format: "%02x", $0) }.joined()
-            }
-            var rng = SystemRandomNumberGenerator()
-            return (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255, using: &rng)) }.joined()
-        }
-
         /// Load the editor HTML from the app bundle so bundled vendor assets remain available.
         func loadEditorPage() {
             guard let webView = webView, let html = editorHTML else { return }
@@ -254,32 +236,33 @@ struct EditorView: NSViewRepresentable {
             lastLoadedContent = ""
             // The page starts at the current interface scale, so its chrome never flashes at 100%.
             appliedUIScale = uiScale
-            let cspNonce = Self.makeCSPNonce()
-            var page = html
+            // The page's policy takes the Insight nonce here; a page that cannot take it loads without one (FU-26).
+            let prepared = EditorPage.prepare(html)
+            let page = prepared.html
                 .replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
-            if let cspRange = page.range(of: #"<meta http-equiv="Content-Security-Policy"[^>]*script-src [^;"]+"#, options: .regularExpression) {
-                page = page.replacingCharacters(in: cspRange, with: String(page[cspRange]) + " 'nonce-\(cspNonce)'")
-            }
             // This window's own text size and panel widths injected at documentStart via WKUserScript (`EditorWindowPrefs`, `FU-10`)
             // so index.html needs no inline <script> injection.
             let windowUI = parent.workspaceManager.windowUI
             var own: [String: String] = [:]
             for key in EditorWindowPrefs.keys {
-                if let value: String = windowUI.existing(EditorWindowPrefs.stateKey(key)) { own[key] = value }
+                if let value = windowUI.existing(Setting.editorPref(key)) { own[key] = value }
             }
             let prefsScript = WKUserScript(
                 source: EditorWindowPrefs.script(values: own),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
-            let nonceScript = WKUserScript(
-                source: "window.__markviewInsightNonce = \"\(cspNonce)\";",
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
             webView.configuration.userContentController.removeAllUserScripts()
+            // The contract goes in first: `mvBridge.send` validates every message against it (AR-28).
+            webView.configuration.userContentController.addUserScript(bridge.messages.contract.userScript)
             webView.configuration.userContentController.addUserScript(prefsScript)
-            webView.configuration.userContentController.addUserScript(nonceScript)
+            if let nonce = prepared.nonce {
+                webView.configuration.userContentController.addUserScript(WKUserScript(
+                    source: EditorPage.nonceScript(nonce),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                ))
+            }
             webView.loadHTMLString(page, baseURL: editorResourceBaseURL)
         }
 
@@ -402,18 +385,20 @@ struct EditorView: NSViewRepresentable {
             case .insight(let session):
                 currentCodeURL = nil
                 architectureCancellable = nil
-                webView.evaluateJavaScript("window.leaveCodeView && window.leaveCodeView(); window.leaveArchitectureView && window.leaveArchitectureView(); window.leaveDataView && window.leaveDataView()")
+                if let script = JS.sequence(["window.leaveCodeView", "window.leaveArchitectureView", "window.leaveDataView"].map { JS.call($0, ifDefined: true) }) {
+                    webView.evaluateJavaScript(script)
+                }
                 lastLoadedTabID = nil
                 bridge.clearDocument(in: webView)
                 routeInsight(session: session, webView: webView)
                 return
             case .architecture(let scope):
-                webView.evaluateJavaScript("window.leaveDataView && window.leaveDataView()")
+                if let script = JS.call("window.leaveDataView", ifDefined: true) { webView.evaluateJavaScript(script) }
                 lastLoadedTabID = nil
                 bridge.clearDocument(in: webView)
                 routeArchitecture(scope: scope, webView: webView)
                 return
-            case .terminal, .image, .pdf, .archive, .deployments, .discussions, .workflow, .git, .changeReview, .github, .browser, .prototype, .uiStudio, .cockpit, .qa:
+            case .terminal, .image, .pdf, .archive, .tool, .github, .browser, .prototype, .uiStudio, .cockpit:
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
                 return
             case .data:
@@ -470,7 +455,7 @@ struct EditorView: NSViewRepresentable {
                documentURL?.standardizedFileURL == lastLoadedDocumentURL,
                ResearchMap.isMap(lastLoadedContent), ResearchMap.isMap(markdown) {
                 lastLoadedContent = loadKey
-                bridge.setResearchMap(parent.workspaceManager.researchMapSnapshotJSON(text: markdown, file: tab.url),
+                bridge.setResearchMap(parent.workspaceManager.research.snapshotJSON(text: markdown, file: tab.url),
                                       documentID: tab.id, in: webView)
                 followResearchMapJobs()
                 return
@@ -507,22 +492,19 @@ struct EditorView: NSViewRepresentable {
         /// Follows the job list while a research map is on screen: the step the assistant is on changes
         /// without the file changing, and the map view shows it.
         func followResearchMapJobs() {
-            parent.workspaceManager.researchMapPDFExporter = { [weak self] markdown, fileName in
-                self?.exportResearchMapPDF(markdown, fileName: fileName) ?? false
-            }
             guard researchMapJobsCancellable == nil else { return }
-            researchMapJobsCancellable = parent.workspaceManager.research.$jobs
+            researchMapJobsCancellable = parent.workspaceManager.research.jobs.$jobs
                 .throttle(for: .milliseconds(500), scheduler: DispatchQueue.main, latest: true)
                 .sink { [weak self] _ in
                     guard let self, let webView = self.webView, let id = self.lastLoadedTabID,
                           ResearchMap.isMap(self.lastLoadedContent),
-                          let current = self.parent.workspaceManager.openTabs.first(where: { $0.id == id }) else { return }
+                          let current = self.parent.tabs.openTabs.first(where: { $0.id == id }) else { return }
                     // The text of the map reaches the page when the file changes; this push is for the job's own
                     // progress (its step and start), so it is sent only when that changed.
-                    let info = self.parent.workspaceManager.research.mapJobInfo(for: current.url)
+                    let info = self.parent.workspaceManager.research.jobs.mapJobInfo(for: current.url)
                     guard self.lastPushedJob?.tab != id || self.lastPushedJob?.info != info else { return }
                     self.lastPushedJob = (id, info)
-                    self.bridge.setResearchMap(self.parent.workspaceManager.researchMapSnapshotJSON(text: current.content, file: current.url),
+                    self.bridge.setResearchMap(self.parent.workspaceManager.research.snapshotJSON(text: current.content, file: current.url),
                                                documentID: id, in: webView)
                 }
         }
@@ -530,14 +512,14 @@ struct EditorView: NSViewRepresentable {
         /// Load cached notes for the code file and keep the margin panel in sync.
         private func routeCodeNotes(url: URL, webView: WKWebView) {
             let wm = parent.workspaceManager
-            wm.prepareCodeNotes(for: url)
+            wm.codeXRay.prepareCodeNotes(for: url)
             // Notes change with the explanation and with the selected pull request (X-Ray).
-            codeNotesCancellable = wm.codeExplain.$revision.map { _ in () }
-                .merge(with: wm.architecture.$revision.map { _ in () })
+            codeNotesCancellable = wm.codeXRay.codeExplain.$revision.map { _ in () }
+                .merge(with: wm.codeXRay.architecture.$revision.map { _ in () })
                 .debounce(for: .milliseconds(120), scheduler: DispatchQueue.main)
                 .sink { [weak self, weak webView] _ in
                     guard let self, let webView, let current = self.currentCodeURL else { return }
-                    self.bridge.setCodeNotes(self.parent.workspaceManager.codeNotesJSON(for: current), in: webView)
+                    self.bridge.setCodeNotes(self.parent.workspaceManager.codeXRay.codeNotesJSON(for: current), in: webView)
                 }
         }
 
@@ -545,7 +527,7 @@ struct EditorView: NSViewRepresentable {
         private func routeArchitecture(scope: String, webView: WKWebView) {
             currentCodeURL = nil
             lastLoadedContent = ""   // a file opened afterwards must reload into the editor
-            let store = parent.workspaceManager.xrayStore(for: scope)
+            let store = parent.workspaceManager.codeXRay.xrayStore(for: scope)
             let operations = scope.isEmpty ? parent.workspaceManager.projectOperations : nil
             if architectureCancellable == nil || architectureScope != scope || architectureOperationsRoot != operations?.root.path {
                 architectureScope = scope
@@ -620,16 +602,10 @@ struct EditorView: NSViewRepresentable {
             lastLoadedContent = ""
             currentDocumentBaseURL = nil
 
-            // Wire `WorkspaceManager.releaseInsightBlobsHook` so closeTab Step 1
-            // (Decision 11 §4) can synchronously revoke this session's blob URLs
-            // BEFORE `await session.cancel()` allows new Combine emissions. Hook
-            // captures THIS coordinator's webView + bridge weakly — if the
-            // WebView has been deallocated by tab teardown when the hook fires,
-            // it no-ops safely (closing the WebView itself GCs the blobs).
-            self.parent.workspaceManager.releaseInsightBlobsHook = { [weak self] in
-                guard let self = self, let webView = self.webView else { return }
-                self.bridge.releaseInsightBlobs(into: webView)
-            }
+            // The coordinator's ordered close (Decision 11 §4, step 1) asks this page to revoke the session's blob URLs
+            // BEFORE `await session.cancel()` allows new Combine emissions. The page listens until it is gone; once its web view
+            // is gone, closing the tab frees the blobs anyway.
+            insightBlobRelease = self.parent.workspaceManager.insight.blobReleases.sink { [weak self] in self?.releaseInsightBlobs() }
 
             // Skeleton paint. compactMap drops the initial `nil` (T6 init) so the
             // iframe srcdoc is built only when a real skeleton is available. Reset
@@ -798,17 +774,19 @@ struct EditorView: NSViewRepresentable {
             uiScale = scale
             guard let webView = webView, isEditorReady, scale != appliedUIScale else { return }
             appliedUIScale = scale
-            webView.evaluateJavaScript("window.mvSetUIScale && window.mvSetUIScale(\(Double(scale)))")
+            if let script = JS.call("window.mvSetUIScale", args: [Double(scale)], ifDefined: true) { webView.evaluateJavaScript(script) }
         }
 
         var workspaceTransparency: Double = 0
         func setWorkspaceTransparency(_ value: Double) {
             workspaceTransparency = value.isFinite ? min(0.7, max(0, value)) : 0
             guard let webView = webView, isEditorReady else { return }
-            webView.evaluateJavaScript("document.documentElement.classList.toggle('workspace-transparent', \(workspaceTransparency > 0 ? "true" : "false"))")
+            if let script = JS.call("document.documentElement.classList.toggle", args: ["workspace-transparent", workspaceTransparency > 0]) {
+                webView.evaluateJavaScript(script)
+            }
         }
 
-        func setTheme(_ arguments: String) {
+        func setTheme(_ arguments: WebThemeArguments) {
             guard let webView = webView, isEditorReady, arguments != lastTheme else { return }
             lastTheme = arguments
             bridge.setTheme(arguments, in: webView)
@@ -823,10 +801,8 @@ struct EditorView: NSViewRepresentable {
         /// so a table of contents that repeats the heading is skipped.
         func scrollToText(_ text: String, heading: Bool = false) {
             guard let webView = webView, isEditorReady,
-                  let data = try? JSONSerialization.data(withJSONObject: [text]),
-                  let args = String(data: data, encoding: .utf8) else { return }
-            let function = heading ? "scrollToHeadingText" : "scrollToText"
-            webView.evaluateJavaScript("window.\(function) && window.\(function).apply(null, \(args))", completionHandler: nil)
+                  let script = JS.call(heading ? "window.scrollToHeadingText" : "window.scrollToText", args: [text], ifDefined: true) else { return }
+            webView.evaluateJavaScript(script, completionHandler: nil)
         }
 
         func exportPDF(fileName: String) {
@@ -854,19 +830,19 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             if EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {
                 self.lastLoadedContent = content
             }
-            self.parent.workspaceManager.updateTabContent(content, documentID: documentID)
+            self.parent.tabs.updateTabContent(content, documentID: documentID)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem]) {
         Task { @MainActor in
-            self.parent.workspaceManager.updateActiveTabHeadings(headings)
+            self.parent.tabs.updateActiveTabHeadings(headings)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didSelectHeading headingId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.updateActiveHeading(headingId)
+            self.parent.tabs.updateActiveHeading(headingId)
         }
     }
 
@@ -878,7 +854,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
                 return
             }
             guard let url = self.currentCodeURL else { return }
-            self.parent.workspaceManager.handleCodeAction(action, payload: payload, url: url)
+            self.parent.workspaceManager.codeXRay.handleCodeAction(action, payload: payload, url: url)
         }
     }
 
@@ -888,10 +864,10 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             var carried = ""
             var handled = action
             if action == "attachImage" {
-                carried = await self.parent.workspaceManager.attachResearchMapImage(payload, documentID: documentID)
+                carried = await self.parent.workspaceManager.research.attachImage(payload, documentID: documentID)
                 handled = "snapshot"
             }
-            guard let reply = self.parent.workspaceManager.handleResearchMapAction(handled, payload: payload, documentID: documentID, carriedNotice: carried),
+            guard let reply = self.parent.workspaceManager.research.handleAction(handled, payload: payload, documentID: documentID, carriedNotice: carried),
                   let webView = self.webView else { return }
             // The tab now holds the new text: the page already has it, so the editor must not reload it (DEC-009).
             if let content = reply.content, EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {
@@ -902,19 +878,9 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    /// The report of a research map is printed from its Markdown by the PDF pipeline of the editor.
-    /// Returns false when there is no editor page to take the request.
-    @MainActor
-    func exportResearchMapPDF(_ markdown: String, fileName: String) -> Bool {
-        guard self.webView != nil else { return false }
-        let title = (fileName as NSString).deletingPathExtension
-        PDFExporter.exportPDF(markdown: markdown, title: title, fileName: fileName, baseURL: currentDocumentBaseURL, documentFiles: documentFiles)
-        return true
-    }
-
     func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any]) {
         Task { @MainActor in
-            self.parent.workspaceManager.handleArchitectureAction(action, payload: payload)
+            self.parent.workspaceManager.codeXRay.handleArchitectureAction(action, payload: payload)
         }
     }
 
@@ -940,30 +906,21 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didChangeScrollPosition position: CGFloat) {
-        Task { @MainActor in
-            self.parent.workspaceManager.updateActiveTabScrollPosition(position)
-        }
-    }
-
     func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta) {
         Task { @MainActor in
-            self.parent.workspaceManager.handleBlocksDelta(delta)
-        }
-    }
-
-    func bridge(_ bridge: WebViewBridge, didChangeCursorBlock blockId: String) {
-        Task { @MainActor in
-            self.parent.workspaceManager.handleCursorBlockChange(blockId)
+            // The insight player does not run the block extractor, so a delta for a tab that is not a file (an Insight page) is a stray
+            // one and must not reach the database as a `.insight-<uuid>` document.
+            guard let tab = self.parent.tabs.activeTab, tab.isFileBacked else { return }
+            self.parent.workspaceManager.project.saveBlocks(delta, of: tab.url)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: EditorTextSize.mirrorKey) }
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: Setting.editorTextSizeMirror) }
     }
 
     func bridge(_ bridge: WebViewBridge, didSetWindowPref key: String, value: String) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: EditorWindowPrefs.stateKey(key)) }
+        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: Setting.editorPref(key)) }
     }
 
     func bridgeEditorReady(_ bridge: WebViewBridge) {
@@ -973,9 +930,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             self.setTheme(self.parent.windowTheme.webArguments)
             self.setUIScale(self.uiScale)
             self.setWorkspaceTransparency(self.workspaceTransparency)
-            let idx = self.parent.workspaceManager.activeTabIndex
-            if idx >= 0, idx < self.parent.workspaceManager.openTabs.count {
-                let tab = self.parent.workspaceManager.openTabs[idx]
+            if let tab = self.parent.tabs.activeTab {
                 self.pendingTab = tab
                 self.loadContentIfNeeded(tab.content, documentURL: tab.url, tab: tab)
             }
@@ -987,32 +942,32 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         // tab (BUG-031). Insight tabs have their own Save flow (didRequestInsightSave) — the generic
         // save bridge must not touch them; `saveEditorDocument` skips every tab that is not file-backed.
         Task { @MainActor in
-            self.parent.workspaceManager.saveEditorDocument(documentID: documentID)
+            self.parent.tabs.saveEditorDocument(documentID: documentID)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String) {
         Task { @MainActor in
-            let error = await self.parent.workspaceManager.translateDocument(markdown: markdown, targetLang: targetLang)
+            let error = await self.parent.workspaceManager.translator.translate(markdown: markdown, targetLang: targetLang)
             // Only failures need reporting — success is visible as a new tab
             // filling in progressively.
             if let error, let webView = self.webView,
                let script = JS.call("window.showSelectionResult", args: ["Translation", error]) {
-                webView.evaluateJavaScript(script) { _, _ in }
+                _ = try? await webView.evaluateJavaScript(script)
             }
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestFeatureAction action: String, text: String, question: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.runFeatureAction(action, text: text, question: question)
+            self.parent.workspaceManager.flow.runFeatureAction(action, text: text, question: question)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String) {
         Task { @MainActor in
             let wm = self.parent.workspaceManager
-            await wm.handleSelectionAction(action: action, text: text) { title, result in
+            await wm.codeXRay.handleSelectionAction(action: action, text: text) { title, result in
                 if let webView = self.webView,
                    let script = JS.call("window.showSelectionResult", args: [title, result]) {
                     webView.evaluateJavaScript(script) { _, _ in }
@@ -1041,19 +996,15 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridgeRefreshRequested(_ bridge: WebViewBridge) {
         // Insight tabs are ephemeral — reloading from the placeholder URL would
         // either fail (no file) or clobber session state if a stray write ever
-        // produced one. WorkspaceManager.reloadActiveTabFromDisk also no-ops.
+        // produced one. TabsController.reloadActiveTabFromDisk also no-ops.
         Task { @MainActor in
-            let wm = self.parent.workspaceManager
-            let idx = wm.activeTabIndex
-            if idx >= 0, idx < wm.openTabs.count,
-               !wm.openTabs[idx].isFileBacked {
-                return
-            }
-            if let content = wm.reloadActiveTabFromDisk() {
+            let tabs = self.parent.tabs
+            guard let tab = tabs.activeTab, tab.isFileBacked else { return }
+            if let content = tabs.reloadActiveTabFromDisk() {
                 self.lastLoadedContent = content
                 if let webView = self.webView {
-                    self.lastLoadedTabID = wm.openTabs[idx].id
-                    self.bridge.loadContent(content, documentID: wm.openTabs[idx].id, into: webView) {}
+                    self.lastLoadedTabID = tab.id
+                    self.bridge.loadContent(content, documentID: tab.id, into: webView) {}
                 }
             }
         }
@@ -1061,69 +1012,77 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     // MARK: - Insight delegate methods (Recursive Insight v2, Task 7)
     //
-    // Forward UI events from the v2 insight iframe player to `WorkspaceManager`,
-    // which resolves the target `InsightSession` by `sessionId` and dispatches
-    // the appropriate session method (expand / navigateTo / up / save).
-    // T8 fully implements the WorkspaceManager forwarders; T7 wires the delegate
-    // stubs to the new v2 method names.
+    // Forward UI events from the v2 insight iframe player to the window's `InsightCoordinator`, which resolves the
+    // target `InsightSession` by `sessionId` (or the selected tab) and dispatches the session method
+    // (expand / navigateTo / up / save).
 
     func bridge(_ bridge: WebViewBridge, didReceiveInsightIframeReady sessionId: String, nodeId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didReceiveInsightIframeReady(sessionId: sessionId, nodeId: nodeId)
+            self.parent.workspaceManager.insight.didReceiveInsightIframeReady(sessionId: sessionId, nodeId: nodeId)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, sectionId: String, topicIndex: Int) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightDeepDive(sessionId: sessionId, sectionId: sectionId, topicIndex: topicIndex)
+            self.parent.workspaceManager.insight.didRequestInsightDeepDive(sessionId: sessionId, sectionId: sectionId, topicIndex: topicIndex)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightBreadcrumb(sessionId: sessionId, nodeId: nodeId)
+            self.parent.workspaceManager.insight.didRequestInsightBreadcrumb(sessionId: sessionId, nodeId: nodeId)
         }
     }
 
     func bridgeRequestInsightSave(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightSave()
+            self.parent.workspaceManager.insight.didRequestInsightSave()
         }
     }
 
     func bridgeRequestInsightUp(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightUp()
+            self.parent.workspaceManager.insight.didRequestInsightUp()
         }
     }
 
     func bridgeRequestInsightRegenerate(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightRegenerate()
+            self.parent.workspaceManager.insight.didRequestInsightRegenerate()
         }
     }
 
     func bridgeRequestInsightCustomDeepDive(_ bridge: WebViewBridge, topic: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightCustomDeepDive(topic: topic)
+            self.parent.workspaceManager.insight.didRequestInsightCustomDeepDive(topic: topic)
         }
     }
 
     func bridgeRequestInsightExploreAll(_ bridge: WebViewBridge, depth: Int) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightExploreAll(depth: depth)
+            self.parent.workspaceManager.insight.didRequestInsightExploreAll(depth: depth)
         }
     }
 
     func bridgeRequestInsightRetrySection(_ bridge: WebViewBridge, sectionId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightRetrySection(sectionId: sectionId)
+            self.parent.workspaceManager.insight.didRequestInsightRetrySection(sectionId: sectionId)
         }
     }
 }
 
+extension EditorView.Coordinator {
+    /// Revokes the blob URLs the insight iframe made for its vendored libraries (the first step of closing an insight tab).
+    fileprivate func releaseInsightBlobs() {
+        guard let webView else { return }
+        bridge.releaseInsightBlobs(into: webView)
+    }
+}
+
 #Preview {
+    let workspace = WorkspaceManager()
     EditorView()
-        .environmentObject(WorkspaceManager())
+        .environmentObject(workspace)
+        .observingParts(of: workspace)
         .environmentObject(WindowTheme())
 }

@@ -1,21 +1,10 @@
 import AppKit
+import Combine
 import Foundation
 import WebKit
-
-/// The page-to-native handler of a session. A separate object, so the web view's content controller does not keep the
-/// session alive.
-final class StudioMessageHandler: NSObject, WKScriptMessageHandlerWithReply {
-    weak var session: StudioSession?
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
-                               replyHandler: @escaping (Any?, String?) -> Void) {
-        guard let session else {
-            replyHandler(nil, "The UI Studio session is closed.")
-            return
-        }
-        session.receive(message, reply: replyHandler)
-    }
-}
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One UI Studio session (feature "MarkView UI Studio"): the project's real web interface running from its development
 /// server in a managed browser, its requests answered by the simulated environment, with element selection, questions and
@@ -96,7 +85,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var disclosures: [String] = []
     @Published private(set) var limitations: [String] = []
     @Published private(set) var spec: StudioEnvironmentSpec
-    @Published private(set) var savedScenarios: [StudioScenario] = []
+    @Published var savedScenarios: [StudioScenario] = []
     /// The application's screens and what is prepared for each (REQ-021).
     @Published var screenBook = StudioScreenBook()
     /// The screens being prepared ahead by the assistant, and the sources' current hashes (staleness).
@@ -117,11 +106,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
     @Published private(set) var scenario: StudioScenario {
         didSet {
-            if !tryingScenario { rememberActiveScenario() }
-            if let undo = repairUndo, undo.scenarioID != scenario.id { repairUndo = nil }
+            if !changeFlow.tryingScenario { rememberActiveScenario() }
+            if let undo = repair.repairUndo, undo.scenarioID != scenario.id { repair.repairUndo = nil }
         }
     }
-    private var tryingScenario = false
     /// The scenario id last written to the project's session data (BUG-087).
     private var rememberedScenarioID: String?
 
@@ -137,71 +125,36 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var serverSecrets: [String] = []
     /// What is not simulated on the server side, and why.
     @Published private(set) var serverNotes: [String] = []
-    @Published private(set) var mode: Mode = .interact {
-        // A page the application loads while recording (a link, a form, a reload) records too (BUG-071).
-        didSet { if (oldValue == .record) != (mode == .record) { _ = installRuntime() } }
-    }
     @Published var zoom: Double? = nil
-    @Published private(set) var selection: StudioSelectionContext?
     @Published var notice: String? {
         didSet { if let notice, notice != oldValue { sessionLog.add(.notice, problem: StudioLogFormat.looksLikeError(notice), notice) } }
     }
-    @Published private(set) var history: [StudioOperation] = []
-    /// The turn the assistant is answering; nil once it is in `history`, and after a failure or Stop.
-    @Published private(set) var pendingTurn: PendingTurn?
-    /// The turns of the current conversation: the thread shows them and the assistant remembers them. A UI Studio session
-    /// starts with an empty conversation and Clear starts a new one (BUG-075), so yesterday's request about another element
-    /// neither fills the thread nor steers today's change (BUG-068). Every operation stays in History, with undo.
-    @Published private(set) var conversationIds: Set<String> = []
-
     /// The images in the request box, waiting to be sent with the next request (REQ-005); the box edits them through a binding.
     @Published var attachments = ImageAttachmentList()
 
-    /// The conversation, oldest first.
-    var conversation: [StudioOperation] { history.filter { conversationIds.contains($0.id) } }
-
-    /// Starts a new conversation (BUG-075): the thread is empty and the assistant forgets its turns. History, undo and
-    /// versions are not touched.
-    func clearConversation() {
-        guard busy == nil else { return }
-        conversationIds = []
-    }
-    @Published private(set) var busy: String?
-    @Published private(set) var busyDetail = ""
-    @Published private(set) var captures: [StudioCapture] = []
-    @Published private(set) var packages: [StudioPackage] = []
     @Published private(set) var events: [EventRecord] = []
-    @Published private(set) var requests: [RequestRecord] = []
     @Published private(set) var dependencies: [StudioDependency] = []
-    @Published private(set) var buildError: String?
+    @Published var buildError: String?
     /// The last capture of working code, shown as stale while a change does not build (EDIT-08, AC-15).
-    @Published private(set) var stalePreview: StudioCapture?
-    @Published private(set) var recordedSteps: [StudioStep] = []
+    @Published var stalePreview: StudioCapture?
+    @Published var recordedSteps: [StudioStep] = []
     @Published private(set) var route = "/"
     @Published private(set) var rejectedMessages = 0
-    @Published var comparison: Comparison?
-    /// Whether the comparison fills the whole tab instead of the narrow Evidence panel (BUG-094).
-    @Published var comparisonEnlarged = false
-    /// Undo conflicts by operation: the merged text with conflict markers per file.
-    @Published private(set) var undoConflicts: [String: [(path: String, merged: String)]] = [:]
-    /// What the last "Keep" left out of the kept cookies and storage, and why (names only, never values).
-    @Published private(set) var keptSkipped: [String] = []
-
     /// Unsaved editor buffers of files in the project (path relative to the root → text).
     var editorBuffers: () -> [String: String] = { [:] }
     /// Counts an assistant run in the workspace's usage.
-    var recordUsage: (Int, Int, Double) -> Void = { _, _, _ in }
+    var recordUsage: @MainActor @Sendable (Int, Int, Double) -> Void = { _, _, _ in }
     var openFile: (URL) -> Void = { _ in }
     var featureStore: () -> FeatureStore? = { nil }
     var onFeatureExported: (String) -> Void = { _ in }
 
-    private(set) var simulator: StudioSimulator
-    private var server: StudioDevServer?
+    var simulator: StudioSimulator
+    var server: StudioDevServer?
     private var failedInstallFolder: URL?
     private var ruleListID: String?
     /// Whether the connection policy is in force: without it nothing is blocked and no SDK needs a stand-in.
     private var policyInstalled = false
-    private var appOrigin: StudioBridge.Origin?
+    var appOrigin: StudioBridge.Origin?
     /// Main-frame page loads committed so far: tells a replay step that loaded another page from one that failed.
     private var pageCommits = 0
     /// The real time at which the scenario's test clock shows its test time: set by every restore, shared by the page and the
@@ -209,15 +162,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var clockAnchor = Date()
     /// The listeners the simulated connections point at, by variable (REQ-007).
     private var gateway: StudioGateway?
-    private var gatewayPorts: [String: UInt16] = [:]
-    /// The simulated WebSocket, EventSource and Socket.IO connections of the page and of the server (REQ-015).
-    private lazy var channels = makeChannelHub()
-    /// Frames pushed to the page, one after the other.
-    private var channelDeliveries: Task<Void, Never>?
+    var gatewayPorts: [String: UInt16] = [:]
     /// The gateway's WebSocket and event-stream events, read in order.
     private var gatewayStreams: Task<Void, Never>?
     /// Hashes of the project's secret values (from its env files), to redact them from requests; never the values.
-    private var secretHashes: [String: String] = [:] {
+    var secretHashes: [String: String] = [:] {
         didSet { sessionLog.secretHashes = secretHashes }
     }
     /// The clock file the server's Node processes follow (DEC-006), in a folder of this session.
@@ -232,11 +181,6 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var firstLoadAfterStart = false
     /// A restore is preparing, loading or replaying the page: its own end decides the state (BUG-076).
     private(set) var restoringPage = false
-    /// The generation that already reloaded for rules that arrived late (at most once per generation).
-    private var reloadedForRules: Int?
-    /// Rules arrived for a server request after its page had rendered, and the page was not reloaded by itself because the
-    /// person had typed into it: the banner offers Reload (BUG-074).
-    @Published private(set) var rulesArrivedLate = false
     /// The development server's output as whole lines for the log.
     private var serverLines = StudioLogLines()
     /// The address of the main frame's provisional navigation, for the "from" of a server redirect.
@@ -248,26 +192,15 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     static var nodePreloadURL = Bundle.main.url(forResource: "markview-ui-studio-node", withExtension: "cjs", subdirectory: "Editor/js")
     /// The globals an Electron renderer's preload exposes, simulated as the preload bridge (REQ-016).
     private(set) var electronGlobals: [String] = []
-    private var pickTask: Task<Void, Never>?
-    private var workTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
     private var loadWaiters: [CheckedContinuation<Bool, Never>] = []
     private let handler = StudioMessageHandler()
     let redactor: StudioRedactor
-    private let io = DispatchQueue(label: "markview.ui-studio.io")
+    let io = DispatchQueue(label: "markview.ui-studio.io")
     private(set) var closed = false
-    /// What came of this open's repairs, so that nothing loops (REQ-020).
-    var repairLedger = StudioRepairLedger()
-    /// The last fix, for Undo (REQ-020); nil once undone, dismissed or the scenario changed.
-    @Published var repairUndo: StudioRepairUndo?
-    /// The sign-in page the application sent the current page to, when the scenario did not ask for it (REQ-020).
-    @Published var signInWall: String?
-    /// The debounced automatic repair waiting to look at the page.
-    var autoRepairTask: Task<Void, Never>?
-
-    /// The page runtime, from the editor bundle (overridable for tests outside the app).
-    static var runtimeURL = Bundle.main.url(forResource: "markview-ui-studio", withExtension: "js", subdirectory: "Editor/js")
-    private static var runtimeSource: String? { runtimeURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } }
+    /// The folder with the page runtime's parts (`StudioRuntime.parts`), from the editor bundle (overridable for tests outside the app).
+    static var runtimeFolder = Bundle.main.url(forResource: StudioRuntime.parts[0], withExtension: nil, subdirectory: "Editor/js")?.deletingLastPathComponent()
+    private static var runtimeSource: String? { runtimeFolder.flatMap(StudioRuntime.source(in:)) }
 
     init(root: URL) {
         self.root = root.standardizedFileURL
@@ -294,33 +227,133 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         scenario = first
         simulator = StudioSimulator(spec: loaded, scenario: first)
 
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.preferences.isElementFullscreenEnabled = false
-        configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15 MarkViewUIStudio"
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: first.viewport.width, height: first.viewport.height), configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            dataStore: .nonPersistent,
+            handlers: [.reply(StudioBridge.handlerName, handler)],
+            allowsPopups: true,
+            applicationName: "Version/17.0 Safari/605.1.15 MarkViewUIStudio")
+        webView = WebHost.makeWebView(frame: CGRect(x: 0, y: 0, width: first.viewport.width, height: first.viewport.height),
+                                      configuration: configuration)
         super.init()
         preparation.onRecord = { [weak self] record in self?.logPreparation(record) }
         wireMapping()
         handler.session = self
-        configuration.userContentController.addScriptMessageHandler(handler, contentWorld: .page, name: StudioBridge.handlerName)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsMagnification = false
-        #if DEBUG
-        if #available(macOS 13.3, *) { webView.isInspectable = true }
-        #endif
         applyTheme()
 
-        history = StudioStore.loadHistory(root)
-        captures = StudioStore.loadCaptures(root)
-        packages = StudioStore.loadPackages(root)
         savedScenarios = StudioStore.loadScenarios(root)
         rebuildDependencies()
         Self.registerTermination()
         if let needsUpdate { notice = "The scenario \(needsUpdate) needs an update, so UI Studio opened on Populated. Update it in the Scenario menu." }
     }
+
+    // MARK: - Parts that own their state (AR-16)
+
+    // The session is the one object the views observe; each part below owns the state of one responsibility and is created when it is first
+    // used. What the views, the tests and the other parts read from the session is forwarded here.
+
+    private var partChanges: Set<AnyCancellable> = []
+
+    /// A part's changes are the session's changes: the views observe the session only.
+    private func adopt<Part: ObservableObject>(_ part: Part) -> Part where Part.ObjectWillChangePublisher == ObservableObjectPublisher {
+        part.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &partChanges)
+        return part
+    }
+
+    /// The work in progress: the busy banner, and the turn the assistant is answering.
+    private(set) lazy var workStore = adopt(StudioWork(session: self))
+    var busy: String? { workStore.busy }
+    var busyDetail: String {
+        get { workStore.busyDetail }
+        set { workStore.busyDetail = newValue }
+    }
+    var pendingTurn: PendingTurn? {
+        get { workStore.pendingTurn }
+        set { workStore.pendingTurn = newValue }
+    }
+    func runWork(_ title: String, pending: PendingTurn? = nil, _ work: @escaping @MainActor (StudioSession) async -> Void) {
+        workStore.runWork(title, pending: pending, work)
+    }
+    func awaitWork() async { await workStore.awaitWork() }
+    func showBusyDetail(_ text: String) { workStore.showBusyDetail(text) }
+    func cancelWork() { workStore.cancelWork() }
+    func progress(_ activity: CLICompletion.Activity) { workStore.progress(activity) }
+
+    /// The operations of the session and the conversation the assistant remembers.
+    private(set) lazy var historyStore = adopt(StudioHistory(session: self))
+    var history: [StudioOperation] { historyStore.history }
+    var conversation: [StudioOperation] { historyStore.conversation }
+    func clearConversation() { historyStore.clearConversation() }
+    func keep(_ id: String) { historyStore.keep(id) }
+    func replace(_ operation: StudioOperation) { historyStore.replace(operation) }
+
+    /// The request box: a request answered, checked and recorded, and the undo of what it did.
+    private(set) lazy var changeFlow = adopt(StudioChangeFlow(session: self))
+    var undoConflicts: [String: [(path: String, merged: String)]] { changeFlow.undoConflicts }
+    func change(_ text: String, attachments: [ImageAttachment] = [], clarification: String? = nil,
+                replacing pending: StudioOperation? = nil, destination: StudioScreen? = nil) {
+        changeFlow.change(text, attachments: attachments, clarification: clarification, replacing: pending, destination: destination)
+    }
+    func answerClarification(_ operation: StudioOperation, choice: String, attachments: [ImageAttachment] = []) {
+        changeFlow.answerClarification(operation, choice: choice, attachments: attachments)
+    }
+    func undo(_ id: String) { changeFlow.undo(id) }
+    func resolveUndoConflictInEditor(_ id: String) { changeFlow.resolveUndoConflictInEditor(id) }
+
+    /// The pictures of the preview and the comparison of two of them.
+    private(set) lazy var captureStore = adopt(StudioCaptures(session: self))
+    var captures: [StudioCapture] { captureStore.captures }
+    var comparison: Comparison? {
+        get { captureStore.comparison }
+        set { captureStore.comparison = newValue }
+    }
+    var comparisonEnlarged: Bool {
+        get { captureStore.comparisonEnlarged }
+        set { captureStore.comparisonEnlarged = newValue }
+    }
+    func captureNow() { captureStore.captureNow() }
+    func compare(_ beforeID: String, _ afterID: String, enlarge: Bool = false) { captureStore.compare(beforeID, afterID, enlarge: enlarge) }
+    func url(of capture: StudioCapture) -> URL { captureStore.url(of: capture) }
+
+    /// The feature packages exported from the session.
+    private(set) lazy var packageStore = adopt(StudioPackages(session: self))
+    var packages: [StudioPackage] { packageStore.packages }
+    var exportableOperations: [StudioOperation] { packageStore.exportableOperations }
+    func exportFeature(title: String, summary: String, operations ids: [String]) {
+        packageStore.exportFeature(title: title, summary: summary, operations: ids)
+    }
+    func revalidatePackages() async { await packageStore.revalidatePackages() }
+
+    /// The requests of the page and of the server, the simulated connections, and the rules that arrive late.
+    private(set) lazy var requestPath = adopt(StudioRequestPath(session: self))
+    var requests: [RequestRecord] { requestPath.requests }
+    var rulesArrivedLate: Bool {
+        get { requestPath.rulesArrivedLate }
+        set { requestPath.rulesArrivedLate = newValue }
+    }
+    var servedAnswers: [StudioDataFix.Served] { requestPath.servedAnswers }
+    var servedRules: [String] { requestPath.servedRules }
+
+    /// Problems and repair: what came of this open's repairs, the last fix for Undo, and the sign-in page the application sent the page to.
+    private(set) lazy var repair = adopt(StudioRepair(session: self))
+
+    /// The mode, and the element picked in the page.
+    private(set) lazy var elementPicker = adopt(StudioElementPicker(session: self))
+    var mode: Mode {
+        get { elementPicker.mode }
+        set { elementPicker.mode = newValue }
+    }
+    var selection: StudioSelectionContext? { elementPicker.selection }
+    func setMode(_ next: Mode) { elementPicker.setMode(next) }
+    func selectParent() { elementPicker.selectParent() }
+    func selectChild() { elementPicker.selectChild() }
+    func clearSelection() { elementPicker.clearSelection() }
+
+    /// The page's cookies and storage kept for later restores.
+    private(set) lazy var keptData = adopt(StudioKeptData(session: self))
 
     var title: String { "UI Studio" + (target.map { " — \($0.label)" } ?? "") }
     var viewport: StudioViewport { scenario.viewport }
@@ -366,7 +399,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         // A server this session started for another target never outlives the switch.
         await stopOwnedServer()
         self.target = target
-        repairLedger.reset()
+        repair.repairLedger.reset()
         environmentReviewTried = false
         reviewTask?.cancel()
         reviewTask = nil
@@ -520,7 +553,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         gateway = nil
         gatewayPorts = [:]
         gatewayStreams?.cancel()
-        channels.closeAll(source: "server")
+        requestPath.channels.closeAll(source: "server")
         let simulated = found.connections.filter { $0.mode == .simulated }.map(\.variable)
         if !simulated.isEmpty {
             let gateway = StudioGateway { [weak self] request, reply in
@@ -528,14 +561,14 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     guard let self else {
                         return reply(StudioGatewayResponse(status: 503, headers: [:], body: nil))
                     }
-                    self.handleServerRequest(request, reply: reply)
+                    self.requestPath.handleServerRequest(request, reply: reply)
                 }
             }
             var continuation: AsyncStream<StudioGatewayStreamEvent>.Continuation?
             let events = AsyncStream<StudioGatewayStreamEvent> { continuation = $0 }
             if let continuation { gateway.setStreamHandler { event in continuation.yield(event) } }
             gatewayStreams = Task { [weak self] in
-                for await event in events { self?.handleServerStream(event, on: gateway) }
+                for await event in events { self?.requestPath.handleServerStream(event, on: gateway) }
             }
             do {
                 gatewayPorts = try await gateway.open(simulated)
@@ -623,9 +656,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         saved.removeAll { $0.variable == variable }
         saved.append(serverConnections[index])
         next.serverConnections = saved.sorted { $0.variable < $1.variable }
-        simulator.replaceSpec(next)
-        spec = next
-        persistEnvironment()
+        replaceEnvironment(next)
         restartServer()
     }
 
@@ -634,10 +665,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         guard on != spec.repairsAutomatically else { return }
         var next = simulator.spec
         next.autoRepair = on ? nil : false
-        simulator.replaceSpec(next)
-        spec = next
-        persistEnvironment()
-        if on { scheduleAutoRepair() } else { autoRepairTask?.cancel() }
+        replaceEnvironment(next)
+        if on { repair.scheduleAutoRepair() } else { repair.autoRepairTask?.cancel() }
     }
 
     /// Turns the preparation of the main screens ahead on or off for the project (REQ-021).
@@ -645,9 +674,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         guard on != spec.preparesScreens else { return }
         var next = simulator.spec
         next.prepareScreens = on ? nil : false
-        simulator.replaceSpec(next)
-        spec = next
-        persistEnvironment()
+        replaceEnvironment(next)
         if on { scheduleScreenWork() } else { cancelScreenWork() }
     }
 
@@ -658,9 +685,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         guard kept != names.contains(name) else { return }
         if kept { names.insert(name) } else { names.remove(name) }
         next.keptSecrets = names.isEmpty ? nil : names.sorted()
-        simulator.replaceSpec(next)
-        spec = next
-        persistEnvironment()
+        replaceEnvironment(next)
         restartServer()
     }
 
@@ -699,12 +724,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func close() async {
         guard !closed else { return }
         closed = true
-        pickTask?.cancel()
-        workTask?.cancel()
+        elementPicker.pickTask?.cancel()
+        workStore.workTask?.cancel()
         startTask?.cancel()
         screenTask?.cancel()
         reviewTask?.cancel()
-        autoRepairTask?.cancel()
+        repair.autoRepairTask?.cancel()
         preparation.cancelEverything()
         mapping.close()
         resumeLoadWaiters(false)
@@ -721,7 +746,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         gateway?.close()
         gateway = nil
         gatewayStreams?.cancel()
-        channels.closeAll()
+        requestPath.channels.closeAll()
         if let folder = clockFile?.deletingLastPathComponent() {
             await Task.detached { try? FileManager.default.removeItem(at: folder) }.value
         }
@@ -796,7 +821,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     /// The page runtime with the current configuration, for every page loaded from now on.
-    private func installRuntime() -> Bool {
+    func installRuntime() -> Bool {
         guard let script = runtimeScript() else { return false }
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
@@ -876,28 +901,28 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func restore(keepingSignIn: Bool = false) async -> String? {
         guard !closed, appURL != nil else { return "The application is not running." }
         mode = mode == .record ? .interact : mode
-        pickTask?.cancel()
+        elementPicker.pickTask?.cancel()
         simulator.reset()
-        signInWall = nil
-        servedAnswers = []
+        repair.signInWall = nil
+        requestPath.forgetServedAnswers()
         // A preparation in flight is not cancelled: its rules belong to the environment, not to the scenario, and the minute the
         // assistant has spent on them is not thrown away by switching scenarios (BUG-089).
-        selection = nil
+        elementPicker.selection = nil
         clockAnchor = Date()
         gateway?.releaseHeld()
         // The page's connections end with its page; the server's are closed so that they connect again to the baseline.
-        channels.closeAll(source: "page")
-        channels.closeAll(source: "server", code: 1012, reason: "The simulated service was reset.")
+        requestPath.channels.closeAll(source: "page")
+        requestPath.channels.closeAll(source: "server", code: 1012, reason: "The simulated service was reset.")
         if ownsServer, serverFollowsClock {
             await writeClockFile()
             // The preload rereads the clock file within 250 ms; the page's first server render must see the new clock.
             try? await Task.sleep(nanoseconds: 300_000_000)
         }
-        let signedIn = keepingSignIn ? await signInCookiesToCarry() : []
+        let signedIn = keepingSignIn ? await keptData.signInCookiesToCarry() : []
         await webView.configuration.websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
-        await restoreKeptCookies()
+        await keptData.restoreKeptCookies()
         for cookie in signedIn { await webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) }
-        restoredUser = scenario.role.user
+        keptData.restoredUser = scenario.role.user
         rulesArrivedLate = false
         // Until the page is loaded and restored, a preparation that ends must not report the session ready (BUG-076).
         restoringPage = true
@@ -918,12 +943,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         await refreshPageState()
         // The load may have been sent to the sign-in page before the scenario's own steps signed the user in: once the page is
         // somewhere else, there is no sign-in wall to repair.
-        if signInWall != nil, let path = webView.url?.path, !StudioLogFormat.isSignInPath(path) { signInWall = nil }
+        if repair.signInWall != nil, let path = webView.url?.path, !StudioLogFormat.isSignInPath(path) { repair.signInWall = nil }
         restoringPage = false
         updateReadiness()
-        if mode == .select { startPicking() }
+        if mode == .select { elementPicker.startPicking() }
         // The page has settled: look at what it reported (the check waits until nothing else is working on the session).
-        scheduleAutoRepair()
+        repair.scheduleAutoRepair()
         return problem
     }
 
@@ -1074,14 +1099,14 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let from = navigationURL, to = webView.url
         navigationURL = to
         let signIn = to.map { StudioLogFormat.isSignInPath($0.path) } ?? false
-        if signIn, let to { noteSignInWall(to.path) }
+        if signIn, let to { repair.noteSignInWall(to.path) }
         sessionLog.add(.navigation, problem: signIn, "Server redirect \(from?.absoluteString ?? "?") → \(to?.absoluteString ?? "?")"
                        + (signIn ? " (a sign-in page)" : ""))
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         pageCommits += 1
-        channels.closeAll(source: "page")
+        requestPath.channels.closeAll(source: "page")
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1148,149 +1173,23 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             handle(event)
             reply(true, nil)
         case .success(.request(let request)):
-            handle(request, reply: reply)
+            requestPath.handle(request, reply: reply)
         case .success(.channel(let message)):
-            handleChannel(message, reply: reply)
+            requestPath.handleChannel(message, reply: reply)
         }
     }
-
-    /// A request of the page. One that goes to a gateway port (a public variable inlined in the page's code) is the
-    /// service's request and keeps the service's address (REQ-007).
-    private func handle(_ request: StudioBridge.Request, reply: @escaping (Any?, String?) -> Void) {
-        let http = StudioHTTPRequest(method: request.method, url: logicalURL(for: request.url) ?? request.url, headers: request.headers,
-                                     body: request.body, requestId: request.requestId)
-        route(http, source: .page) { answer in
-            switch answer {
-            case .respond(let response): reply(StudioBridge.reply(response), nil)
-            case .pass(let headers): reply(headers.isEmpty ? StudioBridge.passThrough : StudioBridge.passThrough(adding: headers), nil)
-            case .dropped(let reason): reply(nil, reason)
-            }
-        }
-    }
-
-    /// A request the development server made through a simulated connection (REQ-007): answered by the same simulation as
-    /// the page's requests, under the service's own address.
-    private func handleServerRequest(_ request: StudioGatewayRequest, reply: @escaping @Sendable (StudioGatewayResponse) -> Void) {
-        func plain(_ status: Int, _ text: String) -> StudioGatewayResponse {
-            StudioGatewayResponse(status: status, headers: ["content-type": "text/plain; charset=utf-8"], body: Data(text.utf8))
-        }
-        guard !closed, let connection = serverConnections.first(where: { $0.variable == request.variable && $0.mode == .simulated }),
-              let url = URL(string: connection.origin + request.target) else {
-            return reply(plain(503, "MarkView UI Studio has no simulated connection for this address."))
-        }
-        let http = StudioHTTPRequest(method: request.method, url: url, headers: request.headers,
-                                     body: request.body.map { String(decoding: $0, as: UTF8.self) }, requestId: UUID().uuidString)
-        route(http, source: .server(variable: request.variable)) { answer in
-            switch answer {
-            case .respond(let response):
-                reply(StudioGatewayResponse(status: response.status, headers: response.headers, body: response.body.map { Data($0.utf8) },
-                                            delayMs: response.delayMs, hang: response.hang))
-            case .pass:
-                reply(plain(502, "MarkView UI Studio answers simulated connections only; switch \(request.variable) to Real to reach the service."))
-            case .dropped(let reason):
-                reply(plain(503, "The simulated answer was dropped (\(reason))."))
-            }
-        }
-    }
-
-    /// The service address behind a gateway port.
-    private func logicalURL(for url: URL) -> URL? {
-        guard let host = url.host, ["127.0.0.1", "localhost"].contains(host), let port = url.port,
-              let variable = gatewayPorts.first(where: { Int($0.value) == port })?.key,
-              let connection = serverConnections.first(where: { $0.variable == variable }),
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        let target = (components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath)
-            + (components.percentEncodedQuery.map { "?" + $0 } ?? "")
-        return URL(string: connection.origin + target)
-    }
-
-    /// The simulation's answer to `http`; a write that changed the state is pushed to the channels and GraphQL
-    /// subscriptions (REQ-015).
-    private func simulate(_ http: StudioHTTPRequest) -> StudioSimOutcome {
-        let before = http.isWrite ? simulator.state : nil
-        let outcome = simulator.handle(http)
-        if let before { channels.entitiesChanged(StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)) }
-        if case .respond(let response, let rule) = outcome {
-            noteServed(rule)
-            noteAnswer(response, rule: rule)
-        }
-        return outcome
-    }
-
-    /// The latest answers the simulation gave the page since it was loaded, the most recent first, for Fix data (REQ-017):
-    /// the rule, the entities it reads and the body as sent, redacted and cut.
-    private(set) var servedAnswers: [StudioDataFix.Served] = []
-
-    private func noteAnswer(_ response: StudioSimResponse, rule id: String) {
-        guard let rule = simulator.spec.rules.first(where: { $0.id == id }) else { return }
-        // Cut first, so a large list costs nothing; redact a longer piece than is kept, so a secret cut at the edge is gone.
-        let piece = String((response.body ?? "").prefix(StudioDataFix.answerChars * 3))
-        let body = String(StudioLogFormat.redact(piece, redactor: redactor, hashes: secretHashes).prefix(StudioDataFix.answerChars))
-        let entities = [rule.entity].compactMap { $0 } + (rule.include ?? []).map(\.entity)
-        servedAnswers.insert(StudioDataFix.Served(ruleId: rule.id, method: rule.method.uppercased(), path: rule.path,
-                                                  operation: rule.operation.rawValue, entities: entities, status: response.status,
-                                                  body: body), at: 0)
-        if servedAnswers.count > StudioDataFix.servedKept { servedAnswers.removeLast() }
-    }
-
-    /// The rules that answered the page, the most recent first (BUG-084): a context change sees them, and the shape of
-    /// their fixed answers, before the environment's other rules.
-    private(set) var servedRules: [String] = []
-
-    private func noteServed(_ rule: String) {
-        guard servedRules.first != rule else { return }
-        servedRules.removeAll { $0 == rule }
-        servedRules.insert(rule, at: 0)
-        if servedRules.count > Self.servedRulesKept { servedRules.removeLast() }
-    }
-
-    static let servedRulesKept = 100
 
     // MARK: - Fix data (REQ-017)
-
-    /// The page's errors Fix data may be offered for: one per message, the latest first, only those of the page as it is now.
-    /// A Reset or a fix starts a new page, so an error is offered again only when it comes back after the fix.
-    var fixableErrors: [StudioDataFix.PageError] {
-        StudioDataFix.fixable(events.map { StudioDataFix.Seen(kind: $0.kind, detail: $0.detail, generation: $0.generation, date: $0.date) },
-                              generation: simulator.generation)
-    }
-
-    /// The page error the data fix of `key` is about: one of the page as it is now, or an earlier page of the same scenario (a reload or
-    /// a fix starts a new page, not a new scenario), so a row of the Log keeps its action.
-    func fixError(for key: String) -> StudioDataFix.PageError? {
-        if let current = fixableErrors.first(where: { $0.key == key }) { return current }
-        let seen = events.filter { $0.scenarioID == scenario.id }
-            .map { StudioDataFix.Seen(kind: $0.kind, detail: $0.detail, generation: $0.generation, date: $0.date) }
-        return StudioDataFix.latest(seen, key: key)
-    }
-
-    /// Repairs the simulated data a page error came from (REQ-017). The person's click; the same repair runs by itself at open and
-    /// after later errors (REQ-020, DEC-013). The assistant reads the error, what the page was answered with, the records and the
-    /// code (read-only) and either corrects existing records or says that data did not cause the error. MarkView checks every
-    /// correction on a copy; nothing is saved unless all of them pass.
-    func fixData(_ key: String? = nil) {
-        guard let error = fixableErrors.first(where: { key == nil || $0.key == key }) ?? key.flatMap({ fixError(for: $0) }) else {
-            notice = "The page reports no error that data could have caused."
-            return
-        }
-        repairProblem(StudioProblem.Item(kind: .dataError, key: error.key, text: error.key))
-    }
 
     /// Whether an automatic repair may start now (REQ-020): the page has settled and nothing else is working on the session. Never
     /// inside a restore, a trial of a scenario, the map or a preparation (they own the data and the page for that time).
     var isSettled: Bool {
-        !closed && !restoringPage && !tryingScenario && busy == nil && appURL != nil && !mapping.isRunning && !isPreparing
+        !closed && !restoringPage && !changeFlow.tryingScenario && busy == nil && appURL != nil && !mapping.isRunning && !isPreparing
             && [.ready, .degraded].contains(state)
     }
 
     /// The generation of the page the simulator serves now.
     var pageGeneration: Int { simulator.generation }
-
-    /// Waits for the work `runWork` started.
-    func awaitWork() async { await workTask?.value }
-
-    /// What the busy banner says the work is doing now.
-    func showBusyDetail(_ text: String) { busyDetail = text }
 
     /// Forgets the requests nothing could answer, so that the next request prepares them again; their contracts. Like the Retry of the
     /// environment panel, without the Reset that follows it (the repair loads the page itself).
@@ -1304,505 +1203,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return contracts
     }
 
-    func performDataFix(_ error: StudioDataFix.PageError) async -> StudioFixResult {
-        let generation = simulator.generation, scenarioID = scenario.id
-        var retryProblems: [String] = []
-        sessionLog.add(.notice, "Fix data: asking the assistant about \"\(String(error.key.prefix(160)))\"")
-        for attempt in 1...2 {
-            busyDetail = attempt == 1 ? "The assistant is reading the error and the code" : "The assistant is correcting its answer"
-            var call = CLICompletion.Request(project: root,
-                                             prompt: StudioDataFix.prompt(error: error, route: route, served: servedAnswers, spec: spec,
-                                                                          records: scenario.data ?? spec.seed, scenario: scenario,
-                                                                          redactor: redactor, hashes: secretHashes, retryProblems: retryProblems),
-                                             systemPrompt: StudioDataFix.system, jsonSchema: StudioDataFix.schema, readableFolder: root)
-            call.timeout = StudioDataFix.timeout
-            call.effort = "medium"
-            call.label = "ui-studio:fix-data"
-            let plan: StudioDataFix.Plan
-            do {
-                let result = try await CLICompletion.run(call, onActivity: { [weak self] activity in
-                    Task { @MainActor in self?.progress(activity) }
-                })
-                recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-                guard let parsed = StudioDataFix.plan(from: result.structured) else {
-                    notice = "Fix data: the assistant's answer was not a set of corrections. Nothing was changed."
-                    return .failed("The answer was not a set of corrections.")
-                }
-                plan = parsed
-            } catch is CancellationError {
-                return .cancelled
-            } catch {
-                notice = "Fix data failed: \(error.localizedDescription) Nothing was changed."
-                return .failed(error.localizedDescription)
-            }
-            // The page the assistant looked at is gone (a Reset, another scenario): its corrections would be for other data.
-            guard !closed, simulator.generation == generation, scenario.id == scenarioID else {
-                notice = "Fix data was dropped: the scenario was reset while the assistant worked. Nothing was changed."
-                return .dropped
-            }
-            if plan.kind == .notData {
-                let where_ = plan.codePointer.isEmpty ? "" : " Look at \(plan.codePointer)."
-                notice = "Fix data: data did not cause this error. \(plan.summary)\(where_) Nothing was changed."
-                return .notData(plan.summary + where_)
-            }
-            let outcome = StudioDataFix.apply(plan.changes, spec: spec, scenarioData: scenario.data, redactor: redactor)
-            let problems = plan.unreadable + outcome.problems
-            if problems.isEmpty, outcome.ok {
-                return await commitDataFix(outcome, error: error)
-            }
-            if attempt == 1 {
-                retryProblems = problems
-                continue
-            }
-            for problem in problems.prefix(10) { sessionLog.add(.notice, problem: true, "Fix data refused a correction: " + problem) }
-            notice = "Fix data: the assistant's corrections were refused (\(problems.first ?? "no correction")). Nothing was changed."
-        }
-        return .refused("The corrections were refused.")
-    }
-
-    /// Saves checked corrections and reloads the page on them: the scenario's own records first (a failure there changes
-    /// nothing), then the environment's seed, then a restore, which is a new page generation.
-    func commitDataFix(_ outcome: StudioDataFix.Outcome, error: StudioDataFix.PageError?, undoing: Bool = false,
-                       automatic: Bool = false) async -> StudioFixResult {
-        busyDetail = "Saving the corrected data"
-        var changedScenario: StudioScenario?
-        if outcome.applied.contains(where: \.inScenario), let data = outcome.scenarioData {
-            var next = scenario
-            next.data = data
-            next.updated = Date()
-            next.revision += 1
-            if !next.id.hasPrefix("builtin-") {
-                let root = root, saving = next
-                do {
-                    savedScenarios = try await Task.detached { () throws -> [StudioScenario] in
-                        try StudioStore.saveScenario(saving, root: root)
-                        return StudioStore.loadScenarios(root)
-                    }.value
-                } catch {
-                    notice = "Fix data: the scenario could not be saved (\(error.localizedDescription)). Nothing was changed."
-                    return .failed("The scenario could not be saved.")
-                }
-            }
-            changedScenario = next
-        }
-        var environment = simulator.spec
-        // Only the entities that were corrected: the map's refill or a preparation may have changed others while the scenario was saved.
-        let seeded = Set(outcome.applied.filter(\.inSeed).map(\.entity))
-        if !seeded.isEmpty {
-            for name in seeded { environment.seed[name] = outcome.seed[name] }
-            environment.updated = Date()
-        }
-        simulator.replaceSpec(environment)
-        spec = simulator.spec
-        persistEnvironment()
-        if let changedScenario {
-            scenario = changedScenario
-            simulator.activate(changedScenario)
-        }
-        notice = nil
-        notice = undoing ? "Undone: the records have their earlier values again." : StudioDataFix.summary(outcome.applied)
-        for reason in StudioDataFix.reasons(outcome.applied) where !undoing { sessionLog.add(.notice, reason) }
-        busyDetail = "Reloading the page on the corrected data"
-        let problem = await restore()
-        if let problem { sessionLog.add(.notice, problem: true, "After Fix data the page was not restored completely: " + problem) }
-        if let error, fixableErrors.contains(where: { $0.key == error.key }) {
-            sessionLog.add(.notice, problem: true, "The page still reports \"\(String(error.key.prefix(160)))\" on the corrected data. Fix data can run again.")
-        }
-        guard !undoing else { return .fixed(nil) }
-        return .fixed(StudioRepairUndo(summary: StudioDataFix.summary(outcome.applied), scenarioID: scenario.id, applied: outcome.applied,
-                                       automatic: automatic))
-    }
-
     // MARK: - Channels (REQ-015)
-
-    private func makeChannelHub() -> StudioChannelHub {
-        StudioChannelHub(environment: StudioChannelHub.Environment(
-            spec: { [weak self] in self?.simulator.spec ?? StudioEnvironmentSpec() },
-            state: { [weak self] in self?.simulator.state ?? [:] },
-            appOrigin: { [weak self] in self?.appOrigin?.text },
-            perform: { [weak self] operation, entity, id, fields in
-                guard let self else { return .json(503, nil) }
-                let before = self.simulator.state
-                let response = self.simulator.perform(operation, entity: entity, id: id, fields: fields)
-                self.pushChanges(since: before)
-                return response
-            },
-            graphQL: { [weak self] url, payload in
-                guard let self else { return .null }
-                let http = StudioHTTPRequest(method: "POST", url: url, headers: ["content-type": "application/json"], body: payload.text,
-                                             requestId: UUID().uuidString)
-                let before = self.simulator.state
-                let outcome = self.simulator.handle(http)
-                self.pushChanges(since: before)
-                func errors(_ message: String) -> StudioJSON { .object(["errors": .array([StudioGraphQLExecutor.error(message)])]) }
-                switch outcome {
-                case .respond(let response, _):
-                    return response.body.flatMap { StudioJSON(text: $0) } ?? .null
-                case .unknown(let contract):
-                    // Prepared now, so the client's next try is answered.
-                    self.prepare(http, contract: contract, source: .page) { _ in }
-                    return errors("MarkView UI Studio is preparing a simulation rule for \(contract); try again in a moment.")
-                case .unsupported(_, let reason):
-                    return errors("MarkView UI Studio does not simulate \(reason).")
-                }
-            },
-            redact: { [weak self] json in self?.redactor.redact(json) ?? json },
-            log: { [weak self] text, problem in self?.sessionLog.add(.request, problem: problem, text) }
-        ))
-    }
-
-    /// Writes made while a channel message is answered reach the subscribers after that answer.
-    private func pushChanges(since before: [String: [StudioJSON]]) {
-        let changes = StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)
-        guard !changes.isEmpty else { return }
-        Task { [weak self] in self?.channels.entitiesChanged(changes) }
-    }
-
-    /// A page WebSocket or EventSource on a simulated channel. One to a gateway port (a public variable inlined in the
-    /// page's code) keeps the service's address, like a request.
-    private func handleChannel(_ message: StudioBridge.Channel, reply: @escaping (Any?, String?) -> Void) {
-        let id = "page-" + message.id
-        switch message.action {
-        case .open:
-            guard let asked = message.url else { return reply(nil, "No URL.") }
-            let answer: (StudioChannelHub.Opening) -> Void = { opening in
-                switch opening {
-                case .accepted(let chosen, let frames):
-                    reply(["ok": true, "protocol": chosen ?? "", "frames": frames.map(\.bridgeValue)], nil)
-                case .refused(let reason), .unknown(let reason):
-                    reply(["ok": false, "code": 1006, "reason": String(reason.prefix(120))], nil)
-                }
-            }
-            if message.transport == .ipc {
-                // A callback of the Electron preload bridge (REQ-016): it listens until a channel answers its address, and
-                // is never prepared on its own; the bridge's methods are.
-                let shown = redactor.redact(text: StudioConnections.redact(asked.absoluteString, hashes: secretHashes))
-                return answer(channels.listen(id: id, url: asked, transport: .ipc, source: "page", shown: shown, sink: pageSink(message.id)))
-            }
-            let http = StudioChannelRoute.httpURL(asked)
-            let transport: StudioChannelTransport = message.transport == .eventSource ? .eventSource : .webSocket
-            openChannel(id: id, url: logicalURL(for: http) ?? http, protocols: message.protocols, transport: transport, source: .page,
-                        sink: pageSink(message.id), done: answer)
-        case .send:
-            var frames: [StudioChannelFrame] = []
-            if let text = message.text { frames = channels.receive(id: id, text: text) }
-            else if let data = message.binary { frames = channels.receive(id: id, binary: data) }
-            reply(["frames": frames.map(\.bridgeValue)], nil)
-        case .close:
-            channels.close(id: id, code: message.code)
-            reply(["ok": true], nil)
-        }
-    }
-
-    /// Tell the person about a page-initiated protocol that cannot be simulated without disturbing a pending turn.
-    private func noteUnsupportedChannel(contract: String, reason: String) {
-        let request = redactor.redact(text: "Unsupported connection: " + contract)
-        let answer = redactor.redact(text: "MarkView UI Studio does not simulate \(contract): \(reason)")
-        guard !conversation.contains(where: { $0.request == request && $0.answer == answer }) else { return }
-        var operation = StudioOperation(id: newOperationID(), kind: .question, request: request, status: .answered)
-        operation.answer = answer
-        history.append(operation)
-        conversationIds.insert(operation.id)
-        persistHistory()
-    }
-
-    /// Frames for page connection `pageID`, delivered in order to the page of the current generation.
-    private func pageSink(_ pageID: String) -> StudioChannelHub.Sink {
-        { [weak self] frames in
-            guard let self, !frames.isEmpty else { return }
-            let generation = self.simulator.generation
-            let values = frames.map(\.bridgeValue)
-            let previous = self.channelDeliveries
-            self.channelDeliveries = Task { [weak self] in
-                await previous?.value
-                guard let self, !self.closed, self.simulator.generation == generation else { return }
-                _ = try? await self.call("return window.__markviewStudio ? window.__markviewStudio.deliver(id, frames) : false;",
-                                         ["id": pageID, "frames": values])
-            }
-        }
-    }
-
-    /// Opens a channel connection; an address no channel answers yet is prepared first (the connection waits), like an
-    /// unknown request. It never reaches a real service.
-    private func openChannel(id: String, url: URL, protocols: [String], transport: StudioChannelTransport, source: StudioRequestSource,
-                             sink: @escaping StudioChannelHub.Sink, done: @escaping (StudioChannelHub.Opening) -> Void) {
-        let shown = redactor.redact(text: StudioConnections.redact(url.absoluteString, hashes: secretHashes))
-        let opening = channels.open(id: id, url: url, protocols: protocols, transport: transport, source: source.transport, shown: shown, sink: sink)
-        guard case .unknown(let contract) = opening else { return done(opening) }
-        let kind = transport.label
-        sessionLog.add(.request, "\(kind) \(shown) · \(source.transport) · preparing")
-        var headers = transport == .eventSource ? ["accept": "text/event-stream"] : ["upgrade": "websocket"]
-        if !protocols.isEmpty { headers["sec-websocket-protocol"] = protocols.joined(separator: ", ") }
-        let context = StudioPreparationContext(contract: contract, method: "GET", url: shown, headers: headers, body: nil, attempt: 1, problems: [],
-                                               serverVariable: source.variable, group: StudioBridge.Origin(url: url)?.text)
-        let generation = simulator.generation
-        let preparer = makePreparer()
-        updateReadiness()
-        Task { [weak self] in
-            guard let self else { return done(.refused("The session is closed.")) }
-            let outcome = await self.preparation.resolve(context, generation: generation, preparer: preparer,
-                                                         currentGeneration: { [weak self] in self?.simulator.generation ?? -1 },
-                                                         commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
-            guard !self.closed else { return done(.refused("The session is closed.")) }
-            var reason: String?
-            switch outcome {
-            case .registered:
-                let again = self.channels.open(id: id, url: url, protocols: protocols, transport: transport, source: source.transport,
-                                               shown: shown, sink: sink)
-                if case .unknown = again { reason = "the rules registered for it do not answer this connection." } else { done(again) }
-            case .unsupported(let why):
-                self.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: why))
-                self.noteUnsupportedChannel(contract: contract, reason: why)
-                self.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unsupported: \(why)")
-                done(.refused("MarkView UI Studio does not simulate \(contract): \(why)"))
-            case .stale:
-                done(.refused("The simulation was reset."))
-            default:
-                reason = self.preparation.records[contract]?.message ?? "it could not be prepared."
-            }
-            if let reason {
-                self.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
-                self.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unresolved: \(reason)")
-                done(.refused("MarkView UI Studio has no simulation rule for \(contract): \(reason)"))
-            }
-            self.updateReadiness()
-        }
-    }
-
-    /// A WebSocket or event stream the development server opened to a simulated connection's gateway port.
-    private func handleServerStream(_ event: StudioGatewayStreamEvent, on gateway: StudioGateway) {
-        switch event {
-        case .open(let stream, let kind, let request):
-            guard !closed, let connection = serverConnections.first(where: { $0.variable == request.variable && $0.mode == .simulated }),
-                  let url = URL(string: connection.origin + request.target) else {
-                return gateway.refuseStream(stream, status: 503, "MarkView UI Studio has no simulated connection for this address.")
-            }
-            var protocols: [String] = []
-            var transport = StudioChannelTransport.eventSource
-            if case .webSocket(let asked) = kind {
-                protocols = asked
-                transport = .webSocket
-            }
-            openChannel(id: "server-\(stream)", url: url, protocols: protocols, transport: transport, source: .server(variable: request.variable),
-                        sink: { [weak gateway] frames in frames.forEach { gateway?.sendStream(stream, $0) } }) { [weak gateway] opening in
-                switch opening {
-                case .accepted(let chosen, let frames):
-                    gateway?.acceptStream(stream, protocol: chosen)
-                    frames.forEach { gateway?.sendStream(stream, $0) }
-                case .refused(let reason), .unknown(let reason):
-                    gateway?.refuseStream(stream, status: 404, reason)
-                }
-            }
-        case .text(let stream, let text):
-            channels.receive(id: "server-\(stream)", text: text).forEach { gateway.sendStream(stream, $0) }
-        case .binary(let stream, let data):
-            channels.receive(id: "server-\(stream)", binary: data).forEach { gateway.sendStream(stream, $0) }
-        case .closed(let stream, let code):
-            channels.close(id: "server-\(stream)", code: code)
-        }
-    }
-
-    /// The session's decision for any request, from the page or from the server: pass it to its address, answer it from
-    /// the simulation, or prepare rules for it.
-    private func route(_ http: StudioHTTPRequest, source: StudioRequestSource, reply: @escaping (StudioReply) -> Void) {
-        let shown = redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: secretHashes))
-        let contract = StudioRoute.contractKey(method: http.method, url: http.url, appOrigin: appOrigin?.text)
-        let transport = source.transport
-        let sameServer = source == .page && (StudioBridge.Origin(url: http.url).map { appOrigin?.sameServer($0) == true } ?? false)
-        // The Electron preload bridge (REQ-016) is a logical address: always simulated, never passed through.
-        let ipc = StudioIPC.isIPC(http.url)
-        if sameServer && StudioConnectionPolicy.isFrameworkRequest(http.url, headers: http.headers) {
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
-            return reply(.pass(adding: StudioConnectionPolicy.frameworkRequestHeaders))
-        }
-        // The server's connections are switched by the person (Simulated or Real), not by the page's allowed addresses.
-        if (sameServer && ownsServer && target?.usesIsolatedBackend == true)
-            || (sameServer && StudioConnectionPolicy.isDevelopmentResource(http.url, appFolder: appFolder))
-            || (source == .page && !ipc && spec.allowedRequests.contains(where: { StudioRoute.allows($0, url: http.url, appOrigin: appOrigin?.text) })) {
-            if !sameServer { noteDependency(StudioDependency(id: contract, mode: .allowed, note: "Allowed by the connection policy.")) }
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
-            return reply(.pass(adding: [:]))
-        }
-        if !ipc, channels.poll(http, source: transport, shown: shown, reply: { reply(.respond($0)) }) { return }
-        switch simulate(http) {
-        case .respond(let response, _):
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status, transport: transport))
-            reply(.respond(response))
-        case .unsupported(let contract, let reason):
-            noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason + " are not simulated."))
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "unsupported", status: 501, transport: transport))
-            reply(.respond(.unsupported(contract, reason: reason)))
-            updateReadiness()
-        case .unknown(let contract):
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "preparing", status: nil, transport: transport))
-            prepare(http, contract: contract, source: source, reply: reply)
-        }
-    }
-
-    /// An unknown request (SIM-07): the assistant prepares rules for it within the session's limits; the request waits for
-    /// them or ends in a controlled error. It never goes to a real service.
-    private func prepare(_ http: StudioHTTPRequest, contract: String, source: StudioRequestSource, reply: @escaping (StudioReply) -> Void) {
-        let generation = simulator.generation
-        let hashes = secretHashes
-        var body = http.body.map { redactor.redact(body: StudioConnections.redact($0, hashes: hashes)) }
-        if let text = body, text.count > 4_000 { body = String(text.prefix(4_000)) }
-        let headers = redactor.redact(headers: http.headers).mapValues { StudioConnections.redact($0, hashes: hashes) }
-        let shown = redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: hashes))
-        let group = StudioBridge.Origin(url: http.url)?.text
-        let baseContext = StudioPreparationContext(contract: contract, method: http.method, url: shown, headers: headers, body: body,
-                                                   attempt: 1, problems: [], serverVariable: source.variable, group: group)
-        let preparer = makePreparer()
-        let asked = Date()
-        updateReadiness()
-        Task { [weak self] in
-            guard let self else { return reply(.dropped("closed")) }
-            var context = baseContext
-            // A page's request answers within `provisionalAfter` seconds, whatever the preparation needs (BUG-089); the rule that
-            // arrives later loads the page again once. Requests of the development server keep waiting: it renders from them.
-            let answer = StudioReplyOnce(reply)
-            let provisionalTimer: Task<Void, Never>? = source.variable == nil ? Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(Self.provisionalAfter * 1_000_000_000))
-                guard !Task.isCancelled, let self, !self.closed, self.simulator.generation == generation, answer.reply(.respond(.preparing(contract))) else { return }
-                self.provisional[generation, default: []].insert(contract)
-                self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "preparing", status: 503, transport: source.transport))
-                self.sessionLog.add(.notice, "\(contract) has no rule yet: the page got a 503 \"preparing\" after \(Int(Self.provisionalAfter)) s and is loaded again when the rule is ready")
-            } : nil
-            defer { provisionalTimer?.cancel() }
-            if source.variable == nil, let hint = await self.handlerHint(for: http) {
-                context.handlerFile = hint.file
-                context.handlerText = hint.text
-            }
-            // A request whose endpoint a group of the application's map is preparing waits for that group (REQ-014).
-            await self.mapping.waitForEndpoint(http.method, url: http.url)
-            // A request to a service that is being prepared waits for it: that preparation often registers this rule too.
-            if let group {
-                await self.preparation.waitForGroup(group)
-                guard !self.closed else { return answer(.dropped("closed")) }
-                if self.simulator.generation == generation, case .respond(let response, _) = self.simulate(http) {
-                    self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
-                                           transport: source.transport))
-                    answer(.respond(response))
-                    self.noteLateRules(source: source, asked: asked)
-                    return self.updateReadiness()
-                }
-            }
-            // A rule belongs to the environment: it is registered even when the scenario changed while it was prepared (BUG-089).
-            let outcome = await self.preparation.resolve(context, generation: generation, preparer: preparer,
-                                                         currentGeneration: { generation },
-                                                         commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
-            guard !self.closed else { return answer(.dropped("closed")) }
-            var registered = false
-            switch outcome {
-            case .registered:
-                registered = true
-                if answer.delivered {
-                    // The page was answered "preparing": it is loaded again below and then served from this rule.
-                } else if self.simulator.generation != generation {
-                    answer(.dropped("stale"))
-                } else if case .respond(let response, _) = self.simulate(http) {
-                    self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
-                                           transport: source.transport))
-                    answer(.respond(response))
-                } else {
-                    answer(.respond(.unresolved(contract, reason: "the rules registered for it do not answer this request.")))
-                }
-                self.noteLateRules(source: source, asked: asked)
-            case .unsupported(let reason):
-                self.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason))
-                answer(.respond(.unsupported(contract, reason: reason)))
-            case .stale:
-                answer(.dropped("stale"))
-            default:
-                let reason = self.preparation.records[contract]?.message ?? "it could not be prepared."
-                self.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
-                answer(.respond(.unresolved(contract, reason: reason)))
-            }
-            if self.provisional[generation]?.contains(contract) == true {
-                self.provisionalEnded(contract, generation: generation, registered: registered)
-            }
-            self.updateReadiness()
-        }
-    }
-
-    /// Prepares the rule for a request a scenario names although no rule serves it (a context change). It waits for the preparation,
-    /// which has its own deadlines, and returns whether a rule now serves the request. There is no real request to show the assistant,
-    /// only its method and address; the rule is prepared from the application's code like any other.
-    func prepareNamedRequest(method: String, path: String) async -> Bool {
-        let text = path.hasPrefix("/") ? (appOrigin?.text ?? "") + path : path
-        guard let url = URL(string: text), url.host != nil else { return false }
-        let generation = simulator.generation
-        let contract = StudioRoute.contractKey(method: method, url: url, appOrigin: appOrigin?.text)
-        let shown = redactor.redact(text: StudioConnections.redact(url.absoluteString, hashes: secretHashes))
-        let context = StudioPreparationContext(contract: contract, method: method.uppercased(), url: shown, headers: [:], body: nil, attempt: 1,
-                                               problems: [], group: StudioBridge.Origin(url: url)?.text)
-        showBusyDetail("Preparing the rule for \(contract)")
-        if let group = context.group { await preparation.waitForGroup(group) }
-        let outcome = await preparation.resolve(context, generation: generation, preparer: makePreparer(), currentGeneration: { generation },
-                                                commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
-        guard !closed else { return false }
-        if case .registered = outcome { updateReadiness(); return spec.rules.contains { $0.method.uppercased() == method.uppercased() && $0.path == path } }
-        let reason = preparation.records[contract]?.message ?? "it could not be prepared."
-        sessionLog.add(.preparation, problem: true, "The rule for \(contract) could not be prepared for the scenario: \(reason)")
-        return false
-    }
-
-    /// A request that was answered "preparing" has its rule (or has none): once every such request of the generation has ended and
-    /// one of them has a rule, the page is loaded again so that it renders with the real answers (BUG-089). Text typed into the
-    /// page since its route is never thrown away: the banner offers the reload instead.
-    private func provisionalEnded(_ contract: String, generation: Int, registered: Bool) {
-        provisional[generation]?.remove(contract)
-        if registered { provisionalReady.insert(generation) }
-        guard provisional[generation]?.isEmpty ?? true, provisionalReady.contains(generation), simulator.generation == generation,
-              !closed, appURL != nil else { return }
-        provisionalReady.remove(generation)
-        Task { [weak self] in
-            guard let self else { return }
-            let typed = (try? await self.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
-            guard !self.closed, self.simulator.generation == generation else { return }
-            if typed {
-                self.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
-                self.rulesArrivedLate = true
-            } else {
-                self.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; the page is loaded again once to render with them")
-                self.reloadPage()
-            }
-        }
-    }
-
-    /// The route handlers of the application's own server, read from its folders once per session (BUG-089, BUG-090).
-    private var routeIndex: [StudioRouteHandler]?
-
-    func routeHandlers() async -> [StudioRouteHandler] {
-        if let routeIndex { return routeIndex }
-        let root = root, folder = appFolder
-        let found = await Task.detached(priority: .utility) { StudioRouteScanner.scan(project: root, appFolder: folder) }.value
-        routeIndex = found
-        return found
-    }
-
-    /// The handler that serves a page request to the application's own origin, with the start of its text (redacted): the
-    /// agent is told where to look instead of searching the project, which took it a minute or more (BUG-089).
-    private func handlerHint(for http: StudioHTTPRequest) async -> (file: String, text: String)? {
-        guard let app = appURL, let host = http.url.host, host == app.host, http.url.port == app.port else { return nil }
-        let handlers = await routeHandlers()
-        guard let handler = StudioRouteScanner.handler(for: http.method, path: http.url.path, in: handlers) else { return nil }
-        let file = root.appendingPathComponent(handler.file)
-        let text = await Task.detached(priority: .utility) { () -> String in
-            guard let handle = try? FileHandle(forReadingFrom: file) else { return "" }
-            defer { try? handle.close() }
-            return String(decoding: (try? handle.read(upToCount: 6_000)) ?? Data(), as: UTF8.self)
-        }.value
-        return (handler.file, redactor.redact(text: text))
-    }
-
-    /// The project's assistant, read-only, preparing rules against the environment as it is now.
-    private func makePreparer() -> StudioCLIPreparer {
-        let relative = appFolder.standardizedFileURL.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let usage = recordUsage
-        return StudioCLIPreparer(project: root, appFolder: relative, spec: simulator.spec) { input, output, cost in
-            Task { @MainActor in usage(input, output, cost) }
-        }
-    }
 
     /// Starts preparing the requests the page at `route` makes through the server's simulated connections (BUG-074), unless
     /// the route was prepared before (saved in the environment) or tried in this session. Returns the preparation to wait
@@ -1820,7 +1221,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let context = StudioPreparationContext(contract: "Page \(route): server requests", method: "GET", url: route, headers: [:], body: nil,
                                                attempt: 1, problems: [], ahead: StudioRouteAhead(route: route, connections: lines))
         let services = Set(simulated.map(\.origin))
-        let preparer = makePreparer()
+        let preparer = requestPath.makePreparer()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             let outcome = await self.preparation.prepareAhead(context, services: services, preparer: preparer,
@@ -1844,41 +1245,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         guard !routes.contains(route) else { return }
         routes.append(route)
         next.preparedRoutes = routes
-        simulator.replaceSpec(next)
-        spec = simulator.spec
-        persistEnvironment()
-    }
-
-    /// How long a server request may wait for its rules before its page has most likely rendered without them: an
-    /// application gives its own calls a deadline of a few seconds (vivaa: 5 s).
-    static let lateRules: TimeInterval = 3
-    /// How long a page's request waits for its rule to be prepared before it gets the "preparing" answer (BUG-089); a variable
-    /// so that a test can shorten it.
-    static var provisionalAfter: TimeInterval = 8
-    /// Contracts a page's request was answered "preparing" for, by generation, and whether one of them has a rule by now.
-    private var provisional: [Int: Set<String>] = [:]
-    private var provisionalReady: Set<Int> = []
-
-    /// A server request whose rules arrived after its page rendered without them (BUG-074): the page reloads once so it
-    /// renders with the simulation, unless the person typed into it; then the banner offers Reload.
-    private func noteLateRules(source: StudioRequestSource, asked: Date) {
-        guard source.variable != nil, Date().timeIntervalSince(asked) > Self.lateRules, !closed, appURL != nil else { return }
-        let generation = simulator.generation
-        guard reloadedForRules != generation else { return }
-        reloadedForRules = generation
-        Task { [weak self] in
-            guard let self else { return }
-            let typed = (try? await self.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
-            guard !self.closed, self.simulator.generation == generation else { return }
-            let late = "Rules for a request of the server arrived after its page had rendered without them"
-            if typed {
-                self.sessionLog.add(.notice, late + "; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
-                self.rulesArrivedLate = true
-            } else {
-                self.sessionLog.add(.notice, late + "; the page is loaded again once to render with them")
-                self.reloadPage()
-            }
-        }
+        replaceEnvironment(next)
     }
 
     /// Loads the current address again, as a fresh server render, keeping the scenario's state (the banner's Reload).
@@ -1892,7 +1259,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     /// Registers a proposal atomically and keeps it for later sessions (rules are reusable: SIM-05).
-    private func commit(_ proposal: StudioProposal) -> [String] {
+    func commit(_ proposal: StudioProposal) -> [String] {
         let problems = simulator.register(proposal)
         guard problems.isEmpty else { return problems }
         var next = simulator.spec
@@ -1916,13 +1283,18 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             next.dependencies.removeAll { $0.id == dependency.id }
             next.dependencies.append(dependency)
         }
-        simulator.replaceSpec(next)
-        spec = simulator.spec
-        persistEnvironment()
+        replaceEnvironment(next)
         rebuildDependencies()
         // A preload bridge callback that waited for its channel gets it now (REQ-016).
-        channels.openListeners()
+        requestPath.channels.openListeners()
         return []
+    }
+
+    /// Takes `environment` as the session's environment: the simulator serves it, the panels show it, and it is saved for later sessions.
+    func replaceEnvironment(_ environment: StudioEnvironmentSpec) {
+        simulator.replaceSpec(environment)
+        spec = simulator.spec
+        persistEnvironment()
     }
 
     private func persistEnvironment() {
@@ -1940,7 +1312,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         spec = simulator.spec
         persistEnvironment()
         rebuildDependencies()
-        channels.openListeners()
+        requestPath.channels.openListeners()
         return []
     }
 
@@ -1950,7 +1322,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         case .route:
             if detail != route { sessionLog.add(.navigation, "Route \(route) → \(detail)") }
             route = detail
-            noteSignInWall(detail)
+            repair.noteSignInWall(detail)
             return
         case .idle:
             updateReadiness()
@@ -1995,20 +1367,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         logPageEvent(event.kind, detail)
         note(event.kind, detail)
         updateReadiness()
-        if event.kind == .runtimeError || event.kind == .logged { scheduleAutoRepair() }
+        if event.kind == .runtimeError || event.kind == .logged { repair.scheduleAutoRepair() }
     }
 
     private func note(_ kind: StudioBridge.Event.Kind, _ detail: String) {
         events.append(EventRecord(kind: kind, detail: detail, generation: simulator.generation, scenarioID: scenario.id))
         if events.count > 300 { events.removeFirst(events.count - 300) }
-    }
-
-    private func log(_ record: RequestRecord) {
-        requests.append(record)
-        if requests.count > 400 { requests.removeFirst(requests.count - 400) }
-        let answer = record.outcome + (record.status.map { " \($0)" } ?? "")
-        sessionLog.add(.request, problem: record.outcome == "unsupported" || (record.status ?? 0) >= 500,
-                       "\(record.method) \(record.url) · \(record.transport) · \(answer)")
     }
 
     /// A page event in the log (REQ-011): errors, build error overlays, blocked resources and synchronous IPC are problems.
@@ -2042,7 +1406,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     private var observed: [String: StudioDependency] = [:]
 
-    private func noteDependency(_ dependency: StudioDependency) {
+    func noteDependency(_ dependency: StudioDependency) {
         observed[dependency.id] = dependency
         rebuildDependencies()
     }
@@ -2095,9 +1459,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         guard !text.isEmpty, !spec.allowedRequests.contains(text) else { return }
         var next = simulator.spec
         next.allowedRequests.append(text)
-        simulator.replaceSpec(next)
-        spec = next
-        persistEnvironment()
+        replaceEnvironment(next)
         rebuildDependencies()
         runWork("Applying the connection policy") { session in
             await session.installConnectionPolicy()
@@ -2108,9 +1470,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func disallow(_ pattern: String) {
         var next = simulator.spec
         next.allowedRequests.removeAll { $0 == pattern }
-        simulator.replaceSpec(next)
-        spec = next
-        persistEnvironment()
+        replaceEnvironment(next)
         rebuildDependencies()
         runWork("Applying the connection policy") { session in
             await session.installConnectionPolicy()
@@ -2127,10 +1487,16 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     // MARK: - Scenarios
 
-    func activate(_ next: StudioScenario) {
+    /// Makes `next` the scenario the page and the simulator are on. The steps recorded so far belong to the scenario that was left, unless
+    /// the trial of a requested scenario keeps them.
+    func switchScenario(to next: StudioScenario, keepingRecordedSteps keep: Bool = false) {
         scenario = next
         simulator.activate(next)
-        recordedSteps = []
+        if !keep { recordedSteps = [] }
+    }
+
+    func activate(_ next: StudioScenario) {
+        switchScenario(to: next)
         // Another scenario keeps the application signed in as the same test user (BUG-088); Reset starts signed out, as before.
         runWork("Resetting the scenario") { session in _ = await session.restore(keepingSignIn: true) }
     }
@@ -2138,9 +1504,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// Makes `next` the scenario and restores the page on it, keeping the sign-in, and says what went wrong, if anything: the check a
     /// prepared screen's first opening needs (REQ-021). Called inside `runWork`.
     func activateReturningProblem(_ next: StudioScenario) async -> String? {
-        scenario = next
-        simulator.activate(next)
-        recordedSteps = []
+        switchScenario(to: next)
         return await restore(keepingSignIn: true)
     }
 
@@ -2183,86 +1547,6 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     // MARK: - Kept cookies and storage
 
-    /// Keeps the page's cookies (httpOnly ones included) and localStorage for later restores (REQ-008): a restore empties
-    /// the browser storage, so the application would ask again (cookie consent). Cookies of the application's host only;
-    /// entries that look confidential are left out and named, because environment.json may be committed. Replaces what
-    /// was kept before.
-    func keepBrowserData() {
-        runWork("Keeping the page's cookies and storage") { session in
-            guard let host = session.appURL?.host else { return }
-            let cookies = await session.webView.configuration.websiteDataStore.httpCookieStore.allCookies()
-            guard let page = (try? await session.call("return window.__markviewStudio ? window.__markviewStudio.storage() : null;")) as? [String: Any]
-            else {
-                session.notice = "The page did not report its storage; nothing was kept. Wait until it has loaded and try again."
-                return
-            }
-            let storage = StudioKeptBrowserData.storageEntries(page["entries"])
-            let outcome = StudioKeptBrowserData.collect(cookies: cookies.map(StudioKeptCookie.init), storage: storage, appHost: host,
-                                                        origin: session.appOrigin?.text, redactor: session.redactor)
-            session.keptSkipped = outcome.skipped
-            session.replaceKept(outcome.kept.isEmpty ? nil : outcome.kept)
-            let kept = outcome.kept
-            session.notice = "Kept \(kept.cookies.count) cookie\(kept.cookies.count == 1 ? "" : "s") and \(kept.localStorage.count) "
-                + "localStorage entr\(kept.localStorage.count == 1 ? "y" : "ies") in .markview/studio/environment.json; they are set again after every restore."
-                + (outcome.skipped.isEmpty ? "" : " Not kept because they look confidential: \(outcome.skipped.count).")
-        }
-    }
-
-    func forgetKeptCookie(_ id: String) {
-        updateKept { $0.cookies.removeAll { $0.id == id } }
-    }
-
-    func forgetKeptStorage(_ key: String) {
-        updateKept { $0.localStorage.removeAll { $0.key == key } }
-    }
-
-    /// Forgets every kept cookie and storage entry; the next restore starts from empty browser storage again.
-    func forgetKeptBrowserData() {
-        keptSkipped = []
-        replaceKept(nil)
-    }
-
-    private func updateKept(_ change: (inout StudioKeptBrowserData) -> Void) {
-        guard var kept = spec.keptBrowserData else { return }
-        change(&kept)
-        replaceKept(kept.isEmpty ? nil : kept)
-    }
-
-    private func replaceKept(_ kept: StudioKeptBrowserData?) {
-        var next = simulator.spec
-        next.keptBrowserData = kept
-        simulator.replaceSpec(next)
-        spec = next
-        persistEnvironment()
-    }
-
-    /// The kept cookies go back into the emptied store before the page loads (REQ-008).
-    /// The test user the browser data was last restored for: its sign-in cookies are carried over to the next restore only for the
-    /// same user, so a scenario of another role starts signed out.
-    private var restoredUser: StudioJSON?
-
-    /// The cookies that keep the application signed in, when the page is signed in as the test user the new scenario also has
-    /// (BUG-088). A page on its sign-in page has nothing to carry. They live in memory for the restore only, never on disk.
-    private func signInCookiesToCarry() async -> [HTTPCookie] {
-        guard restoredUser == scenario.role.user, let host = appURL?.host,
-              let path = webView.url?.path, !StudioLogFormat.isSignInPath(path) else { return [] }
-        let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
-        return cookies.filter { cookie in
-            let domain = cookie.domain.hasPrefix(".") ? String(cookie.domain.dropFirst()) : cookie.domain
-            return (host == domain || host.hasSuffix("." + domain)) && StudioSignInCookies.isSignIn(name: cookie.name)
-        }
-    }
-
-    private func restoreKeptCookies() async {
-        guard let cookies = spec.keptBrowserData?.cookies, !cookies.isEmpty, let host = appURL?.host else { return }
-        let store = webView.configuration.websiteDataStore.httpCookieStore
-        let now = Date()
-        for cookie in cookies {
-            guard let http = cookie.httpCookie(appHost: host, now: now) else { continue }
-            await store.setCookie(http)
-        }
-    }
-
     func problems(of scenario: StudioScenario) -> [String] {
         scenario.id.hasPrefix("builtin-") ? [] : StudioScenarioCompatibility.problems(scenario, spec: spec)
     }
@@ -2282,9 +1566,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         do {
             try StudioStore.saveScenario(saved, root: root)
             savedScenarios = StudioStore.loadScenarios(root)
-            scenario = saved
-            simulator.activate(saved)
-            recordedSteps = []
+            switchScenario(to: saved)
             notice = "Saved scenario \(saved.name) in .markview/studio/scenarios/."
         } catch {
             notice = "The scenario could not be saved: \(error.localizedDescription)"
@@ -2311,118 +1593,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     // MARK: - Modes and selection
 
-    func setMode(_ next: Mode) {
-        guard next != mode else { return }
-        if next == .record, let busy {
-            // Recording starts from a restored baseline, which waits for the current work.
-            notice = "Wait for \(busy) to finish before recording."
-            return
-        }
-        let previous = mode
-        mode = next
-        if previous == .record { Task { _ = try? await call("return window.__markviewStudio.setRecording(false);") } }
-        switch next {
-        case .interact:
-            pickTask?.cancel()
-            Task { _ = try? await call("return window.__markviewStudio && window.__markviewStudio.setSelecting(false);") }
-        case .select:
-            startPicking()
-        case .record:
-            pickTask?.cancel()
-            // Steps are recorded from the scenario's baseline, so that replaying them rebuilds the same state.
-            recordedSteps = []
-            runWork("Restoring the scenario before recording") { session in
-                _ = await session.restore()
-                session.mode = .record
-                _ = try? await session.call("return window.__markviewStudio.setRecording(true);")
-            }
-        }
-    }
-
-    private func startPicking() {
-        pickTask?.cancel()
-        pickTask = Task { [weak self] in
-            while let self, self.mode == .select, !Task.isCancelled {
-                do {
-                    let result = try await self.call("return window.__markviewStudio ? await window.__markviewStudio.pick() : undefined;")
-                    guard self.mode == .select, !Task.isCancelled else { return }
-                    if let object = result as? [String: Any] {
-                        await self.adopt(object)
-                    } else if result is NSNull {
-                        // Escape in the page.
-                        self.mode = .interact
-                        return
-                    } else {
-                        try await Task.sleep(nanoseconds: 300_000_000)
-                    }
-                } catch {
-                    // The page reloaded while selecting: pick again in the new page.
-                    try? await Task.sleep(nanoseconds: 400_000_000)
-                }
-            }
-        }
-    }
-
-    func selectParent() {
-        Task {
-            guard let object = try? await call("return window.__markviewStudio.parent();") as? [String: Any] else { return }
-            await adopt(object)
-        }
-    }
-
-    func selectChild() {
-        Task {
-            guard let object = try? await call("return window.__markviewStudio.child();") as? [String: Any] else { return }
-            await adopt(object)
-        }
-    }
-
-    func clearSelection() {
-        selection = nil
-        Task { _ = try? await call("return window.__markviewStudio.clear();") }
-    }
-
-    /// The selection as the session keeps it (PRE-06…PRE-08): the source path checked against the project, the source
-    /// around the mapped line, a picture of the element, the route, the scenario and the code revision.
-    private func adopt(_ object: [String: Any]) async {
-        guard var context = StudioSelectionContext(object) else {
-            notice = "That element has no size to select."
-            return
-        }
-        let root = root, appFolder = appFolder, origin = appOrigin
-        let tagName = String(context.tag.prefix { $0.isLetter || $0.isNumber || $0 == "-" })
-        let reported = context
-        let resolved = await Task.detached { () -> StudioSourceResolution in
-            // A bundled chunk (Turbopack, Next.js 16) is mapped to its source file through its source map (BUG-069).
-            let mapped = await StudioSourceMap.mapped(reported, appOrigin: origin, root: root, appFolder: appFolder)
-            return StudioSourceResolution.resolve(mapped, root: root, appFolder: appFolder, tagName: tagName)
-        }.value
-        context.sourcePath = resolved.path
-        context.line = resolved.line
-        context.snippet = resolved.snippet
-        context.snippetHash = resolved.lineHash
-        if resolved.mapping != context.mapping { context.mapping = resolved.mapping }
-        if let note = resolved.note { context.boundary = [context.boundary, note].compactMap { $0 }.joined(separator: " ") }
-        context.scenarioId = scenario.id
-        context.imagePath = await selectionPicture(context)
-        context.revision = await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers()).0
-        selection = context
-    }
-
-    private func selectionPicture(_ context: StudioSelectionContext) async -> String? {
-        _ = try? await call("return window.__markviewStudio.prepareCapture();")
-        let rect = CGRect(x: context.rect.x, y: context.rect.y, width: context.rect.width, height: context.rect.height)
-            .intersection(webView.bounds)
-        defer { Task { _ = try? await self.call("return window.__markviewStudio.finishCapture();") } }
-        guard !rect.isNull, rect.width >= 1, rect.height >= 1, let image = await snapshot(rect) else { return nil }
-        let folder = StudioStore.selectionFolder(root)
-        StudioStore.prepareLocalFolder(root)
-        let file = folder.appendingPathComponent("selection-\(context.id).png")
-        let written = await Task.detached { StudioImageDiff.writePNG(image, to: file) }.value
-        return written ? file.path : nil
-    }
-
-    private func snapshot(_ rect: CGRect?) async -> CGImage? {
+    func snapshot(_ rect: CGRect?) async -> CGImage? {
         let configuration = WKSnapshotConfiguration()
         if let rect { configuration.rect = rect }
         configuration.afterScreenUpdates = true
@@ -2432,95 +1603,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
-    /// The selection is found again after the page was reloaded (PRE-09, BUG-068): the same instance is kept, a moved source
-    /// is remapped, an element that is not the same one is never taken in its place. The old selector is tried first; when
-    /// it no longer leads to the element (the page is laid out differently), the page is searched for the element itself.
-    /// `afterEdit` is the check after a change, which may have altered the element's classes and text.
-    @discardableResult
-    private func revalidateSelection(_ previous: StudioSelectionContext, afterEdit: Bool) async -> Bool {
-        func candidates(_ script: String, _ arguments: [String: Any]) async -> [StudioSelectionContext] {
-            ((try? await call(script, arguments)) as? [[String: Any]] ?? []).compactMap { StudioSelectionContext($0) }
-        }
-        func position(of chosen: StudioSelectionContext, in list: [StudioSelectionContext]) -> Int {
-            list.firstIndex { $0.rect == chosen.rect && $0.tag == chosen.tag && $0.sourceNodeId == chosen.sourceNodeId } ?? 0
-        }
-        let bySelector = await candidates("return window.__markviewStudio.candidates(selector);", ["selector": previous.selector])
-        var decision = StudioSelectionRevalidation.decide(previous: previous, candidates: bySelector, afterEdit: afterEdit)
-        var select: (script: String, arguments: [String: Any])?
-        switch decision {
-        case .kept(let next), .remapped(let next):
-            select = ("return window.__markviewStudio.selectMatching(selector, index);",
-                      ["selector": previous.selector, "index": position(of: next, in: bySelector)])
-        case .cleared:
-            let similar = await candidates("return window.__markviewStudio.similar(fingerprint);", ["fingerprint": previous.fingerprint])
-            decision = StudioSelectionRevalidation.decide(previous: previous, candidates: similar, afterEdit: afterEdit)
-            switch decision {
-            case .kept(let next), .remapped(let next):
-                select = ("return window.__markviewStudio.selectSimilar(fingerprint, index);",
-                          ["fingerprint": previous.fingerprint, "index": position(of: next, in: similar)])
-            case .cleared: break
-            }
-        }
-        if case .cleared(let reason) = decision {
-            selection = nil
-            notice = reason + (afterEdit ? "" : " The change uses the element as it was selected; select it again to see it.")
-            return false
-        }
-        guard let select, let object = try? await call(select.script, select.arguments) as? [String: Any] else {
-            selection = nil
-            return false
-        }
-        await adopt(object)
-        selection?.revalidated = true
-        return true
-    }
-
     // MARK: - Assistant
-
-    /// Runs one piece of work at a time. `pending` is the conversation turn it answers, shown until the work appends it
-    /// to the history; whatever way the work ends (answered, failed, cancelled), no pending turn outlives it.
-    func runWork(_ title: String, pending: PendingTurn? = nil, _ work: @escaping @MainActor (StudioSession) async -> Void) {
-        guard busy == nil, !closed else {
-            notice = "Wait for \(busy ?? "the current work") to finish."
-            return
-        }
-        busy = title
-        busyDetail = ""
-        pendingTurn = pending
-        workTask = Task { [weak self] in
-            guard let self else { return }
-            await work(self)
-            self.busy = nil
-            self.busyDetail = ""
-            self.pendingTurn = nil
-        }
-    }
-
-    /// The element as a turn records it: its tag and, when known, its source file.
-    private static func turnElement(_ selection: StudioSelectionContext) -> String {
-        selection.tag + (selection.sourcePath.map { " · \($0)" } ?? "")
-    }
-
-    func cancelWork() {
-        workTask?.cancel()
-        preparation.cancelEverything()
-    }
-
-    func progress(_ activity: CLICompletion.Activity) {
-        switch activity {
-        case .read(let path): busyDetail = "Reading " + (path as NSString).lastPathComponent
-        case .search(let pattern): busyDetail = "Searching for " + String(pattern.prefix(40))
-        case .run: busyDetail = "Looking at the project"
-        case .thinking: busyDetail = "Thinking"
-        case .writing(let count): busyDetail = "Writing (\(count) characters)"
-        case .webSearch, .webFetch, .answerDelta: break
-        }
-    }
-
-    private func newOperationID() -> String {
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        return "op-\(stamp)-\(UUID().uuidString.prefix(4).lowercased())"
-    }
 
     /// The application folder relative to the project: empty for the project itself.
     var relativeAppFolder: String {
@@ -2539,16 +1622,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         request.label = "ui-studio:screens"
         request.timeout = 900
         request.effort = "medium"
-        let result: CLICompletion.Result
+        let operation = AIOperation<CLICompletion.Request, (screens: [StudioScreen], notes: String)>(
+            name: "ui-studio:screens",
+            parse: { result in
+                (StudioPrompts.screens(from: result.structured), (result.structured as? [String: Any])?["notes"] as? String ?? "")
+            },
+            onResult: { [weak self] result in self?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+        var report: (@Sendable (CLICompletion.Activity) -> Void)?
         if reportProgress {
-            result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
-                Task { @MainActor in self?.progress(activity) }
-            })
-        } else {
-            result = try await CLICompletion.run(request)
+            report = { [weak self] activity in Task { @MainActor in self?.progress(activity) } }
         }
-        recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-        return (StudioPrompts.screens(from: result.structured), (result.structured as? [String: Any])?["notes"] as? String ?? "")
+        return try await operation.execute(request, onActivity: report).output
     }
 
     /// Inventory screens without changing the page or writing project files. The list is kept in `.markview/studio/screens.json`.
@@ -2570,686 +1654,6 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
     }
 
-    /// One request of the request box (DEC-010; EDIT-01…EDIT-08, AC-11…AC-15, REQ-013). The assistant chooses its kind: an
-    /// answer changes nothing; a context change is checked (and corrected once) and becomes a new saved scenario derived
-    /// from the current one; a code change names the scope and proposes exact edits, which MarkView checks against the
-    /// working tree as it was when the request started, writes after restoring and capturing the scenario, and verifies in
-    /// the rebuilt application. A selection is optional: without one, the request is about the current page. The images
-    /// attached to the request (REQ-005) are saved under `.dde/studio/attachments/`, recorded on the turn, given to the
-    /// assistant with the request, and named in its prompt; a request of images alone is allowed. Answering a clarification
-    /// sends the images of the turn again.
-    func change(_ text: String, attachments: [ImageAttachment] = [], clarification: String? = nil,
-                replacing pending: StudioOperation? = nil, destination: StudioScreen? = nil) {
-        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let request = typed.isEmpty && !attachments.isEmpty ? StudioPrompts.imageOnlyRequest : typed
-        let destination = destination ?? pending?.destinationScreen
-        guard !request.isEmpty, appURL != nil else { return }
-        var selection = self.selection
-        let pageRoute = route
-        let element = selection.map(Self.turnElement) ?? StudioPrompts.pageElement(pageRoute)
-        // An answer to the assistant's question is what the person just said; the question itself stays in the thread.
-        let turn = PendingTurn(kind: .edit, request: clarification ?? request, element: element, attachments: pending?.attachedImages ?? [])
-        let newImages = attachments.map(\.data)
-        runWork("Working on the request", pending: turn) { session in
-            let (revision, snapshot) = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers())
-            var operation = pending ?? StudioOperation(id: session.newOperationID(), kind: .edit, request: request, status: .applied)
-            operation.destinationScreen = destination
-            operation.status = .applied
-            operation.question = nil
-            operation.options = []
-            operation.selection = element
-            operation.scenarioId = session.scenario.id
-            operation.baseRevision = revision
-            // The images of the request: those of the turn being answered, then the ones just attached, saved now.
-            var attached = operation.attachedImages
-            if !newImages.isEmpty {
-                do {
-                    attached += try await StudioSession.saveAttachments(newImages, root: session.root)
-                } catch {
-                    operation.status = .failed
-                    operation.answer = "The attached images could not be saved, so the request was not sent: \(error.localizedDescription)"
-                    return session.append(operation)
-                }
-                operation.attachments = attached
-                session.pendingTurn?.attachments = attached
-            }
-            // Only files that are there are sent: an image of an earlier turn may have been deleted since.
-            let sentImages = attached.filter { StudioStore.isAttachmentPath($0) && FileManager.default.fileExists(atPath: session.root.appendingPathComponent($0).path) }
-            // Without a selection the assistant sees the page as it is.
-            var pageImage = selection == nil ? await session.pagePicture() : nil
-            var retryProblem: String?
-            var refusedContext: [String]?
-            var trialFailure: String?
-            var contextValidationRetries = 0
-            var restored = false
-            for attempt in 1...3 {
-                session.busyDetail = attempt == 1 ? "The assistant is reading the project"
-                    : refusedContext != nil ? "The assistant is correcting its context change" : "The assistant is correcting its edits"
-                // The history includes a clarification being answered: its turn says what the assistant asked.
-                var call = CLICompletion.Request(project: session.root,
-                                                 prompt: StudioPrompts.editPrompt(request, selection: selection, scenario: session.scenario,
-                                                                                  revision: revision, history: session.conversation,
-                                                                                  redactor: session.redactor, clarification: clarification,
-                                                                                  retryProblem: retryProblem, route: pageRoute,
-                                                                                  pageImage: pageImage, spec: session.spec,
-                                                                                  refusedContext: refusedContext,
-                                                                                  reached: session.servedRules, attachments: sentImages,
-                                                                                  supabaseAuth: session.simulator.authMock != nil && !session.hasRealSupabase,
-                                                                                  supabaseAuthReal: session.hasRealSupabase),
-                                                 systemPrompt: StudioPrompts.editSystem, jsonSchema: StudioPrompts.editSchema,
-                                                 readableFolder: session.root)
-                let shownImage = refusedContext != nil ? (pageImage ?? selection?.imagePath) : (selection?.imagePath ?? pageImage)
-                call.images = shownImage.map { [URL(fileURLWithPath: $0)] } ?? []
-                call.images += sentImages.map { session.root.appendingPathComponent($0) }
-                call.timeout = 900
-                call.effort = "medium"
-                call.label = "ui-studio:edit"
-                let plan: StudioEditPlan
-                do {
-                    let result = try await CLICompletion.run(call, onActivity: { activity in
-                        Task { @MainActor in session.progress(activity) }
-                    })
-                    session.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-                    guard let parsed = StudioPrompts.editPlan(from: result.structured) else {
-                        operation.status = .failed
-                        operation.answer = "The assistant's answer was not a set of edits."
-                        return session.append(operation)
-                    }
-                    plan = parsed
-                } catch is CancellationError {
-                    return
-                } catch {
-                    operation.status = .failed
-                    operation.answer = error.localizedDescription
-                    return session.append(operation)
-                }
-                if plan.needsClarification && clarification == nil {
-                    operation.kind = plan.kind == .context ? .context : .edit
-                    operation.scope = plan.scope
-                    operation.scopeNote = plan.scopeNote
-                    operation.summary = plan.summary
-                    operation.status = .clarification
-                    operation.question = plan.question
-                    operation.options = plan.options
-                    return session.append(operation)
-                }
-                if let failure = trialFailure, plan.kind != .context {
-                    operation.kind = .context
-                    operation.status = .failed
-                    operation.answer = "The requested page was not reached, so the new scenario was not saved: " + failure
-                    let explanation = plan.answer.isEmpty ? plan.summary : plan.answer
-                    if !explanation.isEmpty { operation.answer += "\n\n" + explanation }
-                    return session.append(operation)
-                }
-                if destination != nil && plan.kind != .context {
-                    operation.kind = .context
-                    operation.status = .failed
-                    operation.answer = "The selected screen was not opened: the assistant did not propose a scenario change."
-                    return session.append(operation)
-                }
-                switch plan.kind {
-                case .answer:
-                    operation.kind = .question
-                    operation.status = .answered
-                    operation.answer = plan.answer.isEmpty ? plan.summary : plan.answer
-                    let after = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers()).0
-                    operation.finalRevision = after
-                    operation.checks = [StudioCheck(name: "Project files unchanged", passed: after.id == revision.id,
-                                                    detail: after.id == revision.id ? "" : "The working tree changed while the request ran; the assistant itself had read-only access.")]
-                    return session.append(operation)
-                case .context:
-                    var context = plan.context ?? StudioContextPlan(structured: nil)
-                    if let destination {
-                        context.expectedPath = destination.expectedPath ?? ""
-                        context.expectedSelector = destination.selector
-                    }
-                    // A scenario may name a request that has no rule yet (the page failed before it asked): the rule is prepared once, not refused.
-                    for request in StudioContextValidator.unservedRequests(context.overrides, spec: session.spec).prefix(3) {
-                        guard !Task.isCancelled, !session.closed else { return }
-                        _ = await session.prepareNamedRequest(method: request.method, path: request.path)
-                    }
-                    var problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
-                    // Giving up on data the application can change is asked about once, and never blocks a second answer.
-                    if contextValidationRetries == 0 {
-                        problems += StudioContextValidator.givenUpProblems(context, current: session.scenario, spec: session.spec)
-                    }
-                    if problems.isEmpty {
-                        if (!context.expectedPath.isEmpty || !context.expectedSelector.isEmpty), let failure = await session.tryContext(context, request: operation.request) {
-                            guard !Task.isCancelled, !session.closed else { return }
-                            if trialFailure == nil {
-                                let attemptedSteps = context.steps.map { step in
-                                    step.action.rawValue + (step.selector.map { " " + $0 } ?? "")
-                                        + (step.action == .navigate ? (step.text.map { " " + $0 } ?? "") : "")
-                                }.joined(separator: "; ")
-                                let attempted = "The attempted starting route was \(context.route.isEmpty ? session.scenario.route : context.route); steps: \(attemptedSteps)."
-                                trialFailure = failure.problem
-                                refusedContext = [failure.problem, session.redactor.redact(text: attempted)]
-                                if let image = failure.image { pageImage = image }
-                                retryProblem = nil
-                                continue
-                            }
-                            operation.kind = .context
-                            operation.status = .failed
-                            operation.summary = plan.summary
-                            operation.answer = "The requested page was not reached, so the new scenario was not saved: " + failure.problem
-                            operation.context = StudioContextChange(previousScenarioId: session.scenario.id,
-                                                                    previousScenarioName: session.scenario.name,
-                                                                    unsupported: context.unsupported)
-                            return session.append(operation)
-                        }
-                        return await session.applyContext(context, operation: operation, summary: plan.summary, snapshot: snapshot,
-                                                          selection: selection)
-                    }
-                    if contextValidationRetries == 0 {
-                        contextValidationRetries += 1
-                        refusedContext = problems
-                        retryProblem = nil
-                        continue
-                    }
-                    operation.kind = .context
-                    operation.status = .failed
-                    operation.summary = plan.summary
-                    operation.answer = "The context change was refused, so the scenario did not change: "
-                        + problems.prefix(5).joined(separator: " ") + (problems.count > 5 ? " (and \(problems.count - 5) more)" : "")
-                    operation.context = StudioContextChange(previousScenarioId: session.scenario.id, previousScenarioName: session.scenario.name,
-                                                            unsupported: context.unsupported)
-                    return session.append(operation)
-                case .code:
-                    break
-                }
-                operation.scope = plan.scope
-                operation.scopeNote = plan.scopeNote
-                operation.summary = plan.summary
-                operation.changeKind = plan.changeKind
-                operation.changeReason = plan.changeReason.isEmpty ? nil : plan.changeReason
-                if plan.edits.isEmpty {
-                    operation.status = .answered
-                    operation.answer = plan.scope == .recordData
-                        ? "The text comes from the simulated data of one record, not from the source code. " + plan.summary
-                        : (plan.summary.isEmpty ? "The assistant proposed no change." : plan.summary)
-                    return session.append(operation)
-                }
-                if !restored {
-                    // The scenario's baseline and its picture before anything is written.
-                    restored = true
-                    session.busyDetail = "Restoring the scenario"
-                    _ = await session.restore()
-                    if let previous = selection, session.selection == nil {
-                        await session.revalidateSelection(previous, afterEdit: false)
-                        if let current = session.selection { selection = current }
-                    }
-                    operation.beforeCapture = await session.capture(label: "Before: " + String(request.prefix(60)))?.id
-                }
-                do {
-                    let unsaved = Set(session.editorBuffers().keys)
-                    let changes = try await StudioChanges.plan(plan.edits, snapshot: snapshot, unsavedNow: unsaved)
-                    let root = session.root
-                    try await Task.detached { try StudioChanges.write(changes, root: root) }.value
-                    operation.files = changes
-                    retryProblem = nil
-                    break
-                } catch StudioChangeError.conflict(let paths) {
-                    operation.status = .conflict
-                    operation.conflict = StudioChangeError.conflict(paths).localizedDescription
-                    return session.append(operation)
-                } catch let error as StudioChangeError where attempt == 1 {
-                    retryProblem = error.localizedDescription
-                    refusedContext = nil
-                } catch {
-                    operation.status = .failed
-                    operation.answer = error.localizedDescription
-                    return session.append(operation)
-                }
-            }
-            guard !operation.files.isEmpty else {
-                operation.status = .failed
-                operation.answer = retryProblem ?? "No edit could be applied."
-                return session.append(operation)
-            }
-            operation.patch = await StudioChanges.unifiedDiff(operation.files)
-            session.append(operation)
-            await session.verify(&operation, previous: selection, label: "After: " + String(request.prefix(60)))
-            await session.trackChange(&operation)
-            session.replace(operation)
-        }
-    }
-
-    /// Answers the assistant's question and runs the change with it. The images of the request are sent again, with any the
-    /// person added to the answer.
-    func answerClarification(_ operation: StudioOperation, choice: String, attachments: [ImageAttachment] = []) {
-        // The question being answered belongs to the conversation.
-        conversationIds.insert(operation.id)
-        let answer = choice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !attachments.isEmpty ? StudioPrompts.imageOnlyAnswer : choice
-        change(operation.request, attachments: attachments, clarification: answer, replacing: operation)
-    }
-
-    /// Saves the PNG images of a request under `.dde/studio/attachments/` (ignored by Git) and returns their project-relative
-    /// paths, in order. When one cannot be written, the ones written before it are removed again.
-    private static func saveAttachments(_ pngs: [Data], root: URL) async throws -> [String] {
-        try await Task.detached {
-            StudioStore.prepareLocalFolder(root)
-            var written: [URL] = []
-            do {
-                for png in pngs { written.append(try ImageAttachments.save(png, into: StudioStore.attachmentsFolder(root))) }
-            } catch {
-                for url in written { try? FileManager.default.removeItem(at: url) }
-                throw error
-            }
-            return written.map { StudioStore.attachmentsPath + "/" + $0.lastPathComponent }
-        }.value
-    }
-
-    /// A picture of the page as it is, for a request made without a selection (DEC-010). It is overwritten by the next one.
-    private func pagePicture() async -> String? {
-        _ = try? await call("return window.__markviewStudio.prepareCapture();")
-        let image = await snapshot(nil)
-        _ = try? await call("return window.__markviewStudio.finishCapture();")
-        guard let image else { return nil }
-        let root = root, file = StudioStore.selectionFolder(root).appendingPathComponent("page.png")
-        let written = await Task.detached { () -> Bool in
-            StudioStore.prepareLocalFolder(root)
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            return StudioImageDiff.writePNG(image, to: file)
-        }.value
-        return written ? file.path : nil
-    }
-
-    /// Try a requested destination before saving it. A failed attempt is shown to the assistant for one correction; the
-    /// original scenario is restored and no temporary scenario is written to the project.
-    private func tryContext(_ plan: StudioContextPlan, request: String) async -> (problem: String, image: String?)? {
-        let previous = scenario, previousSteps = recordedSteps
-        let candidate = StudioContextValidator.scenario(plan, from: previous, spec: spec, request: request, taken: savedScenarios + presets)
-        tryingScenario = true
-        scenario = candidate
-        simulator.activate(candidate)
-        busyDetail = "Checking that the requested page opens"
-        let problem = await restore()
-        let picture = problem == nil ? nil : await pagePicture()
-        scenario = previous
-        simulator.activate(previous)
-        tryingScenario = false
-        _ = await restore()
-        recordedSteps = previousSteps
-        if let problem { return (problem, picture) }
-        return nil
-    }
-
-    /// Applies a checked context change (REQ-013, DEC-009): the new scenario derived from the current one is saved, made the
-    /// active one and restored, and the turn records what changed and what could not be done. No source file is written;
-    /// Undo returns to the scenario it was made from.
-    private func applyContext(_ plan: StudioContextPlan, operation start: StudioOperation, summary: String,
-                              snapshot: StudioWorkingSnapshot, selection: StudioSelectionContext?) async {
-        var operation = start
-        operation.kind = .context
-        operation.summary = summary.isEmpty ? plan.description : summary
-        let current = scenario
-        let next = StudioContextValidator.scenario(plan, from: current, spec: spec, request: operation.request,
-                                                   taken: savedScenarios + presets)
-        var change = StudioContextValidator.change(from: current, to: next, spec: spec,
-                                                   unsupported: plan.unsupported + StudioContextValidator.notes(plan, spec: spec))
-        guard change.changesAnything else {
-            // Nothing to show differently: no scenario is made.
-            change.previous = nil
-            change.scenarioId = ""
-            change.scenarioName = ""
-            operation.context = change
-            operation.status = .answered
-            if operation.summary.isEmpty { operation.answer = "Nothing in the scenario needed to change." }
-            return append(operation)
-        }
-        busyDetail = "Saving the new scenario"
-        let root = root
-        do {
-            savedScenarios = try await Task.detached { () throws -> [StudioScenario] in
-                try StudioStore.saveScenario(next, root: root)
-                return StudioStore.loadScenarios(root)
-            }.value
-        } catch {
-            operation.status = .failed
-            operation.answer = "The new scenario could not be saved, so the scenario did not change: \(error.localizedDescription)"
-            change.scenarioId = ""
-            change.previous = nil
-            operation.context = change
-            return append(operation)
-        }
-        operation.beforeCapture = await capture(label: "Before: " + String(operation.request.prefix(60)))?.id
-        operation.context = change
-        operation.scenarioId = next.id
-        operation.status = .applied
-        scenario = next
-        simulator.activate(next)
-        recordedSteps = []
-        append(operation)
-        busyDetail = "Restoring the new scenario"
-        let problem = await restore()
-        let errors = events.filter { $0.kind == .runtimeError && $0.generation == simulator.generation }
-        let (revision, after) = await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers())
-        let pageLoaded = problem == nil || problem?.hasPrefix("Restoration step") == true
-        var checks = [StudioCheck(name: "Scenario saved", passed: true, detail: ".markview/studio/scenarios/\(StudioStore.safeID(next.id)).json"),
-                      StudioCheck(name: "Page loaded in the new scenario", passed: pageLoaded, detail: pageLoaded ? next.name : problem ?? "")]
-        if !next.steps.isEmpty { checks.append(StudioCheck(name: "Restoration steps replayed", passed: problem == nil, detail: problem ?? "")) }
-        if next.expectedPath != nil || next.expectedSelector != nil {
-            let reached = problem == nil
-            let expected = redactor.redact(text: [next.expectedPath, next.expectedSelector].compactMap { $0 }.joined(separator: " · "))
-            checks.append(StudioCheck(name: "Requested page reached", passed: reached, detail: reached ? expected : problem ?? "Expected " + expected))
-            if !reached { operation.status = .failed; operation.answer = problem ?? "The requested page was not reached." }
-        }
-        checks.append(StudioCheck(name: "No runtime errors", passed: errors.isEmpty,
-                                  detail: errors.prefix(3).map { String($0.detail.prefix(300)) }.joined(separator: "\n")))
-        let same = StudioContextValidator.sameSources(snapshot, after)
-        checks.append(StudioCheck(name: "Project files unchanged", passed: same,
-                                  detail: same ? "" : "The working tree changed while the request ran; the context change itself writes no source file."))
-        operation.checks = checks
-        if checks.contains(where: { !$0.passed }) {
-            operation.status = .failed
-            if operation.answer.isEmpty {
-                operation.answer = "The scenario was saved, but verification failed: "
-                    + checks.filter { !$0.passed }.map { $0.name + ($0.detail.isEmpty ? "" : ": " + $0.detail) }.joined(separator: "\n")
-            }
-        }
-        operation.finalRevision = revision
-        if pageLoaded, let capture = await capture(label: "After: " + String(operation.request.prefix(60)), operationId: operation.id) {
-            operation.afterCapture = capture.id
-        }
-        if let selection { await revalidateSelection(selection, afterEdit: true) }
-        await trackContextChange(&operation)
-        replace(operation)
-    }
-
-    /// Undo of a context change (REQ-013): the scenario it was made from is active again and the turn is marked undone. The
-    /// new scenario is never deleted; it stays saved in the Scenario menu.
-    private func undoContext(_ operation: StudioOperation) {
-        guard let change = operation.context, !change.scenarioId.isEmpty, [.applied, .kept, .failed].contains(operation.status) else { return }
-        guard let previous = change.previous ?? (savedScenarios + presets).first(where: { $0.id == change.previousScenarioId }) else {
-            notice = "The scenario \(change.previousScenarioName) is no longer available."
-            return
-        }
-        runWork("Returning to the previous scenario") { session in
-            session.scenario = previous
-            session.simulator.activate(previous)
-            session.recordedSteps = []
-            _ = await session.restore()
-            var next = operation
-            next.status = .undone
-            session.trackUndo(next)
-            session.replace(next)
-            session.notice = "Back to \(previous.name). \(change.scenarioName) stays saved in the Scenario menu."
-        }
-    }
-
-    /// Waits for the rebuilt application, restores the scenario and records the checks (EDIT-08, AC-15).
-    private func verify(_ operation: inout StudioOperation, previous: StudioSelectionContext?, label: String) async {
-        busyDetail = "Waiting for the application to rebuild"
-        let mark = server?.output.count ?? 0
-        try? await Task.sleep(nanoseconds: 1_200_000_000)
-        busyDetail = "Restoring the scenario"
-        let problem = await restore()
-        let logErrors = serverErrors(since: mark)
-        let errors = events.filter { $0.kind == .runtimeError && $0.generation == simulator.generation }
-        var checks = [StudioCheck(name: "Application rebuilt and reloaded", passed: buildError == nil && logErrors == nil,
-                                  detail: buildError ?? logErrors ?? "")]
-        checks.append(StudioCheck(name: "Scenario restored", passed: problem == nil, detail: problem ?? scenario.name))
-        checks.append(StudioCheck(name: "No runtime errors", passed: errors.isEmpty,
-                                  detail: errors.prefix(3).map { String($0.detail.prefix(300)) }.joined(separator: "\n")))
-        operation.checks = checks
-        operation.finalRevision = await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers()).0
-        if buildError == nil && logErrors == nil {
-            stalePreview = nil
-            if let after = await capture(label: label, operationId: operation.id) { operation.afterCapture = after.id }
-            if let previous { await revalidateSelection(previous, afterEdit: true) }
-        } else {
-            buildError = buildError ?? logErrors
-            if stalePreview == nil, let before = operation.beforeCapture { stalePreview = captures.first { $0.id == before } }
-            updateReadiness()
-        }
-        await revalidatePackages()
-    }
-
-    private func serverErrors(since mark: Int) -> String? {
-        guard let output = server?.output, output.count > mark else { return nil }
-        return Self.buildFailure(in: String(output.suffix(output.count - mark))).map { redactor.redact(text: $0) }
-    }
-
-    /// The first line of a dev server's log that reports a failed build, or nil. Only compile and bundle
-    /// failures count: an application that built also logs errors (a handled `console.error`, a failed
-    /// request, a runtime exception), and those are not a reason to call the preview stale.
-    nonisolated static func buildFailure(in log: String) -> String? {
-        let markers = [
-            #"failed to compile"#, #"module not found"#, #"cannot find module"#, #"failed to resolve import"#,
-            #"module build failed"#, #"(?-i:^\s*ERROR in )"#, #"✘ \[ERROR\]"#, #"\berror TS\d+"#,
-            #"\[vite\] internal server error"#, #"\[plugin:[^\]]+\]"#, #"parsing \S+ source code failed"#,
-            #"SyntaxError: \S+\.(?:[cm]?[jt]sx?|vue|svelte|astro)\b"#, #"^\s*syntax error\s*$"#,
-        ]
-        let pattern = "(?im)^.*(?:" + markers.joined(separator: "|") + ").*$"
-        guard let range = log.range(of: pattern, options: .regularExpression) else { return nil }
-        return String(log[range]).trimmingCharacters(in: .whitespaces)
-    }
-
-    /// Keeps a change (it stays in the history and can still be undone).
-    func keep(_ id: String) {
-        guard var operation = history.first(where: { $0.id == id }), operation.status == .applied else { return }
-        operation.status = .kept
-        replace(operation)
-    }
-
-    /// Selective undo (EDIT-07, AC-14): the operation's reverse change is merged into the files as they are now; later
-    /// independent edits stay. Overlapping edits are a conflict, shown for resolution, and nothing is written.
-    func undo(_ id: String) {
-        if let operation = history.first(where: { $0.id == id }), operation.kind == .context { return undoContext(operation) }
-        guard let operation = history.first(where: { $0.id == id }), operation.kind == .edit, !operation.files.isEmpty,
-              [.applied, .kept, .conflict].contains(operation.status) else { return }
-        runWork("Undoing the change") { session in
-            var plans: [StudioChanges.UndoPlan] = []
-            for change in operation.files { plans.append(await StudioChanges.undoPlan(change, root: session.root)) }
-            let unsaved = Set(session.editorBuffers().keys)
-            var conflicts: [(path: String, merged: String)] = []
-            var writes: [StudioFileChange] = []
-            for plan in plans {
-                switch plan {
-                case .clean(let path, let text):
-                    if unsaved.contains(path) {
-                        conflicts.append((path, "The file has unsaved changes in the editor. Save or revert them, then undo again."))
-                    } else {
-                        let current = try? String(contentsOf: session.root.appendingPathComponent(path), encoding: .utf8)
-                        writes.append(StudioFileChange(path: path, before: current, after: text))
-                    }
-                case .conflict(let path, let merged, _):
-                    conflicts.append((path, merged))
-                case .unchanged:
-                    break
-                }
-            }
-            var next = operation
-            guard conflicts.isEmpty else {
-                session.undoConflicts[id] = conflicts
-                next.status = .conflict
-                next.conflict = "Undo overlaps later changes in " + conflicts.map(\.path).joined(separator: ", ")
-                    + ". Nothing was written; resolve the conflict or keep the change."
-                return session.replace(next)
-            }
-            do {
-                let root = session.root
-                try await Task.detached { try StudioChanges.write(writes, root: root) }.value
-            } catch {
-                session.notice = error.localizedDescription
-                return
-            }
-            session.undoConflicts[id] = nil
-            next.status = .undone
-            next.conflict = nil
-            await session.verify(&next, previous: session.selection, label: "After undo: " + String(operation.request.prefix(50)))
-            session.trackUndo(next)
-            session.replace(next)
-        }
-    }
-
-    /// Writes an undo conflict into its files with conflict markers, so it can be resolved in the editor (AR-13).
-    func resolveUndoConflictInEditor(_ id: String) {
-        guard let conflicts = undoConflicts[id] else { return }
-        var failed: [(path: String, merged: String)] = []
-        var firstError: String?
-        for conflict in conflicts where conflict.merged.contains("<<<<<<<") {
-            guard let url = StudioChanges.validatedURL(conflict.path, root: root) else {
-                failed.append(conflict)
-                if firstError == nil { firstError = "Invalid conflict path: \(conflict.path)" }
-                continue
-            }
-            do {
-                try conflict.merged.write(to: url, atomically: true, encoding: .utf8)
-                openFile(url)
-            } catch {
-                failed.append(conflict)
-                if firstError == nil { firstError = error.localizedDescription }
-            }
-        }
-        if failed.isEmpty {
-            undoConflicts[id] = nil
-            notice = "The conflict markers are in the files; resolve them in the editor."
-        } else {
-            undoConflicts[id] = failed
-            notice = "Could not write conflict markers to \(failed.map(\.path).joined(separator: ", ")): \(firstError ?? "write failed")."
-        }
-    }
-
-    private func append(_ operation: StudioOperation) {
-        history.removeAll { $0.id == operation.id }
-        history.append(operation)
-        conversationIds.insert(operation.id)
-        // The turn is in the thread now (a change may still be verifying, under the busy banner).
-        pendingTurn = nil
-        persistHistory()
-    }
-
-    func replace(_ operation: StudioOperation) {
-        if let index = history.firstIndex(where: { $0.id == operation.id }) { history[index] = operation } else { history.append(operation) }
-        persistHistory()
-    }
-
-    private func persistHistory() {
-        let history = history, root = root
-        io.async { try? StudioStore.saveHistory(history, root: root) }
-    }
-
-    // MARK: - Captures
-
-    /// A picture of the preview linked to the code revision, the scenario and the rendering conditions (CAP-01, CAP-02).
-    @discardableResult
-    func capture(label: String, operationId: String? = nil) async -> StudioCapture? {
-        guard appURL != nil else { return nil }
-        let info = (try? await call("return await window.__markviewStudio.prepareCapture();")) as? [String: Any] ?? [:]
-        let image = await snapshot(nil)
-        _ = try? await call("return window.__markviewStudio.finishCapture();")
-        guard let image else { return nil }
-        let id = "cap-" + ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "") + "-" + UUID().uuidString.prefix(4).lowercased()
-        let relative = ".dde/studio/captures/\(id).png"
-        let file = root.appendingPathComponent(relative)
-        StudioStore.prepareLocalFolder(root)
-        guard await Task.detached(operation: { StudioImageDiff.writePNG(image, to: file) }).value else { return nil }
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        let rendering = StudioRendering(
-            engine: info["engine"] as? String ?? "WebKit",
-            os: "macOS \(os.majorVersion).\(os.minorVersion)",
-            viewport: StudioViewport(width: (info["width"] as? NSNumber)?.intValue ?? scenario.viewport.width,
-                                     height: (info["height"] as? NSNumber)?.intValue ?? scenario.viewport.height),
-            devicePixelRatio: (info["devicePixelRatio"] as? NSNumber)?.doubleValue ?? 1,
-            fonts: info["fonts"] as? [String] ?? [],
-            locale: info["locale"] as? String ?? scenario.locale,
-            timeZone: info["timeZone"] as? String ?? TimeZone.current.identifier,
-            colorScheme: info["colorScheme"] as? String ?? scenario.theme.rawValue)
-        let revision = await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers()).0
-        let capture = StudioCapture(id: id, label: label, file: relative, revision: revision, scenarioId: scenario.id,
-                                    scenarioRevision: scenario.revision,
-                                    contractFingerprint: StudioScenarioCompatibility.fingerprint(scenario, spec: spec),
-                                    rendering: rendering, operationId: operationId)
-        captures.append(capture)
-        let all = captures, root = root
-        io.async { try? StudioStore.saveCaptures(all, root: root) }
-        return capture
-    }
-
-    func captureNow() {
-        runWork("Capturing") { session in
-            if let capture = await session.capture(label: "Capture of \(session.scenario.name)") {
-                session.notice = "Saved a capture of \(session.scenario.name)."
-            }
-        }
-    }
-
-    func url(of capture: StudioCapture) -> URL { root.appendingPathComponent(capture.file) }
-
-    /// Side by side and the pixel difference of two captures (CAP-03, CAP-04); different conditions are named, not hidden.
-    /// `enlarge` shows the result at the size of the whole tab (the chat's Compare button), otherwise in the Evidence panel.
-    func compare(_ beforeID: String, _ afterID: String, enlarge: Bool = false) {
-        guard let before = captures.first(where: { $0.id == beforeID }), let after = captures.first(where: { $0.id == afterID }) else { return }
-        let reasons = StudioImageDiff.incomparability(before, after)
-        let a = url(of: before), b = url(of: after)
-        let output = StudioStore.capturesFolder(root).appendingPathComponent("diff-\(before.id)-\(after.id).png")
-        Task {
-            let result = await Task.detached { () -> (URL?, Double?, CGRect?) in
-                guard let first = StudioImageDiff.load(a), let second = StudioImageDiff.load(b),
-                      let diff = StudioImageDiff.compare(first, second) else { return (nil, nil, nil) }
-                return (StudioImageDiff.writePNG(diff.image, to: output) ? output : nil, diff.ratio, diff.bounds)
-            }.value
-            comparison = Comparison(before: before, after: after, diffFile: result.0, changedRatio: result.1, changedBounds: result.2, reasons: reasons)
-            comparisonEnlarged = enlarge
-        }
-    }
-
-    // MARK: - Feature packages
-
-    /// The operations a feature package can be made of: applied code changes and the context changes that made a scenario.
-    var exportableOperations: [StudioOperation] {
-        history.filter { [.applied, .kept].contains($0.status)
-            && ($0.kind == .edit ? !$0.files.isEmpty : $0.kind == .context && $0.context?.scenarioId.isEmpty == false) }
-    }
-
-    /// Exports the chosen operations as a feature (CAP-05) through the feature store, with a package in
-    /// `.markview/studio/packages/` that is revalidated when its files change later (CAP-06).
-    func exportFeature(title: String, summary: String, operations ids: [String]) {
-        let chosen = exportableOperations.filter { ids.contains($0.id) }
-        guard !chosen.isEmpty, let store = featureStore() else { return }
-        runWork("Exporting the feature") { session in
-            guard let baseline = chosen.first?.baseRevision, let final = chosen.last?.finalRevision ?? chosen.last?.baseRevision else { return }
-            let paths = Array(Set(chosen.flatMap { $0.files.map(\.path) })).sorted()
-            let root = session.root
-            let hashes = await Task.detached { StudioRevisionProbe.currentHashes(paths, root: root) }.value
-            var pictures: [StudioPackage.Picture] = []
-            let pictureIDs = [chosen.first?.beforeCapture, chosen.last?.afterCapture].compactMap { $0 }
-            for id in pictureIDs {
-                guard let capture = session.captures.first(where: { $0.id == id }) else { continue }
-                let size = (try? FileManager.default.attributesOfItem(atPath: session.url(of: capture).path)[.size] as? Int) ?? 0
-                pictures.append(StudioPackage.Picture(label: capture.label, captureId: capture.id, file: capture.file,
-                                                      inFeature: size <= StudioPackage.inFeatureLimit, bytes: size))
-            }
-            let checks = chosen.flatMap(\.checks)
-            let rendering = pictureIDs.compactMap { id in session.captures.first { $0.id == id }?.rendering }.last
-            var package = StudioPackage(id: StudioStore.safeID(title) + "-" + String(UUID().uuidString.prefix(4)).lowercased(),
-                                        featureSlug: "", title: title, summary: summary,
-                                        requests: chosen.map(\.request), operations: chosen.map(\.id), scenario: session.scenario,
-                                        baselineRevision: baseline, finalRevision: final, files: hashes,
-                                        patch: chosen.map(\.patch).joined(), rendering: rendering, pictures: pictures, checks: checks)
-            do {
-                let created = try await StudioFeatureWriter.write(package, operations: chosen, root: root, redactor: session.redactor, into: store)
-                package.featureSlug = created
-                try StudioStore.savePackage(package, root: root)
-                session.packages = StudioStore.loadPackages(root)
-                session.notice = "Exported feature \(created)."
-                session.onFeatureExported(created)
-            } catch {
-                session.notice = error.localizedDescription
-            }
-        }
-    }
-
-    /// Marks packages whose files changed since they were exported (CAP-06); their captures stay as history.
-    func revalidatePackages() async {
-        let current = packages, root = root
-        let next = await Task.detached { current.map { $0.revalidated(root: root) } }.value
-        packages = next
-        let changed = zip(current, next).filter { $0.0.status != $0.1.status || $0.0.changedSince != $0.1.changedSince }.map(\.1)
-        guard !changed.isEmpty else { return }
-        io.async { for package in changed { try? StudioStore.savePackage(package, root: root) } }
-    }
 }
 
 // MARK: - Sign-in and pages outside the application (REQ-010)
@@ -3336,7 +1740,7 @@ extension StudioSession {
                            + (hop == 0 ? "" : " (redirect \(hop))"))
             let request = StudioHTTPRequest(method: method, url: logical, headers: headers, body: body, requestId: UUID().uuidString)
             let answer = await withCheckedContinuation { (done: CheckedContinuation<StudioReply, Never>) in
-                route(request, source: .page) { done.resume(returning: $0) }
+                requestPath.route(request, source: .page) { done.resume(returning: $0) }
             }
             guard !closed, serial == simulatedNavigation.serial else { return }
             switch answer {
@@ -3399,7 +1803,7 @@ extension StudioSession {
     /// The service address the simulation answers for `url`: a gateway port, a simulated connection, the built-in Supabase
     /// Auth or the origin of a rule with a full URL; nil for any other site.
     private func simulatedServiceURL(_ url: URL) -> URL? {
-        if let logical = logicalURL(for: url) { return logical }
+        if let logical = requestPath.logicalURL(for: url) { return logical }
         guard let origin = StudioBridge.Origin(url: url) else { return nil }
         func same(_ text: String) -> Bool { URL(string: text).flatMap(StudioBridge.Origin.init(url:)) == origin }
         if serverConnections.contains(where: { $0.mode == .simulated && same($0.origin) }) { return url }
@@ -3421,7 +1825,7 @@ extension StudioSession {
     func wireMapping() {
         mapping.queue = preparation
         mapping.load(spec.map)
-        mapping.routeScanner = { [weak self] in await self?.routeHandlers() ?? [] }
+        mapping.routeScanner = { [weak self] in await self?.requestPath.routeHandlers() ?? [] }
         mapping.hooks = StudioEnvironmentMapper.Hooks(
             spec: { [weak self] in self?.simulator.spec ?? StudioEnvironmentSpec() },
             state: { [weak self] in self?.simulator.state ?? [:] },
@@ -3468,9 +1872,7 @@ extension StudioSession {
         guard !closed, !mapping.isRunning, busy == nil else { return }
         let before = simulator.spec
         let next = StudioMapPlanner.withoutPrepared(before)
-        simulator.replaceSpec(next)
-        spec = simulator.spec
-        persistEnvironment()
+        replaceEnvironment(next)
         rebuildDependencies()
         aheadTried = []
         sessionLog.add(.preparation, "Mapping the application again: \(before.rules.count - next.rules.count) prepared rule(s) and "
@@ -3503,9 +1905,7 @@ extension StudioSession {
         guard !closed else { return }
         var next = simulator.spec
         next.map = map
-        simulator.replaceSpec(next)
-        spec = simulator.spec
-        persistEnvironment()
+        replaceEnvironment(next)
     }
 
     /// New seed records for these entities. The current records change at the next Reset; a scenario with its own records
@@ -3515,9 +1915,7 @@ extension StudioSession {
         var next = simulator.spec
         for (name, records) in seed { next.seed[name] = records }
         next.updated = Date()
-        simulator.replaceSpec(next)
-        spec = simulator.spec
-        persistEnvironment()
+        replaceEnvironment(next)
     }
 
     /// The application checks its own user roles: when the built-in test user's role is not one of them, it gets the
@@ -3529,9 +1927,7 @@ extension StudioSession {
         guard let next = StudioMapPlanner.testUserRole(current: current, roles: roles, ordinary: ordinary) else { return }
         var updated = simulator.spec
         updated.testUserRole = next
-        simulator.replaceSpec(updated)
-        spec = simulator.spec
-        persistEnvironment()
+        replaceEnvironment(updated)
         sessionLog.add(.preparation, "The test user's role \(current) is not one the application checks (\(roles.joined(separator: ", "))): "
                        + "the built-in scenarios' test user now has the role \(next)")
         // A built-in scenario with that user signs in with the new role from the next answer on; its records stay.
@@ -3546,7 +1942,7 @@ extension StudioSession {
 
     private func mappingFinished(_ summary: String, refilled: Bool, requested: Bool) {
         guard !closed else { return }
-        scheduleAutoRepair()
+        repair.scheduleAutoRepair()
         scheduleEnvironmentReview()
         scheduleScreenWork()
         if requested, refilled, busy == nil {
@@ -3559,208 +1955,4 @@ extension StudioSession {
             notice = summary
         }
     }
-}
-
-/// Where a selected element's source is, checked against the project (PRE-07, PRE-10): a reported path must be a file of
-/// the project, a line must look like the element, and without metadata a search proposes candidates — never a guess
-/// presented as certain.
-struct StudioSourceResolution: Sendable {
-    var path: String?
-    var line: Int?
-    var mapping: StudioSelectionContext.Mapping
-    var snippet: String?
-    var lineHash: String?
-    var note: String?
-
-    static func resolve(_ context: StudioSelectionContext, root: URL, appFolder: URL, tagName: String) -> StudioSourceResolution {
-        var outside: String?
-        if let reported = context.sourcePath {
-            if let path = StudioSelectionContext.projectPath(reported, root: root, appFolder: appFolder), !StudioSourceMap.isGenerated(path) {
-                let text = (try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)) ?? ""
-                var line = context.line
-                if let given = line { line = refine(text, line: given, tagName: tagName) }
-                else if let found = locate(text, tagName: tagName, context: context) { line = found }
-                let snippet = line.map { StudioSelectionContext.snippet(of: text, line: $0) }
-                return StudioSourceResolution(path: path, line: line, mapping: context.mapping, snippet: snippet,
-                                              lineHash: line.flatMap { StudioSelectionContext.lineHash(of: text, line: $0) })
-            }
-            // A bundled chunk without a usable source map, or a file outside the project: never read; search instead.
-            outside = "The framework named a bundled or outside file, not a project source."
-        }
-        // No usable location: search the sources for the component and the element, and say it is a candidate.
-        let candidates = search(context, root: root, appFolder: appFolder)
-        if candidates.count == 1, let first = candidates.first {
-            let text = (try? String(contentsOf: root.appendingPathComponent(first.path), encoding: .utf8)) ?? ""
-            return StudioSourceResolution(path: first.path, line: first.line, mapping: .candidate,
-                                          snippet: StudioSelectionContext.snippet(of: text, line: first.line),
-                                          lineHash: StudioSelectionContext.lineHash(of: text, line: first.line),
-                                          note: "Found by searching the sources, not by development metadata: check it.")
-        }
-        if candidates.count > 1 {
-            return StudioSourceResolution(path: nil, line: nil, mapping: .candidate,
-                                          note: "\(candidates.count) candidate files: " + candidates.prefix(5).map { "\($0.path):\($0.line)" }.joined(separator: ", ") + ".")
-        }
-        return StudioSourceResolution(path: nil, line: nil, mapping: .none, note: outside)
-    }
-
-    /// A framework's line can be off by one (0- or 1-based); the line that opens the element's tag wins.
-    static func refine(_ text: String, line: Int, tagName: String) -> Int {
-        guard !tagName.isEmpty else { return line }
-        let lines = text.components(separatedBy: "\n")
-        for candidate in [line, line + 1, line - 1] where candidate >= 1 && candidate <= lines.count {
-            if lines[candidate - 1].localizedCaseInsensitiveContains("<" + tagName) { return candidate }
-        }
-        return line
-    }
-
-    /// In a component file without a line: the only line that opens the tag with the element's first class.
-    static func locate(_ text: String, tagName: String, context: StudioSelectionContext) -> Int? {
-        let classes = context.tag.split(separator: ".").dropFirst().map(String.init)
-        let lines = text.components(separatedBy: "\n")
-        let matches = lines.indices.filter { index in
-            let line = lines[index]
-            return line.contains("<" + tagName) && (classes.first.map { line.contains($0) } ?? true)
-        }
-        return matches.count == 1 ? matches[0] + 1 : nil
-    }
-
-    /// Source files that contain the element's id, an Angular component's class, its first class name or its short text.
-    static func search(_ context: StudioSelectionContext, root: URL, appFolder: URL) -> [(path: String, line: Int)] {
-        var needles: [String] = []
-        if let component = context.component, !component.isEmpty, component.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "$" }) {
-            needles.append("class \(component)")
-            // A function component's definition (React, Solid, Preact).
-            if context.framework == "react" || context.framework.isEmpty {
-                needles += ["function \(component)(", "function \(component)<", "const \(component) =", "const \(component): "]
-            }
-        }
-        let parts = context.tag.split(separator: "#", maxSplits: 1)
-        if parts.count == 2 { needles.append("id=\"\(parts[1].split(separator: ".").first ?? "")\"") }
-        if let firstClass = context.tag.split(separator: ".").dropFirst().first, firstClass.count >= 3 { needles.append(String(firstClass)) }
-        let text = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if (4...80).contains(text.count), !text.contains("\n") { needles.append(text) }
-        guard !needles.isEmpty, let enumerator = FileManager.default.enumerator(at: appFolder, includingPropertiesForKeys: [.isRegularFileKey],
-                                                                              options: [.skipsHiddenFiles]) else { return [] }
-        let extensions: Set<String> = ["tsx", "jsx", "ts", "js", "vue", "svelte", "html", "astro", "hbs", "erb", "njk"]
-        let skipped = StudioSourceMap.generatedFolders.union(["node_modules", "coverage", "vendor"])
-        let base = root.standardizedFileURL.path
-        var files: [URL] = []
-        for case let url as URL in enumerator {
-            if skipped.contains(url.lastPathComponent) { enumerator.skipDescendants(); continue }
-            if extensions.contains(url.pathExtension.lowercased()) { files.append(url) }
-            if files.count >= 3_000 { break }
-        }
-        for needle in needles {
-            var found: [(String, Int)] = []
-            for file in files {
-                guard let content = try? String(contentsOf: file, encoding: .utf8), let range = content.range(of: needle) else { continue }
-                let line = content[..<range.lowerBound].filter { $0 == "\n" }.count + 1
-                let path = file.standardizedFileURL.path
-                guard path.hasPrefix(base + "/") else { continue }
-                found.append((String(path.dropFirst(base.count + 1)), line))
-                if found.count > 8 { break }
-            }
-            if !found.isEmpty { return found.map { (path: $0.0, line: $0.1) } }
-        }
-        return []
-    }
-}
-
-/// Writes the feature a UI Studio package creates (CAP-05), through the feature store like the prototype hand-off: the
-/// overview carries the evidence, small captures are attached as sources, and each change becomes a requirement.
-@MainActor
-enum StudioFeatureWriter {
-    struct Failure: LocalizedError {
-        var message: String
-        var errorDescription: String? { message }
-    }
-
-    static func write(_ package: StudioPackage, operations: [StudioOperation], root: URL, redactor: StudioRedactor,
-                      into store: FeatureStore) async throws -> String {
-        guard let slug = store.createFeature(title: package.title, idea: package.summary) else {
-            throw Failure(message: store.lastError ?? "The feature could not be created.")
-        }
-        let provenance = "Exported from MarkView UI Studio"
-        store.updateFeature(slug) { front, body in
-            front.set("provenance", provenance)
-            front.set("intake", "ui-studio")
-            front.set("questions_left", "0")
-            body = package.overview(redactor: redactor)
-        }
-        // The package hands the work to implementation: a specification stage, then the hand-off as start evidence.
-        store.moveFeature(slug, to: "draft", by: .system("UI Studio"))
-        store.markImplementing(slug, handoff: "UI Studio")
-        var sources: [String] = []
-        for picture in package.pictures where picture.inFeature {
-            guard let source = store.create(.source, in: slug, title: picture.label,
-                                            fields: [("origin", .string("ui-studio")), ("file", .string("")),
-                                                     ("role", .string("screenshot")), ("facts", .list([]))],
-                                            body: "## Origin\n\nCapture \(picture.captureId) from MarkView UI Studio.\n",
-                                            provenance: provenance) else { continue }
-            let name = "\(source.id)-\(picture.captureId).png"
-            let copy = source.url.deletingLastPathComponent().appendingPathComponent(name)
-            let from = root.appendingPathComponent(picture.file)
-            let copied = await Task.detached { (try? FileManager.default.copyItem(at: from, to: copy)) != nil }.value
-            guard copied else { _ = store.deleteObjects(slug, ids: [source.id]); continue }
-            store.update(source.id, in: slug) { front, body in
-                front.set("file", name)
-                body += "\nFile: [\(name)](\(name))\n"
-            }
-            sources.append(source.id)
-        }
-        for operation in operations {
-            let criteria = operation.checks.map { "\($0.name)" + ($0.passed ? "" : " (failed when exported)") }
-            let statement = redactor.redact(text: operation.summary.isEmpty ? operation.request : operation.summary)
-            let body = ProjectAgentTools.requirementBody(statement: statement,
-                                                         criteria: ["Request: " + redactor.redact(text: operation.request)] + criteria)
-                + (operation.patch.isEmpty ? "" : "\n## Code changes\n\n```diff\n" + redactor.redact(text: operation.patch) + "```\n")
-            _ = store.create(.requirement, in: slug, title: String(operation.request.prefix(80)),
-                             fields: [("status", .string("approved")), ("req_type", .string("functional")),
-                                      ("depends_on", .list([])), ("decisions", .list([])),
-                                      ("sources", .list(sources.map { .string($0) })), ("issues", .list([]))],
-                             body: body, provenance: provenance)
-        }
-        store.reloadSync(slug)
-        return slug
-    }
-}
-
-/// Who made a request the session answers: the page in the preview, or the development server through a simulated
-/// connection (REQ-007).
-enum StudioRequestSource: Equatable {
-    case page
-    case server(variable: String)
-
-    var transport: String { self == .page ? "page" : "server" }
-    var variable: String? { if case .server(let variable) = self { return variable } else { return nil } }
-}
-
-/// The session's answer to a request, before it takes the page bridge's or the gateway's form.
-enum StudioReply {
-    case respond(StudioSimResponse)
-    /// To its address, with these headers added (the page only).
-    case pass(adding: [String: String])
-    /// No answer any more: the session closed or the scenario was reset meanwhile.
-    case dropped(String)
-}
-
-
-/// Delivers one reply of a request, once: the "preparing" answer and the real one race, and the first wins (BUG-089).
-@MainActor
-final class StudioReplyOnce {
-    private let deliver: (StudioReply) -> Void
-    private(set) var delivered = false
-
-    init(_ deliver: @escaping (StudioReply) -> Void) { self.deliver = deliver }
-
-    /// True when this call delivered the reply.
-    @discardableResult
-    func reply(_ value: StudioReply) -> Bool {
-        guard !delivered else { return false }
-        delivered = true
-        deliver(value)
-        return true
-    }
-
-    func callAsFunction(_ value: StudioReply) { reply(value) }
 }

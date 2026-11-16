@@ -1,77 +1,15 @@
 import Foundation
 import AppKit
-
-// MARK: - CLI Tool Discovery
-
-/// Locates the Claude Code, Codex, Cline and GitHub Copilot command-line binaries.
-///
-/// These used to be hardcoded absolute paths, which broke silently whenever a tool
-/// was installed somewhere else — an npm/nvm install of Codex lands in
-/// `~/.nvm/versions/node/<version>/bin`, and that path changes on every Node
-/// upgrade. Resolution is now: user override from Settings, then a candidate scan
-/// (including every installed Node version), then a login-shell lookup.
-enum CLITool: String, CaseIterable {
-    case claude
-    case codex
-    /// Cline 3.x, driven over the Agent Client Protocol (`ACPAssistant`).
-    case cline
-    /// GitHub Copilot CLI 1.x, driven over the Agent Client Protocol (`ACPAssistant`).
-    case copilot
-    /// Google Antigravity CLI (`agy`), the successor of Gemini CLI. Terminals use its interactive mode, one-shot
-    /// requests its print mode with stream-json (`CLICompletion`).
-    case antigravity
-
-    var displayName: String { provider.displayName }
-
-    /// Provider descriptor from `AssistantProviderRegistry` (`AR-35`).
-    var provider: any AssistantProvider { AssistantProviderRegistry.provider(for: self) }
-
-    /// Driven over the Agent Client Protocol (`ACPAssistant`) rather than a one-shot CLI run.
-    var usesACP: Bool { provider.usesACP }
-
-    /// Executable name as installed on disk.
-    var binaryName: String { provider.binaryName }
-
-    /// UserDefaults key holding the user's explicit path override ("" = auto-detect).
-    var overrideKey: String { provider.overrideKey }
-
-    /// Arguments that print the version without touching the network.
-    var versionArgs: [String] { provider.versionArgs }
-
-    /// Arguments that report login state without consuming tokens.
-    var authStatusArgs: [String] { provider.authStatusArgs }
-
-    /// Command the user runs in Terminal to authenticate.
-    var loginCommand: String { provider.loginCommand }
-
-    /// Arguments that let the interactive CLI in an AI terminal act without approval prompts:
-    /// every assistant there always runs with full access (BUG-006).
-    var fullAccessArgs: [String] { provider.fullAccessArgs }
-
-    /// Arguments, right after the executable, that continue the most recent session in the
-    /// working folder without a picker (BUG-005). Empty when the CLI has no such option:
-    /// Cline resumes a session only by its id.
-    var continueArgs: [String] { provider.continueArgs }
-
-    /// Arguments that select `model` for one run.
-    func modelArgs(_ model: String?) -> [String] { provider.modelArgs(model) }
-}
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - Assistant & Model Preferences
-
-/// A model the user can pick for a CLI. `id` is passed to the CLI's model flag;
-/// an empty `id` means "no flag" — the CLI uses its own configured default.
-struct AIModelOption: Identifiable, Hashable, Sendable {
-    let id: String
-    let name: String
-    let detail: String
-}
 
 /// One project's own assistant choice (BUG-021). A missing value means the default; models are
 /// keyed by tool, so switching assistants keeps each one's model. Stored in local settings under
 /// the project's key (`ProjectColor.projectKey`), never in the project folder.
 struct ProjectAIChoice: Codable, Equatable {
-    static let defaultsKey = "project.ai"
     /// Posted when a project's choice changes; `object` is the project key.
     static let didChange = Notification.Name("ProjectAIChoiceDidChange")
 
@@ -83,7 +21,7 @@ struct ProjectAIChoice: Codable, Equatable {
 
     static func load(_ project: URL?) -> ProjectAIChoice? {
         guard let project,
-              let data = UserDefaults.standard.dictionary(forKey: defaultsKey)?[key(project)] as? Data else { return nil }
+              let data = Settings.standard.value(Setting.projectAI)[key(project)] as? Data else { return nil }
         return try? JSONDecoder().decode(ProjectAIChoice.self, from: data)
     }
 
@@ -91,9 +29,9 @@ struct ProjectAIChoice: Codable, Equatable {
     static func update(_ project: URL, _ change: (inout ProjectAIChoice) -> Void) {
         var choice = load(project) ?? ProjectAIChoice()
         change(&choice)
-        var all = UserDefaults.standard.dictionary(forKey: defaultsKey) ?? [:]
+        var all = Settings.standard.value(Setting.projectAI)
         all[key(project)] = try? JSONEncoder().encode(choice)
-        UserDefaults.standard.set(all, forKey: defaultsKey)
+        Settings.standard.set(all, for: Setting.projectAI)
         NotificationCenter.default.post(name: didChange, object: key(project))
     }
 }
@@ -129,7 +67,7 @@ struct AssistantChoice {
 
     func setTool(_ raw: String) {
         if let project { ProjectAIChoice.update(project) { $0.backend = raw } }
-        else { UserDefaults.standard.set(raw, forKey: AIAssistantPreferences.backendKey) }
+        else { Settings.standard.set(raw, for: Setting.aiBackend) }
     }
 
     func model(for tool: CLITool) -> String {
@@ -140,7 +78,7 @@ struct AssistantChoice {
     func setModel(_ id: String, for tool: CLITool) {
         ModelPickLog.record(tool: tool, project: project)
         if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = id } }
-        else { UserDefaults.standard.set(id, forKey: AIAssistantPreferences.modelKey(for: tool)) }
+        else { Settings.standard.set(id, for: Setting.cliModel(tool.rawValue)) }
     }
 
     func xrayModel(for tool: CLITool) -> String {
@@ -149,7 +87,7 @@ struct AssistantChoice {
 
     func setXRayModel(_ id: String, for tool: CLITool) {
         if let project { ProjectAIChoice.update(project) { $0.xrayModels[tool.rawValue] = id } }
-        else { UserDefaults.standard.set(id, forKey: AIAssistantPreferences.xrayModelKey(for: tool)) }
+        else { Settings.standard.set(id, for: Setting.xrayModel(tool.rawValue, fallback: AIAssistantPreferences.defaultXRayModel(for: tool))) }
     }
 }
 
@@ -159,13 +97,16 @@ struct AssistantChoice {
 /// `ProjectAIChoice`; what a project has not chosen comes from the defaults, which DDE Settings
 /// edits under the keys below. Every read names its project, so no window changes another.
 enum AIAssistantPreferences {
-    static let backendKey = "settings.ai.backend"
-
-    static func modelKey(for tool: CLITool) -> String { "settings.cli.\(tool.rawValue)Model" }
+    /// What the assistant, model and X-Ray model shown for a project depend on: the defaults, every tool's own models, and the
+    /// project choices. A view that shows them refreshes when one of these changes, and only then.
+    static var observedKeys: [AnySettingsKey] {
+        [Setting.aiBackend.erased, Setting.projectAI.erased]
+            + CLITool.allCases.flatMap { [Setting.cliModel($0.rawValue).erased, Setting.xrayModel($0.rawValue, fallback: defaultXRayModel(for: $0)).erased] }
+    }
 
     /// The default assistant, for projects without a choice of their own.
     static var defaultBackend: CLITool {
-        CLITool(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .claude
+        CLITool(rawValue: Settings.standard.value(Setting.aiBackend)) ?? AssistantProviderRegistry.defaultTool
     }
 
     /// The assistant for `project`: its own choice, else the default.
@@ -175,11 +116,11 @@ enum AIAssistantPreferences {
 
     /// The default model for `tool` as stored ("" = the CLI's own default).
     static func defaultModelSetting(for tool: CLITool) -> String {
-        UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? ""
+        Settings.standard.value(Setting.cliModel(tool.rawValue))
     }
 
-    /// Compact state fingerprint for assistant/model/xray settings in `project`, used by observers
-    /// so unrelated `UserDefaults` writes (such as divider drags) do not trigger view refreshes (`AR-18`).
+    /// Compact state fingerprint for assistant/model/xray settings in `project`: a view that was told one of `observedKeys`
+    /// changed compares it with the last one to see whether what it shows is different.
     static func snapshot(project: URL?) -> String {
         let tool = backend(project: project)
         let choice = AssistantChoice(project: project)
@@ -192,7 +133,7 @@ enum AIAssistantPreferences {
     /// MarkView, so it restarts nothing (`ModelPickLog`).
     static func remember(_ model: String, for tool: CLITool, project: URL?) {
         if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = model } }
-        else { UserDefaults.standard.set(model, forKey: modelKey(for: tool)) }
+        else { Settings.standard.set(model, for: Setting.cliModel(tool.rawValue)) }
     }
 
     /// The model `tool` runs for `project`, or nil to let the CLI use its own default.
@@ -206,17 +147,10 @@ enum AIAssistantPreferences {
 
     /// X-Ray has its own model: its answers are large and structured, so a fast model
     /// at low effort matters more there than raw capability.
-    static func xrayModelKey(for tool: CLITool) -> String { "settings.xray.\(tool.rawValue)Model" }
-    static func defaultXRayModel(for tool: CLITool) -> String {
-        switch tool {
-        case .claude: return "sonnet"
-        case .codex: return "gpt-5.6-luna"
-        case .cline, .copilot, .antigravity: return ""
-        }
-    }
+    static func defaultXRayModel(for tool: CLITool) -> String { tool.provider.defaultXRayModel }
     /// The default X-Ray model for `tool` as stored ("" = the assistant's model).
     static func defaultXRayModelSetting(for tool: CLITool) -> String {
-        UserDefaults.standard.string(forKey: xrayModelKey(for: tool)) ?? defaultXRayModel(for: tool)
+        Settings.standard.value(Setting.xrayModel(tool.rawValue, fallback: defaultXRayModel(for: tool)))
     }
 
     /// The X-Ray model `tool` runs for `project`; "" falls back to the assistant's model.
@@ -228,11 +162,7 @@ enum AIAssistantPreferences {
 
     /// Automatic code analysis of code projects, on unless turned off (DEC-001 of
     /// automatic-code-architecture). Off: only the local layers, no CLI agent is started.
-    static let autoAnalyzeKey = "xray.autoAnalyze"
-    static var autoAnalyze: Bool {
-        let defaults = UserDefaults.standard
-        return defaults.object(forKey: autoAnalyzeKey) == nil ? true : defaults.bool(forKey: autoAnalyzeKey)
-    }
+    static var autoAnalyze: Bool { Settings.standard.value(Setting.autoAnalyze) }
 
     /// Short label for the active selection, e.g. "Claude Code · opus".
     static func summary(tool: CLITool, model: String) -> String {
@@ -242,103 +172,27 @@ enum AIAssistantPreferences {
 
     /// Models offered in pickers. Codex reads its own catalog from disk (~350 KB of
     /// JSON), so call this off the main thread.
-    static func modelOptions(for tool: CLITool) -> [AIModelOption] {
-        switch tool {
-        case .claude:
-            // Aliases resolve to the newest model of each family, so the list does
-            // not go stale when Claude Code ships a new version.
-            return [
-                AIModelOption(id: "", name: "Default", detail: "Claude Code's configured model"),
-                AIModelOption(id: "fable", name: "Fable", detail: "Latest Fable — most capable"),
-                AIModelOption(id: "opus", name: "Opus", detail: "Latest Opus"),
-                AIModelOption(id: "sonnet", name: "Sonnet", detail: "Latest Sonnet — balanced"),
-                AIModelOption(id: "haiku", name: "Haiku", detail: "Latest Haiku — fastest"),
-            ]
-        case .codex:
-            let configured = codexConfiguredModel()
-            let fallback = AIModelOption(
-                id: "", name: configured.map { "Default (\($0))" } ?? "Default",
-                detail: configured.map { "\($0) (from ~/.codex/config.toml)" } ?? "Codex's configured model"
-            )
-            return [fallback] + codexCatalog()
-        case .cline:
-            // The account's models, as Cline listed them at the last check (Settings, menus).
-            return [AIModelOption(id: "", name: "Default", detail: "Cline's configured model (cline auth)")]
-                + ACPAssistant.cachedModels(.cline)
-        case .copilot:
-            return [AIModelOption(id: "", name: "Default", detail: "Copilot's configured model")]
-                + ACPAssistant.cachedModels(.copilot)
-        case .antigravity:
-            // A few of `agy models`; any other id can be typed as a custom model name.
-            return [AIModelOption(id: "", name: "Default", detail: "Antigravity's configured model"),
-                    AIModelOption(id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", detail: ""),
-                    AIModelOption(id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", detail: ""),
-                    AIModelOption(id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", detail: ""),
-                    AIModelOption(id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", detail: "")]
-        }
-    }
+    static func modelOptions(for tool: CLITool) -> [AIModelOption] { tool.provider.modelOptions() }
 
     /// The model the CLI runs when no flag is given, from its own configuration (Claude Code:
     /// `~/.claude/settings.json` "model", Codex: `~/.codex/config.toml`), or nil.
-    static func configuredModel(for tool: CLITool) -> String? {
-        switch tool {
-        case .claude:
-            let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
-            guard let data = try? Data(contentsOf: url),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let model = (object["model"] as? String)?.trimmingCharacters(in: .whitespaces), !model.isEmpty else { return nil }
-            return model
-        case .codex: return codexConfiguredModel()
-        case .cline, .copilot, .antigravity: return nil
-        }
-    }
-
-    private static var codexHome: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
-    }
-
-    /// Models Codex itself lists in its picker, from the cache the CLI maintains.
-    private static func codexCatalog() -> [AIModelOption] {
-        let url = codexHome.appendingPathComponent("models_cache.json")
-        guard let data = try? Data(contentsOf: url),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let models = root["models"] as? [[String: Any]] else { return [] }
-        return models
-            .filter { ($0["visibility"] as? String) == "list" }
-            .sorted { ($0["priority"] as? Int ?? .max) < ($1["priority"] as? Int ?? .max) }
-            .compactMap { model in
-                guard let slug = model["slug"] as? String, !slug.isEmpty else { return nil }
-                return AIModelOption(
-                    id: slug,
-                    name: model["display_name"] as? String ?? slug,
-                    detail: model["description"] as? String ?? ""
-                )
-            }
-    }
-
-    /// Top-level `model = "..."` from Codex's config, used to label "Default".
-    private static func codexConfiguredModel() -> String? {
-        let url = codexHome.appendingPathComponent("config.toml")
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("[") { break }  // past the top-level table
-            guard line.hasPrefix("model"),
-                  let eq = line.firstIndex(of: "="),
-                  line[..<eq].trimmingCharacters(in: .whitespaces) == "model" else { continue }
-            let value = line[line.index(after: eq)...]
-                .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'")))
-            return value.isEmpty ? nil : value
-        }
-        return nil
-    }
+    static func configuredModel(for tool: CLITool) -> String? { tool.provider.configuredModel() }
 }
 
+// MARK: - CLI Tool Discovery
+
+/// Locates the assistants' command-line binaries.
+///
+/// These used to be hardcoded absolute paths, which broke silently whenever a tool
+/// was installed somewhere else — an npm/nvm install of Codex lands in
+/// `~/.nvm/versions/node/<version>/bin`, and that path changes on every Node
+/// upgrade. Resolution is now: user override from Settings, then a candidate scan
+/// (including every installed Node version), then a login-shell lookup.
 enum CLIToolLocator {
 
     /// Extra `PATH` entries the user configured in Settings (colon- or newline-separated).
     static var extraPathEntries: [String] {
-        (UserDefaults.standard.string(forKey: "settings.cli.extraPATH") ?? "")
+        Settings.standard.value(Setting.extraPATH)
             .components(separatedBy: CharacterSet(charactersIn: ":\n"))
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -346,14 +200,14 @@ enum CLIToolLocator {
 
     /// The user's explicit override, or nil when set to auto-detect.
     static func override(for tool: CLITool) -> String? {
-        let value = (UserDefaults.standard.string(forKey: tool.overrideKey) ?? "")
+        let value = Settings.standard.value(Setting.cliPath(tool.rawValue))
             .trimmingCharacters(in: .whitespaces)
         return value.isEmpty ? nil : value
     }
 
     static func setOverride(_ path: String?, for tool: CLITool) {
         let value = (path ?? "").trimmingCharacters(in: .whitespaces)
-        UserDefaults.standard.set(value, forKey: tool.overrideKey)
+        Settings.standard.set(value, for: Setting.cliPath(tool.rawValue))
     }
 
     /// Every `bin` directory belonging to an installed Node version, newest first.
@@ -451,8 +305,8 @@ enum CLIToolLocator {
         }
 
         let versionRun = await run(path, tool.versionArgs, timeout: 20)
-        if tool.usesACP {
-            return await probeACP(tool, path: path, versionRun: versionRun)
+        if let support = tool.provider.acp {
+            return await probeACP(tool, support: support, path: path, versionRun: versionRun)
         }
         guard versionRun.exitCode == 0 else {
             let detail = (versionRun.stderr.isEmpty ? versionRun.stdout : versionRun.stderr)
@@ -462,64 +316,32 @@ enum CLIToolLocator {
         let version = versionRun.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let authRun = await run(path, tool.authStatusArgs, timeout: 30)
-        let authOutput = authRun.stdout + authRun.stderr
-        let loggedIn: Bool?
-        switch tool {
-        case .claude:
-            // `claude auth status` emits JSON with a "loggedIn" boolean.
-            if let data = authRun.stdout.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let flag = json["loggedIn"] as? Bool {
-                loggedIn = flag
-            } else {
-                loggedIn = authOutput.localizedCaseInsensitiveContains("logged in") ? true : nil
-            }
-        case .cline, .copilot, .antigravity:
-            loggedIn = nil
-        case .codex:
-            // `codex login status` prints e.g. "Logged in using ChatGPT".
-            if authOutput.localizedCaseInsensitiveContains("not logged in") {
-                loggedIn = false
-            } else if authOutput.localizedCaseInsensitiveContains("logged in") {
-                loggedIn = true
-            } else {
-                loggedIn = nil
-            }
-        }
+        let loggedIn = tool.provider.loginState(stdout: authRun.stdout, stderr: authRun.stderr)
         return ProbeResult(path: path, version: version, loggedIn: loggedIn)
     }
 
-    /// Cline and Copilot: the version, then a session over ACP (no prompt, no tokens) that
-    /// lists the account's models and refreshes the model menus. Cline's npm launcher exits quietly when macOS kills its
-    /// binary for a broken signature, so an empty version means that.
-    private static func probeACP(_ tool: CLITool, path: String, versionRun: RunResult) async -> ProbeResult {
+    /// Assistants driven over ACP (Cline, Copilot): the version, then a session over ACP (no prompt, no tokens) that
+    /// lists the account's models and refreshes the model menus. An empty version means the CLI exited quietly.
+    private static func probeACP(_ tool: CLITool, support: any AssistantACPSupport, path: String, versionRun: RunResult) async -> ProbeResult {
         // "3.0.65" (Cline), "GitHub Copilot CLI 1.0.88." (Copilot).
         let firstLine = versionRun.stdout.split(separator: "\n").first.map(String.init) ?? ""
         let version = firstLine.range(of: #"\d+(\.\d+)+"#, options: .regularExpression).map { String(firstLine[$0]) } ?? ""
+        let probe = support.probe
         guard versionRun.exitCode == 0, !version.isEmpty else {
             let detail = (versionRun.stderr + versionRun.stdout).trimmingCharacters(in: .whitespacesAndNewlines)
-            if detail.isEmpty && tool == .cline {
-                return ProbeResult(path: path, error: "Cline did not start — macOS stops it when its binary's signature is invalid "
-                    + "(a known problem of the npm package). Fix in Terminal: codesign --force --sign - "
-                    + "\"$(dirname $(readlink -f $(which cline)))/.cline\"")
+            if detail.isEmpty, let message = probe.silentExitMessage {
+                return ProbeResult(path: path, error: message)
             }
             return ProbeResult(path: path, error: "Could not run \(path): \(detail.prefix(200))")
         }
-        let (minimum, install): (Int, String) = {
-            switch tool {
-            case .cline: return (3, "npm i -g cline@latest")
-            default: return (1, "npm i -g @github/copilot@latest")
-            }
-        }()
-        guard (Int(version.prefix(while: \.isNumber)) ?? 0) >= minimum else {
+        guard (Int(version.prefix(while: \.isNumber)) ?? 0) >= probe.minimumMajorVersion else {
             return ProbeResult(path: path, version: version,
-                               error: "\(tool.displayName) \(version) is too old for MarkView — update: \(install)")
+                               error: "\(tool.displayName) \(version) is too old for MarkView — update: \(probe.installCommand)")
         }
         do {
             let models = try await ACPAssistant.refreshModels(tool, toolPath: path)
-            // Copilot lists models per account (so a list means signed in); Cline lists them signed out too.
             return ProbeResult(path: path, version: "\(version) · \(models.count) models",
-                               loggedIn: tool == .copilot && !models.isEmpty ? true : nil)
+                               loggedIn: probe.modelListImpliesSignedIn && !models.isEmpty ? true : nil)
         } catch {
             let message = error.localizedDescription
             let signedOut = message.localizedCaseInsensitiveContains("auth") || message.localizedCaseInsensitiveContains("login")
@@ -536,76 +358,17 @@ enum CLIToolLocator {
         var stderr: String
     }
 
-    /// Run a command off the main thread, draining both pipes concurrently with the
-    /// wait so a full pipe can never deadlock the app (CLAUDE.md process rule), and
-    /// terminating it if it outlives `timeout`.
+    /// Run a CLI off the main thread on the PATH the AI CLIs get (`subprocessPath`), through the shared runner
+    /// (`Subprocess`: pipes drained concurrently, the whole process group ended at `timeout`). A timeout is
+    /// exit code -2 with the elapsed time at the start of `stderr`.
     static func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> RunResult {
-        let path = subprocessPath(toolPath: executable)
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = arguments
-                var env = ProcessInfo.processInfo.environment
-                env["PATH"] = path
-                process.environment = env
-
-                let outPipe = Pipe()
-                let errPipe = Pipe()
-                process.standardOutput = outPipe
-                process.standardError = errPipe
-
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(returning: RunResult(exitCode: -1, stdout: "", stderr: error.localizedDescription))
-                    return
-                }
-
-                // Read both pipes on their own queues so neither can fill and block.
-                var outData = Data()
-                var errData = Data()
-                let lock = NSLock()
-                let group = DispatchGroup()
-                for (pipe, isStdout) in [(outPipe, true), (errPipe, false)] {
-                    group.enter()
-                    DispatchQueue.global(qos: .utility).async {
-                        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                        lock.lock()
-                        if isStdout { outData = data } else { errData = data }
-                        lock.unlock()
-                        group.leave()
-                    }
-                }
-
-                // Poll instead of blocking forever, so a hung CLI is terminated
-                // rather than pinning this worker. We are already off the main
-                // thread and both pipes are draining on their own queues.
-                let deadline = Date().addingTimeInterval(timeout)
-                var timedOut = false
-                while process.isRunning {
-                    if Date() > deadline {
-                        process.terminate()
-                        timedOut = true
-                        break
-                    }
-                    usleep(50_000)
-                }
-                process.waitUntilExit()
-                _ = group.wait(timeout: .now() + 5)
-
-                lock.lock()
-                let out = String(data: outData, encoding: .utf8) ?? ""
-                let err = String(data: errData, encoding: .utf8) ?? ""
-                lock.unlock()
-
-                continuation.resume(returning: RunResult(
-                    exitCode: timedOut ? -2 : process.terminationStatus,
-                    stdout: out,
-                    stderr: timedOut ? "Timed out after \(Int(timeout))s. \(err)" : err
-                ))
-            }
+        let result = await Subprocess.run(SubprocessSpec(
+            executable: executable, arguments: arguments, environment: ["PATH": subprocessPath(toolPath: executable)],
+            timeout: timeout))
+        if result.timedOut {
+            return RunResult(exitCode: -2, stdout: result.stdout, stderr: "Timed out after \(Int(timeout))s. \(result.stderr)")
         }
+        return RunResult(exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr)
     }
 
     // MARK: - Terminal login

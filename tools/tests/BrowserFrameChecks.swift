@@ -23,10 +23,8 @@ enum BrowserAddress { static func url(from text: String) -> URL? { URL(string: t
     let window: NSWindow
     var url: URL? { webView.url }
     override init() {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .nonPersistent()
-        agentFrames.install(in: config.userContentController)
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
+        let config = WebHost.makeConfiguration(dataStore: .nonPersistent, handlers: [agentFrames.webHostHandler], userScripts: [agentFrames.webHostScript])
+        webView = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
         window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1280, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
         super.init()
         webView.navigationDelegate = self

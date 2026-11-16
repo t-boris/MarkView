@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, REQ-001): the state of the QA tab. It keeps the scenarios of the project, the one being
 // edited, and the generation in progress. Every edit is saved a moment later, off the main thread, so a scenario and its edits survive
@@ -17,10 +20,10 @@ final class QAModel: ObservableObject {
     /// When the assistant was asked to write the scenario; the sheet shows how long it has been working.
     @Published private(set) var generationStarted: Date?
     @Published private(set) var generationAssistant = ""
-    /// Supplied by this window: the shown assistant takes precedence over the project's fallback.
-    var assistantSelection: () -> CLICompletion.Assistant? = { nil }
+    /// This window's assistants: the shown assistant takes precedence over the project's fallback.
+    weak var assistants: (any AssistantProviding)?
     var selectedAssistant: CLICompletion.Assistant {
-        assistantSelection() ?? CLICompletion.Assistant.project(root)
+        assistants?.currentAssistant ?? CLICompletion.Assistant.project(root)
     }
     var assistantSummary: String {
         let assistant = selectedAssistant
@@ -52,6 +55,8 @@ final class QAModel: ObservableObject {
     let archive = QARunArchive()
 
     private var saveTask: Task<Void, Never>?
+    /// The reads of the scenarios and the saved logins, keyed so that a new one replaces the old; closing the tool cancels them (`AR-19`).
+    private let tasks = TaskBag()
     private var cockpitReservation: UUID?
     private var writeTail: Task<Void, Never>?
     private var writesPending = 0
@@ -104,13 +109,13 @@ final class QAModel: ObservableObject {
 
     func reload() {
         guard let root else { return }
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             let listing = await Task.detached(priority: .userInitiated) { QAStore.loadScenarios(root) }.value
-            guard let self, self.root == root else { return }
+            guard !Task.isCancelled, let self, self.root == root else { return }
             self.scenarios = listing.scenarios
             self.unreadable = listing.unreadable
             if let id = self.current?.id, !listing.scenarios.contains(where: { $0.id == id }), self.saveTask == nil { self.current = nil }
-        }
+        }, for: "reload")
     }
 
     // MARK: Opening and creating
@@ -132,6 +137,7 @@ final class QAModel: ObservableObject {
     }
 
     func close() {
+        tasks.cancelAll()
         summaryTask?.cancel(); summaryToken = UUID(); summaryBusy = false; summaryError = nil
         flush()
         current = nil
@@ -225,9 +231,9 @@ final class QAModel: ObservableObject {
 
     /// Reads the saved logins (user names and hosts only) off the main thread.
     func loadSavedLogins() {
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             await self?.refreshSavedLogins()
-        }
+        }, for: "logins")
     }
 
     func refreshSavedLogins() async {
@@ -316,9 +322,9 @@ final class QAModel: ObservableObject {
             notice = "The local edits could not be backed up. Save a copy before reloading."
             return
         }
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             let listing = await Task.detached(priority: .userInitiated) { QAStore.loadScenarios(root) }.value
-            guard let self, self.root == root, self.current?.id == id, self.saveTask == nil, self.writesPending == 0 else { return }
+            guard !Task.isCancelled, let self, self.root == root, self.current?.id == id, self.saveTask == nil, self.writesPending == 0 else { return }
             self.scenarios = listing.scenarios
             self.unreadable = listing.unreadable
             guard let id else { self.notice = "Scenario list refreshed."; return }
@@ -335,7 +341,7 @@ final class QAModel: ObservableObject {
             self.summaryTask?.cancel(); self.summaryToken = UUID(); self.summaryBusy = false; self.summaryError = nil
             self.refreshSummary()
             self.notice = "Scenario reloaded from disk. Review the plan again before running."
-        }
+        }, for: "refresh")
     }
 
     // MARK: Scenario discussion and readable summary
@@ -348,8 +354,9 @@ final class QAModel: ObservableObject {
         let staged = try await Task.detached { try QAAttachments.stage(files, root: root, id: QAStore.newRunID(at: Date())) }.value
         defer { QAAttachments.discard(staged) }
         request.attachmentPaths = staged.paths
-        let response = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: QADiscovery.prompt(request), systemPrompt: QADiscovery.system,
-            jsonSchema: QADiscovery.schema, readableFolder: root, timeout: nil, assistantOverride: assistant, images: staged.images, label: "qa-discuss"))
+        let response = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(CLICompletion.Request(project: root, prompt: QADiscovery.prompt(request), systemPrompt: QADiscovery.system,
+            jsonSchema: QADiscovery.schema, readableFolder: root, timeout: nil, assistantOverride: assistant, images: staged.images, label: "qa-discuss"),
+            name: "qa-discuss")
         try Task.checkCancellation()
         guard self.root == root else { throw CancellationError() }
         return try QADiscovery.parse(response.structured)
@@ -366,9 +373,9 @@ final class QAModel: ObservableObject {
         summaryTask = Task { [weak self] in
             defer { if self?.summaryToken == token { self?.summaryBusy = false } }
             do {
-                let response = try await CLICompletion.run(CLICompletion.Request(project: root, prompt: QASummary.prompt(scenario),
+                let response = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(CLICompletion.Request(project: root, prompt: QASummary.prompt(scenario),
                     systemPrompt: "You write accurate, concise QA scenario summaries.", jsonSchema: QASummary.schema, timeout: 120,
-                    assistantOverride: assistant, label: "qa-summary"))
+                    assistantOverride: assistant, label: "qa-summary"), name: "qa-summary")
                 try Task.checkCancellation()
                 let text = try QASummary.parse(response.structured)
                 guard let self, self.summaryToken == token, self.root == root, let current = self.current,
@@ -405,14 +412,12 @@ final class QAModel: ObservableObject {
                 let outcome = try await QAGenerator.generate(
                     request,
                     onAttempt: { attempt in Task { @MainActor in self?.setAttempt(attempt) } },
-                    complete: { prompt in
-                        let result = try await CLICompletion.run(
-                            CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
-                                                  jsonSchema: QAGeneration.schema(for: request.appKind), readableFolder: root, timeout: nil, assistantOverride: assistant,
-                                                  images: images, label: "qa-generate"),
-                            onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
-                        return QAGenerator.Answer(structured: result.structured, costUSD: result.costUSD)
-                    })
+                    prepare: { prompt in
+                        CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
+                                              jsonSchema: QAGeneration.schema(for: request.appKind), readableFolder: root, timeout: nil, assistantOverride: assistant,
+                                              images: images, label: "qa-generate")
+                    },
+                    onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
                 try Task.checkCancellation()
                 guard self?.root == root else { return }
                 self?.finishGeneration(outcome)

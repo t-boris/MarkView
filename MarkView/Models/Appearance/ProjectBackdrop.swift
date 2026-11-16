@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Evidence gathered locally for the welcome screen. No document text is retained or sent to an assistant.
 struct ProjectBackdropSignals: Equatable, Sendable {
@@ -12,7 +15,7 @@ struct ProjectBackdropSignals: Equatable, Sendable {
     var inspected = false
 }
 
-struct ProjectBackdropContext: Equatable {
+struct ProjectBackdropContext: Equatable, Sendable {
     var identity: String
     var signals: ProjectBackdropSignals
     var openBugs: Int
@@ -26,27 +29,22 @@ struct ProjectBackdropContext: Equatable {
         identity.utf8.reduce(UInt64(0xcbf29ce484222325)) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
     }
 
+    /// The scene By Project draws: the first registered scene whose rule matches this evidence, else the default scene. The rules are
+    /// registered with the scenes (`BackdropDescriptor.project`), not listed here.
     var scene: WelcomeBackdrop {
-        if issuesKnown && (openBugs >= 8 || criticalBugs >= 2) { return .bugs }
-        if signals.platform == .ios || signals.platform == .android { return .blueprint }
-        if signals.sourceFiles >= 160 || signals.modules >= 8 || features >= 20 { return .orbit }
-        if signals.platform == .backend || signals.platform == .web { return .circuit }
-        if issuesKnown && openBugs == 0 && features > 0 && completedFeatures == features { return .launch }
-        return .garden
+        BackdropRegistry.projectRules.first { $0.descriptor.project?.matches?(self) == true }.map(WelcomeBackdrop.init) ?? Self.defaultScene
     }
+
+    /// What a window without a project (no evidence at all) and a project no rule matches get.
+    static var defaultScene: WelcomeBackdrop { BackdropRegistry.projectDefault.map(WelcomeBackdrop.init) ?? .off }
 
     /// Bounded visual detail: a busy project looks busier without producing an unbounded layer tree.
     var detail: Int { min(4, max(1, (openBugs + features) / 8 + signals.sourceFiles / 120 + 1)) }
 
+    /// Why this scene was chosen, in the words of the scene that was.
     var reason: String {
-        switch scene {
-        case .bugs: return "Bug Swarm: \(openBugs) open bugs\(criticalBugs > 0 ? ", \(criticalBugs) critical" : "")"
-        case .blueprint: return "Device Lab: \(signals.platform.rawValue) application"
-        case .orbit: return "Orbit: \(features) features · \(signals.sampled ? "at least " : "")\(signals.sourceFiles) source files"
-        case .circuit: return "Circuit Flow: \(signals.platform.rawValue.lowercased()) project"
-        case .launch: return "Launch: all \(features) features completed · no open bugs"
-        default: return signals.inspected ? "Code Garden: a project taking shape" : "Reading the project's shape…"
-        }
+        let chosen = scene
+        return BackdropRegistry.entry(chosen.rawValue)?.descriptor.project?.reason(self) ?? ""
     }
 
     var summary: String {
@@ -70,7 +68,7 @@ struct ProjectBackdropContext: Equatable {
 /// A bounded, cancellable scan off the main thread. Dependencies, generated output and symbolic links are excluded.
 enum ProjectBackdropScanner {
     static let entryLimit = 2500
-    static let ignored: Set<String> = [".git", ".dde", ".markview", ".build", "node_modules", "pods", "carthage", "vendor", "build", "dist", "deriveddata", "venv", ".venv", "__pycache__", "target", "tests", "testfiles", "fixtures"]
+    static let ignored: Set<String> = [".git", ProjectPaths.localFolderName, ".markview", ".build", "node_modules", "pods", "carthage", "vendor", "build", "dist", "deriveddata", "venv", ".venv", "__pycache__", "target", "tests", "testfiles", "fixtures"]
     static let sourceExtensions: Set<String> = ["swift", "m", "mm", "h", "kt", "java", "ts", "tsx", "js", "jsx", "py", "rs", "go", "c", "cpp", "cs", "rb", "dart"]
 
     static func scan(_ root: URL) -> ProjectBackdropSignals {

@@ -2,7 +2,6 @@ import AppKit
 import WebKit
 
 // Unrelated assistant/dictation dependencies are not exercised by this harness.
-enum CLITool { case claude, codex, cline, copilot, antigravity }
 final class WhisperClient {}
 
 @MainActor final class TerminalLayoutTests: NSObject, WKScriptMessageHandler {
@@ -20,9 +19,10 @@ final class WhisperClient {}
     func js(_ source: String) async throws -> Any? { try await session.webView.evaluateJavaScript(source) }
     func pause(_ ms: UInt64 = 150) async { try? await Task.sleep(nanoseconds: ms * 1_000_000) }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        session.userContentController(controller, didReceive: message)
+        session.messages.userContentController(controller, didReceive: message)
         if let body = message.body as? [String: Any], body["type"] as? String == "ready", !launched {
-            readySize = (body["cols"] as? Int ?? 0, body["rows"] as? Int ?? 0)
+            let payload = body["payload"] as? [String: Any] ?? [:]
+            readySize = (payload["cols"] as? Int ?? 0, payload["rows"] as? Int ?? 0)
             launched = true
             Task { await run() }
         }
@@ -97,6 +97,7 @@ final class WhisperClient {}
     }
     func start() {
         TerminalSession.pageURL = URL(fileURLWithPath: CommandLine.arguments[1])
+        BridgeContract.bundledURL = TerminalSession.pageURL!.deletingLastPathComponent().appendingPathComponent("js/bridge-contract.json")
         session = TerminalSession(directory: URL(fileURLWithPath: CommandLine.arguments[2]))
         let web = session.webView
         web.configuration.userContentController.removeScriptMessageHandler(forName: "terminal")

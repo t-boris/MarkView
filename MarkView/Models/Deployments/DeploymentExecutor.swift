@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 struct CommandResult: Equatable {
     var status: Int32
@@ -47,71 +50,13 @@ enum ConnectionProblem: Equatable {
     }
 }
 
-/// Runs processes off the main thread with a timeout and a cap on the output; both pipes are drained while
-/// the process runs, so neither can fill up and stall it.
-enum ProcessRunner {
+extension CommandResult {
+    /// What a command may print: more is cut and `truncated` is set.
     static let outputCap = 2 * 1024 * 1024
 
-    static func run(executable: String, arguments: [String], stdin: String? = nil, timeout: TimeInterval = 30,
-                    directory: URL? = nil, environment: [String: String]? = nil) async -> CommandResult {
-        await Task.detached(priority: .userInitiated) {
-            runBlocking(executable: executable, arguments: arguments, stdin: stdin, timeout: timeout, directory: directory, environment: environment)
-        }.value
-    }
-
-    static func runBlocking(executable: String, arguments: [String], stdin: String?, timeout: TimeInterval,
-                            directory: URL?, environment: [String: String]?) -> CommandResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        if let environment { process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new } }
-        let out = Pipe(), err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
-        let input = Pipe()
-        process.standardInput = stdin == nil ? FileHandle.nullDevice : input
-        do { try process.run() } catch { return CommandResult(status: -1, stdout: "", stderr: error.localizedDescription) }
-
-        let group = DispatchGroup()
-        var outData = Data(), errData = Data()
-        var truncated = false
-        let lock = NSLock()
-        func drain(_ pipe: Pipe, into store: @escaping (Data) -> Void) {
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                let handle = pipe.fileHandleForReading
-                while true {
-                    let chunk = handle.availableData
-                    if chunk.isEmpty { break }
-                    store(chunk)
-                }
-                group.leave()
-            }
-        }
-        drain(out) { chunk in lock.lock(); if outData.count < outputCap { outData.append(chunk.prefix(outputCap - outData.count)); if outData.count >= outputCap { truncated = true } } else { truncated = true }; lock.unlock() }
-        drain(err) { chunk in lock.lock(); if errData.count < 64 * 1024 { errData.append(chunk.prefix(64 * 1024 - errData.count)) }; lock.unlock() }
-        if let stdin {
-            DispatchQueue.global(qos: .userInitiated).async {
-                input.fileHandleForWriting.write(Data(stdin.utf8))
-                try? input.fileHandleForWriting.close()
-            }
-        }
-        var timedOut = false
-        let killer = DispatchWorkItem {
-            lock.lock()
-            timedOut = true
-            lock.unlock()
-            if process.isRunning { process.terminate() }
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
-        process.waitUntilExit()
-        killer.cancel()
-        // A killed process may leave a grandchild holding the pipes: do not wait for them for ever.
-        _ = group.wait(timeout: .now() + 3)
-        lock.lock(); defer { lock.unlock() }
-        return CommandResult(status: process.terminationStatus, stdout: String(decoding: outData, as: UTF8.self),
-                             stderr: String(decoding: errData, as: UTF8.self), timedOut: timedOut, truncated: truncated)
+    init(_ result: SubprocessResult) {
+        self.init(status: result.exitCode, stdout: result.stdout, stderr: result.stderr,
+                  timedOut: result.timedOut, truncated: result.truncated)
     }
 }
 
@@ -155,7 +100,9 @@ struct LocalExecutor: DeploymentExecutor {
     func run(_ command: String, stdin: String?, timeout: TimeInterval) async -> CommandResult {
         // A login-like PATH: a GUI app does not inherit the shell's, so the CLIs (vercel, fly, aws) would not be found.
         let path = Self.searchPath(home: NSHomeDirectory())
-        return await ProcessRunner.run(executable: "/bin/sh", arguments: ["-c", command], stdin: stdin, timeout: timeout, directory: directory, environment: ["PATH": path])
+        return CommandResult(await Subprocess.run(SubprocessSpec(
+            executable: "/bin/sh", arguments: ["-c", command], cwd: directory, environment: ["PATH": path],
+            stdin: stdin.map { Data($0.utf8) }, timeout: timeout, maxOutputBytes: CommandResult.outputCap)))
     }
 }
 
@@ -163,6 +110,7 @@ struct LocalExecutor: DeploymentExecutor {
 struct SSHExecutor: DeploymentExecutor {
     let environment: DeploymentEnvironment
     /// Extra ssh options. Empty in the app; a test points ssh at its own known_hosts and a private server.
+    // unchecked Sendable: a test hook: the test assigns it once before any SSH command runs, and the app never writes it.
     nonisolated(unsafe) static var extraOptions: [String] = []
 
     /// Per-user mode-0700 directory for SSH ControlMaster sockets (AR-12).
@@ -222,7 +170,9 @@ struct SSHExecutor: DeploymentExecutor {
         guard let args = Self.arguments(for: environment) else {
             return CommandResult(status: 255, stdout: "", stderr: "The environment definition is not valid: " + environment.problems.joined(separator: " "))
         }
-        return await ProcessRunner.run(executable: "/usr/bin/ssh", arguments: args + [command], stdin: stdin, timeout: timeout)
+        return CommandResult(await Subprocess.run(SubprocessSpec(
+            executable: "/usr/bin/ssh", arguments: args + [command], stdin: stdin.map { Data($0.utf8) }, timeout: timeout,
+            maxOutputBytes: CommandResult.outputCap)))
     }
 }
 
@@ -240,10 +190,14 @@ enum HostKeys {
     /// `ssh-keyscan` lines and their fingerprints, for the person to compare with what the server's owner says.
     static func scan(host: String, port: Int) async -> (lines: [String], fingerprints: [String])? {
         guard DeploymentEnvironment.isSafeToken(host), (1...65535).contains(port) else { return nil }
-        let scan = await ProcessRunner.run(executable: "/usr/bin/ssh-keyscan", arguments: ["-T", "8", "-p", String(port), host], timeout: 20)
+        let scan = CommandResult(await Subprocess.run(SubprocessSpec(
+            executable: "/usr/bin/ssh-keyscan", arguments: ["-T", "8", "-p", String(port), host], timeout: 20,
+            maxOutputBytes: CommandResult.outputCap)))
         let lines = scan.stdout.split(separator: "\n").map(String.init).filter { !$0.hasPrefix("#") && !$0.isEmpty }
         guard !lines.isEmpty else { return nil }
-        let printed = await ProcessRunner.run(executable: "/usr/bin/ssh-keygen", arguments: ["-lf", "-"], stdin: lines.joined(separator: "\n") + "\n", timeout: 10)
+        let printed = CommandResult(await Subprocess.run(SubprocessSpec(
+            executable: "/usr/bin/ssh-keygen", arguments: ["-lf", "-"], stdin: Data((lines.joined(separator: "\n") + "\n").utf8), timeout: 10,
+            maxOutputBytes: CommandResult.outputCap)))
         let fingerprints = printed.stdout.split(separator: "\n").map(String.init)
         return (lines, fingerprints)
     }
@@ -257,8 +211,7 @@ enum HostKeys {
         if !existing.isEmpty && !existing.hasSuffix("\n") { existing += "\n" }
         let new = lines.filter { !existing.contains($0) }
         guard !new.isEmpty else { return true }
-        do { try (existing + new.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8) } catch { return false }
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        do { try AtomicFile.write(existing + new.joined(separator: "\n") + "\n", to: URL(fileURLWithPath: path), permissions: 0o600) } catch { return false }
         return true
     }
 }

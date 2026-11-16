@@ -1,28 +1,32 @@
 import Foundation
+import os
 import AppKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Settings of New Research: the job timeout (global) and the per-repository web search
 /// opt-out (DEC-011, DEC-012).
 enum ResearchSettings {
-    static let timeoutKey = "research.timeoutMinutes"
-    static let defaultTimeoutMinutes = 20
+    static let defaultTimeoutMinutes = Setting.researchTimeoutMinutes.defaultValue
 
     static var timeoutMinutes: Int {
-        let stored = UserDefaults.standard.integer(forKey: timeoutKey)
+        let stored = Settings.standard.value(Setting.researchTimeoutMinutes)
         return stored > 0 ? stored : defaultTimeoutMinutes
     }
 
-    static func webDisabledKey(_ root: URL) -> String {
-        "research.webDisabled." + String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
+    static func webDisabledKey(_ root: URL) -> SettingsKey<Bool> {
+        Setting.researchWebDisabled(project: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
     }
 
     static func isWebDisabled(_ root: URL) -> Bool {
-        UserDefaults.standard.bool(forKey: webDisabledKey(root))
+        Settings.standard.value(webDisabledKey(root))
     }
 }
 
 /// Research jobs of one window: new research, follow-ups, retries and comments, each a
-/// cancellable headless agent run (DEC-012) over the repository. Owned by `WorkspaceManager`.
+/// cancellable headless agent run (DEC-012) over the repository. Owned by `ResearchMapController`; every job's task is
+/// also in the window's `TaskBag`, so closing the folder or the window stops them.
 @MainActor
 final class ResearchJobs: ObservableObject {
     struct Job: Identifiable {
@@ -49,7 +53,18 @@ final class ResearchJobs: ObservableObject {
     @Published var message: String?
     @Published var followUp: FollowUpRequest?
 
-    weak var workspace: WorkspaceManager?
+    /// The window the jobs read the open documents of, the open project (its folder and database) and the map files they write.
+    private(set) weak var host: ResearchHost?
+    let project: any ProjectProviding
+    private(set) weak var maps: ResearchMapController?
+    private let tasks: TaskBag
+
+    init(host: ResearchHost?, project: any ProjectProviding, maps: ResearchMapController, tasks: TaskBag) {
+        self.host = host
+        self.project = project
+        self.maps = maps
+        self.tasks = tasks
+    }
 
     func isRunning(on file: URL) -> Bool {
         jobs.contains { $0.file.standardizedFileURL == file.standardizedFileURL }
@@ -68,20 +83,20 @@ final class ResearchJobs: ObservableObject {
 
     /// Opens the "Continue / deepen" sheet; unsaved edits must be saved first (DEC-014).
     func requestFollowUp(for file: URL) {
-        guard workspace?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
+        guard host?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
         followUp = FollowUpRequest(file: file)
     }
 
     /// Appends a follow-up (or, with `retry`, a retry of that incomplete section) to `file`.
     func followUp(_ file: URL, question: String, retry: ResearchDocument.Section?) {
-        guard let root = workspace?.rootNode?.url else { return }
-        guard workspace?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
+        guard let root = project.root else { return }
+        guard host?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
         let label = retry.map { "Retry: \($0.name)" } ?? "Follow-up: " + Self.title(question)
         launch(kind: .followUp, file: file, title: label) { job in
             guard let current = try? String(contentsOf: file, encoding: .utf8) else { return "Could not read \(file.lastPathComponent)." }
             job.update("Listing the repository")
             let targets = FrontMatter.split(current).0.strings("targets")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: targets) }.value
+            let scope = await ResearchScope.files(root: root, always: targets)
             let web = Self.web(root)
             let prompt = ResearchPrompt.followUp(document: current, question: question, retrying: retry?.text,
                                                  scope: scope, web: web.allowed)
@@ -102,10 +117,10 @@ final class ResearchJobs: ObservableObject {
             guard let updated = ResearchDocument.appending(section, to: latest, webQueries: run.webQueries) else {
                 return "\(file.lastPathComponent) has front matter the app cannot rewrite safely (comments?); the follow-up was not saved."
             }
-            do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
+            do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the follow-up: \(error.localizedDescription)"
             }
-            self.workspace?.researchDocumentChanged(file, content: updated) { tabText in
+            self.documentRewritten(file, content: updated) { tabText in
                 ResearchDocument.appending(section, to: tabText, webQueries: run.webQueries)
             }
             return run.incomplete.map { "Follow-up saved as incomplete: \($0)" }
@@ -116,12 +131,12 @@ final class ResearchJobs: ObservableObject {
 
     /// The AI revises the smallest section containing `passage` according to `comment`.
     func comment(on passage: String, comment: String, in file: URL) {
-        guard let root = workspace?.rootNode?.url else { return }
+        guard let root = project.root else { return }
         guard !isRunning(on: file) else {
             message = "Another research job is working on \(file.lastPathComponent); comment when it has finished."
             return
         }
-        guard workspace?.saveBeforeResearch(file, action: "revising it with your comment") == true else { return }
+        guard host?.saveBeforeResearch(file, action: "revising it with your comment") == true else { return }
         guard let current = try? String(contentsOf: file, encoding: .utf8),
               let range = ResearchDocument.enclosingSection(of: passage, in: current) else {
             message = "The selected text was not found under a heading of \(file.lastPathComponent); select text inside a section."
@@ -131,7 +146,7 @@ final class ResearchJobs: ObservableObject {
         launch(kind: .comment, file: file, title: "Comment: " + Self.title(comment)) { job in
             let web = Self.web(root)
             let targets = FrontMatter.split(current).0.strings("targets")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: targets) }.value
+            let scope = await ResearchScope.files(root: root, always: targets)
             let prompt = ResearchPrompt.comment(document: current, section: original, passage: passage, comment: comment,
                                                 scope: scope, web: web.allowed)
             let outcome = await job.run(prompt: prompt, root: root, web: web.allowed)
@@ -147,14 +162,21 @@ final class ResearchJobs: ObservableObject {
             guard let updated = ResearchDocument.replacing(now, in: latest, with: checked, webQueries: outcome.queries) else {
                 return "\(file.lastPathComponent) has front matter the app cannot rewrite safely (comments?); the comment was not applied."
             }
-            do { try Data(updated.utf8).write(to: file, options: .atomic) } catch {
+            do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the revision: \(error.localizedDescription)"
             }
-            self.workspace?.researchDocumentChanged(file, content: updated) { tabText in
+            self.documentRewritten(file, content: updated) { tabText in
                 tabText.range(of: original).flatMap { ResearchDocument.replacing($0, in: tabText, with: checked, webQueries: outcome.queries) }
             }
             return nil
         }
+    }
+
+    /// A job rewrote `file` on disk: the tab that shows it takes the new text. A tab with unsaved edits that conflict is left as it was and
+    /// the person is told to reload it.
+    private func documentRewritten(_ file: URL, content: String, applyToEdited: (String) -> String?) {
+        guard host?.researchDocumentChanged(file, content: content, applyToEdited: applyToEdited) == false else { return }
+        message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
     }
 
     // MARK: - Running
@@ -164,11 +186,13 @@ final class ResearchJobs: ObservableObject {
         message = nil
         var job = Job(kind: kind, file: file, title: title)
         let handle = JobHandle(id: job.id, owner: self)
-        job.task = Task { [weak self] in
+        let task = Task { [weak self] in
             let result = await body(handle)
             self?.jobs.removeAll { $0.id == handle.id }
             if let result { self?.message = result }
         }
+        job.task = task
+        tasks.store(task, for: "research.job.\(job.id)")
         jobs.append(job)
     }
 
@@ -299,7 +323,7 @@ final class JobHandle {
         let started = Date()
         update("Thinking")
         do {
-            let result = try await CLICompletion.run(request, onDelta: { log.append(text: $0); onText?($0) }, onActivity: { [weak self] activity in
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "research", onDelta: { log.append(text: $0); onText?($0) }, onActivity: { [weak self] activity in
                 switch activity {
                 case .writing, .answerDelta: break
                 // A tool call or a pause ends the text block the agent was writing, and the CLI hands over the next block
@@ -311,7 +335,7 @@ final class JobHandle {
                 if case .writing = activity { step = writing }
                 Task { @MainActor in self?.update(step) }
             })
-            result.record(in: owner?.workspace?.semanticDatabase)
+            result.record(in: owner?.project.database)
             let snapshot = log.snapshot()
             let text = result.text.isEmpty ? snapshot.text : result.text
             // Refused web calls were never sent: they leave the lists, and the run lost web access (DEC-004).
@@ -339,47 +363,47 @@ final class JobHandle {
 }
 
 /// Collects a run's streamed text and tool use from the CLI's background callbacks.
-private final class RunLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var text = ""
-    private var reads: [String] = []
-    private var urls: [String] = []
-    private var queries: [String] = []
-
-    func append(text part: String) {
-        lock.lock(); text += part; lock.unlock()
+private final class RunLog: Sendable {
+    private struct State: Sendable {
+        var text = ""
+        var reads: [String] = []
+        var urls: [String] = []
+        var queries: [String] = []
     }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func append(text part: String) { state.withLock { $0.text += part } }
 
     /// Records the activity; returns the progress line for it, if any.
     func record(_ activity: CLICompletion.Activity, root: URL) -> String? {
-        lock.lock(); defer { lock.unlock() }
         let base = root.standardizedFileURL.path + "/"
-        switch activity {
-        case .read(let path):
-            reads.append(path)
-            return "Reading " + (path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path)
-        case .search(let pattern):
-            return "Searching “\(pattern.prefix(50))”"
-        case .run(let command):
-            return "Running " + String(command.prefix(60))
-        case .webSearch(let query):
-            if !queries.contains(query) { queries.append(query) }
-            return "Searching the web: “\(query.prefix(60))”"
-        case .webFetch(let url):
-            if !urls.contains(url) { urls.append(url) }
-            return "Reading " + String(url.prefix(70))
-        case .thinking:
-            return "Thinking"
-        case .writing:
-            return "Writing the report"
-        case .answerDelta:
-            return nil
+        return state.withLock { state in
+            switch activity {
+            case .read(let path):
+                state.reads.append(path)
+                return "Reading " + (path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path)
+            case .search(let pattern):
+                return "Searching “\(pattern.prefix(50))”"
+            case .run(let command):
+                return "Running " + String(command.prefix(60))
+            case .webSearch(let query):
+                if !state.queries.contains(query) { state.queries.append(query) }
+                return "Searching the web: “\(query.prefix(60))”"
+            case .webFetch(let url):
+                if !state.urls.contains(url) { state.urls.append(url) }
+                return "Reading " + String(url.prefix(70))
+            case .thinking:
+                return "Thinking"
+            case .writing:
+                return "Writing the report"
+            case .answerDelta:
+                return nil
+            }
         }
     }
 
     func snapshot() -> (text: String, reads: [String], urls: [String], queries: [String]) {
-        lock.lock(); defer { lock.unlock() }
-        return (text, reads, urls, queries)
+        state.withLock { ($0.text, $0.reads, $0.urls, $0.queries) }
     }
 }
 
@@ -393,16 +417,17 @@ enum ResearchScope {
 
     /// Explicit folder targets expand recursively into readable files, never directory
     /// paths. Resolve symlinks at the boundary so a target cannot read outside the workspace.
-    static func targetFiles(root: URL, targets: [URL]) -> [String] {
-        let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+    /// Runs off the main actor (the caller's task waits for it).
+    static func targetFiles(root: URL, targets: [URL]) async -> [String] {
         var paths = Set<String>()
         for target in targets {
-            guard target.standardizedFileURL == root.standardizedFileURL || target.resolvingSymlinksInPath().path.hasPrefix(base) else { continue }
+            guard ProjectPaths.contains(target, root: root) else { continue }
             if (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 guard let entries = FileManager.default.enumerator(at: target, includingPropertiesForKeys: [.isRegularFileKey],
                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
-                for case let file as URL in entries {
-                    guard file.resolvingSymlinksInPath().path.hasPrefix(base),
+                // `nextObject()`: an enumerator's iterator is unavailable in an async function.
+                while let file = entries.nextObject() as? URL {
+                    guard ProjectPaths.containsStrictly(file, root: root),
                           (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                           isText(file), let path = ResearchJobs.relative(file, to: root) else { continue }
                     paths.insert(path)
@@ -412,7 +437,8 @@ enum ResearchScope {
         return paths.sorted()
     }
 
-    static func files(root: URL, always: [String]) -> [String] {
+    /// The files a research reads, listed off the main actor (the caller's task waits for it).
+    static func files(root: URL, always: [String]) async -> [String] {
         var result = ArchitectureScanner.listFiles(root: root).filter { path in
             let name = (path as NSString).lastPathComponent
             if generatedNames.contains(name) || name.hasSuffix(".min.js") || name.hasSuffix(".min.css") || name.hasSuffix(".map")

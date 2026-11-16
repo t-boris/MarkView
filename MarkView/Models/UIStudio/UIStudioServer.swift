@@ -7,6 +7,7 @@ import Foundation
 ///
 /// The project is trusted local code: the server runs with the user's permissions (the interface says so). It does not
 /// inherit production secrets of MarkView's environment, and the shell's startup files only contribute `PATH`.
+// unchecked Sendable: `lock` guards the process id, the exit status, the output buffer and the handle; `command` and `folder` are `let`.
 final class StudioDevServer: @unchecked Sendable {
     let command: String
     let folder: URL
@@ -153,6 +154,7 @@ final class StudioDevServer: @unchecked Sendable {
     }
 
     private static let registry = NSLock()
+    // unchecked Sendable: every access is inside `registry.withLock`.
     nonisolated(unsafe) private static var running: [ObjectIdentifier: StudioDevServer] = [:]
 
     /// Servers sessions started, so that quitting MarkView ends them too.
@@ -247,6 +249,7 @@ enum StudioServerClock {
 
 enum StudioLaunchEnvironment {
     private static let cache = NSLock()
+    // unchecked Sendable: every access is inside `cache.withLock`.
     nonisolated(unsafe) private static var cachedPath: String?
 
     /// Names a session may never set for the server: they decide which programs and files it uses.

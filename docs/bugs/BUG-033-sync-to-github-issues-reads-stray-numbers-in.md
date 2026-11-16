@@ -32,7 +32,7 @@ The pattern yields 41 and 1234 for the first value, and 12 and 3 for the second.
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Models/IssueSync.swift line 111-114; code reading and a Python evaluation of the pattern.
+MarkView current main (ade7910), MarkView/Models/Lifecycle/IssueSync.swift line 111-114; code reading and a Python evaluation of the pattern.
 
 ## Cause
 

@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "id": "review",
+  "name": "Review",
+  "symbol": "arrow.triangle.branch",
+  "summary": "The issues, the Git changes and the tasks of the open feature",
+  "panels": { "files": true, "center": true, "right": true, "agents": false },
+  "left": "issues",
+  "right": "feature",
+  "tool": "git"
+}

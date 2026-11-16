@@ -19,31 +19,11 @@
         // ============================================================================
 
         // ---------------------------------------------------------------------------
-        // Escape utilities (Decision 10) — SOLE permitted path for any LLM-controlled
-        // string entering an HTML or attribute context anywhere in parent JS.
-        // For chrome that uses textContent we don't need them; they exist for cases
-        // where strings get interpolated into srcdoc string construction.
+        // Escaping (Decision 10): window.mvKit.escapeHtml (text) and window.mvKit.escapeAttr (attributes) are the SOLE permitted
+        // path for any LLM-controlled string entering an HTML or attribute context anywhere in parent JS. Both escape the five
+        // metacharacters & < > " ' (escapeAttr also the backtick). For chrome that uses textContent they are not needed; they
+        // exist for strings interpolated into srcdoc string construction.
         // ---------------------------------------------------------------------------
-        function escapeForHTMLText(s) {
-            if (s == null) return '';
-            return String(s)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-        function escapeForHTMLAttribute(s) {
-            // Same five metachars per Decision 10 — attribute and text use the
-            // identical escape set; functions kept distinct for call-site clarity.
-            if (s == null) return '';
-            return String(s)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
 
         // ---------------------------------------------------------------------------
         // Lib mapping — skeleton drives which vendored libs to materialize as blobs.
@@ -164,10 +144,10 @@
                 ? window.__markviewInsightNonce
                 : '';
             const scriptPolicy = rawNonce ? ("'nonce-" + rawNonce + "'") : "'none'";
-            const nonceAttr = rawNonce ? (' nonce="' + escapeForHTMLAttribute(rawNonce) + '"') : '';
+            const nonceAttr = rawNonce ? (' nonce="' + window.mvKit.escapeAttr(rawNonce) + '"') : '';
             // CSP per task spec / Decision 10 (null-origin iframe, AR-02).
             const csp = "default-src 'none'; script-src " + scriptPolicy + "; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
-            const title = escapeForHTMLText(skeleton && skeleton.title ? skeleton.title : 'Insight');
+            const title = window.mvKit.escapeHtml(skeleton && skeleton.title ? skeleton.title : 'Insight');
 
             // Inline required vendored libraries from state.insightLibBytes with </script>
             // escaped as <\/script> so the null-origin sandbox="allow-scripts" iframe
@@ -192,14 +172,14 @@
             const sections = (skeleton && Array.isArray(skeleton.sections)) ? skeleton.sections : [];
             for (const s of sections) {
                 if (!s || typeof s.id !== 'string') continue;
-                const sid = escapeForHTMLAttribute(s.id);
-                const sTitle = escapeForHTMLText(s.title || '');
-                const sType = escapeForHTMLAttribute(s.type || '');
+                const sid = window.mvKit.escapeAttr(s.id);
+                const sTitle = window.mvKit.escapeHtml(s.title || '');
+                const sType = window.mvKit.escapeAttr(s.type || '');
                 let buttonsHTML = '';
                 if (Array.isArray(s.deepDiveTopics)) {
                     s.deepDiveTopics.forEach(function(topic, idx) {
                         if (!topic) return;
-                        const label = escapeForHTMLText(topic.label || '');
+                        const label = window.mvKit.escapeHtml(topic.label || '');
                         buttonsHTML += '<button class="dd-btn" data-section-id="' + sid + '" data-topic-index="' + idx + '">🤿 ' + label + '</button>';
                     });
                 }
@@ -231,7 +211,7 @@
                 window.addEventListener('error', function(ev) {
                     postParent('insightDebug', { where: 'iframe-window-error', msg: String(ev.message || ev.error || 'unknown') + ' @ ' + (ev.filename || '?') + ':' + (ev.lineno || 0) });
                 });
-                function escAttr(s) {
+                function escAttr(s) {   // mvkit-exempt: this code runs in the sandboxed Insight iframe, a document without mv-kit.js
                     if (s == null) return '';
                     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
                 }
@@ -514,16 +494,15 @@
                             } catch (_) { clone = el.cloneNode(true); }
                         } else if (el.tagName && el.tagName.toLowerCase() === 'svg') {
                             try {
-                                var serializer = new XMLSerializer();
-                                var svgStr = serializer.serializeToString(el);
                                 var box = el.viewBox && el.viewBox.baseVal;
                                 var w = (box && box.width) ? box.width : (el.getBoundingClientRect().width || 800);
                                 var h = (box && box.height) ? box.height : (el.getBoundingClientRect().height || 600);
                                 var holder = document.createElement('div');
                                 holder.style.cssText = 'width:' + (w * 2) + 'px; height:' + (h * 2) + 'px;';
-                                holder.innerHTML = svgStr;
-                                var ns = holder.querySelector('svg');
-                                if (ns) { ns.setAttribute('width', '100%'); ns.setAttribute('height', '100%'); ns.style.maxWidth = 'none'; ns.style.maxHeight = 'none'; }
+                                // A copy of the nodes already on the page: no markup is parsed again, so nothing new can enter (FU-25).
+                                var ns = el.cloneNode(true);
+                                ns.setAttribute('width', '100%'); ns.setAttribute('height', '100%'); ns.style.maxWidth = 'none'; ns.style.maxHeight = 'none';
+                                holder.appendChild(ns);
                                 clone = holder;
                             } catch (_) { clone = el.cloneNode(true); }
                         } else {
@@ -792,7 +771,7 @@
 
             // Compose final document. Note: title/sectionsHTML already escaped.
             return '<!DOCTYPE html><html data-theme="' + theme + '"><head>' +
-                '<meta http-equiv="Content-Security-Policy" content="' + escapeForHTMLAttribute(csp) + '">' +
+                '<meta http-equiv="Content-Security-Policy" content="' + window.mvKit.escapeAttr(csp) + '">' +
                 '<meta charset="UTF-8">' +
                 '<title>' + title + '</title>' +
                 '<style>' + inlineCSS + '</style>' +

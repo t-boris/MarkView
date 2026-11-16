@@ -50,7 +50,7 @@ for period in [GitHubActivityPeriod.weekdays, .hours] {
 }
 
 // Use a volatile defaults domain so checks never persist or alter app settings.
-UserDefaults.standard.setVolatileDomain([ActionOutputLanguage.storageKey: "Russian"], forName: UserDefaults.argumentDomain)
+UserDefaults.standard.setVolatileDomain([Setting.outputLanguage.name: "Russian"], forName: UserDefaults.argumentDomain)
 let prompt = TerminalPrompt.all.first { $0.id == "github-activity" }!
 let rendered = prompt.text(file: nil, pullRequest: nil, activityWindow: custom)
 check(prompt.input == .githubActivity, "button asks for its activity period")
@@ -63,10 +63,10 @@ check(rendered.contains("including weekend activity"), "weekend events remain in
 check(rendered.contains("ALL existing local features and bugs"), "matching covers older local records")
 check(rendered.contains("not application implementation or GitHub\nmutations"), "scope is local reconciliation")
 check(rendered.contains("Write the final report in Russian."), "selected report language is used")
-UserDefaults.standard.setVolatileDomain([ActionOutputLanguage.storageKey: ActionOutputLanguage.documentLanguage], forName: UserDefaults.argumentDomain)
+UserDefaults.standard.setVolatileDomain([Setting.outputLanguage.name: ActionOutputLanguage.documentLanguage], forName: UserDefaults.argumentDomain)
 check(prompt.text(file: nil, pullRequest: nil, activityWindow: custom).contains("Write the final report in Russian."),
       "report defaults to Russian without changing repository language rules")
-UserDefaults.standard.setVolatileDomain([ActionOutputLanguage.storageKey: "English"], forName: UserDefaults.argumentDomain)
+UserDefaults.standard.setVolatileDomain([Setting.outputLanguage.name: "English"], forName: UserDefaults.argumentDomain)
 check(prompt.text(file: nil, pullRequest: nil, activityWindow: custom).contains("Write the final report in English."),
       "explicit output language overrides the report default")
 UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain)

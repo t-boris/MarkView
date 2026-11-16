@@ -1,5 +1,9 @@
+import Combine
 import Foundation
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One command asked for, waiting for the person's yes.
 struct DeploymentApproval: Identifiable {
@@ -91,34 +95,44 @@ final class DeploymentStore: ObservableObject {
     static var approvalTimeout: TimeInterval = 180
     private(set) var root: URL?
     private(set) var hasScanned = false
-    /// Asked to bring the Deployments tab forward (an approval is waiting).
-    var onNeedsAttention: (() -> Void)?
-    private var autoTask: Task<Void, Never>?
+    /// Sent when the Deployments tab should come forward (an approval is waiting).
+    let needsAttention = PassthroughSubject<Void, Never>()
+    /// The 30 s refresh of every environment, a job of the app's scheduler (`AR-19`): paused while the app is in the background.
+    private let autoKey = "deployments-auto-" + UUID().uuidString
+    var polling = PollingScheduler.app
+    /// The looks, the scan and the waits for an answer that are running, keyed so that a new one replaces the old; closing the window or
+    /// opening another folder cancels them (`AR-19`).
+    let tasks = TaskBag()
     private var queue: [DeploymentApproval] = []
 
     // MARK: Files
 
-    private var folder: URL? { root?.appendingPathComponent(".dde", isDirectory: true) }
+    private static let fileStore = SchemaVersionedStore<DeploymentsFile>()
+    private var folder: URL? { root.map { ProjectPaths.localFolder($0) } }
     private var file: URL? { folder?.appendingPathComponent("deployments.json") }
     private var logFile: URL? { folder?.appendingPathComponent("deployments-log.jsonl") }
 
     func setRoot(_ url: URL?) {
         guard url?.standardizedFileURL != root?.standardizedFileURL else { return }
-        autoTask?.cancel()
+        polling.stop(key: autoKey)
+        tasks.cancelAll()
+        scanning = false
         root = url
         environments = []; states = [:]; suggestions = []; log = []; selected = nil; hasScanned = false
-        guard let file, let data = try? Data(contentsOf: file), let decoded = DeploymentsFile.decode(data) else { loadLog(); return }
+        defer { loadLog() }
+        guard let file else { return }
+        // A file that cannot be read leaves the list empty and the file as it is: the next save copies it to a backup first.
+        let result = Self.fileStore.load(from: file)
+        lastError = result.problem
+        guard let decoded = result.value else { return }
         environments = decoded.environments
         selected = environments.first?.id
-        loadLog()
     }
 
     private func save() {
-        guard let folder, let file else { return }
-        do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try DeploymentsFile(environments: environments).encoded().write(to: file, options: .atomic)
-        } catch { lastError = "Could not save the environments: \(error.localizedDescription)" }
+        guard let file else { return }
+        do { try Self.fileStore.save(DeploymentsFile(environments: environments), to: file) }
+        catch { lastError = "Could not save the environments: \(error.localizedDescription)" }
     }
 
     private func loadLog() {
@@ -182,12 +196,13 @@ final class DeploymentStore: ObservableObject {
         scanning = true
         hasScanned = true
         let configText = try? String(contentsOfFile: NSHomeDirectory() + "/.ssh/config", encoding: .utf8)
-        Task {
+        tasks.store(Task {
             let found = await Task.detached(priority: .userInitiated) { DeploymentDiscovery.scan(root: root, sshConfig: configText) }.value
+            guard !Task.isCancelled else { return }
             let known = Set(environments.map { $0.host.isEmpty ? $0.provider : $0.host })
             suggestions = found.filter { !known.contains($0.host.isEmpty ? $0.provider : $0.host) }
             scanning = false
-        }
+        }, for: "scan")
     }
 
     /// The logs of an environment: its own sources, then what the machine and the last look suggest.
@@ -200,7 +215,13 @@ final class DeploymentStore: ObservableObject {
 
     func executor(for env: DeploymentEnvironment) -> DeploymentExecutor { DeploymentExecutors.make(for: env, projectRoot: root) }
 
-    func refreshAll() { for env in environments { Task { await refresh(env.id) } } }
+    /// Looks at every environment; a look still running at one is replaced by the new one.
+    func refreshAll() {
+        for env in environments {
+            let id = env.id
+            tasks.store(Task { await refresh(id) }, for: "refresh:" + id)
+        }
+    }
 
     func refresh(_ id: String) async {
         guard let env = environment(id) else { return }
@@ -237,6 +258,8 @@ final class DeploymentStore: ObservableObject {
                 if result.history.count > 120 { result.history.removeFirst(result.history.count - 120) }
             }
         }
+        // The window closed or the folder changed while the machine was being asked: the answer is of no one now.
+        guard !Task.isCancelled else { return }
         result.updated = Date()
         states[id] = result
     }
@@ -299,18 +322,16 @@ final class DeploymentStore: ObservableObject {
     }
 
     private func restartAuto() {
-        autoTask?.cancel()
+        polling.stop(key: autoKey)
         guard autoRefresh else { return }
-        autoTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                self.refreshAll()
-            }
+        let key = autoKey, polling = polling
+        polling.every(30, key: key) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.refreshAll()
         }
     }
 
-    func stopAuto() { autoTask?.cancel() }
+    func stopAuto() { polling.stop(key: autoKey) }
 
     // MARK: Running commands
 
@@ -341,17 +362,19 @@ final class DeploymentStore: ObservableObject {
         await withCheckedContinuation { continuation in
             let request = DeploymentApproval(environment: env, command: command, reason: reason, origin: origin, purpose: purpose) { [weak self] yes in
                 continuation.resume(returning: yes)
+                // task: hops onto the main actor to show the next request; it holds nothing of its own
                 Task { @MainActor in self?.next() }
             }
             if approval == nil { approval = request } else { queue.append(request) }
-            onNeedsAttention?()
+            needsAttention.send()
             // Nobody at the screen: after three minutes the answer is no.
             let id = request.id
             let wait = Self.approvalTimeout
-            Task { [weak self] in
+            tasks.store(Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                guard !Task.isCancelled else { return }
                 self?.expire(id)
-            }
+            }, for: "expire:" + id.uuidString)
         }
     }
 
@@ -360,10 +383,22 @@ final class DeploymentStore: ObservableObject {
         else if let index = queue.firstIndex(where: { $0.id == id }) { queue.remove(at: index).answer(false) }
     }
 
+    /// The window closes: the auto-refresh, the looks, the scan and the waits end, and a command still waiting for a yes counts as no.
+    func close() {
+        polling.stop(key: autoKey)
+        tasks.cancelAll()
+        scanning = false
+        let waiting = [approval].compactMap { $0 } + queue
+        approval = nil
+        queue = []
+        for request in waiting { request.answer(false) }
+    }
+
     /// The person's answer to the request on screen.
     func answer(_ yes: Bool) {
         guard let current = approval else { return }
         approval = nil
+        tasks.cancel(key: "expire:" + current.id.uuidString)
         current.answer(yes)
     }
 
@@ -375,7 +410,7 @@ final class DeploymentStore: ObservableObject {
     func propose(_ suggestion: DeploymentSuggestion) {
         suggestions.removeAll { $0.id == suggestion.id }
         suggestions.insert(suggestion, at: 0)
-        onNeedsAttention?()
+        needsAttention.send()
     }
 
     // MARK: What an assistant is told

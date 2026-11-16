@@ -87,6 +87,38 @@ func runPhase4Tests() async {
     bag.cancelAll()
     check(task2.isCancelled && bag.activeCount == 0, "AR-19: TaskBag.cancelAll cancels all tracked tasks")
 
+    // A task that ends on its own leaves the bag; a unique key per run does not pile up; a replaced key keeps the new task.
+    func settle(_ condition: () -> Bool) async { for _ in 0..<10_000 where !condition() { await Task.yield() } }
+    let finishing = Task { 1 }
+    bag.store(finishing, for: "once")
+    await settle { bag.activeCount == 0 }
+    check(bag.activeCount == 0 && !bag.contains(key: "once"), "AR-19: a task that finished leaves the bag")
+    for run in 0..<20 { bag.store(Task { run }, for: "run-\(run)") }
+    await settle { bag.activeCount == 0 }
+    check(bag.activeCount == 0, "AR-19: twenty finished runs under twenty keys leave nothing behind")
+    let first = Task { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+    bag.store(first, for: "slot")
+    let second = Task { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+    bag.store(second, for: "slot")
+    await first.value   // cancelled by the replacement, so it ends at once and its waiter runs
+    for _ in 0..<50 { await Task.yield() }
+    check(first.isCancelled && bag.contains(key: "slot") && bag.activeCount == 1, "AR-19: the end of a replaced task does not remove the task that replaced it")
+    let failing = Task<Void, Error> { throw CancellationError() }
+    bag.store(failing, for: "throws")
+    await settle { !bag.contains(key: "throws") }
+    check(!bag.contains(key: "throws"), "AR-19: a throwing task is stored and leaves the bag when it ends")
+    bag.cancelAll()
+    check(second.isCancelled && bag.activeCount == 0, "AR-19: cancelAll cancels what is left")
+    var released: Task<()?, Never>?
+    do {
+        let owned = TaskBag()
+        let running = Task { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+        owned.store(running, for: "work")
+        released = running
+        check(!running.isCancelled, "AR-19: a task is running while its bag is alive")
+    }
+    check(released?.isCancelled == true, "AR-19: the release of a bag cancels what it still tracks")
+
     // 4. FU-11: DocumentScrollSideTable cleans up per-tab scroll state when tabs close
     let closedTabID = UUID()
     scrollState.setScrollPosition(420.0, for: closedTabID)

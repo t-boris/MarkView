@@ -1,6 +1,8 @@
 # Security Model
 
-MarkView runs **without the App Sandbox**, with ATS arbitrary loads allowed. It can read any file
+Status (2026-11-15): every path and symbol in this doc was looked up mechanically in the code at `ac3001ba`; line citations were removed (they drift). The ATS statement and the editor and Insight rows were checked against the code and `Info.plist`; the other rows keep the text of the 6.26.x review and were not re-read.
+
+MarkView runs **without the App Sandbox**. App Transport Security is on for the native process (`NSAllowsArbitraryLoads` is false); only web content and local networking are exempt (AR-41). It can read any file
 the user can read and can launch any binary. Its protections come from validation at each trust
 boundary. This page lists those boundaries, what is enforced, and the known gaps. Severity
 ordering and fix status are in [risks-and-tech-debt](./risks-and-tech-debt.md).
@@ -27,7 +29,7 @@ flowchart LR
 | HTML & CSP (editor, book, discussion, canvas, code) | Rendered HTML sanitized with vendored DOMPurify (`fail closed` if unavailable, `afterSanitizeAttributes` strips `file:` and non-raster `data:`); no `'unsafe-inline'` in `script-src` | `markview-render.js`, `markview-book.js`, `markview-discussion.js`, `markview-canvas.js`, `markview-code.js` |
 | Insight iframe | Sandboxed null-origin `allow-scripts` (no `allow-same-origin`); DOMPurify HTML sanitization; `postMessage` origin + source verification; nonce CSP without `'unsafe-inline'` and Mermaid `securityLevel: 'strict'` | `markview-insight-handlers.js`, `markview-insight-srcdoc.js`, `EditorView.swift` |
 | Finder Quick Action handoff | `markview_open_path.txt` in `temporaryDirectory` / `/tmp` opened with `O_NOFOLLOW`, verified via `fstat` as a regular file owned by `getuid()`, then deleted | `MarkViewApp.swift` |
-| Control socket (`markview-control`) | Per-instance `0600` token (read via `O_NOFOLLOW` + `fstat`), fail-closed constant-time verification, kernel peer UID (`== getuid()`) check, socket/token unlinked on quit | `BrowserControlServer.swift`, `BrowserAgentTools.swift` |
+| Control socket (`markview-control`) | Per-instance `0600` token (read via `O_NOFOLLOW` + `fstat`), fail-closed constant-time verification, kernel peer UID (`== getuid()`) check, socket/token unlinked on quit | `AgentToolServer.swift`, `BrowserAgentTools.swift` |
 | Terminal links | Only `http(s)` and existing local files; `javascript:`, `data:`, `ssh:`, remote `file:` rejected | `TerminalLink.swift` |
 | AI CLIs | Read-only modes (Claude tool allowlist, Codex `--sandbox read-only`, ACP permission filter); prompt envelopes escape `<file>` tags; model-suggested paths checked for containment and existence | [ai-assistants](./modules/ai-assistants-and-dictation.md) |
 | Subprocesses | Argument arrays, not shell strings (`git`, `gh`, `zip`); `gh`/git prompts disabled | module docs |

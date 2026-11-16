@@ -1,5 +1,8 @@
 import SwiftUI
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Contents tab of the right panel: what the open tab holds, whatever it is. A Markdown file shows
 /// its headings, an HTML file its page, an archive its entries, and every file its facts (kind, size,
@@ -8,7 +11,7 @@ struct ContentsPanelView<Headings: View>: View {
     @Environment(\.palette) private var palette
     let tab: OpenTab
     @ViewBuilder let headings: () -> Headings
-    @WindowStorage("contents.infoExpanded") private var infoExpanded = true
+    @WindowStorage(Setting.contentsInfoExpanded) private var infoExpanded: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -106,7 +109,10 @@ private struct ImageThumbnail: View {
                 Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 220).padding(10)
             }
         }
-        .task { image = await Task.detached(priority: .utility) { NSImage(contentsOf: url) }.value }
+        .task {
+            let data = await Task.detached(priority: .utility) { try? Data(contentsOf: url) }.value
+            image = data.flatMap { NSImage(data: $0) }
+        }
     }
 }
 
@@ -120,9 +126,7 @@ struct HTMLPreviewView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = WebHost.makeWebView(configuration: WebHost.makeConfiguration(allowsJavaScript: false))
         view.setValue(false, forKey: "drawsBackground")
         return view
     }
@@ -269,7 +273,7 @@ struct TabFactsPanel: View {
         switch tab.kind {
         case .terminal(let id):
             var rows: [(String, String)] = [("Tab", "Terminal")]
-            if let session = workspaceManager.terminalSession(id) {
+            if let session = workspaceManager.terminals.tabTerminal(id) {
                 rows.append(("Runs", session.profile == .shell ? "Shell" : session.profile.rawValue.capitalized))
                 rows.append(("Status", session.isRunning ? "Running" : "Exited" + (session.exitCode.map { " (code \($0))" } ?? "")))
                 rows.append(("Folder", session.directory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")))
@@ -331,22 +335,38 @@ final class BrowserOutlineModel: ObservableObject {
 
     init(session: BrowserSession) { self.session = session }
 
+    /// The page's headings and link count as JSON text. `selector` is an argument of the script (`callAsyncJavaScript(arguments:)`),
+    /// never part of its text (AR-04).
+    private static let outlineScript = """
+        return JSON.stringify({h:[...document.querySelectorAll(selector)].slice(0,300).map(function(h,i){return {i:i,l:+h.tagName[1],t:(h.innerText||'').trim().replace(/\\s+/g,' ').slice(0,140)}}),a:document.querySelectorAll('a[href]').length});
+        """
+    private static let scrollScript = """
+        const e = document.querySelectorAll(selector)[index];
+        if (e) { e.scrollIntoView({block: 'start', behavior: 'smooth'}); }
+        """
+
     func reload() {
         guard session.url != nil else { headings = []; links = 0; return }
-        let script = "JSON.stringify({h:[...document.querySelectorAll('\(Self.selector)')].slice(0,300).map(function(h,i){return {i:i,l:+h.tagName[1],t:(h.innerText||'').trim().replace(/\\s+/g,' ').slice(0,140)}}),a:document.querySelectorAll('a[href]').length})"
-        session.webView.evaluateJavaScript(script) { [weak self] value, _ in
-            guard let self, let text = value as? String, let data = text.data(using: .utf8),
+        Task { [weak self] in
+            guard let self,
+                  let value = try? await session.webView.callAsyncJavaScript(
+                      Self.outlineScript, arguments: ["selector": Self.selector], in: nil, contentWorld: .page),
+                  let text = value as? String, let data = text.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
             let list = (object["h"] as? [[String: Any]] ?? []).compactMap { entry -> Heading? in
                 guard let i = entry["i"] as? Int, let level = entry["l"] as? Int, let text = entry["t"] as? String, !text.isEmpty else { return nil }
                 return Heading(id: i, level: level, text: text)
             }
-            Task { @MainActor in self.headings = list; self.links = object["a"] as? Int ?? 0 }
+            self.headings = list
+            self.links = object["a"] as? Int ?? 0
         }
     }
 
     func scroll(to heading: Heading) {
-        session.webView.evaluateJavaScript("(function(){var e=document.querySelectorAll('\(Self.selector)')[\(heading.id)]; if(e){e.scrollIntoView({block:'start',behavior:'smooth'});}})()")
+        Task { [session] in
+            _ = try? await session.webView.callAsyncJavaScript(
+                Self.scrollScript, arguments: ["selector": Self.selector, "index": heading.id], in: nil, contentWorld: .page)
+        }
     }
 }
 
@@ -403,6 +423,7 @@ struct BrowserContentsPanel: View {
         }
         // Read the page when it finishes loading, and when the address changes.
         .onReceive(session.$isLoading.removeDuplicates()) { loading in
+            // task: reads the page 0.4 s after it finished loading; it only asks the panel's own model to reload
             if !loading { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.reload() } }
         }
         .task(id: session.url) { model.reload() }

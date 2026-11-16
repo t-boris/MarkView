@@ -31,7 +31,7 @@ A "Main operations" heading with a short list; the remaining operations appear o
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Resources/Editor/vendor/js/markview-architecture.js around lines 1461-1489; code reading only.
+MarkView current main (ade7910), MarkView/Resources/Editor/js/markview-architecture.js around lines 1461-1489; code reading only.
 
 ## Cause
 

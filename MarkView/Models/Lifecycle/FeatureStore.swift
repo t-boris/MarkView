@@ -1,4 +1,15 @@
 import Foundation
+import MarkViewCore
+
+/// Where the feature workspaces read the GitHub client of the folder's repository from: the window's `GitHubStore`.
+@MainActor
+protocol GitHubClientSource: AnyObject {
+    /// The client of the folder's repository; nil while the integration is off or the repository is not known.
+    var client: GitHubClient? { get }
+}
+
+/// The window's GitHub store is the source: the feature workspaces name it, the Git domain does not name them.
+extension GitHubStore: GitHubClientSource {}
 
 /// The feature workspaces of the open folder (`docs/features/<slug>/`): read from their Markdown
 /// files, written back as the user and the AI act on them. Files changed outside the app
@@ -18,31 +29,37 @@ final class FeatureStore: ObservableObject {
     @Published var activeSlug: String? {
         didSet {
             guard let root, let activeSlug else { return }
-            UserDefaults.standard.set(activeSlug, forKey: Self.activeKey(root))
+            Settings.standard.set(activeSlug, for: Self.activeKey(root))
         }
     }
     /// Funnel filter and order of the Issues list, kept per project (REQ-005).
     @Published var issueFilter = IssueFilter() {
         didSet {
             guard let root else { return }
-            UserDefaults.standard.set(issueFilter.storedValue, forKey: IssueListSettings.filterKey(Self.projectHash(root)))
+            Settings.standard.set(issueFilter.storedValue, for: Setting.issueFilter(project: Self.projectHash(root)))
         }
     }
     @Published var issueSort = IssueSort.default {
         didSet {
             guard let root else { return }
-            UserDefaults.standard.set(issueSort.storedValue, forKey: IssueListSettings.sortKey(Self.projectHash(root)))
+            Settings.standard.set(issueSort.storedValue, for: Setting.issueSort(project: Self.projectHash(root)))
         }
     }
     @Published var lastError: String?
 
+    /// The folder's GitHub repository, for the assistant (`FeatureAssistant.gitHubClient`); nil for a store that has none.
+    private(set) weak var gitHub: (any GitHubClientSource)?
     private(set) var root: URL?
     /// True once the project's features and bugs were read at least once since the folder was opened: only then is an empty list a
     /// project without items rather than a list not read yet.
     private(set) var hasLoaded = false
-    private var pollTask: Task<Void, Never>?
+    /// The 60 s look at the lifecycle and the files, a job of the app's scheduler (`AR-19`).
+    private let pollKey = "feature-store-" + UUID().uuidString
+    var polling = PollingScheduler.app
     private var changeMonitor: ProjectChangeMonitor?
     private var changeDebounce: Task<Void, Never>?
+    /// The reads and the lifecycle syncs that are running, keyed so that a new one replaces the old; a reset cancels them (`AR-19`).
+    private let tasks = TaskBag()
     private var fingerprint = ""
     /// Bumped by every write and reset: a background reload that started earlier is dropped.
     private var generation = 0
@@ -51,6 +68,10 @@ final class FeatureStore: ObservableObject {
     private var lastLifecycleSync: Date?
     /// The AI side of the workspaces (explore, review, actions…).
     private(set) lazy var assistant = FeatureAssistant(store: self)
+
+    init(gitHub: (any GitHubClientSource)? = nil) {
+        self.gitHub = gitHub
+    }
     /// Every status change of a feature or a bug goes through it (Models/FeatureStore+Lifecycle.swift).
     private(set) lazy var lifecycle = IssueLifecycleCoordinator(store: self)
     /// Sync of documented status to GitHub issues and its last report (issue #36).
@@ -65,7 +86,7 @@ final class FeatureStore: ObservableObject {
 
     func feature(_ slug: String) -> Feature? { features.first { $0.slug == slug } }
 
-    private static func activeKey(_ root: URL) -> String { "features.active." + projectHash(root) }
+    private static func activeKey(_ root: URL) -> SettingsKey<String> { Setting.featureActive(project: projectHash(root)) }
 
     /// Keys per-project settings.
     private static func projectHash(_ root: URL) -> String {
@@ -79,10 +100,10 @@ final class FeatureStore: ObservableObject {
         reset()
         // Restored while `root` is nil, so restoring does not write them back.
         let project = Self.projectHash(root)
-        issueFilter = IssueFilter(stored: UserDefaults.standard.stringArray(forKey: IssueListSettings.filterKey(project)))
-        issueSort = IssueSort(stored: UserDefaults.standard.string(forKey: IssueListSettings.sortKey(project)))
+        issueFilter = IssueFilter(stored: Settings.standard.stored(Setting.issueFilter(project: project)))
+        issueSort = IssueSort(stored: Settings.standard.stored(Setting.issueSort(project: project)))
         self.root = root
-        activeSlug = UserDefaults.standard.string(forKey: Self.activeKey(root))
+        activeSlug = Settings.standard.stored(Self.activeKey(root))
         reload()
         loadGitUser()
         let prefix = root.standardizedFileURL.resolvingSymlinksInPath().path
@@ -90,6 +111,7 @@ final class FeatureStore: ObservableObject {
             path == prefix || path == prefix + "/docs" || path == prefix + "/docs/features" || path.hasPrefix(prefix + "/docs/features/") ||
                 path == prefix + "/docs/bugs" || path.hasPrefix(prefix + "/docs/bugs/")
         }) { [weak self] in
+            // task: hops onto the main actor from the file-system event callback; it only restarts the debounce
             Task { @MainActor [weak self] in
                 guard let self, self.root == root else { return }
                 self.changeDebounce?.cancel()
@@ -100,24 +122,22 @@ final class FeatureStore: ObservableObject {
                 }
             }
         }
-        pollTask = Task { [weak self] in
-            var tick = 0
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                self.syncLifecycleWithGit()
-                tick += 1
-                if tick % 2 == 0 { self.reloadIfChanged() } // A fallback if the event stream is unavailable.
-            }
+        var tick = 0
+        let key = pollKey, polling = polling
+        polling.every(60, key: key) { [weak self] in
+            guard let self else { polling.stop(key: key); return }
+            self.syncLifecycleWithGit()
+            tick += 1
+            if tick % 2 == 0 { self.reloadIfChanged() } // A fallback if the event stream is unavailable.
         }
     }
 
     func reset() {
         generation += 1
+        tasks.cancelAll()
         if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
         lastLifecycleSync = nil
-        pollTask?.cancel()
-        pollTask = nil
+        polling.stop(key: pollKey)
         changeDebounce?.cancel()
         changeDebounce = nil
         changeMonitor = nil
@@ -138,12 +158,12 @@ final class FeatureStore: ObservableObject {
     func reload() {
         guard let folder = featuresFolder, let bugsFolder else { return }
         let started = generation
-        Task {
+        tasks.store(Task {
             let (loaded, bugList, print) = await Task.detached { () -> ([Feature], [BugReport], String) in
                 (Self.loadAll(folder), Self.loadBugs(bugsFolder), Self.fingerprint(folder) + "#" + Self.fingerprint(bugsFolder))
             }.value
             // The app wrote something meanwhile: this read may miss it.
-            guard folder == featuresFolder, started == generation else { return }
+            guard !Task.isCancelled, folder == featuresFolder, started == generation else { return }
             features = loaded
             bugs = bugList
             hasLoaded = true
@@ -151,16 +171,16 @@ final class FeatureStore: ObservableObject {
             lifecycle.requestReconciliation()
             fingerprint = print
             if let activeSlug, !loaded.contains(where: { $0.slug == activeSlug }) { self.activeSlug = loaded.first?.slug }
-        }
+        }, for: "reload")
     }
 
     private func reloadIfChanged() {
         guard let folder = featuresFolder, let bugsFolder else { return }
         let started = generation
-        Task {
+        tasks.store(Task {
             let print = await Task.detached { Self.fingerprint(folder) + "#" + Self.fingerprint(bugsFolder) }.value
-            if started == generation, print != fingerprint { reload() }
-        }
+            if !Task.isCancelled, started == generation, print != fingerprint { reload() }
+        }, for: "fingerprint")
     }
 
     private func updateFolderFlags() {
@@ -219,10 +239,11 @@ final class FeatureStore: ObservableObject {
 
     private func loadGitUser() {
         guard let root else { return }
-        Task {
+        tasks.store(Task {
             let output = await GitHubClient.execute(["config", "user.name"], in: root, git: true)
+            guard !Task.isCancelled else { return }
             gitUserName = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        }, for: "git-user")
     }
 
     // MARK: Writing
@@ -237,7 +258,7 @@ final class FeatureStore: ObservableObject {
 
     private func write(_ text: String, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try text.write(to: url, atomically: true, encoding: .utf8)
+        try AtomicFile.write(text, to: url)
     }
 
     /// Create a feature: its folder and overview. Returns its slug.
@@ -727,8 +748,8 @@ final class FeatureStore: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let model = Self.answeredModel(tool, directory: directory, since: runningSince) ?? fallback ?? tool.displayName
             await MainActor.run {
-                LifecycleLog.shared.record(.workStarted, project: project, feature: slug, actor: actor,
-                                           model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
+                _ = LifecycleLog.shared.record(.workStarted, project: project, feature: slug, actor: actor,
+                                               model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
             }
         }
     }
@@ -737,11 +758,7 @@ final class FeatureStore: ObservableObject {
     /// terminal that has not started yet or a CLI without a readable log.
     nonisolated private static func answeredModel(_ tool: CLITool, directory: URL, since: Date?) -> String? {
         guard let since else { return nil }
-        switch tool {
-        case .claude: return AgentModelProbe.claudeModel(cwd: directory, since: since)
-        case .codex: return AgentModelProbe.codexModel(cwd: directory, since: since)
-        default: return nil
-        }
+        return tool.provider.answeredModel(in: directory, since: since)
     }
 
     /// Features whose GitHub and git history is followed: those with an "implementation
@@ -774,8 +791,9 @@ final class FeatureStore: ObservableObject {
         guard !targets.isEmpty else { return }
         lastLifecycleSync = Date()
         let actor = lifecycleActor
-        Task {
+        tasks.store(Task {
             for target in targets {
+                guard !Task.isCancelled else { return }
                 if !target.issues.isEmpty, let found = try? await client.lifecycleCaptures(numbers: target.issues) {
                     for capture in found.captures where capture.date >= target.since {
                         recordCapture(capture.stage, date: capture.date, note: capture.note, feature: target.slug, project: project, actor: actor)
@@ -810,7 +828,7 @@ final class FeatureStore: ObservableObject {
                     recordCapture(.ciPassed, date: date, note: note, feature: target.slug, project: project, actor: actor)
                 }
             }
-        }
+        }, for: "lifecycle-github")
     }
 
     /// Work committed straight to the default branch: a commit naming the feature folder or one of
@@ -821,9 +839,10 @@ final class FeatureStore: ObservableObject {
         let targets = lifecycleTargets
         guard !targets.isEmpty else { return }
         let actor = lifecycleActor
-        Task {
+        tasks.store(Task {
             guard let branch = await Self.defaultBranch(root) else { return }
             let output = await GitHubClient.execute(LifecycleGit.logArguments(branch: branch), in: root, git: true)
+            guard !Task.isCancelled else { return }
             let commits = LifecycleGit.commits(from: output.stdout)
             for target in targets {
                 for commit in commits where commit.date >= target.since
@@ -831,7 +850,7 @@ final class FeatureStore: ObservableObject {
                     recordCapture(.mergedToMain, date: commit.date, note: commit.note, feature: target.slug, project: project, actor: actor)
                 }
             }
-        }
+        }, for: "lifecycle-git")
     }
 
     /// The branch `origin/HEAD` points at (its local copy when there is one), else main or master.

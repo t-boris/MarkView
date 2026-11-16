@@ -4,7 +4,7 @@ import Darwin
 /// One step gets a fresh existing agent terminal and a one-use reporting ticket.
 @MainActor
 final class CockpitAgentAttempt {
-    private weak var workspace: WorkspaceManager?
+    private weak var assistants: (any AssistantProviding)?
     private let root: URL
     private var session: TerminalSession?
     private var ticket: UUID?
@@ -35,15 +35,15 @@ final class CockpitAgentAttempt {
     var stepModel: String?
     private var ledger = CockpitSupervisor.Ledger()
 
-    init(workspace: WorkspaceManager, root: URL, onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
-        self.workspace = workspace; self.root = root.standardizedFileURL; self.onProgress = onProgress
+    init(assistants: any AssistantProviding, root: URL, onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
+        self.assistants = assistants; self.root = root.standardizedFileURL; self.onProgress = onProgress
     }
 
     func run(_ task: CockpitHostTask) async -> CockpitHostReply {
-        guard !Task.isCancelled, let workspace,
+        guard !Task.isCancelled, let assistants,
               let tool = CLITool.allCases.first(where: { $0.displayName == task.step.agent }),
-              BrowserControlServer.agentToolsEnabled(tool),
-              let terminal = workspace.openAITerminal(TerminalProfile(tool), model: stepModel) else {
+              tool.agentToolsEnabled,
+              let terminal = assistants.openAITerminal(TerminalProfile(tool), resuming: false, model: stepModel) else {
             return Self.failure("The assigned agent or its MarkView project tools are unavailable.")
         }
         guard terminal.directory.standardizedFileURL == root else {
@@ -62,7 +62,7 @@ final class CockpitAgentAttempt {
         progress = nil
         // One attempt object serves every step of the run: what a step asked the supervisor is not carried into the next.
         ledger = CockpitSupervisor.Ledger()
-        workspace.showAIConsole()
+        assistants.showAIConsole()
         terminal.start()
         guard let pty = terminal.duplicateCockpitPTY() else {
             terminal.terminateCockpitStep()
@@ -117,6 +117,7 @@ final class CockpitAgentAttempt {
                     Assignment and prior results (JSON):
                     \(assignment)
                     """
+                    let root = self.root
                     watchdogTask = Task { [weak self, weak terminal] in
                         do {
                             let watcher = try await CockpitService.forProject(root).watchdog(ptyDescriptor: pty.descriptor, shell: pty.shell,

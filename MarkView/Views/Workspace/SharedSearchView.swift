@@ -58,7 +58,7 @@ final class SharedSearchModel: ObservableObject {
             }
         }
         guard let url = ProjectSearchRoot.url(for: path, in: roots) else { return false }
-        let linked = workspaceManager.linkedFolders
+        let linked = workspaceManager.project.linkedFolders
         // The result must still be under a root of the search (the project or a linked folder).
         let valid = await Task.detached { () -> Bool in
             let resolved = url.resolvingSymlinksInPath().standardizedFileURL
@@ -77,7 +77,7 @@ final class SharedSearchModel: ObservableObject {
             }
         } else if url.pathExtension.lowercased() == "pdf" {
             workspaceManager.openFile(url)
-            if let page = result.page, case .pdf(let reader)? = workspaceManager.activeTab?.kind {
+            if let page = result.page, case .pdf(let reader)? = workspaceManager.tabs.activeTab?.kind {
                 reader.openPageWhenReady(page)
             }
         } else if result.scope == .content, let line = result.line, !FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
@@ -87,6 +87,7 @@ final class SharedSearchModel: ObservableObject {
             if result.scope == .content {
                 // An FTS match may contain separated query terms; the first term still locates the passage.
                 let text = result.line == nil ? String(query.split(whereSeparator: { $0.isWhitespace }).first ?? "") : query
+                // task: posts one notification 0.4 s after the file opened; it owns nothing
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: text)
                 }
@@ -124,6 +125,9 @@ final class SharedSearchModel: ObservableObject {
 struct SharedSearchView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
+    @EnvironmentObject private var git: GitClient
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = SharedSearchModel()
     @FocusState private var searchFocused: Bool
@@ -139,7 +143,7 @@ struct SharedSearchView: View {
                     .focused($searchFocused)
                     .onChange(of: model.query) { _ in model.scheduleSearch(documentDatabasePath: workspaceManager.semanticDatabase?.dbPath) }
                 if model.indexing { ProgressView().controlSize(.small) }
-                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
+                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh project search index")
@@ -213,11 +217,11 @@ struct SharedSearchView: View {
             .background(palette.bg)
         }
         .frame(minWidth: 620, minHeight: 420)
-        .task(id: workspaceManager.searchRootsKey) {
-            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders)
+        .task(id: workspaceManager.project.searchRootsKey) {
+            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders)
         }
         .onAppear { searchFocused = true }
-        .onReceive(workspaceManager.$semanticDatabase) { database in
+        .onReceive(workspaceManager.project.$database) { database in
             if !model.query.isEmpty { model.scheduleSearch(documentDatabasePath: database?.dbPath) }
         }
     }
@@ -277,7 +281,7 @@ struct SharedSearchView: View {
                 NotificationCenter.default.post(name: .showFolderPicker, object: nil)
             }),
             SearchCommand(id: "new-project", title: "New Project…", symbol: "plus.square", detail: "File menu", run: {
-                manager.newProject = NewProjectRequest()
+                manager.requests.newProject = NewProjectRequest()
             }),
             SearchCommand(id: "theme", title: "Theme…", symbol: "paintpalette", detail: "⌘⇧T", run: {
                 manager.theme.showsPicker = true
@@ -286,10 +290,10 @@ struct SharedSearchView: View {
                 DDESettingsWindow.show(workspace: manager)
             })
         ]
-        if manager.rootNode != nil {
+        if fileTree.rootNode != nil {
             commands += [
                 SearchCommand(id: "map", title: "Show Project Map", symbol: "viewfinder", detail: "⌘4", run: {
-                    manager.openArchitecture()
+                    manager.codeXRay.openArchitecture()
                 }),
                 SearchCommand(id: "work", title: "Show Work", symbol: "checklist", detail: "Workspace", run: {
                     manager.layout.workspaceArea = .work
@@ -298,33 +302,33 @@ struct SharedSearchView: View {
                     manager.showAIConsole()
                 }),
                 SearchCommand(id: "new-feature", title: "New Feature…", symbol: "plus.square", detail: "Work", run: {
-                    manager.intake = IntakeRequest(kind: .feature)
+                    manager.requests.intake = IntakeRequest(kind: .feature)
                 }),
                 SearchCommand(id: "new-bug", title: "New Bug…", symbol: "ladybug", detail: "Work", run: {
-                    manager.intake = IntakeRequest(kind: .bug)
+                    manager.requests.intake = IntakeRequest(kind: .bug)
                 }),
                 SearchCommand(id: "deployments", title: "Show Build & Deployment", symbol: "server.rack", detail: "Where the project runs", run: {
-                    manager.openDeployments()
+                    manager.openTool(.deployments)
                 }),
                 SearchCommand(id: "git", title: "Show Git", symbol: "arrow.triangle.branch", detail: "Work", run: {
-                    manager.openGit()
+                    manager.openTool(.git)
                 })
             ]
-            if manager.gitClient.isGitRepo {
+            if git.isGitRepo {
                 commands += [
                     SearchCommand(id: "pull", title: "Git Pull", symbol: "arrow.down", detail: "Work · Git", run: {
-                        Task { await manager.gitClient.pull() }
+                        Task { await git.pull() }
                     }),
                     SearchCommand(id: "push", title: "Git Push", symbol: "arrow.up", detail: "Work · Git", run: {
-                        Task { await manager.gitClient.push() }
+                        Task { await git.push() }
                     })
                 ]
             }
         }
-        if manager.activeTab?.isFileBacked == true {
+        if tabs.activeTab?.isFileBacked == true {
             commands += [
                 SearchCommand(id: "save", title: "Save", symbol: "square.and.arrow.down", detail: "⌘S", run: {
-                    manager.saveActiveFile()
+                    tabs.saveActiveFile()
                 }),
                 SearchCommand(id: "pdf", title: "Export PDF…", symbol: "doc.richtext", detail: "⌘E", run: {
                     NotificationCenter.default.post(.exportPDFRequested, for: manager)

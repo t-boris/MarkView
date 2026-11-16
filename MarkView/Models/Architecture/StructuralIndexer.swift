@@ -1,31 +1,34 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Deterministic structural indexer — no LLM.
 /// Scans directory tree, parses markdown, records per-folder rows, indexes FTS5.
-/// Heavy file I/O runs off the main thread; DB writes hop back to @MainActor.
-class StructuralIndexer: @unchecked Sendable {
+/// File I/O runs off the main thread, and so do the database writes: `SemanticDatabase` is an actor.
+final class StructuralIndexer: Sendable {
     let db: SemanticDatabase
     let rootURL: URL
     /// Folders linked to the project (Task 59): their Markdown is indexed under `@linked/<name>/…` ids.
     let linkedFolders: [LinkedFolder]
-    var progress: (@Sendable (String) -> Void)?
+    let progress: (@Sendable (String) -> Void)?
 
-    init(db: SemanticDatabase, rootURL: URL, linkedFolders: [LinkedFolder] = []) {
+    init(db: SemanticDatabase, rootURL: URL, linkedFolders: [LinkedFolder] = [], progress: (@Sendable (String) -> Void)? = nil) {
         self.db = db
         self.rootURL = rootURL
         self.linkedFolders = linkedFolders
+        self.progress = progress
     }
 
     // MARK: - Full Index
 
     /// Index the entire folder — skips if already indexed and no files changed.
-    /// Runs file I/O on a background thread, DB writes on MainActor.
+    /// Runs file I/O on a background thread and the writes on the database actor.
     func indexAll() async {
-        // Batch-fetch stored state up front — ONE main-thread hop instead of one per file.
-        // (The old-scheme DB reset happens cheaply in SemanticDatabase.init by discarding
-        // the whole file, so by here the DB is always the current scheme.)
-        let existingModules = await MainActor.run { db.allModules() }
-        let storedMeta = await MainActor.run { db.allDocumentMeta() }
+        // Batch-fetch stored state up front — ONE query instead of one per file.
+        // (Schema migrations ran when the database was opened, so by here it is the current scheme.)
+        let existingModules = await db.allModules()
+        let storedMeta = await db.allDocumentMeta()
         let isFirstIndex = existingModules.isEmpty
 
         // SINGLE tree walk: builds the module graph and classifies every markdown file
@@ -38,7 +41,7 @@ class StructuralIndexer: @unchecked Sendable {
             let deleted = Set(storedMeta.keys).subtracting(scan.seenDocIds)
             if deleted.isEmpty {
                 progress?("Index up to date")
-                NSLog("[StructuralIndexer] Skipping — already indexed, no changes")
+                AppLog.index.notice("Skipping — already indexed, no changes")
                 return
             }
         }
@@ -47,7 +50,7 @@ class StructuralIndexer: @unchecked Sendable {
         await writeModules(scan.modules)
         await writeChangedDocs(scan.changedDocs)
         progress?("Indexing complete")
-        NSLog("[StructuralIndexer] Indexed \(scan.changedDocs.count) changed of \(scan.seenDocIds.count) files")
+        AppLog.index.notice("Indexed \(scan.changedDocs.count) changed of \(scan.seenDocIds.count) files")
     }
 
     // MARK: - Single-pass scan
@@ -131,7 +134,7 @@ class StructuralIndexer: @unchecked Sendable {
                 for root in roots {
                     if let counter = fm.enumerator(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
                         while let u = counter.nextObject() as? URL {
-                            if u.pathExtension.lowercased() == "md", !u.path.contains("/.dde/") { totalMd += 1 }
+                            if u.pathExtension.lowercased() == "md", !ProjectPaths.isInLocalFolder(u) { totalMd += 1 }
                         }
                     }
                 }
@@ -143,7 +146,7 @@ class StructuralIndexer: @unchecked Sendable {
                 var fileCount = 0
 
                 while let url = nextURL() {
-                    guard url.pathExtension.lowercased() == "md", !url.path.contains("/.dde/") else { continue }
+                    guard url.pathExtension.lowercased() == "md", !ProjectPaths.isInLocalFolder(url) else { continue }
 
                     // Everything below is derived from docId (the workspace-relative
                     // path, or "@linked/<name>/…" in a linked folder) with pure "/" string
@@ -269,26 +272,24 @@ class StructuralIndexer: @unchecked Sendable {
                 modules.sort { $0.level < $1.level }
 
                 self.progress?("Writing \(changedDocs.count) files to index...")
-                NSLog("[StructuralIndexer] Scanned \(fileCount) files, \(changedDocs.count) changed")
+                AppLog.index.notice("Scanned \(fileCount) files, \(changedDocs.count) changed")
                 continuation.resume(returning: ScanResult(modules: modules, changedDocs: changedDocs, seenDocIds: seenDocIds))
             }
         }
     }
 
-    /// Upsert the module graph on the main thread (cheap — one batch).
+    /// Upsert the module graph (cheap — one batch).
     private func writeModules(_ modules: [ModuleRow]) async {
-        await MainActor.run {
-            for mod in modules {
-                db.upsertModule(id: mod.modId, name: mod.name, path: mod.url.path,
-                                parentId: mod.parentId, level: mod.level, fileCount: mod.fileCount)
-            }
+        for mod in modules {
+            await db.upsertModule(id: mod.modId, name: mod.name, path: mod.url.path,
+                                  parentId: mod.parentId, level: mod.level, fileCount: mod.fileCount)
         }
     }
 
     // MARK: - Write changed documents
 
-    /// Write changed/new documents in MainActor chunks, yielding between batches
-    /// so the UI stays responsive. Unchanged documents are never touched.
+    /// Write changed/new documents in chunks, yielding between batches so other users of
+    /// the database are served in between. Unchanged documents are never touched.
     private func writeChangedDocs(_ docs: [ParsedDoc]) async {
         let rootName = rootURL.lastPathComponent
         let chunkSize = 50
@@ -296,25 +297,23 @@ class StructuralIndexer: @unchecked Sendable {
             let chunkEnd = min(chunkStart + chunkSize, docs.count)
             let chunk = docs[chunkStart..<chunkEnd]
 
-            await MainActor.run {
-                for doc in chunk {
-                    try? db.upsertDocument(id: doc.docId, projectId: rootName,
-                                           filePath: doc.filePath, fileName: (doc.filePath as NSString).lastPathComponent, fileExt: "md",
-                                           contentHash: doc.contentHash, fileMtime: doc.mtime)
-                    for sym in doc.symbols {
-                        db.insertSymbol(id: sym.id, moduleId: sym.moduleId, documentId: sym.documentId,
-                                       name: sym.name, kind: sym.kind, lineStart: sym.lineStart, lineEnd: sym.lineEnd,
-                                       context: sym.context)
-                    }
-                    for rel in doc.relations {
-                        db.insertRelation(id: rel.id, sourceId: rel.sourceId, targetId: rel.targetId,
-                                          type: rel.type, sourceDoc: rel.sourceDoc, evidence: rel.evidence)
-                    }
-                    db.indexDocumentFTS(documentId: doc.docId, title: doc.ftsTitle, content: doc.content)
+            for doc in chunk {
+                try? await db.upsertDocument(id: doc.docId, projectId: rootName,
+                                             filePath: doc.filePath, fileName: (doc.filePath as NSString).lastPathComponent, fileExt: "md",
+                                             contentHash: doc.contentHash, fileMtime: doc.mtime)
+                for sym in doc.symbols {
+                    await db.insertSymbol(id: sym.id, moduleId: sym.moduleId, documentId: sym.documentId,
+                                          name: sym.name, kind: sym.kind, lineStart: sym.lineStart, lineEnd: sym.lineEnd,
+                                          context: sym.context)
                 }
+                for rel in doc.relations {
+                    await db.insertRelation(id: rel.id, sourceId: rel.sourceId, targetId: rel.targetId,
+                                            type: rel.type, sourceDoc: rel.sourceDoc, evidence: rel.evidence)
+                }
+                await db.indexDocumentFTS(documentId: doc.docId, title: doc.ftsTitle, content: doc.content)
             }
 
-            // Yield between chunks so UI stays responsive
+            // Yield between chunks
             await Task.yield()
 
             if chunkStart % 200 == 0 {
@@ -322,7 +321,7 @@ class StructuralIndexer: @unchecked Sendable {
             }
         }
 
-        NSLog("[StructuralIndexer] Wrote \(docs.count) changed documents")
+        AppLog.index.notice("Wrote \(docs.count) changed documents")
     }
 
     // MARK: - Helpers

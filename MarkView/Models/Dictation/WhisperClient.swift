@@ -2,6 +2,9 @@ import Foundation
 import AVFoundation
 import AVFAudio
 import Security
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Voice input — records audio and turns it into text: with an OpenAI key by the Whisper API,
 /// without one by macOS's own recognition on this Mac (`OnDeviceSpeech`). Everything that dictates
@@ -47,16 +50,14 @@ class WhisperClient: ObservableObject {
     /// under Whisper's 25 MB upload limit. The recorder stops by itself at this length.
     static let maxRecordingDuration: TimeInterval = 600
 
-    static let apiKeyStorage = "com.markview.dde.openai.apikey"
-    private static let keychainService = "com.markview.dde.openai"
-    private static let keychainAccount = "apikey"
-    static let modelStorage = "settings.whisper.model"
+    private nonisolated static let keychainService = "com.markview.dde.openai"
+    private nonisolated static let keychainAccount = "apikey"
 
     /// Reads the OpenAI API key from Keychain, migrating any legacy UserDefaults entry on first access (AR-10).
     nonisolated static func loadAPIKey() -> String? {
-        if let legacy = UserDefaults.standard.string(forKey: apiKeyStorage), !legacy.isEmpty {
+        if let legacy = Settings.standard.stored(Setting.legacyOpenAIKey), !legacy.isEmpty {
             if saveAPIKeyToKeychain(legacy) {
-                UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+                Settings.standard.remove(Setting.legacyOpenAIKey)
             }
             return legacy
         }
@@ -79,7 +80,7 @@ class WhisperClient: ObservableObject {
     /// Saves the OpenAI API key to Keychain and removes any plaintext copy from UserDefaults only on success (AR-10, FU-09).
     nonisolated static func saveAPIKey(_ key: String) {
         if saveAPIKeyToKeychain(key) {
-            UserDefaults.standard.removeObject(forKey: apiKeyStorage)
+            Settings.standard.remove(Setting.legacyOpenAIKey)
         }
     }
 
@@ -113,11 +114,11 @@ class WhisperClient: ObservableObject {
 
     /// Transcription models OpenAI accepts on /v1/audio/transcriptions.
     static let availableModels = ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"]
-    static let defaultModel = "whisper-1"
+    static let defaultModel = Setting.whisperModel.defaultValue
 
     /// Model used for transcription, configurable in DDE Settings.
     static var selectedModel: String {
-        let stored = UserDefaults.standard.string(forKey: modelStorage) ?? ""
+        let stored = Settings.standard.value(Setting.whisperModel)
         return availableModels.contains(stored) ? stored : defaultModel
     }
 
@@ -178,6 +179,7 @@ class WhisperClient: ObservableObject {
             beginRecording()
         case .notDetermined:
             let requested = generation
+            // task: asks the system for speech access; the generation check drops the answer when the recording was cancelled
             Task {
                 let status = await OnDeviceSpeech.requestAuthorization()
                 guard generation == requested else { return }
@@ -218,15 +220,15 @@ class WhisperClient: ObservableObject {
             isRecording = started
             if started {
                 Self.active = self
-                NSLog("[Whisper] Recording started")
+                AppLog.dictation.notice("Recording started")
             } else {
                 try? FileManager.default.removeItem(at: url)
                 error = "Failed to start recording — check microphone"
-                NSLog("[Whisper] record() returned false")
+                AppLog.dictation.notice("record() returned false")
             }
         } catch {
             self.error = "Microphone error: \(error.localizedDescription)"
-            NSLog("[Whisper] Recording error: \(error)")
+            AppLog.dictation.error("Recording error: \(error)")
         }
     }
 
@@ -242,7 +244,7 @@ class WhisperClient: ObservableObject {
         // Check file exists and has content
         guard let attrs = try? fm.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int, size > 100 else {
-            NSLog("[Whisper] Recording file empty or missing")
+            AppLog.dictation.error("Recording file empty or missing")
             error = "Recording failed — no audio captured"
             return nil
         }
@@ -253,7 +255,9 @@ class WhisperClient: ObservableObject {
             return RecordingLevel.peak(ofWAV: data)
         }.value
         lastPeakDB = peak.map(RecordingLevel.decibels)
-        NSLog("[Whisper] Recording stopped, file size: \(size) bytes, peak \(lastPeakDB.map { "\($0) dB" } ?? "unknown"), transcribing (\(Self.engine == .openAI ? "OpenAI" : "on this Mac"))...")
+        let peakText = lastPeakDB.map { "\($0) dB" } ?? "unknown"
+        let engineName = Self.engine == .openAI ? "OpenAI" : "on this Mac"
+        AppLog.dictation.notice("Recording stopped, file size: \(size) bytes, peak \(peakText), transcribing (\(engineName))...")
         guard generation == started else { return nil }
         if let peak, RecordingLevel.isSilent(peak) {
             fail(.silence(peakDB: RecordingLevel.decibels(peak)))
@@ -317,7 +321,7 @@ class WhisperClient: ObservableObject {
         self.language = OnDeviceSpeech.displayName(language)
         do {
             let text = try await OnDeviceSpeech.transcribe(fileURL: fileURL, language: language)
-            NSLog("[Speech] Recognized \(text.count) characters in \(language)")
+            AppLog.dictation.notice("Recognized \(text.count) characters in \(language)")
             transcribedText = text
             return text
         } catch OnDeviceSpeech.Failure.languageNotInstalled(let name) {
@@ -327,7 +331,7 @@ class WhisperClient: ObservableObject {
             // Cancelled on purpose (`cancel()`): not a failure to report.
             if Task.isCancelled || error is CancellationError { return nil }
             let nsError = error as NSError
-            NSLog("[Speech] Recognition failed: \(nsError.domain) \(nsError.code)")
+            AppLog.dictation.error("Recognition failed: \(nsError.domain) \(nsError.code)")
             fail(.recognition(domain: nsError.domain, code: nsError.code))
             return nil
         }
@@ -385,7 +389,7 @@ class WhisperClient: ObservableObject {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 let failure = TranscriptionFailure.http(status: status, body: data, model: Self.selectedModel)
                 // Status and error code only: the body can echo part of the API key.
-                NSLog("[Whisper] Transcription failed: \(failure.tag ?? "HTTP \(status)")")
+                AppLog.dictation.error("Transcription failed: \(failure.tag ?? "HTTP \(status)")")
                 fail(failure)
                 return nil
             }
@@ -396,13 +400,13 @@ class WhisperClient: ObservableObject {
                 return nil
             }
 
-            NSLog("[Whisper] Transcribed \(text.count) characters")
+            AppLog.dictation.notice("Transcribed \(text.count) characters")
             transcribedText = text
             return text
         } catch {
             // Cancelled on purpose (`cancel()`): not a failure to report.
             if Task.isCancelled || (error as? URLError)?.code == .cancelled { return nil }
-            NSLog("[Whisper] Transcription request failed: \(error)")
+            AppLog.dictation.error("Transcription request failed: \(error)")
             fail(.network(error))
             return nil
         }

@@ -20,5 +20,5 @@ open(sys.argv[1], "w", encoding="utf-8").write(match.group(1).replace("\\\\", "\
 EOF
 
 cp tools/tests/PrototypeSchemeTests.swift "$out/main.swift"
-swiftc -O -o "$out/prototype-scheme-tests" MarkView/Bridge/PrototypeSchemeHandler.swift "$out/main.swift"
+swiftc -O -o "$out/prototype-scheme-tests" MarkView/Bridge/PrototypeSchemeHandler.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$out/main.swift"
 "$out/prototype-scheme-tests" "$out/listener.js"

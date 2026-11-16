@@ -9,7 +9,9 @@ import WebKit
 //   - an accent override reaches the accent colours and a reset returns the appearance's own;
 //   - a theme change is only a restyle: the page is not reloaded, text and scroll position stay;
 //   - two pages (two windows) hold different appearances at the same time;
-//   - the first paint follows the attributes Swift writes into the page text;
+//   - the first paint follows the attributes Swift writes into the page text (and, for the pages loaded from a file, the script it injects);
+//   - the pages hold no colours of any theme: every theme reaches them as the data WindowTheme sends (the same JSON file the native
+//     views read), including two theme files a person wrote with native colours only (web tokens derived, then painted and measured);
 //   - Classic Dark and Classic Light still paint every sampled element with the colours of the page before themes
 //     (the fixture Tests/Fixtures/themes/classic-computed.json, captured from the code of origin/main).
 // Modes (through tools/tests/theme-web-tests.sh):
@@ -49,7 +51,7 @@ final class Page: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     var loaded = false
     var messages: [[String: Any]] = []
 
-    init(width: CGFloat = 1100, height: CGFloat = 760) {
+    init(width: CGFloat = 1100, height: CGFloat = 760, firstPaint: String? = nil) {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         let recorder = WKUserScript(source: """
@@ -58,6 +60,8 @@ final class Page: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         window.addEventListener('unhandledrejection', function (e) { window.__errors.push('rejection: ' + (e.reason && e.reason.message || e.reason)); });
         """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         config.userContentController.addUserScript(recorder)
+        // What the app injects into a page loaded from a file (discussion, terminal): the theme attributes, before the page's own scripts.
+        if let firstPaint { config.userContentController.addUserScript(WKUserScript(source: firstPaint, injectionTime: .atDocumentStart, forMainFrameOnly: true)) }
         // A window that is never shown does not run transitions, so a colour would stay at its old value: measure end states.
         let still = WKUserScript(source: """
         (function () { const style = document.createElement('style'); style.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; }'; document.documentElement.appendChild(style); })();
@@ -125,7 +129,7 @@ final class Page: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
 // ---- colours ----------------------------------------------------------------------------------------------------------
 /// The appearances: id, mode, and the base colours of the native palettes or the old page (Classic).
 struct Look { let id: String; let dark: Bool; let background: String; let panel: String; let text: String; let accent: String; let classic: Bool }
-let looks: [Look] = [
+let shippedLooks: [Look] = [
     Look(id: "classic-dark", dark: true, background: "#1e1e1e", panel: "#252526", text: "#d4d4d4", accent: "#569cd6", classic: true),
     Look(id: "classic-light", dark: false, background: "#ffffff", panel: "#f3f3f3", text: "#1e1e1e", accent: "#569cd6", classic: true),
     Look(id: "darcula", dark: true, background: "#2b2b2b", panel: "#323232", text: "#e0e0e0", accent: "#e6a15c", classic: false),
@@ -138,7 +142,55 @@ let looks: [Look] = [
     Look(id: "paper", dark: false, background: "#fffcf5", panel: "#f2ede3", text: "#292724", accent: "#315e9b", classic: false),
     Look(id: "daylight", dark: false, background: "#f7f9fc", panel: "#e8edf4", text: "#1f2933", accent: "#0f766e", classic: false),
 ]
+
+// Two theme files of the kind a person writes: native colours only, so every web token of them is derived.
+let userThemesFolder = FileManager.default.temporaryDirectory.appendingPathComponent("theme-web-tests-themes-\(UUID().uuidString)", isDirectory: true)
+try? FileManager.default.createDirectory(at: userThemesFolder, withIntermediateDirectories: true)
+scratchFolders.append(userThemesFolder)
+func writeUserTheme(_ id: String, name: String, bg: String, panel: String, text: String, accent: String) {
+    let json = ##"{"schema":1,"id":"\##(id)","name":"\##(name)","native":{"bg":"\##(bg)","bgSidebar":"\##(panel)","text":"\##(text)","accent":"\##(accent)"}}"##
+    try? Data(json.utf8).write(to: userThemesFolder.appendingPathComponent("\(id).json"))
+}
+writeUserTheme("ocean", name: "Ocean", bg: "#0B1620", panel: "#101F2C", text: "#E6EEF5", accent: "#4FC3F7")
+writeUserTheme("sand", name: "Sand", bg: "#FBF6EC", panel: "#F0E8D8", text: "#2B2A28", accent: "#9A4F1B")
+let userLooks = [
+    Look(id: "ocean", dark: true, background: "#0b1620", panel: "#101f2c", text: "#e6eef5", accent: "#4fc3f7", classic: false),
+    Look(id: "sand", dark: false, background: "#fbf6ec", panel: "#f0e8d8", text: "#2b2a28", accent: "#9a4f1b", classic: false),
+]
+let looks = shippedLooks + userLooks
 let presets = looks.filter { !$0.classic }
+
+// ---- what Swift sends: the real WindowTheme of each appearance --------------------------------------------------------
+/// The three forms a window gives the web: the arguments of the page's theme function, the attributes written into the page
+/// text, and the script injected into a page loaded from a file. All of them are produced by WindowTheme from the theme's data.
+struct Sent { let arguments: WebThemeArguments; let payload: String; let attributes: String; let firstPaint: String }
+let sentCatalog: ThemeCatalog = MainActor.assumeIsolated { ThemeCatalog(userFolder: userThemesFolder) }
+var sentCache: [String: Sent] = [:]
+func sentFor(_ id: String, accent: String? = nil) -> Sent {
+    let key = id + "|" + (accent ?? "")
+    if let cached = sentCache[key] { return cached }
+    let made: Sent = MainActor.assumeIsolated {
+        let name = "theme-web-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let theme = AppTheme(id)
+        let accents: [AppTheme: ThemeColor] = accent.flatMap { ThemeColor(hex: $0) }.map { [theme: $0] } ?? [:]
+        let window = WindowTheme(settings: WindowThemeSettings(theme: theme, accents: accents), store: ThemeSettingsStore(defaults: defaults), catalog: sentCatalog)
+        return Sent(arguments: window.webArguments, payload: window.webArguments.payload, attributes: window.htmlAttributes, firstPaint: window.firstPaintScript)
+    }
+    sentCache[key] = made
+    return made
+}
+/// The script a host sends to a page to set the theme: the same `JS.call` the hosts use.
+func themeCall(_ function: String, _ sent: Sent) -> String { JS.call(function, args: sent.arguments.list) ?? "throw new Error('theme not encodable')" }
+/// The theme data of an appearance as the page receives it (the JSON after the first two arguments).
+func definitionObject(_ id: String) -> [String: Any] {
+    (try? JSONSerialization.jsonObject(with: Data(sentFor(id).payload.utf8)) as? [String: Any]) ?? [:]
+}
+/// Hands every appearance's data to a page, as repeated theme changes would have.
+func defineAll(_ page: Page) {
+    _ = page.js("defs.forEach(function (d) { MarkViewThemes.define(d); }); return 'ok';", ["defs": looks.map { definitionObject($0.id) }])
+}
 
 /// "rgb(30, 30, 30)" / "rgba(30, 30, 30, 0.5)" → [30, 30, 30, alpha]
 func parseRGB(_ text: String) -> [Double]? {
@@ -228,10 +280,10 @@ return JSON.stringify(out);
 /// Sets the appearance through whichever entry point the page has (the old page took 'dark' or 'light').
 func setLook(_ page: Page, _ look: Look, accent: String? = nil) {
     _ = page.js("""
-    if (window.MarkViewThemes) window.setTheme(id, accent);
+    if (window.MarkViewThemes) \(themeCall("window.setTheme", sentFor(look.id, accent: accent)));
     else { window.setTheme('dark'); window.setTheme(dark ? 'dark' : 'light'); }   // the old page ignored a mode equal to its remembered one
     return 'ok';
-    """, ["id": look.id, "accent": accent ?? "", "dark": look.dark])
+    """, ["dark": look.dark])
     spin(0.35)
 }
 func samples(_ page: Page) -> [String: [String: String]] {
@@ -306,6 +358,10 @@ let loadErrors = page.errors
 print("info page errors after loading: \(loadErrors.count) \(loadErrors.prefix(3))")
 let baselineErrors = loadErrors.count
 check(page.eval("document.querySelector('.editor-rendered h1') !== null") == "true", "the sample document is drawn (heading present)")
+// The page has no colours of any theme of its own: the data of a theme arrives with the call that applies it.
+check(page.eval("Object.keys(MarkViewThemes.themes).length") == "0", "a page that was given no theme data holds none", page.eval("Object.keys(MarkViewThemes.themes).join()"))
+defineAll(page)
+check(page.eval("MarkViewThemes.ids().length") == "\(looks.count)", "after being given them the page knows every appearance (\(looks.count))", page.eval("MarkViewThemes.ids().join()"))
 
 // The tokens of every appearance: the contrast the specification asks for, computed from the page's own functions.
 let tokenReport = page.js("""
@@ -313,7 +369,7 @@ const T = window.MarkViewThemes, c = T.color, bad = [];
 function chk(id, name, fg, bgs, min) {
   bgs.forEach(function (b) { const r = c.contrast(fg, b[1]); if (r < min) bad.push(id + ': ' + name + ' ' + fg + ' on ' + b[0] + ' ' + b[1] + ' = ' + r.toFixed(2) + ' < ' + min); });
 }
-T.ids.filter(function (id) { return !T.themes[id].classic; }).forEach(function (id) {
+T.ids().filter(function (id) { return !T.themes[id].vars; }).forEach(function (id) {
   const v = T.varsFor(id, ''), bgs = [['bg', v['--bg-primary']], ['panel', v['--bg-secondary']]];
   ['--text-primary', '--text-secondary', '--text-tertiary', '--accent-primary', '--accent-secondary', '--accent-warning', '--accent-success',
    '--accent-danger', '--h2-color', '--h3-color', '--ok-text', '--warn-text', '--bad-text', '--struct-key', '--struct-string', '--struct-number',
@@ -351,8 +407,8 @@ check(tokenFailures.isEmpty, "every preset's text pairs meet 4.5:1 (cursor and s
 
 // Every appearance defines the same set of custom properties (nothing is left to the previous appearance).
 let keyReport = page.js("""
-const T = window.MarkViewThemes, first = Object.keys(T.varsFor(T.ids[0], '')).sort().join();
-return JSON.stringify(T.ids.filter(function (id) { return Object.keys(T.varsFor(id, '')).sort().join() !== first; }));
+const T = window.MarkViewThemes, ids = T.ids(), first = Object.keys(T.varsFor(ids[0], '')).sort().join();
+return JSON.stringify(ids.filter(function (id) { return Object.keys(T.varsFor(id, '')).sort().join() !== first; }));
 """)
 check(keyReport == "[]", "all appearances define the same custom properties", keyReport)
 
@@ -479,8 +535,8 @@ let newErrors = page.errors
 check(newErrors.count == baselineErrors, "theme changes raise no page errors", "\(newErrors.dropFirst(baselineErrors))")
 
 // The first paint follows the attributes Swift writes into the page text (no setTheme call is needed).
-for look in [looks[3], looks[5]] {
-    let attributes = "data-preset=\"\(look.id)\" data-theme=\"\(look.dark ? "dark" : "light")\" data-accent=\"#C0FFEE\""
+for look in [looks[3], looks[5], looks[11]] {
+    let attributes = sentFor(look.id, accent: "#C0FFEE").attributes
     let first = Page()
     first.load("index.html", rewrite: { $0.replacingOccurrences(of: "data-preset=\"classic-dark\" data-theme=\"dark\"", with: attributes) })
     let painted = first.json("""
@@ -491,14 +547,15 @@ for look in [looks[3], looks[5]] {
     check(near(painted["bg"].flatMap { $0 as? String }.flatMap(parseRGB), look.background) && (painted["fill"] as? String)?.lowercased() == "#c0ffee" && (painted["current"] as? String) == look.id,
           "\(look.id): a page written with the theme attributes paints with them before any script call", "\(painted)")
     check((painted["stateTheme"] as? String) == (look.dark ? "dark" : "light"), "\(look.id): the page's mode follows the attributes", "\(painted)")
+    check(first.eval("MarkViewThemes.ids().join()") == look.id, "\(look.id): the page learned only the theme in its attributes", first.eval("MarkViewThemes.ids().join()"))
 }
 
 // Two windows: two pages hold different appearances at the same time, and a change in one leaves the other alone.
-let left = loadEditor(rewrite: { $0.replacingOccurrences(of: "data-preset=\"classic-dark\" data-theme=\"dark\"", with: "data-preset=\"paper\" data-theme=\"light\"") })
-let right = loadEditor(rewrite: { $0.replacingOccurrences(of: "data-preset=\"classic-dark\" data-theme=\"dark\"", with: "data-preset=\"midnight\" data-theme=\"dark\" data-accent=\"#FFAA00\"") })
+let left = loadEditor(rewrite: { $0.replacingOccurrences(of: "data-preset=\"classic-dark\" data-theme=\"dark\"", with: sentFor("paper").attributes) })
+let right = loadEditor(rewrite: { $0.replacingOccurrences(of: "data-preset=\"classic-dark\" data-theme=\"dark\"", with: sentFor("midnight", accent: "#FFAA00").attributes) })
 func summary(_ p: Page) -> String { p.js("return document.documentElement.getAttribute('data-preset') + '|' + (document.documentElement.getAttribute('data-accent') || '') + '|' + getComputedStyle(document.body).backgroundColor;") }
 check(summary(left) == "paper||rgb(255, 252, 245)" && summary(right) == "midnight|#FFAA00|rgb(21, 28, 43)", "two pages hold Paper and Midnight at the same time", "\(summary(left)) / \(summary(right))")
-_ = left.js("window.setTheme('darcula', '#33AAFF'); return 'ok';")
+_ = left.js("\(themeCall("window.setTheme", sentFor("darcula", accent: "#33AAFF"))); return 'ok';")
 spin(0.3)
 check(summary(left) == "darcula|#33AAFF|rgb(43, 43, 43)" && summary(right) == "midnight|#FFAA00|rgb(21, 28, 43)", "changing one page leaves the other as it was", "\(summary(left)) / \(summary(right))")
 
@@ -530,14 +587,17 @@ check(codePage.errors.count <= baselineErrors, "theme changes in the code view r
 let turnsJSON = """
 [{"question":"What is in the plan?","answer":"## Result\\n\\nSee [the link](https://example.com) and `code`.\\n\\n| a | b |\\n|---|---|\\n| 1 | 2 |\\n\\n```js\\nlet x = 1\\n```\\n\\n> quoted"}]
 """
-let discussion = Page()
+let discussion = Page(firstPaint: sentFor("nord").firstPaint)
 discussion.load("discussion.html")
+check(discussion.json("return JSON.stringify({ preset: document.documentElement.getAttribute('data-preset'), bg: getComputedStyle(document.body).backgroundColor });")["preset"] as? String == "nord" &&
+      near(parseRGB(discussion.json("return JSON.stringify({ bg: getComputedStyle(document.body).backgroundColor });")["bg"] as? String ?? ""), "#2e3440"),
+      "the discussion page loaded from a file paints the theme of the injected first-paint script before any call")
 check(discussion.eval("typeof window.mvSetTheme === 'function' && !!window.MarkViewThemes") == "true", "the discussion page has mvSetTheme and the window themes")
 _ = discussion.js("window.mvSetTurns(json); return 'ok';", ["json": turnsJSON])
 spin(1.2)
 let discussionErrors = discussion.errors.count
 for look in looks {
-    _ = discussion.js("window.mvSetTheme(id, null); return 'ok';", ["id": look.id])
+    _ = discussion.js("\(themeCall("window.mvSetTheme", sentFor(look.id))); return 'ok';")
     spin(0.6)
     let d = discussion.json("""
     const cs = function (s, p) { const e = document.querySelector(s); return e ? getComputedStyle(e)[p] : null; };
@@ -556,13 +616,16 @@ check(discussion.errors.count == discussionErrors, "theme changes in the discuss
 check(discussion.eval("document.querySelectorAll('.turn').length") == "1" && discussion.eval("document.querySelector('.a').textContent.includes('Result')") == "true", "the discussion keeps its turns across theme changes")
 
 // ---- the terminal -----------------------------------------------------------------------------------------------------
-let terminal = Page(width: 800, height: 500)
+let terminal = Page(width: 800, height: 500, firstPaint: sentFor("forest").firstPaint)
 terminal.load("terminal.html")
+check(terminal.json("return JSON.stringify({ preset: document.documentElement.getAttribute('data-preset') });")["preset"] as? String == "forest" &&
+      near(parseRGB(terminal.json("return JSON.stringify({ bg: getComputedStyle(document.body).backgroundColor });")["bg"] as? String ?? ""), "#1e2a22"),
+      "the terminal page loaded from a file paints the theme of the injected first-paint script before any call")
 check(terminal.eval("typeof window.mvSetTheme === 'function' && !!window.MarkViewThemes") == "true", "the terminal page has mvSetTheme and the window themes")
 _ = terminal.js("window.mvWrite(btoa('plain text and \\u001b[31mred\\u001b[0m')); return 'ok';")
 spin(0.6)
 for look in looks {
-    _ = terminal.js("window.mvSetTheme(id, null); return 'ok';", ["id": look.id])
+    _ = terminal.js("\(themeCall("window.mvSetTheme", sentFor(look.id))); return 'ok';")
     spin(0.6)
     let t = terminal.json("""
     const rows = document.querySelector('.xterm-rows');

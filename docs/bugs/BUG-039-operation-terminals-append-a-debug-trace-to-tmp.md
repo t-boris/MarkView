@@ -31,7 +31,7 @@ One open, seek, write and close per chunk, each producing a log line; the file k
 
 ## Environment
 
-MarkView current main (ade7910), MarkView/Models/TerminalSession.swift `trace` (line 650) and its callers at lines 185, 594, 617, 630 and 646; code reading only.
+MarkView current main (ade7910), MarkView/Models/Terminal/TerminalSession.swift `trace` (line 650) and its callers at lines 185, 594, 617, 630 and 646; code reading only.
 
 ## Cause
 

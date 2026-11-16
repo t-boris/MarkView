@@ -1,6 +1,9 @@
 import CryptoKit
 import Darwin
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Native file selection is the security boundary for discovery. The assistant receives
 /// excerpts, not a readable folder, so every backend sees the same bounded inputs.
@@ -50,7 +53,7 @@ enum ProjectOperationDiscovery {
     ]
     private static let deniedExtensions: Set<String> = ["pem", "key"]
     private static let ignoredFolders: Set<String> = [
-        ".git", ".dde", "node_modules", "vendor", ".build", "build", "dist", "DerivedData", ".next",
+        ".git", ProjectPaths.localFolderName, "node_modules", "vendor", ".build", "build", "dist", "DerivedData", ".next",
     ]
 
     static func scan(root: URL) -> Inputs {
@@ -145,7 +148,7 @@ enum ProjectOperationDiscovery {
     }
 
     private static func isInside(_ url: URL, _ folder: URL) -> Bool {
-        url.path == folder.path || url.path.hasPrefix(folder.path + "/")
+        ProjectPaths.contains(url, root: folder)
     }
 
     static func canonical(_ url: URL) -> URL {
@@ -195,8 +198,25 @@ enum ProjectOperationDiscovery {
         return result
     }
 
+    /// Whether `path` is a file that says how the project is built or deployed (Dockerfile, compose and CI files, platform manifests, Terraform, ...).
+    static func isDeploymentHint(_ path: String) -> Bool {
+        let lower = path.lowercased()
+        let name = (lower as NSString).lastPathComponent
+        if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") { return true }
+        if name.hasPrefix("docker-compose") || name.hasPrefix("compose.") { return true }
+        if ["procfile", "fly.toml", "vercel.json", "netlify.toml", "serverless.yml", "serverless.yaml",
+            "app.yaml", "render.yaml", "railway.json", "skaffold.yaml", "chart.yaml", "project.yml",
+            "info.plist", "cloudbuild.yaml", "buildspec.yml", "nginx.conf", "makefile"].contains(name) { return true }
+        if name.hasSuffix(".tf") || name.hasSuffix(".entitlements") || name.hasSuffix(".xcconfig") { return true }
+        if lower.hasPrefix(".github/workflows/") { return true }
+        let parts = lower.split(separator: "/")
+        if parts.contains(where: { ["k8s", "kubernetes", "helm", "charts", "deploy", "deployment", "infra", "terraform"].contains(String($0)) })
+            && (name.hasSuffix(".yml") || name.hasSuffix(".yaml") || name.hasSuffix(".json")) { return true }
+        return false
+    }
+
     private static func isProjectInput(_ path: String) -> Bool {
-        if ArchitectureScanner.isDeploymentHint(path) || isBuildDefinition(path) { return true }
+        if isDeploymentHint(path) || isBuildDefinition(path) { return true }
         let name = (path as NSString).lastPathComponent.lowercased()
         if name == "package.json" || name == "justfile" || name == "taskfile.yml" || name == "taskfile.yaml"
             || name == "fastfile" || name.hasPrefix("readme") { return true }

@@ -1,5 +1,8 @@
 import AppKit
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What the address field turns into a URL: a full URL as typed, `localhost:5173` or an
 /// address of this machine over http, a host name over https, anything else a web search.
@@ -46,32 +49,6 @@ struct PageCapture {
 /// What "Save Page as…" writes.
 enum PageFormat: String { case markdown, pdf }
 
-/// What a preview tab shows while it looks for the project's web app.
-enum WebPreviewState: Equatable {
-    case searching
-    /// Several apps in the project: the user picks one.
-    case choose([WebAppTarget])
-    /// Waiting for the app's server; `started` once MarkView ran its dev script.
-    case starting(WebAppTarget, started: Bool)
-    case timedOut(WebAppTarget)
-    case portInUse(WebAppTarget, Int)
-    case noApp
-}
-
-/// Reads a dev server's terminal output for the first local address it prints.
-@MainActor
-final class DevServerWatch {
-    private var tail = ""
-    private(set) var url: URL?
-
-    func read(_ data: Data) {
-        guard url == nil else { return }
-        tail += String(decoding: data, as: UTF8.self)
-        if tail.count > 16_000 { tail = String(tail.suffix(8_000)) }
-        url = WebAppPreview.firstLocalURL(in: tail)
-    }
-}
-
 /// One browser tab: its web view and what the tab bar and the toolbar show. Links that
 /// ask for a new window open as new browser tabs; other schemes go to their apps.
 @MainActor
@@ -104,21 +81,15 @@ final class BrowserSession: NSObject, ObservableObject {
     private var promptTask: Task<Void, Never>?
     /// The terminal tab running the dev server this preview started, if any.
     var previewTerminalID: UUID?
-    var startWebApp: ((WebAppTarget) -> Void)?
-    var showTerminal: (() -> Void)?
     /// The user is choosing an element on the page (Pick Element).
     @Published private(set) var isPicking = false
-    /// A picked element with its screenshot: the workspace pastes it into the agent's input.
-    var onElementPicked: ((PickedElement, URL?) -> Void)?
+    /// The window of this tab: it opens links in new tabs, takes a picked element to the AI and runs Preview Web App's dev server.
+    private(set) weak var host: (any BrowserSessionHost)?
     /// The outcome of the last pick ("Pasted into Claude", an error), shown briefly.
     @Published var pickNotice: String?
     private(set) var isClosed = false
     /// The window's Preview Web App tab (Preview Web App reuses it).
     var isAppPreview = false
-    /// Context menu "Save … as Markdown".
-    var onSaveMarkdown: ((PageCapture.Mode) -> Void)?
-    /// `target="_blank"` links and `window.open`.
-    var onOpenInNewTab: ((URL) -> Void)?
     /// An agent drives this tab (`BrowserAgentExecutor`): page dialogs are answered at once and
     /// recorded in `agentDialogs` instead of stopping the page behind a modal alert.
     var agentControlled = false
@@ -147,10 +118,14 @@ final class BrowserSession: NSObject, ObservableObject {
     /// Where the page keeps its cookies and storage; nil is the browser's shared store. A QA player gets a store of its own
     /// (`.nonPersistent()`), so players never share a sign-in.
     private let dataStore: WKWebsiteDataStore?
+    /// Page channels the owner of the session adds to the tab's own (the QA player's fault counter).
+    private let extraHandlers: [WebHost.Handler]
 
-    init(url: URL?, dataStore: WKWebsiteDataStore? = nil) {
+    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = [], host: (any BrowserSessionHost)? = nil) {
+        self.host = host
         self.url = url
         self.dataStore = dataStore
+        self.extraHandlers = extraHandlers
         super.init()
     }
 
@@ -163,35 +138,35 @@ final class BrowserSession: NSObject, ObservableObject {
     }
 
     private func makeWebView() -> BrowserWebView {
-        let configuration = WKWebViewConfiguration()
-        if let dataStore { configuration.websiteDataStore = dataStore }
-        configuration.preferences.isElementFullscreenEnabled = true
-        // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
-        configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15"
-        agentFrames.install(in: configuration.userContentController)
-        // The page's console and uncaught errors, kept for agents (`browser_console`).
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        if let scriptURL = Self.captureScriptURL, let source = try? String(contentsOf: scriptURL, encoding: .utf8) {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
-        }
-        if let pickURL = Self.pickScriptURL, let source = try? String(contentsOf: pickURL, encoding: .utf8) {
-            configuration.userContentController.addUserScript(WKUserScript(
-                source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
-        }
         let passwords = BrowserPasswordHandler()
         passwords.session = self
         passwordHandler = passwords
-        configuration.userContentController.add(passwords, contentWorld: .defaultClient, name: BrowserPasswordScript.handlerName)
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: BrowserPasswordScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        var scripts = [
+            agentFrames.webHostScript,
+            // The page's console and uncaught errors, kept for agents (`browser_console`).
+            WKUserScript(source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page),
+        ]
+        for url in [Self.captureScriptURL, Self.pickScriptURL] {
+            if let url, let source = try? String(contentsOf: url, encoding: .utf8) {
+                scripts.append(WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+            }
+        }
+        scripts.append(WKUserScript(source: BrowserPasswordScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        let configuration = WebHost.makeConfiguration(
+            dataStore: dataStore.map(WebHost.DataStore.store) ?? .default,
+            handlers: [agentFrames.webHostHandler, .message(BrowserPasswordScript.handlerName, passwords, in: .defaultClient)] + extraHandlers,
+            userScripts: scripts,
+            allowsPopups: true,
+            allowsElementFullscreen: true,
+            // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
+            applicationName: "Version/17.0 Safari/605.1.15")
         let view = BrowserWebView(frame: .zero, configuration: configuration)
+        WebHost.markInspectable(view)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
         view.allowsMagnification = true
-        view.saveMarkdown = { [weak self] mode in self?.onSaveMarkdown?(mode) }
+        view.saveMarkdown = { [weak self] mode in self?.saveRequest = mode }
         view.savePDF = { [weak self] in self?.saveFormat = .pdf; self?.saveRequest = .page }
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
@@ -360,13 +335,14 @@ final class BrowserSession: NSObject, ObservableObject {
                 "window.markviewPickHide && window.markviewPickHide();", arguments: [:], in: nil, contentWorld: .defaultClient)
             try? await Task.sleep(nanoseconds: 60_000_000)
             let screenshot = await snapshot(of: element)
-            onElementPicked?(element, screenshot)
+            host?.browserSession(self, picked: element, screenshot: screenshot)
         } catch {
             pickNotice = "The page changed before an element was chosen."
         }
     }
 
     func cancelPick() {
+        // task: one call into the page that ends at once; it touches only the web view
         Task { _ = try? await webView.callAsyncJavaScript(
             "window.markviewPickCancel && window.markviewPickCancel();", arguments: [:], in: nil, contentWorld: .defaultClient) }
     }
@@ -501,7 +477,7 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
             return popup.webView
         }
         if let url = navigationAction.request.url {
-            if let onOpenInNewTab { onOpenInNewTab(url) } else { load(url) }
+            if let host { host.browserSession(self, openInNewTab: url) } else { load(url) }
         }
         return nil
     }

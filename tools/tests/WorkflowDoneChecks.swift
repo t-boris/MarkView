@@ -1,7 +1,7 @@
 import Foundation
 
 // Feature workflow-flows, REQ-001: what "done" means in a process and where it disagrees with the Definition of Done
-// (Models/WorkflowDone.swift). Run through tools/tests/workflow-done-tests.sh.
+// (Models/Lifecycle/WorkflowDone.swift). Run through tools/tests/workflow-done-tests.sh.
 
 var failures = 0
 func check(_ ok: Bool, _ message: String, _ detail: String = "") {

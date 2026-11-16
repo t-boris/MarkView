@@ -8,10 +8,6 @@
         (function() {
             if (!md) return;
 
-            function escapeAttr(text) {
-                return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            }
-
             // ------------------------------------------------------------ wikilinks
             md.inline.ruler.before('link', 'wikilink', function(state, silent) {
                 const src = state.src;
@@ -35,8 +31,8 @@
             });
             md.renderer.rules.wikilink = function(tokens, idx) {
                 const m = tokens[idx].meta;
-                return '<a class="wikilink' + (m.embed ? ' wikilink-embed' : '') + '" href="#" data-wikilink="' + escapeAttr(m.target)
-                    + '" data-raw="' + escapeAttr(m.raw) + '">' + (m.embed ? '📎 ' : '') + md.utils.escapeHtml(m.label) + '</a>';
+                return '<a class="wikilink' + (m.embed ? ' wikilink-embed' : '') + '" href="#" data-wikilink="' + window.mvKit.escapeAttr(m.target)
+                    + '" data-raw="' + window.mvKit.escapeAttr(m.raw) + '">' + (m.embed ? '📎 ' : '') + md.utils.escapeHtml(m.label) + '</a>';
             };
 
             // ------------------------------------------------------------ math
@@ -78,7 +74,7 @@
             md.renderer.rules.math_block = function(tokens, idx) {
                 const t = tokens[idx];
                 const lineAttr = t.attrGet('data-line') ? ' data-line="' + t.attrGet('data-line') + '"' : '';
-                return '<div class="math-block" contenteditable="false" data-tex="' + escapeAttr(t.content) + '"' + lineAttr + '>'
+                return '<div class="math-block" contenteditable="false" data-tex="' + window.mvKit.escapeAttr(t.content) + '"' + lineAttr + '>'
                     + renderMath(t.content, true) + '</div>\n';
             };
 
@@ -104,7 +100,7 @@
             });
             md.renderer.rules.math_inline = function(tokens, idx) {
                 const tex = tokens[idx].content;
-                return '<span class="math-inline" contenteditable="false" data-tex="' + escapeAttr(tex) + '">' + renderMath(tex, false) + '</span>';
+                return '<span class="math-inline" contenteditable="false" data-tex="' + window.mvKit.escapeAttr(tex) + '">' + renderMath(tex, false) + '</span>';
             };
 
             // ------------------------------------------------------------ clicks

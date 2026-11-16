@@ -59,8 +59,8 @@ git diff --check
 plutil -lint MarkView/Info.plist
 MarkView/Info.plist: OK
 
-git diff --exit-code origin/main -- MarkView/Models/FeatureIngest.swift \
-  MarkView/Models/ProjectSearch.swift MarkView/Bridge/PDFExporter.swift \
+git diff --exit-code origin/main -- MarkView/Models/Lifecycle/FeatureIngest.swift \
+  MarkView/Models/Workspace/ProjectSearch.swift MarkView/Bridge/PDFExporter.swift \
   MarkView/Bridge/BookPDFRenderer.swift
 (exit 0: existing ingestion, indexing and PDF export implementations unchanged)
 ```

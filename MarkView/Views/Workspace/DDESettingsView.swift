@@ -1,16 +1,19 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Settings panel for DDE — AI CLI (assistant, model, paths), voice input, maintenance
 struct DDESettingsView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var openaiKey: String = ""
-    @AppStorage(ActionOutputLanguage.storageKey) private var outputLanguage = ActionOutputLanguage.documentLanguage
-    @AppStorage(ResearchSettings.timeoutKey) private var researchTimeout = ResearchSettings.defaultTimeoutMinutes
-    @AppStorage(AIAssistantPreferences.autoAnalyzeKey) private var autoAnalyze = true
-    @AppStorage(AppFontScale.storageKey) private var fontScalePercent = AppFontScale.defaultPercent
+    @AppStorage(Setting.outputLanguage) private var outputLanguage: String
+    @AppStorage(Setting.researchTimeoutMinutes) private var researchTimeout: Int
+    @AppStorage(Setting.autoAnalyze) private var autoAnalyze: Bool
+    @AppStorage(Setting.fontScalePercent) private var fontScalePercent: Int
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
     private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
     @State private var showKey = false
@@ -25,8 +28,8 @@ struct DDESettingsView: View {
     @State private var extraPath: String = ""
 
     // Voice input: Whisper (with an OpenAI key) or macOS's built-in recognition (without one)
-    @AppStorage(WhisperClient.modelStorage) private var whisperModel: String = WhisperClient.defaultModel
-    @AppStorage(OnDeviceSpeech.languageStorage) private var dictationLanguage = ""
+    @AppStorage(Setting.whisperModel) private var whisperModel: String
+    @AppStorage(Setting.dictationLanguage) private var dictationLanguage: String
     /// Languages macOS can recognize on this Mac; nil until the first lookup finishes.
     @State private var installedLanguages: [String]?
     @StateObject private var whisperClient = WhisperClient()
@@ -150,7 +153,7 @@ struct DDESettingsView: View {
                         TextField("/opt/homebrew/bin:/some/other/bin", text: $extraPath)
                             .textFieldStyle(.roundedBorder)
                             .uiFont(size: 10, design: .monospaced)
-                            .onSubmit { UserDefaults.standard.set(extraPath, forKey: "settings.cli.extraPATH") }
+                            .onSubmit { Settings.standard.set(extraPath, for: Setting.extraPATH) }
                         Text("Added to PATH for spawned CLIs. Node version dirs are included automatically.")
                             .uiFont(size: 9).foregroundColor(palette.textDim)
                     }
@@ -160,7 +163,7 @@ struct DDESettingsView: View {
             // Usage chips in the workspace top bar: which detected agents are shown (DEC-012).
             GroupBox("Agent usage (Terminal tab)") {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(UsageAgent.allCases) { agent in AgentUsageVisibilityToggle(agent: agent) }
+                    ForEach(CLITool.usageTracked) { agent in AgentUsageVisibilityToggle(agent: agent) }
                     Text("Official limit data is requested with the agent's own sign-in, read locally and sent only to its vendor. Otherwise usage is counted from local logs (~/.claude, ~/.codex). Antigravity's numbers come from its own command (agy /usage); MarkView reads no sign-in for it.")
                         .uiFont(size: 9).foregroundColor(palette.textDim)
                 }.padding(8)
@@ -239,7 +242,7 @@ struct DDESettingsView: View {
 
             GitHubSettingsSection()
 
-            RemoteSettingsSection()
+            RemoteSettingsSection(terminals: workspaceManager.terminals)
 
             GroupBox("Workflow templates") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -258,7 +261,7 @@ struct DDESettingsView: View {
                         Text(VariantTemplate.allCases.map(\.title).joined(separator: "; ") + ". They keep the transitions of the type.")
                             .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     }
-                    Button("Open the project's Workflow tab") { workspaceManager.openWorkflow() }
+                    Button("Open the project's Workflow tab") { workspaceManager.openTool(.workflow) }
                         .disabled(workspaceManager.projectFolder == nil)
                         .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Configure this project's statuses, transitions and processes")
                 }
@@ -420,7 +423,7 @@ struct DDESettingsView: View {
         for tool in CLITool.allCases {
             cliPaths[tool] = CLIToolLocator.override(for: tool) ?? ""
         }
-        extraPath = UserDefaults.standard.string(forKey: "settings.cli.extraPATH") ?? ""
+        extraPath = Settings.standard.value(Setting.extraPATH)
     }
 
     // MARK: - Voice input diagnostics
@@ -538,13 +541,13 @@ struct DDESettingsView: View {
 /// Show or hide one agent's usage chip; undetected agents are listed but never shown.
 private struct AgentUsageVisibilityToggle: View {
     @Environment(\.palette) private var palette
-    let agent: UsageAgent
+    let agent: CLITool
     @AppStorage private var hidden: Bool
     private let detected: Bool
 
-    init(agent: UsageAgent) {
+    init(agent: CLITool) {
         self.agent = agent
-        _hidden = AppStorage(wrappedValue: false, agent.hiddenKey)
+        _hidden = AppStorage(Setting.usageHidden(agent.rawValue))
         detected = AgentUsageTracker.isDetected(agent)
     }
 

@@ -7,327 +7,6 @@ import os
 import MarkViewCore
 #endif
 
-/// Owns file-tree state, exclusion rules, and file-system watching for the active workspace.
-@MainActor
-final class WorkspaceFileTreeStore: ObservableObject {
-    @Published var rootNode: FileNode?
-    @Published private(set) var excludedFolders: Set<String> = []
-    @Published var sortOrder = FileTreeSortOrder() {
-        didSet {
-            UserDefaults.standard.set(sortOrder.field.rawValue, forKey: "fileTree.sortField")
-            UserDefaults.standard.set(sortOrder.ascending, forKey: "fileTree.sortAscending")
-            refresh()
-        }
-    }
-
-    var shouldAutoRefresh: () -> Bool = { true }
-    /// Called on every beat of the watcher's timer (the Git status changes without the top folder changing).
-    var onTimer: () -> Void = {}
-
-    private var fileWatcher: DispatchSourceFileSystemObject?
-    private var fileWatchTimer: Timer?
-    private var fileWatchDebounce: DispatchWorkItem?
-    private var lastRootModDate: Date?
-    /// Cached markdown presence flag invalidated when the root tree reloads (`AR-42`).
-    var cachedHasMarkdownFiles: Bool?
-
-    init() {
-        let ud = UserDefaults.standard
-        if let savedField = ud.string(forKey: "fileTree.sortField"),
-           let field = FileTreeSortField(rawValue: savedField) {
-            sortOrder.field = field
-        }
-        if ud.object(forKey: "fileTree.sortAscending") != nil {
-            sortOrder.ascending = ud.bool(forKey: "fileTree.sortAscending")
-        }
-    }
-
-    func reset() {
-        stopWatching()
-        rootNode = nil
-        excludedFolders = []
-        lastRootModDate = nil
-        cachedHasMarkdownFiles = nil
-    }
-
-    func setRootNode(_ node: FileNode?) {
-        rootNode = node
-        lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
-        cachedHasMarkdownFiles = nil
-    }
-
-    func loadExcludedFolders() {
-        excludedFolders = rootNode.map { ExcludedFolders.load(for: $0.url) } ?? []
-    }
-
-    @discardableResult
-    func excludeFolder(_ folderURL: URL) -> String? {
-        guard let relativePath = relativePath(for: folderURL) else { return nil }
-        excludedFolders.insert(relativePath)
-        saveExcludedFolders()
-        return relativePath
-    }
-
-    @discardableResult
-    func includeFolder(_ relativePath: String) -> Bool {
-        let removed = excludedFolders.remove(relativePath) != nil
-        if removed {
-            saveExcludedFolders()
-        }
-        return removed
-    }
-
-    func isExcluded(_ url: URL) -> Bool {
-        guard let relativePath = relativePath(for: url) else { return false }
-        return excludedFolders.contains { relativePath.hasPrefix($0) }
-    }
-
-    func refresh() {
-        Self.log("refresh() called, rootNode=\(rootNode?.url.path ?? "nil")")
-        // Clear all cached resource values for the root URL tree
-        if let rootURL = rootNode?.url {
-            (rootURL as NSURL).removeAllCachedResourceValues()
-        }
-        reloadFileTree()
-    }
-
-    func startWatchingCurrentRoot() {
-        guard let rootURL = rootNode?.url else { return }
-        startFileWatcher(for: rootURL)
-    }
-
-    func stopWatching() {
-        fileWatchDebounce?.cancel()
-        fileWatchDebounce = nil
-        fileWatchTimer?.invalidate()
-        fileWatchTimer = nil
-        fileWatcher?.cancel()
-        fileWatcher = nil
-    }
-
-    private func saveExcludedFolders() {
-        guard let root = rootNode?.url else { return }
-        ExcludedFolders.save(excludedFolders, for: root)
-    }
-
-    private func relativePath(for url: URL) -> String? {
-        guard let root = rootNode?.url else { return nil }
-        let rootPath = root.standardizedFileURL.path
-        let targetPath = url.standardizedFileURL.path
-
-        if targetPath == rootPath { return "" }
-        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
-        return String(targetPath.dropFirst(rootPath.count + 1))
-    }
-
-    private func startFileWatcher(for url: URL) {
-        stopWatching()
-        lastRootModDate = rootModificationDate(for: url)
-
-        let fd = open(url.path, O_EVTONLY)
-        guard fd != -1 else { return }
-
-        let queue = DispatchQueue.main
-        fileWatcher = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: queue
-        )
-
-        fileWatcher?.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.fileWatchDebounce?.cancel()
-
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, self.shouldAutoRefresh() else { return }
-                self.reloadFileTree()
-            }
-
-            self.fileWatchDebounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-        }
-
-        fileWatcher?.setCancelHandler { close(fd) }
-        fileWatcher?.resume()
-
-        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkForFileTreeChanges() }
-        }
-    }
-
-    private func checkForFileTreeChanges() {
-        onTimer()
-        guard let rootURL = rootNode?.url else { return }
-        guard shouldAutoRefresh() else { return }
-        // Clear cached resource values so we see fresh modification dates
-        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-        guard let modDate = rootModificationDate(for: rootURL) else { return }
-
-        if modDate != lastRootModDate {
-            lastRootModDate = modDate
-            reloadFileTree()
-        }
-    }
-
-    private func reloadFileTree() {
-        guard let currentRoot = rootNode else {
-            Self.log("reloadFileTree: rootNode is nil, skipping")
-            return
-        }
-        let rootURL = currentRoot.url
-        Self.log("reloadFileTree: rebuilding from \(rootURL.path)")
-        let expandedPaths = currentRoot.expandedDirectoryPaths()
-        let sort = sortOrder
-
-        // Clear URL resource cache so FileManager sees new files
-        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-
-        Task.detached {
-            let rebuilt = FileNode.buildTree(from: rootURL, sortOrder: sort)
-            rebuilt.restoreExpansionState(from: expandedPaths, sortOrder: sort)
-            let childCount = rebuilt.children?.count ?? 0
-            Self.log("reloadFileTree: rebuilt with \(childCount) children")
-            await MainActor.run {
-                self.rootNode = rebuilt
-                self.lastRootModDate = self.rootModificationDate(for: rootURL)
-                self.cachedHasMarkdownFiles = nil
-                Self.log("reloadFileTree: rootNode updated on MainActor")
-            }
-        }
-    }
-
-    private nonisolated static let fileTreeLogger = Logger(subsystem: "com.markview.app", category: "file-tree")
-
-    private nonisolated static func log(_ msg: String) {
-        fileTreeLogger.debug("[FileTree] \(msg, privacy: .public)")
-    }
-
-    private func rootModificationDate(for url: URL) -> Date? {
-        // Must clear cache — URL resource values are aggressively cached by Foundation
-        (url as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
-        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-        return values?.contentModificationDate
-    }
-}
-
-/// Owns the open-tab session state for a workspace.
-@MainActor
-final class WorkspaceTabsStore: ObservableObject {
-    @Published var openTabs: [OpenTab] = []
-    @Published var activeTabIndex: Int = -1
-    /// True while updating side-table metadata (`scrollPosition`, `activeHeadingId`) so `WorkspaceManager`
-    /// does not broadcast `objectWillChange` across the entire window on scroll events (`AR-15`).
-    private(set) var isSilentTabMetadataUpdate = false
-    /// Invoked whenever one or more tabs leave `openTabs`, allowing per-tab side tables to prune entries (`FU-11`).
-    var onTabsRemoved: (([UUID]) -> Void)?
-
-    func reset() {
-        let removed = openTabs.map(\.id)
-        openTabs = []
-        activeTabIndex = -1
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    func firstIndex(of url: URL) -> Int? {
-        openTabs.firstIndex(where: { $0.url == url })
-    }
-
-    @discardableResult
-    func selectTab(matching url: URL) -> Int? {
-        guard let index = firstIndex(of: url) else { return nil }
-        activeTabIndex = index
-        return index
-    }
-
-    func appendTab(_ tab: OpenTab, activate: Bool = true) {
-        openTabs.append(tab)
-        if activate {
-            activeTabIndex = openTabs.count - 1
-        }
-    }
-
-    func updateTab(at index: Int, _ mutate: (inout OpenTab) -> Void) {
-        guard index >= 0 && index < openTabs.count else { return }
-        var tab = openTabs[index]
-        mutate(&tab)
-        openTabs[index] = tab
-    }
-
-    func updateActiveTab(_ mutate: (inout OpenTab) -> Void) {
-        updateTab(at: activeTabIndex, mutate)
-    }
-
-    /// Mutates the active tab without triggering `WorkspaceManager.objectWillChange` (`AR-15`).
-    func updateActiveTabSilently(_ mutate: (inout OpenTab) -> Void) {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-        isSilentTabMetadataUpdate = true
-        defer { isSilentTabMetadataUpdate = false }
-        var tab = openTabs[activeTabIndex]
-        mutate(&tab)
-        openTabs[activeTabIndex] = tab
-    }
-
-    func removeTab(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        let removedID = openTabs[index].id
-        openTabs.remove(at: index)
-        normalizeActiveTabIndex(preferred: activeTabIndex)
-        onTabsRemoved?([removedID])
-    }
-
-    /// Move a tab to `target` (the position it takes); the active tab stays active.
-    func moveTab(id: UUID, to target: Int) {
-        guard let from = openTabs.firstIndex(where: { $0.id == id }) else { return }
-        let activeID = openTabs.indices.contains(activeTabIndex) ? openTabs[activeTabIndex].id : nil
-        let tab = openTabs.remove(at: from)
-        let destination = min(max(0, target > from ? target - 1 : target), openTabs.count)
-        openTabs.insert(tab, at: destination)
-        if let activeID, let index = openTabs.firstIndex(where: { $0.id == activeID }) { activeTabIndex = index }
-    }
-
-    func keepOnlyTab(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        let kept = openTabs[index]
-        let removed = openTabs.enumerated().compactMap { $0.offset == index ? nil : $0.element.id }
-        openTabs = [kept]
-        activeTabIndex = 0
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    /// Keeps the tabs `isIncluded` accepts, in their order. The active tab stays active when it stays open; otherwise `TabClosing` picks
-    /// the neighbour (or the Welcome tab).
-    func keepTabs(where isIncluded: (OpenTab) -> Bool) {
-        let keep = openTabs.map(isIncluded)
-        let removed = zip(openTabs, keep).compactMap { $0.1 ? nil : $0.0.id }
-        let active = TabClosing.activeIndex(afterKeeping: keep, active: activeTabIndex)
-        openTabs = zip(openTabs, keep).filter(\.1).map(\.0)
-        activeTabIndex = active
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    func keepTabs(through index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        let removed = openTabs.dropFirst(index + 1).map(\.id)
-        openTabs = Array(openTabs.prefix(index + 1))
-        normalizeActiveTabIndex(preferred: activeTabIndex)
-        if !removed.isEmpty { onTabsRemoved?(removed) }
-    }
-
-    func normalizeActiveTabIndex(preferred: Int? = nil) {
-        let candidate = preferred ?? activeTabIndex
-
-        // -1 selects the pinned Welcome tab, including while other tabs are open.
-        if candidate == -1 { activeTabIndex = -1; return }
-
-        guard !openTabs.isEmpty else {
-            activeTabIndex = -1
-            return
-        }
-
-        activeTabIndex = min(max(candidate, 0), openTabs.count - 1)
-    }
-}
-
 enum WorkspaceAITool: String {
     case architecture
     case dataflow
@@ -349,59 +28,41 @@ enum WorkspaceAITool: String {
     }
 }
 
-/// Manages the workspace state including open files, tabs, and folder structure
+/// The observable face of one window. The window is made of parts (tabs, panels, project, terminals, browser, X-Ray, feature flow, ...)
+/// built in one place, `WindowComposition` (`AR-17`); this class holds them for the views that observe it, conforms to the narrow host
+/// protocols the parts ask of their window, and carries the window's own commands: open or close a folder, open a file in its ways,
+/// remove the folder's metadata.
 @MainActor
-class WorkspaceManager: ObservableObject {
-    @Published var recentFiles: [URL] = []
-    /// Recently opened folders (standardized paths), most recent first.
-    @Published private(set) var recentProjects: [String] =
-        UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
-    /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
-    let layout = PanelLayout()
-    /// Everything else this window shows of itself (expanded sections, widths, panel modes); never shared with other windows.
-    let windowUI = WindowUIState()
-    /// The theme of this window; a change here leaves every other window alone.
-    let theme = WindowTheme()
-    /// Per-tab scroll position and active heading side table (`AR-15`).
-    let scrollState = DocumentScrollSideTable()
-    /// Keyed cancellable background task bag owned by this window (`AR-19`).
-    let taskBag = TaskBag()
-    /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
-    let aiJobs = AIToolJobs()
+class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, WindowSessionWindow, ToolTabsWindow {
+    /// The parts of this window. The one late binding of the window: each part is given this object through its own narrow protocol.
+    private(set) lazy var composition = WindowComposition(host: self)
 
-    func currentAssistantSelection() -> CLICompletion.Assistant? {
-        guard let terminal = assistantTerminal, let tool = terminal.profile.tool else { return nil }
-        return CLICompletion.Assistant.chosen(tool: tool, project: aiProject)
-    }
+    var project: ProjectContext { composition.project }
+    var layout: PanelLayout { composition.layout }
+    var windowUI: WindowUIState { composition.windowUI }
+    var chrome: WindowChrome { composition.chrome }
+    var requests: WindowRequests { composition.requests }
+    var theme: WindowTheme { composition.theme }
+    var tabs: TabsController { composition.tabs }
+    var taskBag: TaskBag { composition.taskBag }
+    var polling: PollingScheduler { composition.polling }
+    var aiJobs: AIToolJobs { composition.aiJobs }
+    var gitClient: GitClient { composition.gitClient }
+    var research: ResearchMapController { composition.research }
+    var flow: FeatureFlowCoordinator { composition.flow }
+    var fileOperations: FileOperationsController { composition.fileOperations }
+    var translator: DocumentTranslator { composition.translator }
+    var terminals: AITerminalsController { composition.terminals }
+    var browser: BrowserHost { composition.browser }
+    var codeXRay: CodeAndXRayCoordinator { composition.codeXRay }
+    var insight: InsightCoordinator { composition.insight }
+    var toolTabs: ToolTabsRouter { composition.toolTabs }
 
-    func openTool(_ id: ToolDescriptor.ToolID) {
-        switch id {
-        case .git: openGit()
-        case .deployments: openDeployments()
-        case .workflow: openWorkflow()
-        case .qa: openQA()
-        case .uiStudio: openUIStudio()
-        case .cockpit: openCockpit()
-        case .discussions: openDiscussions()
-        case .changeReview: openChangeReview()
-        }
-    }
+    // MARK: - Tool tabs
 
-    nonisolated static func toolMatches(_ id: ToolDescriptor.ToolID, kind: TabKind) -> Bool {
-        switch (id, kind) {
-        case (.git, .git),
-             (.deployments, .deployments),
-             (.workflow, .workflow),
-             (.qa, .qa),
-             (.uiStudio, .uiStudio),
-             (.cockpit, .cockpit),
-             (.discussions, .discussions),
-             (.changeReview, .changeReview):
-            return true
-        default:
-            return false
-        }
-    }
+    /// Opens the tab of a tool of `ToolRegistry`, or returns to it.
+    func openTool(_ id: ToolID) { toolTabs.open(id) }
+
     /// The project's operations, with this window as the one that shows what the person starts from here.
     func operations() -> ProjectOperationsStore? {
         projectOperations?.presenter = self
@@ -412,426 +73,79 @@ class WorkspaceManager: ObservableObject {
     func dismissOperationRun(id: String) {
         guard let store = projectOperations else { return }
         store.dismiss(id: id)
-        if operationSelectedRunID == id { operationSelectedRunID = store.runs.keys.sorted().first }
-        if store.runs.isEmpty { operationConsoleVisible = false }
+        if requests.operationSelectedRunID == id { requests.operationSelectedRunID = store.runs.keys.sorted().first }
+        if store.runs.isEmpty { requests.operationConsoleVisible = false }
     }
 
-    /// The left panel. Every window starts with it closed, so a new window shows the center panel only. The window keeps its own
-    /// choice in its saved session; it is not a default for other windows.
-    @Published var showFileTree: Bool = false
-    @Published var showTOC: Bool = false {
-        didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC.v3") }
-    }
-    @Published var compactLayout = false
-    @Published var showCenter = true
-    @Published var terminalVisible = false
-    @Published var agentsVisible = false
-    @Published var handoffResume: HandoffResume?
-    @Published var showGlobalSearch = false
-    struct SelectionActionState: Identifiable {
-        enum Phase { case running, completed, stopped, failed }
-        let id: UUID
-        let title: String
-        let scope: String
-        let assistant: String
-        let started: Date
-        var stage: String = "Starting"
-        var partial: String = ""
-        var phase: Phase = .running
-    }
-    @Published private(set) var selectionActions: [UUID: SelectionActionState] = [:]
-    private var selectionTasks: [UUID: Task<CLICompletion.Result, Error>] = [:]
-    private var stoppedSelectionActions: Set<UUID> = []
-
-    func stopSelectionAction(_ id: UUID) {
-        stoppedSelectionActions.insert(id)
-        selectionTasks[id]?.cancel()
-        if var state = selectionActions[id] {
-            state.stage = "Stopping…"
-            selectionActions[id] = state
-        }
-    }
-
-    func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
-
-    func toggleNavigation() {
-        guard !showFileTree || showCenter || terminalVisible else { return }
-        showFileTree.toggle()
-    }
-
-    /// Hide the file tree and the agents panel of this window and leave the document, as for a file opened from Finder.
-    /// The panels come back with their usual toggles.
-    func showDocumentOnly() {
-        showFileTree = false
-        terminalVisible = false
-        agentsVisible = false
-        showCenter = true
-    }
 
     /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
     func openDocumentsOnly(_ urls: [URL]) {
         for url in urls { openFile(url) }
-        showDocumentOnly()
+        chrome.showDocumentOnly()
     }
-
-    func toggleCenter() {
-        guard !showCenter || showFileTree || terminalVisible else { return }
-        showCenter.toggle()
-    }
-
-    func toggleRightPanel() {
-        guard !terminalVisible || showFileTree || showCenter else { return }
-        terminalVisible.toggle()
-    }
-
-    func toggleContext() {
-        guard activeTab != nil else { return }
-        showTOC = true
-        layout.navigatorTab = .contents
-        terminalVisible = true
-    }
-
-    /// Keep the selected task visible beside its documents in the right column.
-    func showFeatureContext(_ slug: String?) {
-        if let slug {
-            features.activeSlug = slug
-            layout.issuesFeature = slug
-        }
-        layout.navigatorTab = .feature
-        showTOC = true
-        terminalVisible = true
-    }
-
-    @Published var semanticDatabase: SemanticDatabase?
-    /// The id of the node an AI job just added to a map (by map path); the next snapshot of that map carries it to the page.
-    var researchMapJobCreated: [String: String] = [:]
-    /// What an AI job tells the person when it ends (by map path); the next snapshot of that map carries it to the page as a notice.
-    var researchMapJobNotice: [String: String] = [:]
-    /// Set by the editor view: makes the PDF of a report (Markdown, file name) with the editor page's renderer and asks where to save it.
-    var researchMapPDFExporter: ((String, String) -> Bool)?
-    @Published var pdfBookSelection: BookPDFSelection?
 
     func presentPDFBook(_ urls: [URL]? = nil) {
         let sources: [URL]
         if let urls { sources = urls }
-        else if openTabs.indices.contains(activeTabIndex), case .file = openTabs[activeTabIndex].kind { sources = [openTabs[activeTabIndex].url] }
+        else if tabs.openTabs.indices.contains(tabs.activeTabIndex), case .file = tabs.openTabs[tabs.activeTabIndex].kind { sources = [tabs.openTabs[tabs.activeTabIndex].url] }
         else { sources = [] }
-        pdfBookSelection = BookPDFSelection(urls: sources)
+        requests.pdfBookSelection = BookPDFSelection(urls: sources)
     }
 
     var pdfBookDrafts: [String: String] {
         var result: [String: String] = [:]
-        for tab in openTabs where tab.isModified { if case .file = tab.kind { result[tab.url.path] = tab.content } }
+        for tab in tabs.openTabs where tab.isModified { if case .file = tab.kind { result[tab.url.path] = tab.content } }
         return result
     }
-    @Published var gitClient = GitClient()
-    /// Where the project runs and how each place is doing (the Deployments tab).
-    let deployments = DeploymentStore()
-    /// The state of the Workflow tab: the draft being edited survives a switch to another tab.
-    let workflowEditor = WorkflowEditorModel()
-    /// End-to-End QA: the scenarios of the project and the one being edited.
-    let qa = QAModel()
-    private var cockpitSession: CockpitSession?
-    /// Questions asked before there is a feature, answered as pages (the Discussions tab).
-    let discussions = DiscussionStore()
-    private var discussionTask: Task<Void, Never>?
-    /// Answers to questions about an environment, read from state and logs by the project's own assistant.
-    let deploymentAdvisor = DeploymentAdvisor()
-    /// Pull requests, issues and Actions of the folder's GitHub repository.
-    let gitHub = GitHubStore()
-    /// Feature workspaces of the folder (docs/features/<slug>/…).
-    let features = FeatureStore()
-    /// Implement with AI was asked for this document: the definition-of-done sheet is shown first.
-    @Published var doneRequest: URL?
-    /// New Research jobs of this window: research, follow-ups and comments (docs/research/).
-    let research = ResearchJobs()
-    /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
-    private(set) lazy var bugBatch = BugBatch(store: features)
-    /// Where the AI terminal starts: the open folder, or a single file's folder.
-    @Published private(set) var aiWorkspaceRoot: URL? {
-        // After a relaunch the folder's AI terminals come back even while the panel is hidden.
-        didSet {
-            if aiWorkspaceRoot != nil, aiWorkspaceRoot != oldValue {
-                restoreAITerminals()
-                RemoteConnectionsStore.shared.attach(self)
-            }
-        }
-    }
-    /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
-    @Published private(set) var aiTerminals: [TerminalSession] = []
-    /// What the assistants in the AI terminals are doing (toolbar chip).
-    let agentActivity = AgentActivityMonitor()
-    /// The terminal shown in the AI panel.
-    @Published var activeAITerminalID: UUID? {
-        // Closing the workspace empties `aiTerminals` first, so it does not overwrite the saved set.
-        didSet { if !aiTerminals.isEmpty { saveAITerminals() } }
-    }
-    /// Terminals opened in folders, shown as editor tabs (keyed by tab id).
-    private var terminalTabs: [UUID: TerminalSession] = [:]
-    /// Dev server terminals started by Preview Web App, by app folder path.
-    private var previewTerminals: [String: UUID] = [:]
-    private var openFilesWatcher: Timer?
-    /// Last seen modification dates of open files (to reload what the assistant changed).
-    private var openFileDates: [URL: Date] = [:]
-    /// Project architecture (Architecture tab).
-    let architecture = ArchitectureStore()
     /// Team-shared operation definitions and the process registry for this workspace root.
     @Published private(set) var projectOperations: ProjectOperationsStore?
-    /// What this window has open of the project's operations; the store is shared by every window on the folder, these are not.
-    @Published var operationConsoleVisible = false
-    @Published var operationSelectedRunID: String?
-    @Published var operationEditRequest: ProjectOperationEditRequest?
-    /// AI margin notes for code files (code viewer → Explain).
-    let codeExplain = CodeExplainStore()
-    /// Go to definition / find usages, jump history and AI answers about selected code.
-    let codeNav = CodeNavigationStore()
-    /// The open folder looks like a software project (manifest or source files).
-    @Published var isCodeProject = false
-    @Published var graphRAG: GraphRAG?
-    @Published var indexingProgress: String?
-    /// Progress of the out-of-process structural index, shown ONLY in the footer.
-    /// Separate from `indexingProgress` (which drives the file-tree spinner, the
-    /// auto-refresh gate and the module panel) so background indexing never blocks
-    /// the tree, the module explorer, or opening another folder.
-    @Published var structuralIndexProgress: String?
-    @Published var analysisStage: String?
-    @Published var analysisDetail: String?
-    @Published var totalFilesInWorkspace: Int = 0
-    @Published var analyzedFiles: Int = 0
-    @Published var semanticRefreshVersion: Int = 0
-    @Published var pendingGraphCreatorType: String?
-    private let fileTreeStore = WorkspaceFileTreeStore()
-    private let tabsStore = WorkspaceTabsStore()
     private var cancellables: Set<AnyCancellable> = []
-    private var recentFilesURL: URL
 
-    /// Closure wired by `EditorView.Coordinator` on insight tab routing. Called by
-    /// `closeTab` STEP 1 of the ordered insight cleanup (Decision 11 §4) — invokes
-    /// `bridge.releaseInsightBlobs(into: webView)` synchronously so any blob URLs
-    /// the iframe materialised for vendored libs are revoked BEFORE
-    /// `session.cancel()` allows new Combine emissions. `nil` if no insight tab has
-    /// been routed yet, or if the WebView has been deallocated; either case is safe
-    /// — WebView teardown on tab close GCs the blobs as a fallback.
-    var releaseInsightBlobsHook: (() -> Void)?
+    // The project is read through `project` (`ProjectProviding`). These four read-only aliases stay for the code of the regions
+    // that the other decompositions of this file (`AR-14` steps 2-7) are still moving out, and go with them.
+    var rootNode: FileNode? { project.rootNode }
+    var projectFolder: URL? { project.projectFolder }
+    var aiProject: URL? { project.aiProject }
+    var semanticDatabase: SemanticDatabase? { project.database }
 
-    var rootNode: FileNode? {
-        get { fileTreeStore.rootNode }
-        set { fileTreeStore.setRootNode(newValue) }
-    }
+    /// The tab the person is looking at. A view that shows tabs observes `tabs` itself: reading them through the manager would not
+    /// redraw it (`AR-15`).
+    var activeTab: OpenTab? { tabs.activeTab }
 
-    /// False while the root is only a single file's folder (feature-2, DEC-012).
-    @Published private(set) var rootOpenedAsFolder = false
+    func showGitHubTab(_ item: GitHubItem, root: URL) { tabs.showGitHubTab(item, root: root) }
 
-    /// The open project folder, the one that gets a project color; nil for a single file's folder.
-    var projectFolder: URL? { rootOpenedAsFolder ? rootNode?.url : nil }
-    /// The project whose assistant, model and X-Ray model this window uses (BUG-021);
-    /// nil for a single file, which uses the defaults.
-    var aiProject: URL? { projectFolder }
+    /// `ToolTabsWindow`: the feature panel shown beside a document.
+    func showFeatureContext(_ slug: String?) { flow.showFeatureContext(slug) }
 
-    // MARK: - Linked folders (Task 59)
+    /// `WindowSessionHost`: a restored session shows the GitHub tab again.
+    func openGitHubTab(_ item: GitHubItem) { flow.openGitHubTab(item) }
 
-    /// Folders attached to the open project as aliases: browsed, searched, indexed and readable by
-    /// the AI together with it; the project's own elements stay in the project folder.
-    @Published private(set) var linkedFolders: [LinkedFolder] = []
-
-    /// Changes whenever the searchable roots change (the project or its linked folders).
-    var searchRootsKey: String { ([rootNode?.url.path ?? ""] + linkedFolders.map(\.path)).joined(separator: "\n") }
-
-    func loadLinkedFolders() {
-        linkedFolders = LinkedFolders.load(project: projectFolder).filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    /// Link `urls` to the open project. Returns the reasons for the ones that could not be linked.
-    @discardableResult
-    func linkFolders(_ urls: [URL]) -> [String] {
-        guard let project = projectFolder else { return ["Open a project folder first."] }
-        var errors: [String] = []
-        var added = false
-        for url in urls {
-            switch LinkedFolders.link(url, to: project, existing: linkedFolders) {
-            case .success(let folder):
-                linkedFolders.append(folder)
-                added = true
-            case .failure(let error):
-                errors.append(error.message)
-            }
-        }
-        if added { linkedFoldersChanged(project) }
-        return errors
-    }
-
-    func unlinkFolder(_ id: String) {
-        guard let project = projectFolder, linkedFolders.contains(where: { $0.id == id }) else { return }
-        linkedFolders.removeAll { $0.id == id }
-        linkedFoldersChanged(project)
-    }
-
-    /// The folder panel of "Link Folder…" (File menu, file tree).
-    func chooseFoldersToLink() {
-        guard projectFolder != nil else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.message = "Choose folders to link to this project. They are browsed and searched with it; the project's own files stay where they are."
-        panel.prompt = "Link"
-        guard panel.runModal() == .OK else { return }
-        let errors = linkFolders(panel.urls)
-        if !errors.isEmpty {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = errors.count == 1 ? "The folder was not linked." : "Some folders were not linked."
-            alert.informativeText = errors.joined(separator: "\n")
-            alert.runModal()
-        }
-    }
-
-    /// The linked folder that contains `url`, if any.
-    func linkedFolder(containing url: URL) -> LinkedFolder? {
-        LinkedFolders.folder(containing: url, in: linkedFolders)
-    }
-
-    /// The root `url` belongs to: the project folder, or the linked folder containing it.
-    func containerRoot(for url: URL) -> URL? {
-        if let root = rootNode?.url {
-            let path = url.standardizedFileURL.path
-            let rootPath = root.standardizedFileURL.path
-            if path == rootPath || path.hasPrefix(rootPath + "/") { return root }
-        }
-        return linkedFolder(containing: url)?.url
-    }
-
-    /// Persist the list, then index the linked folders (the search index follows `searchRootsKey`).
-    private func linkedFoldersChanged(_ project: URL) {
-        LinkedFolders.save(linkedFolders, project: project)
-        if let root = rootNode?.url, semanticDatabase != nil { runStructuralIndex(at: root) }
-    }
-
-    var openTabs: [OpenTab] {
-        get { tabsStore.openTabs }
-        set { tabsStore.openTabs = newValue }
-    }
-
-    var activeTabIndex: Int {
-        get { tabsStore.activeTabIndex }
-        set { tabsStore.activeTabIndex = newValue }
-    }
-
-    var activeTab: OpenTab? {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return nil }
-        return openTabs[activeTabIndex]
-    }
+    func reloadChangedOpenFiles(all: Bool) async { await tabs.reloadChangedOpenFiles(all: all) }
 
     init() {
         Self.debugLog("WorkspaceManager init START")
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let appDir = appSupport.appendingPathComponent("MarkView", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        recentFilesURL = appDir.appendingPathComponent("recentFiles.json")
-        research.workspace = self
-        qa.assistantSelection = { [weak self] in
-            guard let self, let terminal = self.assistantTerminal, let tool = terminal.profile.tool else { return nil }
-            // The shown agent decides which assistant answers; the model is the project's chosen one, not what that tab happens to run.
-            return CLICompletion.Assistant.chosen(tool: tool, project: self.aiProject)
-        }
-        agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
-        agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
-        agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }
-        let sideTable = scrollState
-        tabsStore.onTabsRemoved = { removedIDs in
-            for id in removedIDs { sideTable.removeTab(id) }
-        }
-        agentActivity.start()
-
-        // Restore layout from UserDefaults
-        let ud = UserDefaults.standard
-        if ud.object(forKey: "layout.showTOC.v3") != nil {
-            showTOC = ud.bool(forKey: "layout.showTOC.v3")
-        }
-
-        loadRecentFiles()
-        fileTreeStore.shouldAutoRefresh = { [weak self] in
-            self?.indexingProgress == nil
-        }
-        fileTreeStore.onTimer = { [weak self] in
-            guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
-            Task { await self.gitClient.refreshStatus() }
-        }
-        fileTreeStore.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        tabsStore.objectWillChange
-            .sink { [weak self] _ in
-                guard let self, !self.tabsStore.isSilentTabMetadataUpdate else { return }
-                self.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        layout.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        // The file tree shows each file's Git state: it redraws when the repository status changes.
-        gitClient.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-        // Edits made outside MarkView (an agent, a terminal) change the status: look again when the
-        // app comes back to the front.
-        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in
-                guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating else { return }
-                Task { await self.gitClient.refresh() }
-            }
+        composition.connect()
+        composition.changes
+            .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
         Self.debugLog("WorkspaceManager init DONE")
     }
 
-    private nonisolated static let workspaceLogger = Logger(subsystem: "com.markview.app", category: "workspace")
-
     /// Write workspace diagnostic message to the unified system log (`AR-24`, `AR-42`).
     nonisolated static func debugLog(_ msg: String) {
-        workspaceLogger.debug("\(msg, privacy: .public)")
-    }
-
-    /// Folder reopened on the next launch; cleared by Close Folder.
-    static let lastFolderKey = "workspace.lastFolder"
-    /// How many recently opened folders are remembered and listed on the welcome screen.
-    static let maxRecentProjects = 30
-    static let recentProjectsKey = "workspace.recentProjects"
-
-    /// Removes a folder from the recent projects list; the folder itself is untouched.
-    func removeRecentProject(_ path: String) {
-        setRecentProjects(recentProjects.filter { $0 != path })
-    }
-
-    private func setRecentProjects(_ paths: [String]) {
-        recentProjects = paths
-        UserDefaults.standard.set(paths, forKey: Self.recentProjectsKey)
+        AppLog.workspace.debug("\(msg)")
     }
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
         projectOperations = ProjectOperationsStore.forRoot(url)
-        UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
-        var recent = recentProjects
-        recent.removeAll { $0 == url.standardizedFileURL.path }
-        recent.insert(url.standardizedFileURL.path, at: 0)
-        setRecentProjects(Array(recent.prefix(Self.maxRecentProjects)))
-        rootOpenedAsFolder = true
+        project.beginOpening(url)
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
         // outside its terminals; the browser tools check the terminal-links setting themselves.
-        registerBrowserControl()
+        browser.register()
         taskBag.cancelAll()
-        scrollState.reset()
-        fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
-        tabsStore.reset()
-        architecture.reset()
-        folderXRays = [:]
-        codeNav.reset()
-        indexingProgress = "Loading folder structure..."
+        flow.cancelWork()
+        tabs.reset()
+        codeXRay.reset()
         Self.debugLog("openFolder START: \(url.path)")
 
         // Run setup steps asynchronously — sleep briefly to let SwiftUI render each step
@@ -845,266 +159,53 @@ class WorkspaceManager: ObservableObject {
             let migration = await Task.detached { PrototypeFiles.migrateLegacy(root: url) }.value
             if !migration.isEmpty { Self.debugLog("Prototype storage migration: \(migration.summary)") }
 
-            // Build tree on background thread to avoid blocking UI
-            let sort = self.fileTreeStore.sortOrder
-            let node = await Task.detached {
-                FileNode.buildTree(from: url, sortOrder: sort)
-            }.value
-            guard !Task.isCancelled else { return }
-            self.fileTreeStore.setRootNode(node)
-            self.fileTreeStore.loadExcludedFolders()
-            self.loadLinkedFolders()
-            Self.debugLog("Tree loaded: \(node.children?.count ?? 0) children")
+            guard await project.loadTree(of: url) else { return }
 
-            indexingProgress = "Setting up workspace..."
+            project.indexingProgress = "Setting up workspace..."
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
 
-            self.fileTreeStore.startWatchingCurrentRoot()
-            addRecentFile(url)
+            project.startWatching(url)
             Self.debugLog("File watcher started, calling initDDEWorkspaceAsync...")
 
             await initDDEWorkspaceAsync(at: url)
             Self.debugLog("openFolder COMPLETE")
 
-            // Code projects get a prominent "Open Architecture" on the welcome screen.
-            let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
-            if rootNode?.url == url { isCodeProject = isCode }
             // Code projects are analyzed in the background without the X-Ray tab; the store
             // honours the switch (`.off`, DEC-001) and applies the size cap from its own scan (DEC-003).
-            if rootNode?.url == url, isCode {
-                architecture.startAutomaticCodeAnalysis(root: url, db: semanticDatabase)
+            let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
+            if project.root == url, isCode {
+                codeXRay.architecture.startAutomaticCodeAnalysis(root: url, db: project.database)
             }
             completion?()
         }
         taskBag.store(setupTask, for: "openFolder")
     }
 
-    /// Initialize .dde/ workspace structure and SQLite database — async to keep UI responsive
+    /// Opens the folder's database and connects the services that work on it — async to keep UI responsive.
     private func initDDEWorkspaceAsync(at url: URL) async {
-        let fm = FileManager.default
-        let ddeRoot = url.appendingPathComponent(".dde")
-
-        indexingProgress = "Creating workspace structure..."
-        Self.debugLog("initDDE: creating dirs...")
-        try? await Task.sleep(nanoseconds: 100_000_000)
-
-        for subdir in ["cache/provider_responses", "cache/embeddings", "cache/indexes", "overlays"] {
-            let dir = ddeRoot.appendingPathComponent(subdir)
-            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-
-        indexingProgress = "Opening database..."
-        Self.debugLog("initDDE: opening database...")
-        try? await Task.sleep(nanoseconds: 100_000_000)
-
         do {
-            let db = try SemanticDatabase(workspacePath: url)
+            guard try await project.openDatabase(at: url) else { return }
             Self.debugLog("initDDE: database opened")
-            let projectId = url.lastPathComponent
-            try db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
-            self.semanticDatabase = db
+            terminals.workspaceRoot = url
 
-            indexingProgress = "Initializing engines..."
-            Self.debugLog("initDDE: creating engines...")
-            try? await Task.sleep(nanoseconds: 100_000_000)
-
-            self.graphRAG = GraphRAG(db: db)
-            self.aiWorkspaceRoot = url
-            Self.debugLog("initDDE: engines created")
-
-            indexingProgress = "Connecting services..."
+            project.indexingProgress = "Connecting services..."
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             gitClient.setup(at: url)
-            setUpGitHub(at: url)
-            setUpFeatures(at: url)
-            deployments.setRoot(url)
-            discussions.setRoot(url)
+            flow.setUp(at: url)
+            toolTabs.projectOpened(url)
             Self.debugLog("initDDE: git setup done")
 
-            // Load cached diagrams and analysis results from database
-            loadCachedResults()
-
             // Structural indexing runs silently in background — no progress indicator
-            indexingProgress = nil
-            runStructuralIndex(at: url)
+            project.indexingProgress = nil
+            project.refreshSemanticViews()
+            project.runStructuralIndex(at: url)
             Self.debugLog("initDDE: structural index started")
-
         } catch {
             Self.debugLog("initDDE: ERROR: \(error)")
-            indexingProgress = nil
+            project.indexingProgress = nil
         }
-    }
-
-    // MARK: - Markdown File Scanning (Recursive Insight)
-
-    /// Enumerate `.md` files in `folderURL` for Recursive Insight.
-    ///
-    /// Filters applied (per tech-spec Decision 10 §7):
-    /// - `.skipsHiddenFiles` and `.skipsPackageDescendants` enumerator options
-    ///   (the latter prevents descending into `.app` / `.bundle` / `.docset`).
-    /// - Path extension must be `.md` (case-insensitive).
-    /// - Paths containing `.dde` are excluded (matches existing convention).
-    /// - Symlinks resolving outside `folderURL` are skipped (containment check
-    ///   via `resolvingSymlinksInPath().standardizedFileURL` — order matters:
-    ///   resolve symlinks BEFORE standardizing).
-    ///
-    /// There is no file-count limit: folders too large to inline are handed to
-    /// the AI CLI as a catalog plus read-only folder access (see GraphRAG).
-    ///
-    /// Per-file size truncation is the caller's responsibility — this helper
-    /// only enumerates URLs.
-    func scanMarkdownFiles(in folderURL: URL) -> [URL] {
-        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        // Append the platform path separator so prefix checks cannot be bypassed
-        // by sibling folders sharing a name prefix (e.g. `/x/foo` vs `/x/foobar`).
-        // `URL.standardizedFileURL.path` strips trailing slashes, so guard against
-        // an existing trailing `/` to avoid `//` artifacts on edge cases.
-        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
-            ? resolvedFolderPath
-            : resolvedFolderPath + "/"
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            return []
-        }
-
-        var results: [URL] = []
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
-
-            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            // The `==` clause covers the (unlikely) case of the folder URL itself
-            // surfacing here; the prefix clause requires a path-separator boundary
-            // so a sibling like `/x/foobar/secret.md` cannot pass for `/x/foo`.
-            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else {
-                NSLog("[Insight] Skipped symlink escape: \(url.path)")
-                continue
-            }
-
-            results.append(url)
-        }
-        return results
-    }
-
-    /// Cached check for menu disabled-state (`AR-42`): returns `true` as soon as one
-    /// markdown file is found inside `rootNode` and caches the result until the file tree changes.
-    var hasMarkdownFiles: Bool {
-        if let cached = fileTreeStore.cachedHasMarkdownFiles {
-            return cached
-        }
-        guard let folderURL = rootNode?.url else { return false }
-        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
-        // Same separator-aware containment as `scanMarkdownFiles(in:)` — keep in sync.
-        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
-            ? resolvedFolderPath
-            : resolvedFolderPath + "/"
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            fileTreeStore.cachedHasMarkdownFiles = false
-            return false
-        }
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            guard !url.path.contains(".dde") else { continue }
-            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else { continue }
-            fileTreeStore.cachedHasMarkdownFiles = true
-            return true
-        }
-        fileTreeStore.cachedHasMarkdownFiles = false
-        return false
-    }
-
-    // MARK: - Folder Exclusion
-
-    /// Exclude a folder — removes all its entities from the DB
-    func excludeFolder(_ folderURL: URL) {
-        guard let relativePath = fileTreeStore.excludeFolder(folderURL) else { return }
-
-        // Remove all DB entities for files in this folder
-        guard let db = semanticDatabase else { return }
-        let fm = FileManager.default
-        if let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            while let url = enumerator.nextObject() as? URL {
-                guard url.pathExtension.lowercased() == "md" else { continue }
-                let docId = self.docId(for: url)
-                db.clearSymbols(forDocument: docId, kind: "heading")
-                db.clearSymbols(forDocument: docId, kind: "link")
-                db.clearSymbols(forDocument: docId, kind: "code_block")
-                // Remove from FTS
-                db.indexDocumentFTS(documentId: docId, title: "", content: "")
-            }
-        }
-        objectWillChange.send()
-        NSLog("[DDE] Excluded folder: \(relativePath)")
-    }
-
-    /// Re-include a previously excluded folder
-    func includeFolder(_ relativePath: String) {
-        guard fileTreeStore.includeFolder(relativePath) else { return }
-        // Re-index would happen on next Refresh
-        objectWillChange.send()
-        NSLog("[DDE] Re-included folder: \(relativePath)")
-    }
-
-    /// Check if a path is excluded
-    func isExcluded(_ url: URL) -> Bool {
-        fileTreeStore.isExcluded(url)
-    }
-
-    /// Handle files created/modified by Claude Code — auto-open and refresh tree
-    /// Open or refresh a file — if already open, reload content from disk.
-    /// Insight tabs are skipped on the refresh branch: their placeholder URL
-    /// is never written to disk, so reading it back would corrupt the in-memory
-    /// session. We still allow the tab to be activated by index match.
-    func openOrRefreshFile(_ url: URL) {
-        layout.workspaceArea = .files
-        if let index = tabsStore.firstIndex(of: url) {
-            if !openTabs[index].isFileBacked {
-                tabsStore.activeTabIndex = index
-                return
-            }
-            if let content = try? String(contentsOf: url, encoding: .utf8) {
-                tabsStore.updateTab(at: index) { tab in
-                    tab.content = content
-                    tab.originalContent = content
-                    tab.isModified = false
-                }
-                tabsStore.activeTabIndex = index
-            }
-        } else {
-            openFile(url)
-        }
-    }
-
-    /// Canonical document id for `url` in the current workspace — path relative to
-    /// the workspace root (folder root, or the parent dir for a single-file
-    /// workspace). Must be used by EVERY docId producer so same-named files in
-    /// different folders never collide. See `SemanticDatabase.documentId(for:root:)`.
-    func docId(for url: URL) -> String {
-        let root = rootNode?.url ?? url.deletingLastPathComponent()
-        return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
-    }
-
-    /// The file a document id of this workspace names: a path inside the project, or
-    /// `@linked/<name>/…` inside a linked folder (Task 59); nil when it is neither on disk.
-    func fileURL(forDocumentId id: String) -> URL? {
-        if let linked = LinkedFolders.resolve(documentId: id, in: linkedFolders) {
-            return FileManager.default.fileExists(atPath: linked.path) ? linked : nil
-        }
-        guard let root = rootNode?.url else { return nil }
-        let direct = root.appendingPathComponent(id)
-        return FileManager.default.fileExists(atPath: direct.path) ? direct : nil
     }
 
     /// Open a file in a new tab or switch to existing tab
@@ -1115,261 +216,52 @@ class WorkspaceManager: ObservableObject {
         // /tmp, a terminal link) opens as a tab and must not replace the project's search
         // database, git client and AI root.
         let isMD = url.pathExtension.lowercased() == "md"
-        if isMD && !rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
+        if isMD && !project.rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
             initSingleFileWorkspace(fileURL: url)
         }
-        if let feature = features.locate(url)?.feature {
-            showFeatureContext(feature.slug)
+        if let feature = flow.features.locate(url)?.feature {
+            flow.showFeatureContext(feature.slug)
         }
 
-        // Check if file is already open
-        if tabsStore.selectTab(matching: url) != nil {
-            return
-        }
-
-        if FileType.from(url: url) == .pdf {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .pdf(PDFReaderController())
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-            return
-        }
-
-        // Archives: the archive view lists them; nothing is unpacked until a file is clicked.
-        if Archive.isArchive(url) {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .archive
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-            return
-        }
-
-        // Data files: the page's viewers read them (they may be binary or very large).
-        if FileType.isData(url) {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .data
-            tabsStore.appendTab(tab)
-            openFileDates[url] = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            addRecentFile(url)
-            startWatchingOpenFiles()
-            return
-        }
-
-        // Images: the image viewer reads the file itself.
-        if FileType.isImage(url) {
-            var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .image
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-            return
-        }
-
-        Task { await openTextFile(url) }
-    }
-
-    /// The image viewer's arrows and slideshow: the image tab of `url` shows `target` instead.
-    func showImage(_ target: URL, replacing url: URL) {
-        guard let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind else { return }
-        tabsStore.updateTab(at: index) { $0.url = target }
-    }
-
-    /// The image viewer's "Source" (SVG): replace the image tab with the file as text.
-    func openImageAsText(_ url: URL) {
-        if let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind {
-            tabsStore.removeTab(at: index)
-        }
-        Task { await openTextFile(url) }
-    }
-
-    private func openTextFile(_ url: URL) async {
-        guard tabsStore.selectTab(matching: url) == nil else { return }
-        let openingRoot = rootNode?.url
-        do {
-            let content = try await Task.detached(priority: .userInitiated) { try FileType.readText(at: url) }.value
-            guard rootNode?.url == openingRoot, tabsStore.selectTab(matching: url) == nil else { return }
-            var tab = OpenTab(url: url, content: content, originalContent: content)
-
-            // Extract headings from markdown
-            if url.pathExtension.lowercased() == "md" {
-                tab.headings = extractHeadings(from: content)
-            }
-
-            tabsStore.appendTab(tab)
-            addRecentFile(url)
-        } catch {
-            showTextReadError(error, url: url)
-        }
-    }
-
-    private func showTextReadError(_ error: Error, url: URL) {
-        let alert = NSAlert()
-        alert.messageText = "Cannot show \(url.lastPathComponent) as text"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Open in Default App")
-        if alert.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.open(url) }
+        tabs.openDocument(url)
     }
 
     // MARK: - Window session
 
-    func windowState(id: UUID) -> WorkspaceWindowState {
-        var state = WorkspaceWindowState(id: id, folder: rootNode?.url)
-        state.theme = theme.settings
-        state.uiState = windowUI.saved
-        for (index, tab) in openTabs.enumerated() {
-            let saved: WorkspaceTabState
-            switch tab.kind {
-            case .file:
-                let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
-                let currentScroll = scrollState.scrollPosition(for: tab.id, fallback: tab.scrollPosition)
-                saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(currentScroll))
-            case .image: saved = .image(tab.url)
-            case .pdf: saved = .pdf(tab.url)
-            case .archive: saved = .archive(tab.url)
-            case .deployments: saved = .deployments
-            case .discussions: saved = .discussions
-            case .workflow: saved = .workflow
-            case .git: saved = .git
-            case .qa: saved = .qa
-            case .changeReview: saved = .changeReview
-            case .data: saved = .data(tab.url)
-            case .github(let item): saved = .github(item)
-            case .architecture(let scope): saved = .architecture(scope)
-            case .terminal(let terminalID):
-                guard let terminal = terminalTabs[terminalID] else { continue }
-                saved = .terminal(terminal.directory)
-            case .browser(let session):
-                guard let url = session.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { continue }
-                saved = .browser(url)
-            case .insight: continue // in-memory jobs have their own export workflow
-            case .prototype: continue // reopened from AI Tools → Prototype
-            case .uiStudio: continue // a live session with a development server: opened again from View → UI Studio
-            case .cockpit: continue // reopened from the toolbar
-            }
-            if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
-            state.tabs.append(saved)
-        }
-        state.panels = WorkspacePanelState(workspaceArea: layout.workspaceArea.rawValue,
-            workSection: layout.workSection.rawValue,
-            navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
-            feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
-            showFiles: showFileTree, showNavigator: showTOC,
-            contentsVisible: showTOC, terminalVisible: terminalVisible, agentsVisible: agentsVisible,
-            showCenter: showCenter, welcomeBackdrop: layout.welcomeBackdrop.rawValue)
-        return state
+    // The session of a window is saved and restored by `WindowSessionSnapshotter`; this is what the window itself opens for it.
+    var windowFolder: URL? { rootNode?.url }
+    var themeSettings: WindowThemeSettings { theme.settings }
+
+    var sessionChanges: AnyPublisher<Void, Never> {
+        objectWillChange.map { _ in () }.merge(with: composition.sessionChanges).eraseToAnyPublisher()
     }
 
-    func restoreWindowState(_ state: WorkspaceWindowState) async {
-        windowUI.restore(state.uiState)
-        let fm = FileManager.default
-        if let folder = state.folder, folder.isFileURL,
-           (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            await withCheckedContinuation { continuation in
-                openFolder(folder) { continuation.resume() }
-            }
-            // A folder chosen meanwhile wins over the old session.
-            guard rootNode?.url == folder else { return }
-        }
-        var selected: Int?
-        for (savedIndex, saved) in state.tabs.enumerated() {
-            let before = openTabs.count
-            switch saved {
-            case .file(let url, let draft, let notes, let scroll):
-                guard url.isFileURL else { continue }
-                if fm.fileExists(atPath: url.path) { await openTextFile(url) }
-                if openTabs.count == before, let draft {
-                    // A removed file must not take the unsaved editor text with it.
-                    var tab = OpenTab(url: url, content: draft.content, originalContent: draft.original)
-                    tab.headings = extractHeadings(from: draft.content)
-                    tabsStore.appendTab(tab)
-                }
-                guard openTabs.count > before else { continue }
-                let restoredScroll: CGFloat = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
-                tabsStore.updateTab(at: before) { tab in
-                    if let draft {
-                        tab.content = draft.content
-                        tab.isModified = draft.content != tab.originalContent
-                        tab.headings = extractHeadings(from: draft.content)
-                    }
-                    tab.notesView = notes
-                    tab.scrollPosition = restoredScroll
-                }
-                scrollState.setScrollPosition(restoredScroll, for: openTabs[before].id)
-            case .deployments: openDeployments()
-            case .discussions: openDiscussions()
-            case .workflow: openWorkflow()
-            case .git: openGit()
-            case .qa: openQA()
-            case .changeReview: openChangeReview()
-            case .image(let url), .pdf(let url), .data(let url), .archive(let url):
-                if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
-            case .github(let item): openGitHubTab(item)
-            case .architecture(let scope):
-                // Reopen cached views without triggering new scans/reviews during launch.
-                if let root = rootNode?.url {
-                    var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
-                                      content: "", originalContent: "")
-                    tab.kind = .architecture(scope: scope)
-                    tabsStore.appendTab(tab)
-                    if let context = xrayContext(scope) {
-                        xrayStore(for: scope).restoreCached(root: context.root, db: context.db)
-                    }
-                }
-            case .terminal(let directory):
-                if directory.isFileURL, (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    openTerminal(in: directory)
-                }
-            case .browser(let url):
-                if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { openBrowser(url, activate: false) }
-            }
-            if savedIndex == state.activeTabIndex, openTabs.count > before { selected = before }
-        }
-        activeTabIndex = state.activeTabIndex == -1 ? -1 : (selected ?? (openTabs.isEmpty ? -1 : 0))
-        if let panels = state.panels {
-            layout.workspaceArea = panels.workspaceArea.flatMap(WorkspaceArea.init) ?? .files
-            let restoredWorkSection = panels.workSection.flatMap(WorkSection.init) ?? .features
-            layout.workSection = restoredWorkSection == .terminal ? .features : restoredWorkSection
-            let restoredNavigator = NavigatorTab(rawValue: panels.navigator) ?? .contents
-            layout.navigatorTab = [.terminal, .git, .search].contains(restoredNavigator) ? .contents : restoredNavigator
-            layout.leftPanel = panels.left == "issues" ? "issues" : "files"
-            layout.issuesFeature = panels.feature
-            layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
-            layout.featureStage = FeatureStage.stored(panels.stage)
-            // A session saved before BUG-120 has none: the window keeps the starting choice it was created with.
-            if let backdrop = panels.welcomeBackdrop { layout.welcomeBackdrop = WelcomeBackdrop.stored(backdrop) }
-            showFileTree = panels.showFiles
-            showTOC = panels.contentsVisible ?? false
-            showCenter = panels.showCenter ?? true
-            let oldVisible = panels.terminalVisible ?? panels.showNavigator
-            agentsVisible = panels.agentsVisible ?? (restoredNavigator == .terminal && oldVisible)
-            terminalVisible = panels.agentsVisible == nil && restoredNavigator == .terminal ? false : oldVisible
-            if !showFileTree && !showCenter && !terminalVisible { showCenter = true }
-        }
+    func windowWillClose() { composition.close() }
+
+    func terminalDirectory(for id: UUID) -> URL? { terminals.tabTerminal(id)?.directory }
+
+    func restoreArchitectureTab(scope: String) {
+        // Reopen cached views without triggering new scans/reviews during launch.
+        guard let root = rootNode?.url else { return }
+        var tab = OpenTab(url: root.appendingPathComponent(ProjectPaths.placeholderName("restored-xray-" + String(ContentHash.of(scope).prefix(12)))),
+                          content: "", originalContent: "")
+        tab.kind = .architecture(scope: scope)
+        tabs.appendTab(tab)
+        codeXRay.restoreCachedXRay(scope: scope)
     }
+
+    func restoreTerminal(in directory: URL) { openTerminal(in: directory) }
+
+    func restoreBrowser(_ url: URL) { browser.open(url, activate: false) }
 
     // MARK: - Workspace metadata
-
-    /// Everything MarkView has written into the open folder: the index database and
-    /// caches (`.dde/`), Recursive Insight pages and a CLAUDE.md it generated.
-    func metadataItems() -> [URL] {
-        guard let root = rootNode?.url else { return [] }
-        let fm = FileManager.default
-        var items = [root.appendingPathComponent(".dde"), root.appendingPathComponent(".markview-insight")]
-            .filter { fm.fileExists(atPath: $0.path) }
-        let claude = root.appendingPathComponent(".claude/CLAUDE.md")
-        if let text = try? String(contentsOf: claude, encoding: .utf8),
-           text.hasPrefix("# Project Context — Auto-generated by MarkView DDE") {
-            items.append(claude)
-        }
-        return items
-    }
 
     /// Delete this folder's metadata after confirmation. With `recreate`, rebuild the
     /// index right away; otherwise nothing is written again until the folder is
     /// reopened or Recreate is chosen.
     func removeMetadata(recreate: Bool) {
         guard let root = rootNode?.url else { return }
-        let items = metadataItems()
+        let items = project.metadataItems()
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = recreate
@@ -1388,28 +280,14 @@ class WorkspaceManager: ObservableObject {
 
         // Stop everything that could still write into the folder.
         stopAllTerminals()
-        structuralIndexer?.terminate()
-        structuralIndexer = nil
-        for tab in openTabs {
-            if case .insight(let session) = tab.kind { Task { await session.cancel() } }
-        }
-        let keep = openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
-        for index in openTabs.indices.reversed() where !keep.contains(index) { tabsStore.removeTab(at: index) }
+        project.stopIndexing()
+        insight.cancelSessions()
+        let keep = tabs.openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
+        for index in tabs.openTabs.indices.reversed() where !keep.contains(index) { tabs.removeTab(at: index) }
         releaseWorkspaceEngines()
-        architecture.reset()
-        folderXRays = [:]
-        codeExplain.reset()
-        indexingProgress = nil
-        structuralIndexProgress = nil
+        codeXRay.reset()
 
-        var failures: [String] = []
-        for item in items {
-            do { try FileManager.default.removeItem(at: item) } catch { failures.append(item.lastPathComponent) }
-        }
-        let claudeDir = root.appendingPathComponent(".claude")
-        if (try? FileManager.default.contentsOfDirectory(atPath: claudeDir.path))?.isEmpty == true {
-            try? FileManager.default.removeItem(at: claudeDir)
-        }
+        let failures = project.deleteMetadata(items)
         if !failures.isEmpty {
             let error = NSAlert()
             error.messageText = "Some items could not be deleted"
@@ -1418,101 +296,11 @@ class WorkspaceManager: ObservableObject {
         }
         Self.debugLog("removeMetadata: \(items.count) items removed from \(root.path), recreate=\(recreate)")
         if recreate {
-            Task { await initDDEWorkspaceAsync(at: root) }
+            taskBag.store(Task { await initDDEWorkspaceAsync(at: root) }, for: "recreateWorkspace")
         }
     }
 
-    // MARK: - Code explanations
-
-    /// Workspace-relative path used as the cache key for a file's notes.
-    func workspaceRelativePath(_ url: URL) -> String {
-        let path = url.standardizedFileURL.path
-        if let root = rootNode?.url.standardizedFileURL.path, path.hasPrefix(root + "/") {
-            return String(path.dropFirst(root.count + 1))
-        }
-        if linkedFolder(containing: url) != nil, let root = rootNode?.url {
-            return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
-        }
-        return path
-    }
-
-    private func explainDirectory(for url: URL) -> URL {
-        // A pull request's copy of a project file keeps its notes with the project's.
-        if architecture.prRelativePath(for: url) != nil, let root = rootNode?.url {
-            return root.appendingPathComponent(".dde/cache/explain", isDirectory: true)
-        }
-        return cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
-    }
-
-    /// AI filters available to the code viewer: Importance and the user's own.
-    /// The one-off filter of this window (typed into an X-Ray or notes filter box); other windows have their own.
-    private(set) var temporaryFilter: ImportanceRater.Filter?
-    private var aiFilters: [ImportanceRater.Filter] { ImportanceRater.allFilters(temporary: temporaryFilter) }
-
-    /// Create or delete a user filter (from the Architecture tab or the code viewer).
-    func createFilter(name: String, criterion: String) {
-        ImportanceRater.addFilter(name: name, criterion: criterion)
-        allXRayStores.forEach { $0.filtersChanged() }
-        codeExplain.filtersChanged()
-    }
-
-    /// The one-off AI filter from a filter box (X-Ray or notes); empty clears it.
-    func setTemporaryFilter(_ criterion: String) {
-        let previous = temporaryFilter
-        temporaryFilter = ImportanceRater.temporaryFilter(for: criterion)
-        allXRayStores.forEach { $0.temporaryFilter = temporaryFilter }
-        if let previous {
-            architecture.forgetRatings(filterId: previous.id, db: semanticDatabase)
-            folderXRays.values.forEach { $0.forgetRatings(filterId: previous.id, db: nil) }
-        }
-        allXRayStores.forEach { $0.filtersChanged() }
-        codeExplain.filtersChanged()
-    }
-
-    func deleteFilter(id: String) {
-        if ImportanceRater.isTemporary(id) {
-            if temporaryFilter?.id == id { setTemporaryFilter("") }
-            return
-        }
-        ImportanceRater.removeFilter(id: id)
-        architecture.forgetRatings(filterId: id, db: semanticDatabase)
-        codeExplain.filtersChanged()
-    }
-
-    /// Project path of a file in the code viewer. A file shown from a fetched pull request
-    /// (MarkView's cache) counts as that project path, so its notes, explanations and PR
-    /// lens are all about the same file.
-    private func codePath(for url: URL) -> String {
-        architecture.prRelativePath(for: url) ?? workspaceRelativePath(url)
-    }
-
-    /// Load cached notes for a code file that just opened.
-    func prepareCodeNotes(for url: URL) {
-        codeExplain.load(path: codePath(for: url), directory: explainDirectory(for: url))
-        codeNav.sendState(url: url)
-    }
-
-    /// The margin panel state for `url`, as a JSON object literal.
-    func codeNotesJSON(for url: URL) -> String {
-        let content = openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content ?? ""
-        let path = codePath(for: url)
-        return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
-                                       pr: architecture.prFileNotes(path: path, content: content),
-                                       search: architecture.searchNotes(path: path))
-    }
-
-    // MARK: - Explain with AI
-
-    /// "Explain with AI — everything related" on a code element: the X-Ray's ⚡ search for
-    /// it, with everything connected to it in red.
-    func explainSymbol(name: String, path: String, line: Int) {
-        guard rootNode != nil, CodeNavigator.isNavigable(name) else { return }
-        let criterion = "\(name) — \((path as NSString).lastPathComponent):\(line)"
-        architecture.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
-        setTemporaryFilter(criterion)
-        openArchitecture()
-        if let id = temporaryFilter?.id { architecture.activate(filterId: id) }
-    }
+    // MARK: - Opening documents
 
     /// Show a text file's Explain notes, or return to its dedicated viewer.
     func setNotesView(_ show: Bool, explain: Bool = false) {
@@ -1521,570 +309,41 @@ class WorkspaceManager: ObservableObject {
             guard FileType.hasTextSource(tab.url) else { return }
             if show {
                 let url = tab.url
-                Task {
+                taskBag.store(Task {
                     do {
                         let text = try await Task.detached(priority: .userInitiated) { try FileType.readText(at: url) }.value
-                        guard activeTab?.url == url, let index = tabsStore.firstIndex(of: url) else { return }
-                        tabsStore.updateTab(at: index) { tab in
+                        guard activeTab?.url == url, let index = tabs.firstIndex(of: url) else { return }
+                        tabs.updateTab(at: index) { tab in
                             tab.content = text
                             tab.originalContent = text
                             tab.notesView = true
                         }
-                        if explain { explainIfNeeded(url) }
-                    } catch { showTextReadError(error, url: url) }
-                }
-            } else { tabsStore.updateActiveTab { $0.notesView = false } }
+                        if explain { codeXRay.explainIfNeeded(url) }
+                    } catch { tabs.showReadError(error, url: url) }
+                }, for: "notes:" + url.path)
+            } else { tabs.updateActiveTab { $0.notesView = false } }
         } else if tab.isFileBacked {
-            tabsStore.updateActiveTab { $0.notesView = show }
-            if show && explain { explainIfNeeded(tab.url) }
+            tabs.updateActiveTab { $0.notesView = show }
+            if show && explain { codeXRay.explainIfNeeded(tab.url) }
         }
-    }
-
-    private func explainIfNeeded(_ url: URL) {
-        prepareCodeNotes(for: url)
-        if codeExplain.explanations[codePath(for: url)] == nil {
-            handleCodeAction("explain", payload: [:], url: url)
-        }
-    }
-
-    /// Requests from the code viewer's margin panel.
-    func handleCodeAction(_ action: String, payload: [String: Any], url: URL) {
-        guard let tab = openTabs.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) else { return }
-        let root = rootNode?.url ?? url.deletingLastPathComponent()
-        let path = codePath(for: url)
-        switch action {
-        case "explain":
-            codeExplain.explain(path: path, content: tab.content, root: root, directory: explainDirectory(for: url),
-                                db: semanticDatabase)
-        case "rate":
-            let id = payload["filter"] as? String ?? ImportanceRater.importance.id
-            guard let filter = aiFilters.first(where: { $0.id == id }) else { return }
-            codeExplain.rate(path: path, content: tab.content, filter: filter, root: root,
-                             directory: explainDirectory(for: url), db: semanticDatabase)
-        case "freshness":
-            codeExplain.freshness(path: path, root: root, directory: explainDirectory(for: url))
-        case "explainPR":
-            architecture.explainPRFile(path: path, root: root, db: semanticDatabase)
-        case "createFilter":
-            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
-        case "tempFilter":
-            setTemporaryFilter(payload["criterion"] as? String ?? "")
-        case "explainSymbol":
-            guard let name = payload["name"] as? String else { return }
-            explainSymbol(name: name, path: path, line: (payload["line"] as? NSNumber)?.intValue ?? 1)
-        case "navDefinition", "navUsages", "navOpen", "navBack", "navForward", "askAI", "askStop":
-            handleNavigation(action, payload: payload, url: url, path: path, root: root)
-        default:
-            break
-        }
-    }
-
-    /// Go to definition, find usages, history and AI questions from the code viewer.
-    private func handleNavigation(_ action: String, payload: [String: Any], url: URL, path: String, root: URL) {
-        let line = (payload["line"] as? NSNumber)?.intValue ?? 1
-        let here = CodeNavigationStore.Place(url: url.standardizedFileURL, line: line)
-        let open: (URL, Int) -> Void = { [weak self] target, line in self?.openFile(target, line: line) }
-        switch action {
-        case "navDefinition":
-            guard let name = payload["name"] as? String else { return }
-            codeNav.goToDefinition(name: name, line: line, url: url, path: path, root: root, open: open)
-        case "navUsages":
-            guard let name = payload["name"] as? String else { return }
-            codeNav.findUsages(name: name, url: url, path: path, root: root)
-        case "navOpen":
-            // A result from the viewer's list or a `path:line` in an AI answer: a file inside
-            // the project only. A bare or partial path is looked up by its ending.
-            guard let target = payload["path"] as? String, let targetLine = (payload["target"] as? NSNumber)?.intValue else { return }
-            let base = root.standardizedFileURL.path + "/"
-            let file = root.appendingPathComponent(target).standardizedFileURL
-            if file.path.hasPrefix(base), FileManager.default.fileExists(atPath: file.path) {
-                codeNav.jump(from: here, to: file, line: targetLine, open: open)
-                return
-            }
-            let suffix = "/" + target.trimmingCharacters(in: CharacterSet(charactersIn: "./"))
-            let current = path
-            Task {
-                let match = await Task.detached(priority: .userInitiated) { () -> String? in
-                    let candidates = ArchitectureScanner.listFiles(root: root).filter { ("/" + $0).hasSuffix(suffix) }
-                    // Nearest to the file the question was about.
-                    let folder = (current as NSString).deletingLastPathComponent
-                    return candidates.max { a, b in
-                        a.commonPrefix(with: folder).count < b.commonPrefix(with: folder).count
-                    }
-                }.value
-                guard let match else { return }
-                codeNav.jump(from: here, to: root.appendingPathComponent(match), line: targetLine, open: open)
-            }
-        case "navBack":
-            codeNav.goBack(current: here, open: open)
-        case "navForward":
-            codeNav.goForward(current: here, open: open)
-        case "askAI":
-            guard let id = payload["id"] as? String, let question = payload["question"] as? String,
-                  let snippet = payload["text"] as? String, !snippet.isEmpty else { return }
-            let start = (payload["start"] as? NSNumber)?.intValue ?? 1
-            let history = (payload["history"] as? [[String: String]]) ?? []
-            codeNav.ask(id: id, question: question, snippet: snippet, start: start,
-                        end: (payload["end"] as? NSNumber)?.intValue ?? start, path: path,
-                        language: FileType.codeLanguage(for: url), history: history, url: url,
-                        root: root, db: semanticDatabase)
-        case "askStop":
-            if let id = payload["id"] as? String { codeNav.stopAnswer(id: id) }
-        default:
-            break
-        }
-    }
-
-    // MARK: - Architecture
-
-    /// Folder X-Rays by folder path (relative to the project root). The project's own
-    /// X-Ray is `architecture` (scope "").
-    private var folderXRays: [String: ArchitectureStore] = [:]
-
-    /// The store behind an X-Ray tab.
-    func xrayStore(for scope: String) -> ArchitectureStore {
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return architecture }
-        if let store = folderXRays[scope] { return store }
-        let store = ArchitectureStore()
-        store.projectRoot = rootNode?.url
-        if let root = rootNode?.url {
-            // Kept in the project's .dde, never inside the folder itself.
-            let key = String(ContentHash.of(scope).prefix(24))
-            let base = root.appendingPathComponent(".dde/xray-folders", isDirectory: true)
-            store.persistenceFile = base.appendingPathComponent(key + ".json")
-            store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
-        }
-        store.temporaryFilter = temporaryFilter
-        folderXRays[scope] = store
-        return store
-    }
-
-    /// Every X-Ray store that exists (the project's and the folders').
-    private var allXRayStores: [ArchitectureStore] { [architecture] + folderXRays.values }
-
-    /// Root folder and database of an X-Ray scope (folder X-Rays keep no database).
-    private func xrayContext(_ scope: String) -> (root: URL, db: SemanticDatabase?)? {
-        guard let root = rootNode?.url else { return nil }
-        if scope.isEmpty || scope == TabKind.pullRequestScope { return (root, semanticDatabase) }
-        return (root.appendingPathComponent(scope), nil)
-    }
-
-    /// Open (or switch to) the project's X-Ray. The first time the folder is scanned;
-    /// later openings show the stored result.
-    func openArchitecture() {
-        layout.workspaceArea = .projectMap
-        openXRayTab(scope: "")
-    }
-
-    private func openXRayTab(scope: String) {
-        guard let root = rootNode?.url, let context = xrayContext(scope) else { return }
-        layout.workspaceArea = .projectMap
-        let isThisTab = { (tab: OpenTab) -> Bool in
-            if case .architecture(let s) = tab.kind { return s == scope }
-            return false
-        }
-        if let index = openTabs.firstIndex(where: isThisTab) {
-            tabsStore.activeTabIndex = index
-        } else {
-            let marker = scope.isEmpty ? ".markview-architecture"
-                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
-                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
-            var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
-            tab.kind = .architecture(scope: scope)
-            tabsStore.appendTab(tab)
-        }
-        xrayStore(for: scope).open(root: context.root, db: context.db)
-    }
-
-    // MARK: - Moving and copying files
-
-    /// Drag and drop in the tab bar: `id` goes before the tab at `index` (or last).
-    func moveTab(_ id: UUID, to index: Int) {
-        tabsStore.moveTab(id: id, to: index)
-    }
-
-    /// Move (or copy) files and folders into `folder`, as the file tree's drag and drop
-    /// does (see `FileTransfer`). Tabs of moved files follow them. Returns the errors.
-    @discardableResult
-    func transfer(_ sources: [URL], into folder: URL, copy: Bool) -> [String] {
-        let result = FileTransfer.perform(sources, into: folder, copy: copy)
-        followMoves(result.moved)
-        refreshFileTree()
-        return result.errors
-    }
-
-    /// Rename a file or folder in place; its open tabs follow. Returns the error, if any.
-    func rename(_ url: URL, to name: String) -> String? {
-        let result = FileTransfer.rename(url, to: name)
-        followMoves(result.moved)
-        refreshFileTree()
-        return result.errors.first
-    }
-
-    /// Open tabs of moved files (or files inside moved folders) point at their new place.
-    private func followMoves(_ moved: [(URL, URL)]) {
-        for (source, destination) in moved {
-            for index in openTabs.indices {
-                let path = openTabs[index].url.standardizedFileURL.path
-                guard path == source.path || path.hasPrefix(source.path + "/") else { continue }
-                let moved = URL(fileURLWithPath: destination.path + path.dropFirst(source.path.count))
-                tabsStore.updateTab(at: index) { $0.url = moved }
-            }
-        }
-    }
-
-    /// The PR X-Ray tab: the project's X-Ray seen through one change — what it touches,
-    /// the links it adds or removes, and the AI's architectural reading of it.
-    func openPRXRay(source: String?) {
-        guard let root = rootNode?.url else { return }
-        openXRayTab(scope: TabKind.pullRequestScope)
-        if let source, !source.isEmpty {
-            architecture.refreshPRSources(root: root)
-            // A comparison with an earlier commit can span months of work: it is shown, and analysed when asked.
-            architecture.analyzeWhenLoaded = HistoricalBaseline.commitHash(fromSourceId: source) == nil
-            architecture.showPR(source, root: root, db: semanticDatabase)
-        } else {
-            // Nothing chosen yet: everything on this branch vs main, uncommitted included.
-            architecture.selectDefaultSource = true
-            architecture.refreshPRSources(root: root)
-        }
-    }
-
-    /// Compare this checkout with another branch in the PR X-Ray. `reverse` shows what `ref` has that this
-    /// branch lacks (read from `ref`, nothing is checked out); otherwise this branch's commits and uncommitted
-    /// changes against `ref`.
-    func compareBranch(_ ref: String, reverse: Bool) {
-        guard let root = rootNode?.url, GitClient.isPlausibleBranchName(ref) else { return }
-        let current = gitClient.branch.isEmpty ? "this checkout" : gitClient.branch
-        let title = reverse ? "\(ref) vs \(current): what \(ref) adds"
-                            : "\(current) vs \(ref) (commits + uncommitted)"
-        openXRayTab(scope: TabKind.pullRequestScope)
-        // No AI run until asked: Analyze and Review are buttons in the view.
-        architecture.showComparison(id: (reverse ? "rev:" : "cmp:") + ref, title: title, root: root, db: semanticDatabase)
-        architecture.refreshPRSources(root: root)
-    }
-
-    /// X-Ray from the file tree. A folder gets its own X-Ray tab — its own structure,
-    /// found and named inside it as if it were the project. A file opens with Explain
-    /// (its sections, importance, freshness and filters).
-    func openXRay(for url: URL) {
-        guard let root = rootNode?.url.standardizedFileURL else { return }
-        let target = url.standardizedFileURL
-        let isFolder = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        guard isFolder else {
-            explainFile(target)
-            return
-        }
-        openXRayTab(scope: target.path == root.path ? "" : workspaceRelativePath(target))
     }
 
     /// Open a file with its Explain notes, starting an explanation if there is none yet.
-    private func explainFile(_ url: URL) {
+    func explainFile(_ url: URL) {
         layout.workspaceArea = .files
         guard !FileType.isImage(url), !Archive.isArchive(url), FileType.hasTextSource(url) else {
             openFile(url)
             return
         }
-        Task {
+        taskBag.store(Task {
             if FileType.isData(url) {
                 openFile(url)
             } else {
-                await openTextFile(url)
+                await tabs.openTextFile(url)
             }
             guard activeTab?.url == url else { return }
             setNotesView(true, explain: true)
-        }
-    }
-
-    /// Requests from an X-Ray tab's web view, for the X-Ray of the active tab.
-    func handleArchitectureAction(_ action: String, payload: [String: Any]) {
-        var scope = ""
-        if case .architecture(let s) = activeTab?.kind { scope = s }
-        guard let (root, db) = xrayContext(scope) else { return }
-        let architecture = xrayStore(for: scope)
-        let semanticDatabase = db
-        switch action {
-        case "operationRun":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.run(id: id)
-        case "operationOpen":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.openPanel(id: id)
-        case "operationEdit":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            operations()?.edit(id: id)
-        case "operationAdd":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            operations()?.edit(id: nil)
-        case "operationAdopt":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let id = payload["id"] as? String else { return }
-            projectOperations?.adoptDiscovered(id: id)
-        case "operationDiscover":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            let nodes = architecture.snapshot?.view("deployment")?.nodes
-                .filter { $0.kind != "root" && $0.kind != "moduleRef" }
-                .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
-            projectOperations?.discover(nodes: nodes)
-        case "operationCancelDiscovery":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            projectOperations?.cancelDiscovery()
-        case "operationDismissReport":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
-            projectOperations?.dismissDiscoveryReport()
-        case "operationAcceptProposal":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            projectOperations?.acceptProposal(index: index)
-        case "operationRejectProposal":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            projectOperations?.rejectProposal(index: index)
-        case "operationAddUnknown":
-            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
-                  let index = payload["index"] as? Int else { return }
-            operations()?.addUnknown(index: index)
-        case "openFile":
-            guard let path = payload["path"] as? String, !path.isEmpty else { return }
-            let url = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)).standardizedFileURL
-            // Stay inside the X-Ray's folder or, for a folder X-Ray's answer, the open project.
-            let projectPath = (rootNode?.url ?? root).standardizedFileURL.path
-            guard url.path.hasPrefix(root.standardizedFileURL.path + "/") || url.path.hasPrefix(projectPath + "/") else { return }
-            // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
-            // a fetched pull request's own version of the file (which may not exist here).
-            // From the ⚡ search's answer: the viewer opens on the search's places in the file.
-            if payload["fromSearch"] as? Bool == true { architecture.markSearchFocus(path: path) }
-            if payload["fromPR"] as? Bool == true {
-                architecture.markPRFocus(path: path)
-                let line = payload["line"] as? Int
-                let endLine = payload["endLine"] as? Int
-                let findText = payload["find"] as? String
-                if let cached = architecture.prFileURL(path: path) {
-                    openFile(cached, line: line, endLine: endLine)
-                    return
-                }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if let prFile = await self.architecture.resolvePRFileURL(path: path) {
-                        self.openFile(prFile, line: line, endLine: endLine)
-                        return
-                    }
-                    guard FileManager.default.fileExists(atPath: url.path) else { return }
-                    if FileType.isOpenable(url) {
-                        self.openFile(url, line: line, endLine: endLine)
-                        if let text = findText, !text.isEmpty, FileType.from(url: url) == .markdown {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
-                            }
-                        }
-                    } else {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                }
-                return
-            }
-            guard FileManager.default.fileExists(atPath: url.path) else { return }
-            if FileType.isOpenable(url) {
-                openFile(url, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
-                // Markdown: scroll to a heading or to where the document mentions something.
-                if let text = payload["find"] as? String, !text.isEmpty, FileType.from(url: url) == .markdown {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        NotificationCenter.default.post(.scrollToText, for: self, object: String(text.prefix(80)))
-                    }
-                }
-            } else {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
-        case "rescan":
-            architecture.scan(root: root, db: semanticDatabase)
-        case "analyze":
-            architecture.analyze(root: root, db: semanticDatabase)
-        case "describeBook":
-            // Book view: "Describe this chapter" (path) or "Describe remaining chapters" (no path).
-            architecture.describeBook(path: payload["path"] as? String, root: root, db: semanticDatabase)
-        case "recursiveInsight":
-            // Book panel: the insight of a part (folder) or chapter (document) of this X-Ray.
-            let relative = payload["path"] as? String ?? ""
-            let target = relative.isEmpty ? root : root.appendingPathComponent(relative).standardizedFileURL
-            guard target.path == root.standardizedFileURL.path || target.path.hasPrefix(root.standardizedFileURL.path + "/"),
-                  FileManager.default.fileExists(atPath: target.path) else { return }
-            startRecursiveInsight(at: target)
-        case "askBook":
-            // A question about the book: answered like "I need to understand" (what, why, how,
-            // origin, with sources), over this X-Ray's root — the project's or the folder's.
-            let question = (payload["question"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !question.isEmpty else { return }
-            setTemporaryFilter(question)
-            if let filter = temporaryFilter {
-                architecture.understand(filter: filter, root: root, db: semanticDatabase)
-                architecture.activate(filterId: filter.id)
-            }
-        case "cancelAnalysis":
-            architecture.cancelAnalysis()
-        case "tempFilter":
-            setTemporaryFilter(payload["criterion"] as? String ?? "")
-        case "openPRXRay":
-            openPRXRay(source: payload["source"] as? String)
-        case "openPRNumber":
-            // "123", "#123" or a GitHub link ".../pull/123".
-            let text = (payload["text"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-            let number = text.range(of: #"(\d+)\s*$|pull/(\d+)"#, options: .regularExpression)
-                .map { String(text[$0]).filter(\.isNumber) } ?? ""
-            if !number.isEmpty { openPRXRay(source: "gh:" + number) }
-        case "analyzePR":
-            architecture.analyzePR(root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "historyCommits":
-            // Comparison by date: the commits of the calendar day chosen in the PR X-Ray ("YYYY-MM-DD").
-            architecture.listHistory(day: payload["day"] as? String ?? "", root: root)
-        case "compareWithCommit":
-            // The comparison with a date opens in the comparison view, like a branch comparison, from the project's X-Ray
-            // as well as from the PR X-Ray (BUG-110): it needs no pull request.
-            if scope.isEmpty { openXRayTab(scope: TabKind.pullRequestScope) }
-            architecture.compareWithCommit(sha: payload["sha"] as? String ?? "", root: root, db: semanticDatabase)
-        case "prFileDiff":
-            architecture.showFileDiff(path: payload["path"] as? String ?? "")
-        case "explainPRFile":
-            architecture.explainPRFile(path: payload["path"] as? String ?? "", root: root, db: semanticDatabase)
-        case "askPR":
-            let path = payload["path"] as? String
-            architecture.askPR(question: payload["question"] as? String ?? "", path: path?.isEmpty == true ? nil : path,
-                               root: root, db: semanticDatabase)
-        case "filterSearch":
-            architecture.searchFilter(filterId: payload["filter"] as? String ?? "", root: root, db: semanticDatabase)
-        case "showPR":
-            architecture.showPR(payload["source"] as? String ?? "", root: root)
-        case "reviewPR":
-            if payload["again"] as? Bool == true {
-                architecture.reviewAgain(root: root, db: semanticDatabase)
-            } else {
-                architecture.reviewPR(root: root, db: semanticDatabase)
-            }
-        case "prTasksToTerminal":
-            // Typed at the assistant's prompt, not sent: check the list and press Enter.
-            if let text = architecture.prTasksText() { sendToAssistant(text, submit: false) }
-        case "copyPRTasks":
-            if let text = architecture.prTasksText() {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }
-        case "refreshPRSources":
-            architecture.refreshPRSources(root: root)
-        case "prAction":
-            // op: approve | requestChanges | comment | merge | close; method: merge | squash | rebase.
-            let op = payload["op"] as? String ?? ""
-            let method = payload["method"] as? String ?? "squash"
-            guard ["approve", "requestChanges", "comment", "merge", "close"].contains(op),
-                  GitHubClient.mergeMethods.contains(method) else { return }
-            architecture.prAction(op, body: payload["body"] as? String ?? "", method: method, root: root)
-        case "prFindingFix", "prFixAll":
-            let prompt = action == "prFixAll"
-                ? architecture.prTasksText()
-                : architecture.findingFixPrompt(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
-            guard let prompt else { return }
-            let number = architecture.shownPRNumber
-            Task {
-                if let error = await fixInPullRequest(number, prompt: prompt) {
-                    let alert = NSAlert()
-                    alert.messageText = "Cannot fix in the pull request"
-                    alert.informativeText = error
-                    alert.runModal()
-                }
-            }
-        case "prFindingExplain":
-            architecture.explainFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, db: semanticDatabase)
-        case "prFindingComment":
-            architecture.commentFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
-        case "prFindingIssue":
-            architecture.issueFromFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
-        case "prFindingDismiss":
-            architecture.dismissFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
-        case "openURL":
-            // Only GitHub links, opened in the browser.
-            if let text = payload["url"] as? String, let url = URL(string: text), url.scheme == "https",
-               url.host == "github.com" {
-                NSWorkspace.shared.open(url)
-            }
-        case "setComponent":
-            architecture.setComponent(path: payload["path"] as? String ?? "", component: payload["component"] as? String ?? "",
-                                      db: semanticDatabase)
-        case "rateImportance":
-            architecture.rateImportance(viewId: payload["view"] as? String ?? "modules",
-                                        parentId: payload["parent"] as? String ?? "",
-                                        filterId: payload["filter"] as? String ?? "importance",
-                                        root: root, db: semanticDatabase)
-        case "createFilter":
-            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
-        case "deleteFilter":
-            deleteFilter(id: payload["id"] as? String ?? "")
-        case "outlineFile":
-            guard let path = payload["path"] as? String, !path.isEmpty else { return }
-            architecture.outlineFile(path: path, root: root, db: semanticDatabase)
-        case "saveSearchAnswer":
-            let filterId = payload["filter"] as? String ?? ""
-            if architecture.understandingAnswers[filterId] != nil {
-                Task {
-                    if let file = await architecture.saveUnderstanding(filterId: filterId, root: root, author: features.defaultOwner) {
-                        refreshFileTree()
-                        openFile(file)
-                    }
-                }
-                return
-            }
-            if let file = architecture.saveSearchAnswer(filterId: payload["filter"] as? String ?? "", root: root,
-                                                        author: features.defaultOwner) {
-                refreshFileTree()
-                openFile(file)
-            }
-        case "retryUnderstanding":
-            architecture.retryUnderstanding(filterId: payload["filter"] as? String ?? "", root: root, db: db)
-        case "openUnderstandingSource":
-            guard let source = architecture.understandingSource(filterId: payload["filter"] as? String ?? "",
-                                                                sourceId: payload["source"] as? String ?? "") else { return }
-            if source.kind == .document {
-                // Inside the X-Ray's folder, or (from a folder X-Ray) anywhere in the open project.
-                if let path = UnderstandingAnswer.relativePath(source.path, root: root) {
-                    openFile(root.appendingPathComponent(path), line: source.start, endLine: source.end)
-                } else if let projectURL = rootNode?.url, let path = UnderstandingAnswer.relativePath(source.path, root: projectURL) {
-                    openFile(projectURL.appendingPathComponent(path), line: source.start, endLine: source.end)
-                }
-            } else if source.kind == .pr || source.kind == .commit {
-                if !source.url.isEmpty, UnderstandingAnswer.isGitHubURL(source.url, kind: source.kind, target: source.target),
-                   let url = URL(string: source.url) {
-                    NSWorkspace.shared.open(url)
-                } else if source.kind == .commit {
-                    let hash = source.target
-                    guard hash.count == 40, hash.allSatisfy(\.isHexDigit) else { return }
-                    Task {
-                        let result = await GitHubClient.execute(["show", "--format=fuller", "--stat", "--patch", hash, "--"], in: root, git: true)
-                        guard result.status == 0 else { return }
-                        let file = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView-commit-\(hash).md")
-                        // Indent rather than fence: commit content may itself contain fences.
-                        let text = "# Commit \(hash)\n\n" + result.stdout.components(separatedBy: "\n").map { "    " + $0 }.joined(separator: "\n")
-                        do { try Data(text.utf8).write(to: file); openFile(file) }
-                        catch { NSLog("Could not open the commit document") }
-                    }
-                }
-            }
-        case "explainEdge":
-            guard let source = payload["source"] as? String, let target = payload["target"] as? String else { return }
-            architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
-                                     kind: payload["kind"] as? String ?? "uses", label: payload["label"] as? String,
-                                     root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "refreshCode":
-            // The Code view's Refresh (DEC-002): the automatic pipeline now, forced.
-            architecture.refreshCode(root: root, db: semanticDatabase)
-        case "traceCode":
-            guard let scope = payload["scope"] as? String, let question = payload["question"] as? String else { return }
-            architecture.traceCode(scope: scope, question: question, root: root, db: semanticDatabase)
-        case "describe":
-            architecture.describe(viewId: payload["view"] as? String ?? "modules", nodeId: payload["id"] as? String ?? "",
-                                  root: root, db: semanticDatabase)
-        default:
-            break
-        }
+        }, for: "explain:" + url.path)
     }
 
     /// Open `url` and, for code, reveal `line`…`endLine` in the code viewer.
@@ -2123,7 +382,7 @@ class WorkspaceManager: ObservableObject {
         let hasExtension = !(note as NSString).pathExtension.isEmpty && FileType.isSupported(URL(fileURLWithPath: note))
         let fileName = hasExtension ? note : note + ".md"
         let currentFolder = activeTab?.url.deletingLastPathComponent().standardizedFileURL.path
-        Task {
+        taskBag.store(Task {
             let found: URL? = await Task.detached {
                 if fileName.contains("/") {
                     let direct = root.appendingPathComponent(fileName)
@@ -2135,23 +394,24 @@ class WorkspaceManager: ObservableObject {
                                                                 options: [.skipsPackageDescendants])
                 while let url = enumerator?.nextObject() as? URL {
                     let name = url.lastPathComponent
-                    if name == ".git" || name == ".dde" || name == "node_modules" { enumerator?.skipDescendants(); continue }
+                    if name == ".git" || name == ProjectPaths.localFolderName || name == "node_modules" { enumerator?.skipDescendants(); continue }
                     if name.lowercased() == wanted { matches.append(url.standardizedFileURL) }
                 }
                 return WikiLinkResolver.choose(candidates: matches.map(\.path), from: currentFolder)
                     .map { URL(fileURLWithPath: $0) }
             }.value
+            guard !Task.isCancelled else { return }
             guard let found else {
                 NSSound.beep()
                 return
             }
             openFile(found)
             if let heading, !heading.isEmpty {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    NotificationCenter.default.post(.scrollToText, for: self, object: heading, userInfo: ["heading": true])
-                }
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard !Task.isCancelled else { return }
+                NotificationCenter.default.post(.scrollToText, for: self, object: heading, userInfo: ["heading": true])
             }
-        }
+        }, for: "wikilink:" + note)
     }
 
     /// Open a file referenced by a JSON Canvas file-node. Canvas paths are
@@ -2166,13 +426,13 @@ class WorkspaceManager: ObservableObject {
         if let root = rootNode?.url {
             candidates.append(root.appendingPathComponent(path))
         }
-        if activeTabIndex >= 0, activeTabIndex < openTabs.count {
-            let canvasDir = openTabs[activeTabIndex].url.deletingLastPathComponent()
+        if tabs.activeTabIndex >= 0, tabs.activeTabIndex < tabs.openTabs.count {
+            let canvasDir = tabs.openTabs[tabs.activeTabIndex].url.deletingLastPathComponent()
             candidates.append(canvasDir.appendingPathComponent(path))
         }
 
         guard let target = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
-            NSLog("Canvas file reference not found: \(path)")
+            AppLog.workspace.error("Canvas file reference not found: \(path)")
             return
         }
 
@@ -2185,26 +445,19 @@ class WorkspaceManager: ObservableObject {
 
     /// Check if a file belongs to the currently open workspace
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
-        guard semanticDatabase != nil else { return false }
-        guard let root = rootNode else { return false }
+        guard project.hasWorkspace else { return false }
         // A pull request's copy of a project file (MarkView's cache, opened from the PR
         // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
-        if architecture.prRelativePath(for: url) != nil { return true }
-        let filePath = url.standardizedFileURL.path
-        let rootPath = root.url.standardizedFileURL.path
-        if filePath.hasPrefix(rootPath + "/") { return true }
-        // A file in a linked folder belongs to the project (Task 59).
-        return linkedFolder(containing: url) != nil
+        if codeXRay.architecture.review.prRelativePath(for: url) != nil { return true }
+        return project.contains(url)
     }
 
     /// Drop the database and every engine bound to the current workspace.
     private func releaseWorkspaceEngines() {
-        cockpitSession?.closeProject()
-        cockpitSession = nil
-        semanticDatabase = nil
-        graphRAG = nil
+        toolTabs.projectClosed()
+        project.releaseDatabase()
         stopAllTerminals()
-        aiWorkspaceRoot = nil
+        terminals.workspaceRoot = nil
     }
 
     /// Close the open folder and every tab, returning the window to the welcome
@@ -2223,1408 +476,71 @@ class WorkspaceManager: ObservableObject {
                 alert.addButton(withTitle: "Stop operations and close")
                 guard alert.runModal() == .alertSecondButtonReturn else { return false }
                 operations.cancelForClose()
-                Task { [weak self] in
-                    while operations.runs.values.contains(where: \.isActive) {
+                taskBag.store(Task { [weak self] in
+                    while operations.runs.values.contains(where: \.isActive), !Task.isCancelled {
                         try? await Task.sleep(nanoseconds: 250_000_000)
                     }
+                    guard !Task.isCancelled else { return }
                     _ = self?.closeFolder()
-                }
+                }, for: "closeFolderAfterOperations")
                 return false
             }
         }
-        guard resolveUnsavedChanges(at: Array(openTabs.indices), before: "closing the folder") else { return false }
+        guard tabs.resolveUnsavedChanges(at: Array(tabs.openTabs.indices), before: "closing the folder") else { return false }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
-        UserDefaults.standard.removeObject(forKey: Self.lastFolderKey)
+        Settings.standard.remove(Setting.lastFolder)
 
         // Stop work that would otherwise keep writing into the old workspace.
-        for tab in openTabs {
-            if case .insight(let session) = tab.kind {
-                Task { await session.cancel() }
-            }
-        }
+        insight.cancelSessions()
         stopAllTerminals()
-        structuralIndexer?.terminate()
-        structuralIndexer = nil
         taskBag.cancelAll()
-        scrollState.reset()
 
-        tabsStore.reset()
-        fileTreeStore.reset()
-        linkedFolders = []
+        tabs.reset()
+        project.closeFolder()
         releaseWorkspaceEngines()
-        architecture.reset()
-        folderXRays = [:]
+        codeXRay.reset()
         projectOperations = nil
-        codeNav.reset()
-        isCodeProject = false
         gitClient.reset()
-        gitHubRoot = nil
-        gitHub.reset()
-        features.reset()
-        deployments.setRoot(nil)
-        discussions.setRoot(nil)
-        indexingProgress = nil
-        structuralIndexProgress = nil
-        analysisStage = nil
-        analysisDetail = nil
-        totalFilesInWorkspace = 0
-        analyzedFiles = 0
-        pendingGraphCreatorType = nil
+        flow.reset()
+        requests.pendingGraphCreatorType = nil
         return true
     }
 
     /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
     private func initSingleFileWorkspace(fileURL: URL) {
         let parentDir = fileURL.deletingLastPathComponent()
-        let fileName = fileURL.deletingPathExtension().lastPathComponent
-        let dbName = "file_\(fileName).db"
-
-        NSLog("[DDE] initSingleFileWorkspace: file=\(fileURL.path) dir=\(parentDir.path) dbName=\(dbName)")
+        Self.debugLog("initSingleFileWorkspace: dir=\(parentDir.path)")
 
         releaseWorkspaceEngines()
 
-        do {
-            let db = try SemanticDatabase(workspacePath: parentDir, dbName: dbName)
-            let projectId = fileName
-            try db.ensureProject(id: projectId, name: fileName, rootPath: parentDir.path)
-            self.semanticDatabase = db
-            self.graphRAG = GraphRAG(db: db)
-            self.aiWorkspaceRoot = parentDir
-            gitClient.setup(at: parentDir)
-
-            // Build file tree showing just the parent dir
-            if rootNode == nil {
-                rootOpenedAsFolder = false
-                fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
-                fileTreeStore.loadExcludedFolders()
-            }
-
-            // Index this single file: create root module, parse document, index FTS
-            indexSingleFile(fileURL: fileURL, db: db)
-
-            NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
-        } catch {
-            NSLog("[DDE] Failed to init single-file workspace: \(error)")
-        }
+        terminals.workspaceRoot = parentDir
+        gitClient.setup(at: parentDir)
+        project.openSingleFile(fileURL)
     }
 
-    /// Index a single markdown file — structural parse + FTS + Haiku extraction.
-    /// Works fully in sandbox: no directory scan, content passed directly.
-    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) {
-        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            NSLog("[DDE] indexSingleFile: cannot read \(fileURL.path)")
-            return
-        }
-
-        let docId = fileURL.lastPathComponent
-        let fileName = fileURL.deletingPathExtension().lastPathComponent
-        let modId = "mod_single_file"
-
-        // Root module
-        db.upsertModule(id: modId, name: fileName, path: fileURL.deletingLastPathComponent().path,
-                        parentId: nil, level: 0, fileCount: 1)
-
-        // FTS index
-        db.indexDocumentFTS(documentId: docId, title: fileName, content: content)
-
-        // Content hash
-        var h: UInt32 = 0x811c9dc5
-        for byte in content.utf8 { h ^= UInt32(byte); h = h &* 0x01000193 }
-        try? db.upsertDocument(id: docId, projectId: fileName, filePath: fileURL.path,
-                               fileName: docId, fileExt: "md", contentHash: String(h, radix: 16))
-
-        // Parse symbols inline (headings) — no directory scan
-        let lines = content.components(separatedBy: "\n")
-        for (i, line) in lines.enumerated() {
-            let lineNum = i + 1
-            if line.range(of: #"^#{1,6}\s+.+"#, options: .regularExpression) != nil {
-                let level = line.prefix(while: { $0 == "#" }).count
-                let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
-                let symId = "sym_h_\(singleFileFnv1a("\(docId):\(lineNum):\(text)"))"
-                db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
-                               name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
-            }
-        }
-
-        NSLog("[DDE] indexSingleFile: parsed \(docId), \(content.count) chars")
-    }
-
-    private func singleFileFnv1a(_ str: String) -> String {
-        var hash: UInt32 = 0x811c9dc5
-        for byte in str.utf8 { hash ^= UInt32(byte); hash = hash &* 0x01000193 }
-        return String(hash, radix: 16)
-    }
-
-    /// Close a tab at the given index
-    func closeTab(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-
-        // Recursive Insight tabs (Decision 11 §4): execute the EXACT 4-step
-        // ordered async close so race-prone state never ships into a different
-        // step. Order is enforced by acceptance criteria — do not reorder.
-        // Step 1: parent JS revokes any session blob URLs synchronously BEFORE
-        //         the session is cancelled, so no Combine subscription can
-        //         emit a chunk that would re-create a blob after revocation.
-        // Step 2: `await session.cancel()` awaits the activeTask's natural
-        //         exit (parallel Phase-2 section tasks observe Task.isCancelled
-        //         and unwind cooperatively, plus any in-flight ZIP exporter
-        //         Process is terminated via its onCancel hook).
-        // Step 3: `try? session.cache.cleanup()` removes the on-disk session
-        //         dir; ENOENT (already gone) is the success state.
-        // Step 4: `tabsStore.removeTab(at:)` drops the strong reference held
-        //         by OpenTab, releasing the session for ARC.
-        // Skip the dirty-save prompt — insight tabs are ephemeral and never
-        // carry isModified == true in the file-save sense.
-        let tab = openTabs[index]
-        // A terminal tab: end its shell; there is nothing to save.
-        if case .terminal(let id) = tab.kind {
-            closeTerminal(id)
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .browser(let session) = tab.kind {
-            session.close()
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .uiStudio(let session) = tab.kind {
-            Task { await session.close() }
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .cockpit(let session) = tab.kind {
-            session.cancel()
-            tabsStore.removeTab(at: index)
-            return
-        }
-        if case .insight(let session) = tab.kind {
-            let releaseHook = self.releaseInsightBlobsHook
-            let sessionId = session.id
-            Task { @MainActor in
-                // Step 1 — parent JS releases blob URLs. The hook is wired by
-                // EditorView.Coordinator on insight routing. If absent (initial
-                // route lost the webView reference, etc.) the WebView teardown
-                // on tab removal still GCs the blobs — skipping this step is
-                // safe but suboptimal.
-                releaseHook?()
-                // Step 2 — await activeTask + parallel section tasks + any
-                // in-flight ZIP exporter Process (cooperative cancellation).
-                await session.cancel()
-                // Step 3 — DO NOT cleanup cache. The cache lives at
-                // `<workspace>/.markview-insight/` and persists across tab
-                // close so that re-opening the insight on the same folder
-                // reuses the cached HTML instead of re-running the LLM.
-                // (Previous behaviour deleted the cache here, which forced
-                // a full Phase 1 + Phase 2 regeneration on every reopen.)
-                // Step 4 — drop the OpenTab → release session reference. The
-                // captured `index` may be stale if other tabs were closed in
-                // the meantime (the await above can take real time when Phase 2
-                // is mid-stream), so re-resolve by sessionId before removing.
-                if let liveIndex = self.openTabs.firstIndex(where: {
-                    if case .insight(let s) = $0.kind { return s.id == sessionId }
-                    return false
-                }) {
-                    self.tabsStore.removeTab(at: liveIndex)
-                }
-            }
-            return
-        }
-
-        if openTabs[index].isModified {
-            let alert = NSAlert()
-            alert.messageText = "Save changes?"
-            alert.informativeText = "Do you want to save changes to \(openTabs[index].displayName)?"
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Don't Save")
-            alert.addButton(withTitle: "Cancel")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                saveFile(at: index)
-            } else if response == .alertThirdButtonReturn {
-                return
-            }
-        }
-
-        tabsStore.removeTab(at: index)
-    }
-
-    /// Close every tab showing `url` or something inside it — the item was moved to the Trash,
-    /// so nothing is saved: the user chose to let it go.
-    func closeTabs(under url: URL) {
-        let base = url.standardizedFileURL.path
-        for index in openTabs.indices.reversed() {
-            let tab = openTabs[index]
-            switch tab.kind {
-            case .file, .image, .pdf, .archive:
-                let path = tab.url.standardizedFileURL.path
-                if path == base || path.hasPrefix(base + "/") { tabsStore.removeTab(at: index) }
-            default:
-                continue
-            }
-        }
-    }
-
-    /// Close all tabs except the one at the given index
-    func closeOtherTabs(except index: Int) {
-        for (i, tab) in openTabs.enumerated() where i != index { if case .cockpit(let session) = tab.kind { session.cancel() } }
-        tabsStore.keepOnlyTab(at: index)
-    }
-
-    /// Close all tabs to the right of the given index
-    func closeTabsToRight(of index: Int) {
-        for (i, tab) in openTabs.enumerated() where i > index { if case .cockpit(let session) = tab.kind { session.cancel() } }
-        tabsStore.keepTabs(through: index)
-    }
-
-    /// Close every tab that shows a file and keep the tool tabs (Git, Workflow, X-Ray, QA, ...). Unsaved changes are asked about first,
-    /// once for all the documents; nothing closes when the person cancels or a save fails.
-    func closeDocuments() {
-        let documents = openTabs.indices.filter { openTabs[$0].isDocument }
-        guard !documents.isEmpty, resolveUnsavedChanges(at: documents, before: "closing the documents") else { return }
-        tabsStore.keepTabs { !$0.isDocument }
-    }
-
-    /// Asks what to do with the unsaved changes of the tabs at `indices` before they close; `closing` finishes the question
-    /// ("Save changes to ... before closing the folder?"). True when closing is safe: nothing was unsaved, everything was saved, or the person chose
-    /// not to save. False when they cancelled or a save failed, so nothing is closed over unsaved work.
-    private func resolveUnsavedChanges(at indices: [Int], before closing: String) -> Bool {
-        let unsaved = indices.filter { openTabs.indices.contains($0) && openTabs[$0].isModified }
-        guard !unsaved.isEmpty else { return true }
-        let alert = NSAlert()
-        alert.messageText = unsaved.count == 1
-            ? "Save changes to \(openTabs[unsaved[0]].displayName) before \(closing)?"
-            : "Save changes to \(unsaved.count) documents before \(closing)?"
-        alert.informativeText = "Your changes will be lost if you don't save them."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Don't Save")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            unsaved.forEach { saveFile(at: $0) }
-            // saveFile only logs write errors — never close over unsaved work.
-            if let failed = unsaved.compactMap({ openTabs.indices.contains($0) ? openTabs[$0] : nil }).first(where: { $0.isModified }) {
-                let error = NSAlert()
-                error.messageText = "Couldn't save \(failed.displayName)"
-                error.informativeText = "Nothing was closed, so no changes are lost."
-                error.runModal()
-                return false
-            }
-            return true
-        case .alertSecondButtonReturn:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Close all tabs
-    func closeAllTabs() {
-        for tab in openTabs { if case .cockpit(let session) = tab.kind { session.cancel() } }
-        closeUIStudioSessions()
-        tabsStore.reset()
-    }
-
-    /// A file the file tree should show ("Reveal in File Tree"); the tree browses its
-    /// folder, highlights it and clears the request.
-    @Published var fileTreeRevealRequest: URL?
 
     /// Show the file tree at `url`'s folder with `url` highlighted.
     func revealInFileTree(url: URL) {
-        showFileTree = true
-        fileTreeRevealRequest = url.standardizedFileURL
+        chrome.showFileTree = true
+        requests.fileTreeRevealRequest = url.standardizedFileURL
     }
 
-    /// Save the active tab's file.
-    /// Insight tabs are ephemeral (Decision 10 §7 / Task 7): the placeholder URL
-    /// `.insight-<uuid>` must NEVER be written to disk. Cmd+S on an insight tab
-    /// is a no-op here — the insight player has its own Save flow that calls
-    /// `didRequestInsightSave` (NSSavePanel + sanitized filename + node body only).
-    func saveActiveFile() {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-        if !openTabs[activeTabIndex].isFileBacked { return }
-        saveFile(at: activeTabIndex)
-    }
+    // MARK: - File tree and graph tools
 
-    /// Save the tab the editor page asked to save (`documentID`), which is not always the selected tab: the
-    /// page names the document it shows, and only that tab's file is written (BUG-031). A page that names no
-    /// document saves the selected tab, as before.
-    func saveEditorDocument(documentID: UUID?) {
-        guard let index = editorTabIndex(documentID: documentID, event: "save"),
-              openTabs[index].isFileBacked else { return }
-        saveFile(at: index)
-    }
-
-    /// Handle selection actions: translate or explain selected text via the selected AI CLI.
-    /// Result is shown in a popup — see `translateDocument` for the whole-document
-    /// path, which produces a translated copy in a new tab instead.
-    func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
-        let (systemPrompt, title): (String, String) = {
-            switch action {
-            case "translate_ru":
-                return ("You are a professional translator. Translate the user's text to Russian word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to Russian")
-            case "translate_en":
-                return ("You are a professional translator. Translate the user's text to English word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to English")
-            case "explain":
-                return ("You are a knowledgeable assistant. Explain the following text clearly and concisely. Use markdown formatting. If it contains technical terms, define them. If it contains code, explain what it does.", "Explanation")
-            default:
-                return ("Process the following text.", "Result")
-            }
-        }()
-
-        var request = CLICompletion.Request(project: aiProject, prompt: text, systemPrompt: systemPrompt)
-        request.timeout = 120
-        let id = UUID()
-        let scope = activeTab.map { workspaceRelativePath($0.url) } ?? "Selected text"
-        let assistant = AIAssistantPreferences.summary(tool: request.tool,
-            model: request.model ?? AIAssistantPreferences.model(for: request.tool, project: request.project) ?? "")
-        selectionActions[id] = SelectionActionState(id: id, title: title,
-            scope: "\(scope) · selected text", assistant: assistant, started: Date())
-        let task = Task { [weak self] in
-            try await CLICompletion.run(request, onDelta: { [weak self] delta in
-                Task { @MainActor in
-                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
-                    state.partial += delta
-                    state.stage = "Writing answer"
-                    self?.selectionActions[id] = state
-                }
-            }, onActivity: { [weak self] activity in
-                Task { @MainActor in
-                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
-                    switch activity {
-                    case .thinking: state.stage = "Thinking"
-                    case .writing, .answerDelta: state.stage = "Writing answer"
-                    case .read, .search, .run: state.stage = "Reading project context"
-                    case .webSearch, .webFetch: state.stage = "Reading web context"
-                    }
-                    self?.selectionActions[id] = state
-                }
-            })
-        }
-        selectionTasks[id] = task
-        defer {
-            selectionTasks.removeValue(forKey: id)
-            stoppedSelectionActions.remove(id)
-        }
-        do {
-            let result = try await task.value
-            if stoppedSelectionActions.contains(id) {
-                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-                completion(title, selectionActions[id]?.partial ?? "Stopped")
-                return
-            }
-            result.record(in: semanticDatabase)
-            finishSelectionAction(id, phase: .completed, stage: "Completed")
-            completion(title, result.text)
-        } catch is CancellationError {
-            finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-            completion(title, selectionActions[id]?.partial ?? "Stopped")
-        } catch {
-            if stoppedSelectionActions.contains(id) {
-                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
-                completion(title, selectionActions[id]?.partial ?? "Stopped")
-                return
-            }
-            finishSelectionAction(id, phase: .failed, stage: error.localizedDescription)
-            completion(title, "Error: \(error.localizedDescription)")
-        }
-    }
-
-    private func finishSelectionAction(_ id: UUID, phase: SelectionActionState.Phase, stage: String) {
-        guard var state = selectionActions[id] else { return }
-        state.phase = phase
-        state.stage = stage
-        selectionActions[id] = state
-    }
-
-    // MARK: - Document Translation
-
-    /// Which backend performs the translation. Chosen once per document so the
-    /// whole file is translated by a single engine (mixing engines mid-document
-    /// produces visibly inconsistent terminology).
-    private struct TranslationEngine {
-        let tool: CLITool
-        let model: String?
-
-        var label: String { AIAssistantPreferences.summary(tool: tool, model: model ?? "") }
-    }
-
-    private typealias MarkdownChunk = MarkdownDocumentChunker.Chunk
-    private typealias MarkdownSkeleton = MarkdownDocumentChunker.Skeleton
-
-    /// Translate the whole document to `targetLang` and open the result in a new
-    /// tab. The source file is never modified; the new tab is left unsaved so the
-    /// user decides where (and whether) it lands on disk.
-    ///
-    /// Returns a message to show the user when translation could not start, or
-    /// nil on success. The caller surfaces it in the editor popup — the sidebar
-    /// progress line alone is easy to miss when the file tree is collapsed.
-    @discardableResult
-    func translateDocument(markdown: String, targetLang: String) async -> String? {
-        guard !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "Nothing to translate — the document is empty."
-        }
-
-        // The assistant chosen in DDE Settings / the toolbar; fixed for the
-        // whole document. A missing CLI is reported up front rather than as a
-        // document full of untranslated sections.
-        let tool = AIAssistantPreferences.backend(project: aiProject)
-        let engine = TranslationEngine(tool: tool, model: AIAssistantPreferences.model(for: tool, project: aiProject))
-        guard CLIToolLocator.resolve(tool) != nil else {
-            NSLog("[DDE] Translation aborted: \(tool.binaryName) not found")
-            return "\(tool.displayName) was not found. Set its path in DDE Settings → AI CLI Tools."
-        }
-
-        // Create new tab immediately with placeholder
-        let sourceTab = activeTabIndex >= 0 && activeTabIndex < openTabs.count ? openTabs[activeTabIndex] : nil
-        let sourceName = sourceTab?.url.deletingPathExtension().lastPathComponent ?? "document"
-        let newURL = sourceTab?.url.deletingLastPathComponent()
-            .appendingPathComponent("\(sourceName)_\(targetLang.lowercased()).md") ?? URL(fileURLWithPath: "/tmp/translated.md")
-
-        // Split at structural boundaries — never inside a table, list or code block.
-        let (prefix, chunks) = splitForTranslation(markdown, maxChars: 4000)
-        let translatableCount = chunks.filter { $0.isTranslatable }.count
-        var parts: [String] = []
-        var failedChunks: [Int] = []
-        var lastError: String?
-        var done = 0
-
-        /// Live progress banner, written into the tab itself. `indexingProgress`
-        /// only renders in the file-tree sidebar, which may be collapsed — this
-        /// is visible in the document the user is actually watching.
-        func banner(_ completed: Int) -> String {
-            let pct = translatableCount > 0 ? completed * 100 / translatableCount : 100
-            let filled = translatableCount > 0 ? completed * 20 / translatableCount : 20
-            let bar = String(repeating: "█", count: filled) + String(repeating: "░", count: 20 - filled)
-            return "> 🌐 **Translating to \(targetLang)** — `\(bar)` \(pct)% "
-                + "(\(completed)/\(translatableCount) sections, \(engine.label))\n\n"
-        }
-
-        let translatedTab = OpenTab(url: newURL, content: banner(0), originalContent: "")
-        let tabId = translatedTab.id
-        tabsStore.appendTab(translatedTab)
-
-        /// Re-resolve the tab by id on every write: the awaits below take real
-        /// time and the user may open or close tabs meanwhile, which would make
-        /// a captured index point at somebody else's document.
-        func writeToTab(_ content: String) {
-            guard let index = openTabs.firstIndex(where: { $0.id == tabId }) else { return }
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = content
-                tab.isModified = true
-            }
-        }
-
-        for (i, chunk) in chunks.enumerated() {
-            guard chunk.isTranslatable else {
-                // Front matter and fenced code go through verbatim — never sent
-                // to the model, so code can't come back "helpfully" rewritten.
-                parts.append(chunk.text + chunk.separator)
-                writeToTab(banner(done) + prefix + parts.joined())
-                continue
-            }
-
-            done += 1
-            indexingProgress = "Translating \(done)/\(translatableCount) (\(engine.label))..."
-
-            let expected = skeleton(of: chunk.text)
-            var translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
-                                                  strict: false, error: &lastError)
-
-            // Structural check, then one stricter retry. This is what keeps
-            // tables intact when a small local model reflows them.
-            if let candidate = translated, skeleton(of: candidate) != expected {
-                NSLog("[DDE] Translation chunk \(i + 1): structure mismatch, retrying strictly")
-                translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
-                                                  strict: true, error: &lastError)
-            }
-
-            if let candidate = translated, skeleton(of: candidate) == expected {
-                parts.append(candidate + chunk.separator)
-            } else {
-                // Keep the source text rather than emit corrupted markdown.
-                failedChunks.append(done)   // numbered as the banner counts them
-                parts.append(chunk.text + chunk.separator)
-            }
-
-            writeToTab(banner(done) + prefix + parts.joined())
-        }
-
-        var result = prefix + parts.joined()
-        if !failedChunks.isEmpty {
-            // Silent fallbacks previously made a partly-translated document look
-            // finished. Say so, in the document itself.
-            let list = failedChunks.map(String.init).joined(separator: ", ")
-            let reason = lastError.map { "(\($0))" }
-                ?? "(the model's output did not preserve their structure)"
-            result = "> ⚠️ Translation incomplete — section(s) \(list) kept in the original language "
-                + "\(reason).\n\n" + result
-            NSLog("[DDE] Translation: \(failedChunks.count) chunk(s) left untranslated")
-        }
-        writeToTab(result)
-        indexingProgress = nil
-        NSLog("[DDE] Translation complete: \(chunks.count) chunks, engine \(engine.label)")
-        return nil
-    }
-
-    /// Translate a single chunk. Returns nil when the call fails; the caller
-    /// decides whether to retry or fall back to the source text.
-    private func translateChunk(
-        _ text: String,
-        targetLang: String,
-        engine: TranslationEngine,
-        strict: Bool,
-        error lastError: inout String?
-    ) async -> String? {
-        var systemPrompt = """
-            You are a professional translator. Translate the following markdown text to \(targetLang).
-            Rules:
-            - Translate ONLY the text content. Keep ALL markdown formatting intact (headings, lists, code blocks, links, tables).
-            - Do NOT translate code inside code blocks (```...```). Keep code exactly as-is.
-            - Do NOT translate URLs, file paths, or technical identifiers.
-            - Keep proper nouns, product names, and acronyms as-is.
-            - Preserve the exact markdown structure — same number of headings, lists, paragraphs.
-            - For tables: keep the same number of rows and columns, and keep the |---| separator row unchanged.
-            - Do NOT wrap your answer in a code fence.
-            - Return ONLY the translated markdown, no explanations.
-            """
-        if strict {
-            systemPrompt += """
-
-                IMPORTANT: your previous attempt changed the structure. Copy the layout line by line —
-                same line count, same table rows, same list markers, same heading levels — and replace
-                only the natural-language words.
-                """
-        }
-
-        var request = CLICompletion.Request(project: aiProject, prompt: text, systemPrompt: systemPrompt)
-        request.tool = engine.tool
-        request.model = engine.model
-        request.timeout = 240
-        do {
-            let result = try await CLICompletion.run(request)
-            result.record(in: semanticDatabase)
-            return normalizeTranslation(result.text)
-        } catch {
-            lastError = error.localizedDescription
-            NSLog("[DDE] Translation chunk error: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// `<workspace>/.dde/cache` — the open folder when the document is in it, otherwise
-    /// the document's own folder (same place single-file mode keeps `.dde`).
-    func cacheDirectory(for url: URL) -> URL {
-        let path = url.standardizedFileURL.path
-        let root: URL
-        if let folder = rootNode?.url, path.hasPrefix(folder.standardizedFileURL.path + "/") {
-            root = folder
-        } else {
-            root = url.deletingLastPathComponent()
-        }
-        return root.appendingPathComponent(".dde/cache", isDirectory: true)
-    }
-
-    private func normalizeTranslation(_ raw: String) -> String {
-        MarkdownDocumentChunker.normalizeTranslation(raw)
-    }
-
-    // MARK: - Structure-aware splitting (`AR-14`: delegated to `MarkdownDocumentChunker`)
-
-    private func splitForTranslation(_ markdown: String, maxChars: Int) -> (prefix: String, chunks: [MarkdownChunk]) {
-        MarkdownDocumentChunker.splitForTranslation(markdown, maxChars: maxChars)
-    }
-
-    private func tokenizeMarkdown(_ markdown: String) -> (prefix: String, blocks: [MarkdownChunk]) {
-        MarkdownDocumentChunker.tokenizeMarkdown(markdown)
-    }
-
-    private func skeleton(of text: String) -> MarkdownSkeleton {
-        MarkdownDocumentChunker.skeleton(of: text)
-    }
-
-    // MARK: - Recursive Insight (Task 7)
-
-    /// Entry point invoked by the AI Tools menu (Task 8). Validates the workspace,
-    /// scans `.md` files (Task 2 helper), constructs an `InsightSession`, opens a
-    /// new `.insight` tab, and kicks off `generateRoot()` without awaiting.
-    /// Mirrors the `translateDocument` pattern of "create a tab immediately, then
-    /// stream into it" but routes through `InsightSession` rather than driving the
-    /// API call directly here.
-    /// Recursive Insight of the open folder, or — from the file tree — of one of its folders
-    /// (`target` a directory) or of a single document (`target` a Markdown file).
-    func startRecursiveInsight(at target: URL? = nil, title: String? = nil) {
-        // 1. A folder must be open.
-        guard let rootURL = rootNode?.url else {
-            let alert = NSAlert()
-            alert.messageText = "No folder open"
-            alert.informativeText = "Open a folder before starting Recursive Insight."
-            alert.runModal()
-            return
-        }
-        let target = target?.standardizedFileURL ?? rootURL
-        let targetIsFile = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == false
-        let folderURL = targetIsFile ? target.deletingLastPathComponent() : target
-
-        // 2. The selected assistant CLI must be installed, and the workspace engines
-        //    (GraphRAG) initialised.
-        let tool = AIAssistantPreferences.backend(project: aiProject)
-        guard CLIToolLocator.resolve(tool) != nil else {
-            let alert = NSAlert()
-            alert.messageText = "\(tool.displayName) not found"
-            alert.informativeText = "Set its path in DDE Settings → AI CLI Tools, or choose the other assistant."
-            alert.runModal()
-            return
-        }
-        guard graphRAG != nil else {
-            let alert = NSAlert()
-            alert.messageText = "Workspace not ready"
-            alert.informativeText = "Wait for the folder to finish opening, then try again."
-            alert.runModal()
-            return
-        }
-
-        // 3. Enumerate .md files (any number), or the one document.
-        let mdFiles = targetIsFile ? [target] : scanMarkdownFiles(in: folderURL)
-
-        // 4. Empty folder check.
-        guard !mdFiles.isEmpty else {
-            let alert = NSAlert()
-            alert.messageText = "No markdown files"
-            alert.informativeText = "This folder contains no .md files for Recursive Insight to summarize."
-            alert.runModal()
-            return
-        }
-
-        // 5. Build the session via the v2 5-arg init: construct an explicit
-        // `InsightCache` rooted at `<folderURL>/.insight-cache/<sessionUUID>/` so
-        // the cache lives alongside the analysed folder (Decision 4) and survives
-        // for the duration of the insight tab. `closeTab`'s ordered cleanup
-        // (Decision 11 §4) removes the directory via `cache.cleanup()` after
-        // awaiting `session.cancel()`.
-        // The cache stays in the open folder's own cache, whichever sub-folder or file is analysed.
-        let sessionId = UUID()
-        let cache: InsightCache
-        do {
-            cache = try InsightCache(workspaceURL: rootURL, sessionId: sessionId)
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Cannot start Recursive Insight"
-            alert.informativeText = "Failed to initialise insight cache: \(error.localizedDescription)"
-            alert.runModal()
-            return
-        }
-
-        let session = InsightSession(
-            folderURL: folderURL,
-            mdFiles: mdFiles,
-            graphRAG: graphRAG,
-            cache: cache,
-            project: aiProject,
-            title: title ?? (targetIsFile ? target.deletingPathExtension().lastPathComponent : nil)
-        )
-
-        // 6. Build placeholder URL (never written to disk — exists only so
-        //    `OpenTab.url`, `displayName`, and other file-only consumers keep
-        //    working without special-casing kind).
-        let placeholderURL = folderURL.appendingPathComponent(".insight-\(session.id.uuidString)")
-
-        // 7. Append the new tab and activate it.
-        let tab = OpenTab(
-            url: placeholderURL,
-            content: "",
-            originalContent: "",
-            kind: .insight(session)
-        )
-        tabsStore.appendTab(tab, activate: true)
-
-        // 8. Kick off the root summary stream. We do NOT await — the UI must
-        //    stay responsive while SSE chunks land.
-        Task { await session.generateRoot() }
-    }
-
-    /// Resolve the `InsightSession` referenced by a bridge message. O(N≤20) scan
-    /// of `openTabs`. Returns `nil` if the tab has been closed mid-message (race);
-    /// callers log + return rather than crash.
-    private func findInsightSession(sessionId: String) -> InsightSession? {
-        for tab in openTabs {
-            if case .insight(let session) = tab.kind, session.id.uuidString == sessionId {
-                return session
-            }
-        }
-        return nil
-    }
-
-    /// Strip newlines and NULs and truncate to 64 chars before logging an
-    /// untrusted string from the JS bridge. Defends against log forgery
-    /// (CWE-117): a compromised JS context could otherwise inject fake
-    /// `[Insight]` log entries via embedded `\r\n`. The truncation also caps
-    /// the cost of a malicious mega-payload.
-    private static func sanitizeForLog(_ s: String) -> String {
-        let stripped = s.replacingOccurrences(
-            of: "[\\r\\n\\0]",
-            with: "_",
-            options: .regularExpression
-        )
-        return String(stripped.prefix(64))
-    }
-
-    /// Bridge forwarder: iframe finished loading and posted `insightIframeReady`.
-    /// Logged for diagnostics; no further action required because the per-session
-    /// 10 s load timeout is enforced by parent JS (`Resources/Editor/index.html`),
-    /// not by this Swift-side path.
-    func didReceiveInsightIframeReady(sessionId: String, nodeId: String) {
-        guard findInsightSession(sessionId: sessionId) != nil else {
-            NSLog("[Insight] didReceiveInsightIframeReady: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
-            return
-        }
-        NSLog("[Insight] iframe ready for session %@ node %@",
-              Self.sanitizeForLog(sessionId), Self.sanitizeForLog(nodeId))
-    }
-
-    /// Bridge forwarder: user clicked a 🤿 deep-dive control inside an iframe section.
-    /// V2 signature: `(sessionId, sectionId, topicIndex)`. Defense-in-depth bounds
-    /// validation lives here AND inside `session.expand` (Decision 3 — never trust
-    /// untrusted JS, even after WebViewBridge schema validation).
-    func didRequestInsightDeepDive(sessionId: String, sectionId: String, topicIndex: Int) {
-        guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightDeepDive: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
-            return
-        }
-        // Validate sectionId is in the current node's skeleton + topicIndex is
-        // within the section's deepDiveTopics bounds. Out-of-range rejected with
-        // a sanitized log entry; session.expand re-validates as a second layer.
-        guard let skeleton = session.currentNode()?.skeleton else {
-            NSLog("[Insight] didRequestInsightDeepDive: no skeleton on current node for session %@",
-                  Self.sanitizeForLog(sessionId))
-            return
-        }
-        guard let section = skeleton.sections.first(where: { $0.id == sectionId }) else {
-            NSLog("[Insight] didRequestInsightDeepDive: unknown sectionId %@ for session %@",
-                  Self.sanitizeForLog(sectionId), Self.sanitizeForLog(sessionId))
-            return
-        }
-        guard let topics = section.deepDiveTopics,
-              topicIndex >= 0,
-              topicIndex < topics.count else {
-            NSLog("[Insight] didRequestInsightDeepDive: topicIndex %d out of bounds for section %@ (topics: %d)",
-                  topicIndex,
-                  Self.sanitizeForLog(sectionId),
-                  section.deepDiveTopics?.count ?? 0)
-            return
-        }
-        Task { await session.expand(sectionId: sectionId, topicIndex: topicIndex) }
-    }
-
-    /// Bridge forwarder: user clicked a breadcrumb. Pure UI navigation —
-    /// switches the current node to a cached one, no LLM call. Validates the
-    /// nodeId payload as both a UUID-shaped string AND a member of the live
-    /// session's manifest (defense-in-depth against forged postMessage from
-    /// a compromised JS context per Decision 3).
-    func didRequestInsightBreadcrumb(sessionId: String, nodeId: String) {
-        guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
-            return
-        }
-        guard let uuid = UUID(uuidString: nodeId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: invalid nodeId %@",
-                  Self.sanitizeForLog(nodeId))
-            return
-        }
-        // Manifest membership check (Decision 3 §3 — defense-in-depth against a
-        // compromised iframe forging breadcrumb clicks for arbitrary UUIDs).
-        guard session.nodes[uuid] != nil else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: nodeId %@ not in session manifest",
-                  Self.sanitizeForLog(nodeId))
-            return
-        }
-        Task { await session.navigateTo(nodeId: uuid) }
-    }
-
-    /// Bridge forwarder: user clicked Save (no payload — only one active insight
-    /// session per WebView in v2, resolved via the active tab). Triggers the
-    /// archive export pipeline (NSSavePanel → cache staging → /usr/bin/zip).
-    func didRequestInsightSave() {
-        guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightSave: no active insight session")
-            return
-        }
-        exportInsightArchive(sessionId: session.id.uuidString)
-    }
-
-    /// Bridge forwarder: user clicked the ↑ Up button (no payload — resolved via
-    /// the active tab). Derives parentId from the current node and navigates;
-    /// no-ops at root.
-    func didRequestInsightUp() {
-        guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightUp: no active insight session")
-            return
-        }
-        guard let parentId = session.currentNode()?.parentId else {
-            NSLog("[Insight] didRequestInsightUp: already at root for session %@",
-                  Self.sanitizeForLog(session.id.uuidString))
-            return
-        }
-        Task { await session.navigateTo(nodeId: parentId) }
-    }
-
-    /// User clicked the ⟳ Regenerate button — wipe the persistent snapshot
-    /// for this folder and re-run Phase 1+2 from scratch. Used when the LLM
-    /// output is unsatisfying or the source `.md` files have changed.
-    func didRequestInsightRegenerate() {
-        guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightRegenerate: no active insight session")
-            return
-        }
-        Task { await session.regenerateRoot() }
-    }
-
-    /// User typed a custom deep-dive topic into the iframe footer input and
-    /// clicked Explore. Creates a child node under the current node with the
-    /// topic as the focus, re-runs Phase 1+2 (no skeleton-driven match — uses
-    /// all source files since user wants a broader exploration).
-    func didRequestInsightCustomDeepDive(topic: String) {
-        guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightCustomDeepDive: no active insight session")
-            return
-        }
-        Task { await session.expandCustom(topic: topic) }
-    }
-
-    /// User clicked "🤿×N Explore all topics" — sequentially generate every
-    /// deepDiveTopic on the current node's skeleton.
-    func didRequestInsightExploreAll(depth: Int) {
-        guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightExploreAll: no active insight session")
-            return
-        }
-        Task { await session.expandAllTopicsOnCurrentNode(depth: depth) }
-    }
-
-    /// User clicked "↻ Retry this section" inside a failed-section placeholder.
-    /// Re-runs Phase 2 stream for ONE section on the current node.
-    func didRequestInsightRetrySection(sectionId: String) {
-        guard let session = activeInsightSession() else {
-            NSLog("[Insight] didRequestInsightRetrySection: no active insight session")
-            return
-        }
-        Task { await session.retrySection(sectionId: sectionId) }
-    }
-
-    /// Resolve the active tab's `InsightSession` (if the active tab is `.insight`).
-    /// V2 payloads omit `sessionId` for actions that target the currently-viewed
-    /// session; this helper centralises the active-tab lookup.
-    private func activeInsightSession() -> InsightSession? {
-        guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return nil }
-        if case .insight(let session) = openTabs[activeTabIndex].kind {
-            return session
-        }
-        return nil
-    }
-
-    /// Export the entire insight session as a self-contained ZIP archive
-    /// (Decision 7). NSSavePanel default filename pattern:
-    /// `<folderName>_insight_<ISO8601-no-colons>.zip`. On user OK:
-    ///   1. Build a fresh staging dir under `NSTemporaryDirectory()` by
-    ///      copying the session's cache root (so in-app navigation is
-    ///      unaffected by export-time HTML rewriting).
-    ///   2. Promote the root node's `nodes/<rootUUID>.html` to
-    ///      `index.html` at the staging root, fixing its lib refs from
-    ///      `../_assets/` to `_assets/` (it lives one level shallower
-    ///      after promotion).
-    ///   3. Rewrite every HTML file's deep-dive `<button>` controls into
-    ///      `<a href="<targetUUID>.html">` links AND every breadcrumb
-    ///      `href="#<uuid>"` into a relative file href, so the unzipped
-    ///      archive navigates standalone in a browser without any JS
-    ///      bridge.
-    ///   4. Spawn `/usr/bin/zip` via `InsightArchiveExporter.bundle` —
-    ///      explicit argument array, no `/bin/sh -c`, atomic move
-    ///      `.zip.tmp` → final destination.
-    ///   5. Best-effort remove the staging dir in `defer`.
-    ///
-    /// Sandbox note: the app currently runs with the macOS sandbox OFF
-    /// (per project entitlements). If re-enabled, wrap the destination
-    /// write in `pickedURL.startAccessingSecurityScopedResource()` / stop.
-    func exportInsightArchive(sessionId: String) {
-        guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] exportInsightArchive: no session for id %@",
-                  Self.sanitizeForLog(sessionId))
-            return
-        }
-
-        // Default filename: <folder>_insight_<timestamp>.zip. Timestamp uses
-        // ISO 8601 with `:` replaced by `-` (Finder display + case-insensitive
-        // filesystem safety).
-        let folderHint = Self.sanitizeInsightFilename(session.folderURL.lastPathComponent)
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let defaultName = "\(folderHint)_insight_\(timestamp).zip"
-
-        let panel = NSSavePanel()
-        if let zipType = UTType(filenameExtension: "zip") {
-            panel.allowedContentTypes = [zipType]
-        }
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = defaultName
-
-        guard panel.runModal() == .OK, let pickedURL = panel.url else { return }
-
-        // Force `.zip` extension regardless of user input — keeps the bundled
-        // archive recognisable to the OS even if the user typed a bare name.
-        let destinationURL: URL
-        if pickedURL.pathExtension.lowercased() == "zip" {
-            destinationURL = pickedURL
-        } else {
-            destinationURL = pickedURL.deletingPathExtension().appendingPathExtension("zip")
-        }
-
-        // Snapshot the session's in-memory node tree NOW (on @MainActor) before
-        // the async export Task runs — avoids races with concurrent navigation
-        // mutating `session.nodes` while we walk children for the deep-dive
-        // mapping. The snapshot only stores (parentId, sectionId)+orderIndex.
-        let nodeChildMap = Self.buildExportNodeChildMap(session: session)
-        // Root node = the unique level-0 node (parentId == nil). Resolved here
-        // from the @MainActor snapshot of `session.nodes` so the export Task
-        // does not need to re-touch session state.
-        let rootNodeId = session.nodes.values.first { $0.parentId == nil }?.id
-        let cache = session.cache
-
-        // ALWAYS rewrite every node's HTML from the current in-memory state
-        // using the latest buildHTMLTemplate code. Otherwise the export
-        // would use whatever HTML happened to be in cache from older
-        // generations — missing recent CSS additions, bootstrap, etc. This
-        // also picks up retried-section content that wasn't in the cache yet.
-        for (id, node) in session.nodes {
-            guard let skel = node.skeleton else { continue }
-            // Build breadcrumbs for this node.
-            var crumbs: [(nodeId: String, title: String)] = []
-            var cursor: InsightNode? = node
-            while let n = cursor {
-                crumbs.insert((n.id.uuidString, n.title), at: 0)
-                cursor = n.parentId.flatMap { session.nodes[$0] }
-            }
-            let html = InsightSession.buildHTMLTemplate(
-                skeleton: skel,
-                sectionStates: node.sectionStates,
-                breadcrumbs: crumbs,
-                libRefMode: .exportRelative,
-                cache: cache
-            )
-            try? cache.writeNode(nodeId: id, html: html)
-        }
-
-        Task { @MainActor in
-            do {
-                let stagingURL = try await cache.archiveStagingDirectory()
-                // Copy staging contents into a fresh temp dir so HTML rewriting
-                // does not mutate the live cache (in-app navigation may continue
-                // to read it after export). The copy lives until `defer` removes
-                // it on this Task's exit (success OR failure OR cancellation).
-                let exportRoot = try Self.makeExportStagingCopy(from: stagingURL)
-                defer { try? FileManager.default.removeItem(at: exportRoot) }
-
-                // Promote root node + rewrite all HTML for standalone browsing.
-                try Self.rewriteForStandaloneExport(
-                    exportRoot: exportRoot,
-                    rootNodeId: rootNodeId,
-                    nodeChildMap: nodeChildMap
-                )
-
-                let exporter = InsightArchiveExporter()
-                try await exporter.bundle(stagingURL: exportRoot, to: destinationURL)
-            } catch is CancellationError {
-                NSLog("[Insight] exportInsightArchive: cancelled")
-            } catch InsightArchiveExporterError.cancelled {
-                NSLog("[Insight] exportInsightArchive: cancelled mid-zip")
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "ZIP export failed"
-                alert.informativeText = Self.sanitizeForLog(error.localizedDescription)
-                alert.alertStyle = .warning
-                alert.runModal()
-            }
-        }
-    }
-
-    /// Mapping snapshot used by the standalone-export HTML rewriter. Keyed by
-    /// parent node id; for each parent stores the (sectionId, topicIndex) →
-    /// child node id resolution. Built from the in-memory tree at export time
-    /// because (sectionId, topicIndex) is NOT stored on `InsightNode` directly
-    /// — child creation order in `parent.children` is the only mapping signal.
-    /// Per `expand(sectionId:topicIndex:)`, child.title == topic.label, so we
-    /// match on label as the canonical key.
-    private static func buildExportNodeChildMap(
-        session: InsightSession
-    ) -> [UUID: [String: [Int: UUID]]] {
-        var map: [UUID: [String: [Int: UUID]]] = [:]
-        for parent in session.nodes.values {
-            guard let skeleton = parent.skeleton else { continue }
-            // For each child of this parent, resolve which (sectionId, topicIndex)
-            // produced it. Match by `child.title == topic.label`.
-            let childNodes = parent.children.compactMap { session.nodes[$0] }
-            for section in skeleton.sections {
-                guard let topics = section.deepDiveTopics else { continue }
-                for (idx, topic) in topics.enumerated() {
-                    if let child = childNodes.first(where: { $0.title == topic.label }) {
-                        var sectionMap = map[parent.id] ?? [:]
-                        var topicMap = sectionMap[section.id] ?? [:]
-                        topicMap[idx] = child.id
-                        sectionMap[section.id] = topicMap
-                        map[parent.id] = sectionMap
-                    }
-                }
-            }
-        }
-        return map
-    }
-
-    /// Copy `cacheRoot` to a fresh temp directory under `NSTemporaryDirectory()`.
-    /// Returns the new export staging root. Caller is responsible for removing
-    /// the directory (typically via `defer`).
-    private static func makeExportStagingCopy(from cacheRoot: URL) throws -> URL {
-        let fm = FileManager.default
-        let tempBase = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("insight-export-\(UUID().uuidString)", isDirectory: true)
-        try fm.createDirectory(at: tempBase, withIntermediateDirectories: true)
-        // Copy CONTENTS of cacheRoot into tempBase (not cacheRoot itself), so
-        // tempBase ends up containing `nodes/`, `_assets/`, `manifest.json`
-        // directly at its root (matching the archive layout).
-        let entries = try fm.contentsOfDirectory(
-            at: cacheRoot,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        for src in entries {
-            let dst = tempBase.appendingPathComponent(src.lastPathComponent)
-            try fm.copyItem(at: src, to: dst)
-        }
-        return tempBase
-    }
-
-    /// Walk the staging dir and:
-    ///   1. Promote `nodes/<rootUUID>.html` to `index.html` at the export
-    ///      root, fixing its lib refs from `../_assets/` to `_assets/` (one
-    ///      level shallower) and breadcrumbs from `href="#<uuid>"` to
-    ///      `nodes/<uuid>.html`.
-    ///   2. For each non-root `nodes/<uuid>.html`, rewrite breadcrumbs to
-    ///      sibling `<uuid>.html` (or `../index.html` for root) AND replace
-    ///      every `<button class="deep-dive" data-section-id="…"
-    ///      data-topic-index="…">…</button>` with an `<a class="deep-dive"
-    ///      href="<childUUID>.html">…</a>` if a child exists for that
-    ///      (sectionId, topicIndex). Buttons without a matching child are
-    ///      left intact (inert in standalone browser, by design — user did
-    ///      not expand that topic in-session).
-    private static func rewriteForStandaloneExport(
-        exportRoot: URL,
-        rootNodeId: UUID?,
-        nodeChildMap: [UUID: [String: [Int: UUID]]]
-    ) throws {
-        let fm = FileManager.default
-        let nodesDir = exportRoot.appendingPathComponent("nodes", isDirectory: true)
-
-        // Promote root: copy `nodes/<rootUUID>.html` → `index.html`, with lib
-        // refs unshifted to top-level `_assets/`. Original file in `nodes/`
-        // stays put so breadcrumb-up navigation from non-root nodes can also
-        // target `../index.html` consistently.
-        if let rootId = rootNodeId {
-            let rootSrc = nodesDir.appendingPathComponent("\(rootId.uuidString).html")
-            let rootDst = exportRoot.appendingPathComponent("index.html")
-            if fm.fileExists(atPath: rootSrc.path) {
-                var html = (try? String(contentsOf: rootSrc, encoding: .utf8)) ?? ""
-                // Lib refs: `../_assets/<file>` → `_assets/<file>` (root is one
-                // level shallower than nodes/<uuid>.html in the export tree).
-                html = html.replacingOccurrences(of: "\"../_assets/", with: "\"_assets/")
-                // Deep-dive buttons → links targeting `nodes/<childUUID>.html`.
-                html = rewriteDeepDiveButtons(
-                    in: html,
-                    parentNodeId: rootId,
-                    nodeChildMap: nodeChildMap,
-                    childHrefPrefix: "nodes/"
-                )
-                // Root has no breadcrumbs (single-element breadcrumb is the
-                // root itself, rendered as `<span class="crumb-active">`); but
-                // a defensive sweep handles any future schema change.
-                html = rewriteBreadcrumbHrefs(
-                    in: html,
-                    isRoot: true,
-                    rootNodeId: rootId
-                )
-                try html.write(to: rootDst, atomically: true, encoding: .utf8)
-            }
-        }
-
-        // Rewrite every `nodes/<uuid>.html`. Root copy stays so the non-root
-        // breadcrumbs can target it via `../index.html` (preferred) — we use
-        // `index.html` rather than `nodes/<rootUUID>.html` for the root crumb
-        // because that's the canonical entry point for standalone viewers.
-        guard fm.fileExists(atPath: nodesDir.path) else { return }
-        let nodeFiles = try fm.contentsOfDirectory(
-            at: nodesDir,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        for nodeFile in nodeFiles where nodeFile.pathExtension.lowercased() == "html" {
-            let stem = nodeFile.deletingPathExtension().lastPathComponent
-            guard let nodeId = UUID(uuidString: stem) else { continue }
-            var html = (try? String(contentsOf: nodeFile, encoding: .utf8)) ?? ""
-            html = rewriteDeepDiveButtons(
-                in: html,
-                parentNodeId: nodeId,
-                nodeChildMap: nodeChildMap,
-                childHrefPrefix: "" // sibling under nodes/
-            )
-            html = rewriteBreadcrumbHrefs(
-                in: html,
-                isRoot: (nodeId == rootNodeId),
-                rootNodeId: rootNodeId
-            )
-            try html.write(to: nodeFile, atomically: true, encoding: .utf8)
-        }
-    }
-
-    /// Replace every `<button class="deep-dive" data-section-id="X"
-    /// data-topic-index="Y" title="…">label</button>` with an anchor pointing
-    /// to the child node's HTML. Buttons without a matching child are left
-    /// untouched (no JS in standalone export ⇒ they become inert by design).
-    private static func rewriteDeepDiveButtons(
-        in html: String,
-        parentNodeId: UUID,
-        nodeChildMap: [UUID: [String: [Int: UUID]]],
-        childHrefPrefix: String
-    ) -> String {
-        guard let sectionMap = nodeChildMap[parentNodeId], !sectionMap.isEmpty else {
-            return html
-        }
-        // Pattern targets the deterministic shape from `buildHTMLTemplate`:
-        //   <button class="deep-dive" data-section-id="ID" data-topic-index="IDX" title="HINT">🤿 LABEL</button>
-        // Use a regex with capture groups so we can introspect (section, idx)
-        // and look up the child UUID; non-matches survive unchanged.
-        let pattern = #"<button class="deep-dive" data-section-id="([^"]*)" data-topic-index="([0-9]+)" title="([^"]*)">([^<]*)</button>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return html }
-
-        let nsString = html as NSString
-        let fullRange = NSRange(location: 0, length: nsString.length)
-        let matches = regex.matches(in: html, range: fullRange)
-        // Process in reverse so substring ranges remain valid as we mutate.
-        var result = html
-        for match in matches.reversed() {
-            guard match.numberOfRanges == 5 else { continue }
-            let sectionId = nsString.substring(with: match.range(at: 1))
-            guard let topicIdx = Int(nsString.substring(with: match.range(at: 2))) else { continue }
-            let title = nsString.substring(with: match.range(at: 3))
-            let label = nsString.substring(with: match.range(at: 4))
-            guard let childId = sectionMap[sectionId]?[topicIdx] else { continue }
-            let href = "\(childHrefPrefix)\(childId.uuidString).html"
-            // Anchor variant — already-escaped fields stay escaped (we only
-            // splice the URL we control). class+title kept identical.
-            let replacement = "<a class=\"deep-dive\" href=\"\(href)\" title=\"\(title)\">\(label)</a>"
-            guard let r = Range(match.range, in: result) else { continue }
-            result.replaceSubrange(r, with: replacement)
-        }
-        return result
-    }
-
-    /// Rewrite every breadcrumb `<a class="crumb" href="#<uuid>">` to a
-    /// relative file href so standalone-browser navigation works.
-    /// - Root file (`index.html`) breadcrumbs target `nodes/<uuid>.html`
-    ///   (children below the root).
-    /// - Non-root files (`nodes/<uuid>.html`) target sibling
-    ///   `<uuid>.html`, EXCEPT the root crumb which targets `../index.html`.
-    private static func rewriteBreadcrumbHrefs(
-        in html: String,
-        isRoot: Bool,
-        rootNodeId: UUID?
-    ) -> String {
-        // Pattern targets: <a class="crumb" href="#UUID"> — the embedded `"#`
-        // sequence inside the regex requires `##"..."##` raw-string delimiter
-        // so the early `"#` does not terminate the literal.
-        let pattern = ##"<a class="crumb" href="#([0-9A-Fa-f-]+)">"##
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return html }
-        let nsString = html as NSString
-        let fullRange = NSRange(location: 0, length: nsString.length)
-        let matches = regex.matches(in: html, range: fullRange)
-        var result = html
-        for match in matches.reversed() {
-            guard match.numberOfRanges == 2 else { continue }
-            let uuidStr = nsString.substring(with: match.range(at: 1))
-            guard let crumbUUID = UUID(uuidString: uuidStr) else { continue }
-            let href: String
-            if crumbUUID == rootNodeId {
-                href = isRoot ? "index.html" : "../index.html"
-            } else {
-                href = isRoot ? "nodes/\(crumbUUID.uuidString).html" : "\(crumbUUID.uuidString).html"
-            }
-            let replacement = "<a class=\"crumb\" href=\"\(href)\">"
-            guard let r = Range(match.range, in: result) else { continue }
-            result.replaceSubrange(r, with: replacement)
-        }
-        return result
-    }
-
-    /// Sanitize an insight node title into a safe default filename stem (no
-    /// extension): keep STRICT ASCII `[A-Za-z0-9_]`, replace anything else
-    /// with `_`, collapse runs of `_`, trim leading/trailing `_`, fall back
-    /// to `"insight"` when empty (Decision 10 §7 / Task 7 spec).
-    ///
-    /// The previous implementation used `Character.isLetter`/`isNumber` which
-    /// are Unicode-aware (Cyrillic letters, Arabic-Indic digits, RTL-overrides
-    /// classified as letters all leak through). The spec calls for the strict
-    /// ASCII regex class; using `Set<Character>` membership matches it exactly
-    /// without bringing in NSRegularExpression. NSSavePanel still lets the user
-    /// override the suggested name — this is just the default.
-    private static let insightFilenameAllowed: Set<Character> = Set(
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
-    )
-
-    private static func sanitizeInsightFilename(_ title: String) -> String {
-        let mapped = String(title.map { ch -> Character in
-            insightFilenameAllowed.contains(ch) ? ch : "_"
-        })
-        // Collapse runs of underscores; `omittingEmptySubsequences: true` also
-        // trims leading/trailing `_` because they produce empty leading/trailing
-        // subsequences which are dropped before joining.
-        let collapsed = mapped
-            .split(separator: "_", omittingEmptySubsequences: true)
-            .joined(separator: "_")
-        if collapsed.isEmpty {
-            return "insight"
-        }
-        return collapsed
-    }
-
-    @Published var lastSaveError: String?
-
-    /// Save a file at the given index.
-    /// Defense-in-depth: insight tabs are guarded here too — even if a future
-    /// caller forgets the kind-check, the placeholder URL never reaches `write(to:)`.
-    private func saveFile(at index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-
-        let tab = openTabs[index]
-        if !tab.isFileBacked { return }
-        do {
-            try AtomicFile.write(Data(tab.content.utf8), to: tab.url, permissions: nil)
-            lastSaveError = nil
-            tabsStore.updateTab(at: index) { mutableTab in
-                mutableTab.isModified = false
-                mutableTab.originalContent = tab.content // new baseline
-            }
-            // A file saved inside the project is a change the automatic code analysis refreshes
-            // from (REQ-002), at once rather than after the change watcher's latency.
-            if let root = rootNode?.url.standardizedFileURL.path, tab.url.standardizedFileURL.path.hasPrefix(root + "/") {
-                architecture.noteProjectChanged()
-            }
-        } catch {
-            lastSaveError = "Could not save “\(tab.displayName)”: \(error.localizedDescription)"
-            NSLog("Error saving file: \(error)")
-        }
-    }
-
-    /// Index of the tab a message from the editor page belongs to (see `EditorDocumentRouting`), or nil when
-    /// the message must be dropped. Logs when the page's document is not the selected tab: that is the state
-    /// that once let one file's text be saved over another (BUG-031).
-    private func editorTabIndex(documentID: UUID?, event: String) -> Int? {
-        guard let index = EditorDocumentRouting.targetIndex(documentID: documentID, tabIDs: openTabs.map(\.id),
-                                                            activeIndex: activeTabIndex) else {
-            if documentID != nil { Self.debugLog("[Editor] \(event) dropped: the tab it belongs to is closed") }
-            return nil
-        }
-        if documentID != nil, index != activeTabIndex {
-            let active = openTabs.indices.contains(activeTabIndex) ? openTabs[activeTabIndex].displayName : "none"
-            Self.debugLog("[Editor] \(event) for \(openTabs[index].displayName) while \(active) is selected")
-        }
-        return index
-    }
-
-    /// Update the content of the tab the editor page is showing (`documentID`); a page that names no document
-    /// updates the selected tab, as before.
-    /// Insight tabs own their content via `InsightSession`; the JS bridge must
-    /// not write back into `tab.content` because (a) it would race with the SSE
-    /// stream, and (b) `isModified` would flip true and prime an unwanted Cmd+S
-    /// write to the placeholder URL.
-    func updateTabContent(_ content: String, documentID: UUID?) {
-        guard let index = editorTabIndex(documentID: documentID, event: "content update") else { return }
-        tabsStore.updateTab(at: index) { tab in
-            if !tab.isFileBacked { return }
-            tab.content = content
-            tab.isModified = (content != tab.originalContent)
-        }
-    }
-
-    /// Update the headings for the active tab
-    func updateActiveTabHeadings(_ headings: [HeadingItem]) {
-        tabsStore.updateActiveTab { tab in
-            tab.headings = headings
-        }
-    }
-
-    /// Persist scroll state from the editor for the active tab without broadcasting `WorkspaceManager.objectWillChange` (`AR-15`).
-    func updateActiveTabScrollPosition(_ position: CGFloat) {
-        if let tab = activeTab {
-            scrollState.setScrollPosition(position, for: tab.id)
-        }
-        tabsStore.updateActiveTabSilently { tab in
-            tab.scrollPosition = position
-        }
-    }
-
-    /// Update the active heading for the active tab via `DocumentScrollSideTable` without broadcasting `WorkspaceManager.objectWillChange` (`AR-15`).
-    func updateActiveHeading(_ headingId: String) {
-        if let tab = activeTab {
-            scrollState.setActiveHeading(headingId, for: tab.id)
-        }
-        tabsStore.updateActiveTabSilently { tab in
-            tab.activeHeadingId = headingId
-        }
-    }
-
-    /// Reload the active tab from disk and return the fresh content for the editor.
-    /// Insight tabs are skipped: their URL is a placeholder that never exists on disk
-    /// (see `startRecursiveInsight`). Reading it back would either fail (today) or,
-    /// worse, clobber `tab.content` with stale data if a stray write ever produced
-    /// the file. Returning nil leaves the insight player's state untouched.
-    func reloadActiveTabFromDisk() -> String? {
-        let idx = activeTabIndex
-        guard idx >= 0 && idx < openTabs.count else { return nil }
-        if !openTabs[idx].isFileBacked { return nil }
-
-        let url = openTabs[idx].url
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-
-        tabsStore.updateTab(at: idx) { tab in
-            tab.content = content
-            tab.originalContent = content
-            tab.isModified = false
-        }
-
-        return content
-    }
-
-    func refreshFileTree() {
-        Self.debugLog("refreshFileTree() called")
-        fileTreeStore.refresh()
-    }
-
-    var fileTreeSortOrder: FileTreeSortOrder {
-        get { fileTreeStore.sortOrder }
-        set { fileTreeStore.sortOrder = newValue }
-    }
+    /// Reload the file tree from disk. Kept for the regions of this file that other decompositions still move out (`AR-14` steps 2-7).
+    func refreshFileTree() { project.fileTree.refresh() }
 
     /// Folder a new diagram goes into (the file tree's "New Graph Diagram"); nil = project root.
     private(set) var graphCreatorFolder: URL?
 
     func presentGraphCreator(for type: String = "architecture", in folder: URL? = nil) {
         graphCreatorFolder = folder
-        pendingGraphCreatorType = type
+        requests.pendingGraphCreatorType = type
     }
 
     func dismissGraphCreator() {
-        pendingGraphCreatorType = nil
+        requests.pendingGraphCreatorType = nil
     }
 
     func runAITool(named toolName: String, contentOverride: String? = nil) {
@@ -3647,2101 +563,168 @@ class WorkspaceManager: ObservableObject {
         editDiagram(instruction: instruction, currentMermaid: currentMermaid)
     }
 
-    // MARK: - Recent Files
-
-    private func loadRecentFiles() {
-        guard let data = try? Data(contentsOf: recentFilesURL) else { return }
-        do {
-            let urls = try JSONDecoder().decode([String].self, from: data)
-            recentFiles = urls.compactMap { URL(fileURLWithPath: $0) }
-        } catch {
-            NSLog("Error loading recent files: \(error)")
-        }
-    }
-
-    private func addRecentFile(_ url: URL) {
-        recentFiles.removeAll { $0 == url }
-        recentFiles.insert(url, at: 0)
-        if recentFiles.count > 20 {
-            recentFiles = Array(recentFiles.prefix(20))
-        }
-        saveRecentFiles()
-    }
-
-    private func saveRecentFiles() {
-        let paths = recentFiles.map { $0.path }
-        if let data = try? JSONEncoder().encode(paths) {
-            try? data.write(to: recentFilesURL)
-        }
-    }
-
-    // MARK: - Markdown Parsing
-
-    /// Extract headings from markdown content
-    private func extractHeadings(from markdown: String) -> [HeadingItem] {
-        var headings: [HeadingItem] = []
-        let lines = markdown.components(separatedBy: .newlines)
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("#") {
-                let level = trimmed.prefix(while: { $0 == "#" }).count
-                let text = trimmed.dropFirst(level).trimmingCharacters(in: .whitespaces)
-
-                if level >= 1 && level <= 6 && !text.isEmpty {
-                    let id = UUID().uuidString
-                    headings.append(HeadingItem(id: id, level: level, text: String(text)))
-                }
-            }
-        }
-
-        return headings
-    }
-
-    // MARK: - DDE Block Handling
-
-    /// Handle block delta from JS extraction — wrapped in safety guard.
-    /// The insight player does not run the DDE block extractor, so this path
-    /// should not fire for insight tabs in practice; the kind-check is defense
-    /// in depth so a stray delta cannot pollute SQLite with a `.insight-<uuid>` doc.
-    func handleBlocksDelta(_ delta: BlocksDelta) {
-        guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
-        guard !delta.isEmpty else { return }
-        if !openTabs[activeTabIndex].isFileBacked { return }
-
-        let tabIndex = activeTabIndex
-        var tab = openTabs[tabIndex]
-
-        tab.blocks.removeAll { delta.removed.contains($0.id) }
-
-        for changed in delta.changed {
-            if let idx = tab.blocks.firstIndex(where: { $0.id == changed.id }) {
-                tab.blocks[idx] = changed
-            }
-        }
-
-        tab.blocks.append(contentsOf: delta.added)
-        tab.blocks.sort { $0.position < $1.position }
-
-        tabsStore.updateTab(at: tabIndex) { currentTab in
-            currentTab = tab
-        }
-
-        // Persist to SQLite
-        if let db = semanticDatabase {
-            let docId = self.docId(for: tab.url)
-            for block in delta.added + delta.changed {
-                try? db.upsertBlock(block, documentId: docId)
-            }
-            for id in delta.removed {
-                try? db.deleteBlock(id: id)
-                try? db.deleteClaimsForBlock(id)
-                try? db.deleteRelationsForBlock(id)
-                try? db.deleteDiagnosticsForBlock(id)
-            }
-        }
-    }
-
-    // MARK: - Background Folder Analysis
-
-    /// V1: Deterministic structural indexing — instant, no LLM
-    /// Then V1.5: Haiku-based content module extraction (cheap, fast)
-    /// Live structural-index child processes — retained PROCESS-WIDE (static) until
-    /// they exit so their `terminationHandler` always fires, independent of which
-    /// `WorkspaceManager` instance (windows create several) spawned them. A `Process`
-    /// with no strong reference is released when the spawning scope returns and its
-    /// handler then never runs.
-    private static var runningIndexers: [Process] = []
-    /// This workspace's indexer, so closing the folder can stop it. Weak: the
-    /// static list above owns it.
-    private weak var structuralIndexer: Process?
-
-    /// Run structural indexing in a SEPARATE PROCESS (re-exec of this binary with
-    /// `--dde-index <folder>`) so the directory scan never competes with the UI.
-    /// The child writes modules/documents/symbols/FTS straight to the shared SQLite
-    /// DB (WAL + busy_timeout); on exit the app reloads cached results from disk.
-    private func runStructuralIndex(at url: URL) {
-        guard let exePath = Bundle.main.executablePath else {
-            Self.debugLog("runStructuralIndex: no executablePath")
-            return
-        }
-
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: exePath)
-        proc.arguments = ["--dde-index", url.path]
-        proc.standardOutput = FileHandle.nullDevice
-
-        // Stream the child's stderr live so its progress shows in the footer.
-        // Draining the pipe also prevents the child blocking on a full buffer.
-        let pipe = Pipe()
-        proc.standardError = pipe
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] fh in
-            let data = fh.availableData
-            guard !data.isEmpty else { fh.readabilityHandler = nil; return }
-            guard let chunk = String(data: data, encoding: .utf8) else { return }
-            for raw in chunk.split(separator: "\n") {
-                let line = String(raw)
-                guard let r = line.range(of: "[mvindexer] ") else { continue }
-                let msg = String(line[r.upperBound...])
-                // The child emits bare "N/M" progress ticks; show them as a count.
-                guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
-                Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
-            }
-        }
-
-        proc.terminationHandler = { [weak self] p in
-            WorkspaceManager.workspaceLogger.debug("structural index process exited code=\(p.terminationStatus, privacy: .public)")
-            Task { @MainActor in
-                WorkspaceManager.runningIndexers.removeAll { $0 === p }
-                guard let self = self else { return }
-                // A newer indexer (folder closed and reopened) owns the footer now.
-                if let current = self.structuralIndexer, current !== p { return }
-                self.structuralIndexProgress = nil  // hide footer progress
-                self.loadCachedResults()
-                self.refreshSemanticViews()
-            }
-        }
-
-        do {
-            structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
-            try proc.run()
-            Self.runningIndexers.append(proc)  // retain until terminationHandler fires
-            structuralIndexer = proc
-            Self.debugLog("structural index process launched pid=\(proc.processIdentifier)")
-        } catch {
-            structuralIndexProgress = nil
-            Self.debugLog("structural index process FAILED to launch: \(error)")
-        }
-    }
-
-    func refreshSemanticViews() {
-        semanticRefreshVersion &+= 1
-    }
-
-    func navigateToText(filePath: String?, fallbackDocumentId: String? = nil, searchText: String) {
-        let trimmedText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else { return }
-
-        if let url = resolveWorkspaceFileURL(filePath: filePath, fallbackDocumentId: fallbackDocumentId) {
-            openFile(url)
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            NotificationCenter.default.post(.scrollToText, for: self, object: trimmedText)
-        }
-    }
-
-    /// Refresh views that read the semantic database on demand.
-    private func loadCachedResults() {
-        // Don't load thousands of records into @Published arrays.
-        NSLog("[DDE] DB ready for lazy loading")
-        refreshSemanticViews()
-    }
-
-    /// Cursor moved to a different block
-    func handleCursorBlockChange(_ blockId: String) {
-        tabsStore.updateActiveTab { tab in
-            tab.activeBlockId = blockId
-        }
-    }
+    // MARK: - Agents surface and handoff
 
     /// Show the floating agents surface without changing the other panels.
-    func showAIConsole() { agentsVisible = true }
+    func showAIConsole() { chrome.agentsVisible = true }
 
-    func toggleAIConsole() { agentsVisible.toggle() }
+    func toggleAIConsole() { chrome.agentsVisible.toggle() }
 
-    func resumeHandoff(slug: String, title: String, linkedFiles: [String]) {
-        guard let root = features.root else { return }
-        Task {
-            let checked = await Task.detached { () -> (available: [URL], missing: [String]) in
-                let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
-                var available: [URL] = []
-                var missing: [String] = []
-                for path in linkedFiles {
-                    let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-                    guard !path.hasPrefix("/"), !parts.isEmpty,
-                          parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-                        missing.append(path)
-                        continue
-                    }
-                    let url = root.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
-                    guard url.path.hasPrefix(base),
-                          (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                        missing.append(path)
-                        continue
-                    }
-                    available.append(url)
-                }
-                return (available, missing)
-            }.value
-            guard features.root == root else { return }
-            handoffResume = HandoffResume(slug: slug, title: title,
-                                          linkedFiles: linkedFiles, missingFiles: checked.missing)
-            for url in checked.available { openFile(url) }
-            layout.workspaceArea = .files
-        }
-    }
-
-    // MARK: - Terminals
-
-    /// The terminal shown in the AI panel.
-    var aiTerminal: TerminalSession? {
-        aiTerminals.first { $0.id == activeAITerminalID } ?? aiTerminals.first
-    }
-
-    /// The command that starts `profile` in the shell with the model chosen for it, or nil
-    /// for a plain shell. Every assistant runs without permission prompts; Claude updates itself first.
-    /// `continuing` adds the assistant's option that picks up its last session in the folder.
-    /// `model` replaces the model chosen for the project: a Cockpit step runs with the model its plan names.
-    private func startupCommand(for profile: TerminalProfile, continuing: Bool = false, model: String? = nil) -> String? {
-        guard let tool = profile.tool else { return nil }
-        let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
-        let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(model ?? chosenModel(for: profile))
-                   + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
-        switch tool {
-        case .claude: return "\(quoted) update && \(run)"
-        case .codex, .cline, .copilot, .antigravity: return run
-        }
-    }
-
-    /// This window's id for agents driving its browser tab (`BrowserControlServer`).
-    let browserControlID = UUID()
-
-    /// Shell-quoted arguments that give Claude Code and Codex the MCP server for this window's
-    /// browser tab (Task 80); none when terminal links do not open in MarkView.
-    private func browserToolArgs(for tool: CLITool) -> [String] {
-        registerBrowserControl()
-        guard BrowserControlServer.agentToolsEnabled(tool) else { return [] }
-        // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
-        // prototypes), each a server of this same binary, both bound to this window.
-        var servers: [(name: String, codexName: String, command: String, args: [String])] = []
-        if TerminalBrowserBridge.isEnabled, let server = BrowserControlServer.mcpArguments(window: browserControlID) {
-            servers.append((BrowserAgentTools.serverName, "markview_browser", server.command, server.args))
-        }
-        if let server = BrowserControlServer.mcpArguments(window: browserControlID, flag: "--mcp-project") {
-            servers.append((ProjectAgentTools.serverName, ProjectAgentTools.serverName, server.command, server.args))
-        }
-        guard !servers.isEmpty else { return [] }
-        let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        switch tool {
-        case .claude:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map { ($0.name, ["command": $0.command, "args": $0.args] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--mcp-config", shellQuote(json)]
-        case .codex:
-            let toml = { (text: String) in "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-            return servers.flatMap { server in
-                ["-c", shellQuote("mcp_servers.\(server.codexName).command=" + toml(server.command)),
-                 "-c", shellQuote("mcp_servers.\(server.codexName).args=[" + server.args.map(toml).joined(separator: ",") + "]")]
-            }
-        case .copilot:
-            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map {
-                ($0.name, ["type": "local", "command": $0.command, "args": $0.args, "tools": ["*"]] as [String: Any]) })]
-            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
-                  let json = String(data: data, encoding: .utf8) else { return [] }
-            return ["--additional-mcp-config", shellQuote(json)]
-        case .cline:
-            // Cline has no per-session option: its own settings must list the servers (BUG-026).
-            AgentBrowserRegistration.ensureCline(executable: servers[0].command)
-            return []
-        case .antigravity:
-            // Antigravity keeps its servers in its own configuration, added with `agy mcp add`.
-            AgentBrowserRegistration.ensureAntigravity(executable: servers[0].command)
-            return []
-        }
-    }
-
-    /// BUG-025: an organisation's Copilot policy may allow only listed MCP servers; Copilot then
-    /// prints `MCP server was blocked by policy: "markview-browser"` at every start. On that message
-    /// the server is turned off for Copilot on this Mac, and the terminal can restart without it.
-    private func watchForMCPPolicyBlock(_ session: TerminalSession) {
-        var recent = ""
-        session.onOutput = { [weak self, weak session] data in
-            recent = String((recent + String(decoding: data, as: UTF8.self)).suffix(4_000))
-            guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
-            recent = ""
-            DispatchQueue.main.async {
-                guard let self, let session, BrowserControlServer.agentToolsEnabled(.copilot) else { return }
-                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(.copilot))
-                let alert = NSAlert()
-                alert.messageText = "Copilot's policy blocks MarkView's browser tools"
-                alert.informativeText = "Your organisation allows Copilot only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives Copilot these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). Copilot itself keeps working."
-                alert.addButton(withTitle: "Restart Copilot Without Them")
-                alert.addButton(withTitle: "Later")
-                guard alert.runModal() == .alertFirstButtonReturn else { return }
-                self.relaunch(session, as: session.profile, continuing: true)
-            }
-        }
-    }
+    // MARK: - Host window
 
     /// The window this workspace is shown in; set by its view. Control tools list, focus and name windows by it.
-    weak var hostWindow: NSWindow?
+    weak var hostWindow: NSWindow? {
+        didSet { if let hostWindow, hostWindow !== oldValue { polling.follow(window: hostWindow) } }
+    }
 
     /// A window with nothing open: no folder, no tab. Agents may open a project in it; they never replace a project.
-    var isBlank: Bool { rootNode == nil && openTabs.isEmpty }
+    var isBlank: Bool { rootNode == nil && tabs.openTabs.isEmpty }
 
-    /// Offer this window to agents (`BrowserControlServer`): its browser tabs, its project's features, and the
-    /// workspace itself for the control tools. Called when the window is shown, a folder opens or a terminal starts.
-    func registerBrowserControl() {
-        BrowserControlServer.register(browserControlID, .init(
-            workspace: { [weak self] in self },
-            root: { [weak self] in self?.rootNode?.url },
-            tabs: { [weak self] in self?.browserSessions ?? [] },
-            active: { [weak self] in
-                guard let self, self.openTabs.indices.contains(self.activeTabIndex),
-                      case .browser(let session) = self.openTabs[self.activeTabIndex].kind else { return nil }
-                return session
-            },
-            show: { [weak self] session in self?.showBrowser(session) },
-            open: { [weak self] url, name in
-                guard let self else { return BrowserSession(url: url) }
-                let session = self.openBrowser(url)
-                if let name { session.agentName = name }
-                return session
-            },
-            features: { [weak self] in self?.features },
-            deployments: { [weak self] in self?.deployments },
-            discussions: { [weak self] in self?.discussions }))
-    }
-
-    /// The window's browser tabs, in tab order.
-    var browserSessions: [BrowserSession] {
-        openTabs.compactMap { if case .browser(let session) = $0.kind { return session }; return nil }
-    }
-
-    /// Bring a browser tab to the front.
-    func showBrowser(_ session: BrowserSession) {
-        guard let index = openTabs.firstIndex(where: { if case .browser(let s) = $0.kind { return s === session }; return false }) else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        activeTabIndex = index
-    }
-
-    /// The command that continues `profile`'s last session in `directory` (BUG-005), or nil to start
-    /// fresh: a shell, Cline (no "continue last" option), or Claude with no session there —
-    /// `claude --continue` then stops with "No conversation found" instead of starting one.
-    /// Codex and Copilot start a new session by themselves when there is none.
-    private func resumeCommand(for profile: TerminalProfile, in directory: URL) -> String? {
-        guard let tool = profile.tool, !tool.continueArgs.isEmpty else { return nil }
-        if tool == .claude, !AgentModelProbe.hasClaudeSession(cwd: directory) { return nil }
-        return startupCommand(for: profile, continuing: true)
-    }
-
-    /// "Claude Code · opus", "Codex 2 · gpt-5", "Shell" — unique among the open terminals.
-    private func terminalTitle(for profile: TerminalProfile, excluding session: TerminalSession? = nil) -> String {
-        let taken = Set(aiTerminals.filter { $0 !== session }.map(\.title))
-        var base = profile.title
-        var counter = 2
-        while taken.contains(where: { $0 == base || $0.hasPrefix(base + " · ") }) {
-            base = "\(profile.title) \(counter)"
-            counter += 1
-        }
-        guard let model = chosenModel(for: profile) else { return base }
-        return base + " · " + model
-    }
-
-    /// The model `profile` runs when started now: the project's choice for its assistant, nil for
-    /// a shell or the CLI's own default. The command, the tab title and `TerminalSession.model`
-    /// all come from this one answer.
-    private func chosenModel(for profile: TerminalProfile) -> String? {
-        guard let tool = profile.tool else { return nil }
-        return AIAssistantPreferences.model(for: tool, project: aiProject)
-    }
-
-    /// Start `session` again running `profile` with the model chosen for it now.
-    private func relaunch(_ session: TerminalSession, as profile: TerminalProfile, continuing: Bool = false) {
-        session.restart(profile: profile,
-                        startupCommand: startupCommand(for: profile, continuing: continuing),
-                        title: terminalTitle(for: profile, excluding: session),
-                        model: chosenModel(for: profile))
-    }
-
-    /// Open another terminal in the AI panel and show it.
-    /// `resuming` continues the assistant's last session in the folder (terminals restored after a relaunch).
-    /// `model` starts the assistant with that model instead of the one chosen for the project (a Cockpit step's own).
-    @discardableResult
-    func openAITerminal(_ profile: TerminalProfile, resuming: Bool = false, model: String? = nil) -> TerminalSession? {
-        guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return nil }
-        let session = TerminalSession(directory: directory, profile: profile,
-                                      startupCommand: startupCommand(for: profile, model: model),
-                                      resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
-                                      title: terminalTitle(for: profile),
-                                      model: model ?? chosenModel(for: profile))
-        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
-        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
-        session.browserWindowID = browserControlID
-        registerBrowserControl()
-        if profile.tool == .copilot { watchForMCPPolicyBlock(session) }
-        aiTerminals.append(session)
-        activeAITerminalID = session.id
-        startWatchingOpenFiles()
-        return session
-    }
-
-    /// Connect a home assistant while preserving this window's work-computer root.
-    @discardableResult
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
-        guard let root = aiWorkspaceRoot ?? rootNode?.url else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
-        let invitation = try RemoteInvitation(code: code)
-        registerBrowserControl()
-        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
-        guard (aiWorkspaceRoot ?? rootNode?.url)?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
-        let session = TerminalSession(directory: root, profile: provider == .claude ? .claude : .codex,
-                                      title: "Home · " + provider.title)
-        connection.onState = { [weak session] phase, text in
-            session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
-            if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
-        }
-        session.connection = connection
-        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
-        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
-        aiTerminals.append(session)
-        activeAITerminalID = session.id
-        showAIConsole()
-        return session
-    }
-
-    /// The first AI terminal (the toolbar's assistant) once a folder is open.
-    @discardableResult
-    func ensureAITerminal() -> TerminalSession? {
-        if let session = aiTerminal { return session }
-        restoreAITerminals()
-        return aiTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject)))
-    }
-
-    // MARK: AI terminals across launches (BUG-005)
-
-    private static func aiTerminalsKey(_ directory: URL) -> String {
-        "aiTerminals." + String(ContentHash.of(directory.standardizedFileURL.path).prefix(12))
-    }
-
-    /// Remember the folder's AI terminals: what each runs, in tab order, and the shown one.
-    private func saveAITerminals() {
-        guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return }
-        // Saved remote pairings are restored by RemoteConnectionsStore, never as local assistant profiles.
-        let local = aiTerminals.filter { !$0.isRemote }
-        let shown = local.firstIndex { $0.id == activeAITerminalID } ?? 0
-        UserDefaults.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shown],
-                                  forKey: Self.aiTerminalsKey(directory))
-    }
-
-    /// Reopen the AI terminals the folder had when MarkView last ran, each assistant continuing
-    /// its last session there. Does nothing once a terminal is open or when none were saved.
-    private func restoreAITerminals() {
-        guard aiTerminals.isEmpty, let directory = aiWorkspaceRoot ?? rootNode?.url,
-              let saved = UserDefaults.standard.dictionary(forKey: Self.aiTerminalsKey(directory)),
-              let names = saved["profiles"] as? [String] else { return }
-        let sessions = names.compactMap(TerminalProfile.init(rawValue:)).compactMap { openAITerminal($0, resuming: true) }
-        let shown = saved["shown"] as? Int ?? 0
-        if sessions.indices.contains(shown) { activeAITerminalID = sessions[shown].id }
-    }
-
-    func closeAITerminal(_ id: UUID) {
-        guard let index = aiTerminals.firstIndex(where: { $0.id == id }) else { return }
-        aiTerminals.remove(at: index).terminate()
-        if activeAITerminalID == id {
-            activeAITerminalID = aiTerminals.isEmpty ? nil : aiTerminals[min(index, aiTerminals.count - 1)].id
-        }
-        saveAITerminals()
-    }
-
-    /// Start the shown terminal again, with the model chosen for its assistant now.
-    func restartAITerminal() {
-        guard let session = aiTerminal else { ensureAITerminal(); return }
-        guard !session.isRemote else { return }
-        relaunch(session, as: session.profile)
-    }
-
-    /// The toolbar's assistant changed: show a terminal running it — an open one, or the
-    /// shown assistant terminal restarted with it, or a new one next to a plain shell.
-    func aiBackendChanged() {
-        guard aiTerminal?.isRemote != true else { return }
-        let profile = TerminalProfile(AIAssistantPreferences.backend(project: aiProject))
-        if let existing = aiTerminals.first(where: { $0.profile == profile }) {
-            activeAITerminalID = existing.id
-            return
-        }
-        if let session = aiTerminal, session.profile != .shell {
-            relaunch(session, as: profile)
-            saveAITerminals()
-            objectWillChange.send()
-        } else if aiTerminal != nil {
-            openAITerminal(profile)
-        }
-    }
-
-    /// The model chosen for the shown terminal's assistant differs from the one it runs: the shown
-    /// terminal restarts with the chosen model and its tab is renamed; other terminals keep their
-    /// session. Safe to call at any time — it does nothing when the models match. The AI panel
-    /// calls it when the toolbar's model changes and when the panel opens, so a model picked
-    /// while the panel was hidden is applied too.
-    func aiModelChanged() {
-        guard let session = aiTerminal, session.profile != .shell, !session.isRemote,
-              session.model != chosenModel(for: session.profile) else { return }
-        // Only a model picked in MarkView after this assistant started applies to it. A model remembered
-        // from another session (the user switched with /model there, BUG-048) is the next start's, not a
-        // reason to interrupt this one.
-        guard let tool = session.profile.tool,
-              let picked = ModelPickLog.lastPick(tool: tool, project: aiProject), picked > session.launchedAt else { return }
-        relaunch(session, as: session.profile)
-        objectWillChange.send()
-    }
-
-    /// A Claude Code agent's own log names the model it runs now. When that is not what MarkView shows
-    /// (the user switched with `/model` inside the session), the agent's tab shows it, and it becomes
-    /// the model the project (and every project with no choice of its own) starts Claude Code with next
-    /// time. Nothing restarts: the conversation goes on.
-    private func claudeModelReported(_ model: String, terminalID: UUID) {
-        guard let session = aiTerminals.first(where: { $0.id == terminalID }),
-              session.profile == .claude, !session.isRemote, session.isRunning else { return }
-        let previous = session.observedModel
-        session.observedModel = model
-        let picked = session.pendingModelPick == model
-        if picked { session.pendingModelPick = nil }
-        guard model != session.model else { return }
-        // Started with the CLI's own default: the first reading is that default, not a choice,
-        // unless the Agents header asked for exactly this model.
-        if session.model == nil, previous == nil, !picked { return }
-        // A model pinned by id (--model claude-opus-4-1) and the family alias the log reports are the same.
-        if let pinned = session.model, ClaudeSessionModel.family(of: pinned) == model { return }
-        session.adoptRunningModel(model, title: ClaudeSessionModel.title(session.title, model: model))
-        AIAssistantPreferences.remember(model, for: .claude, project: aiProject)
-        objectWillChange.send()
-    }
-
-    /// The model switch in the Agents header. Claude Code switches live: `/model` is typed into the
-    /// running session, so nothing restarts and the conversation goes on; the session's log then
-    /// confirms it and `claudeModelReported` renames the tab and remembers the model. Another
-    /// assistant starts again with the model, and picks its conversation up where its CLI can resume.
-    func switchModel(of session: TerminalSession, to model: String) {
-        guard session.profile != .shell, !session.isRemote, !model.isEmpty else { return }
-        guard session.profile == .claude else {
-            guard let tool = session.profile.tool else { return }
-            AssistantChoice(project: aiProject).setModel(model, for: tool)
-            // The panel restarts the shown agent only when the project's own assistant changes its
-            // model; a Copilot tab beside a Claude project would stay as it was.
-            if session.model != chosenModel(for: session.profile) {
-                relaunch(session, as: session.profile, continuing: !tool.continueArgs.isEmpty)
-                objectWillChange.send()
-            }
-            return
-        }
-        // Only a family alias is typed, never free text. While the agent answers, the command would
-        // queue behind the answer or land in the wrong place; the menu is off then, this covers the race.
-        guard ClaudeSessionModel.families.contains(model), session.isRunning, !session.printed(within: 3) else {
-            NSSound.beep()
-            return
-        }
-        session.pendingModelPick = model
-        session.paste("/model \(model)", submit: true)
-    }
-
-    /// Send a prompt to an assistant (prompt buttons, AI Tools menu, graph edits,
-    /// documentation): the shown terminal when it runs one, else an open assistant
-    /// terminal, else a new one with the toolbar's assistant. Pasted as one block;
-    /// `submit` presses Enter.
-    /// Returns the terminal session the prompt went to.
-    @discardableResult
-    func sendToAssistant(_ prompt: String, submit: Bool = true) -> TerminalSession? {
-        sendToAssistant(submit: submit) { _ in prompt }
-    }
-
-    /// Build a backend-specific prompt only after choosing the actual receiving terminal.
-    /// `terminal`: the one to send to (an agent driving the window names it); else the usual choice.
-    @discardableResult
-    func sendToAssistant(submit: Bool = true, to terminal: TerminalSession? = nil, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
-        showAIConsole()
-        restoreAITerminals()
-        guard let session = terminal ?? assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject))) else { return nil }
-        activeAITerminalID = session.id
-        guard let prompt = promptFor(session) else { return nil }
-        session.pasteWhenReady(prompt, submit: submit)
-        return session
-    }
-
-    /// The open assistant terminal a prompt goes to: the one shown, else one of the chosen
-    /// backend, else any assistant; nil when none is open (`sendToAssistant` then opens one).
-    var assistantTerminal: TerminalSession? {
-        if let shown = aiTerminal, shown.profile != .shell { return shown }
-        return aiTerminals.first(where: { $0.profile == TerminalProfile(AIAssistantPreferences.backend(project: aiProject)) })
-            ?? aiTerminals.first(where: { $0.profile != .shell })
-    }
-
-    /// The assistant terminal is working: it printed in the last few seconds (Claude Code's
-    /// spinner keeps printing while it runs). Batch Fix with AI waits for it (DEC-010).
-    var assistantIsBusy: Bool {
-        guard let session = assistantTerminal, session.isRunning else { return false }
-        return session.printed(within: 3)
-    }
-
-    // MARK: - GitHub
-
-    /// Open GitHub issue #n: its tab when the GitHub integration is on, else the issue page in
-    /// the browser (repository from the `origin` remote; nothing is sent to GitHub by the app).
-    func openGitHubIssue(_ number: Int) {
-        if let slug = gitHub.selectedRepo?.slug {
-            openGitHubTab(.issue(number: number, repo: slug, title: "#\(number)"))
-            return
-        }
-        guard let root = rootNode?.url else { return }
-        Task {
-            let remote = await GitHubClient.execute(["remote", "get-url", "origin"], in: root, git: true)
-            guard let slug = GitHubClient.slug(fromRemoteURL: remote.stdout.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  let url = URL(string: "https://github.com/\(slug)/issues/\(number)") else { return }
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    /// The "New" intake sheet shown (New Feature / New Bug / I Need to Understand).
-    @Published var intake: IntakeRequest?
-
-    /// Start a Project from Scratch shown in this window: a new idea, or an unfinished draft.
-    @Published var newProject: NewProjectRequest?
-    /// "Publish to GitHub…" shown for the open folder (REQ-003, later connection).
-    @Published var gitHubPublishRequested = false
-
-    /// The project a new-project flow created: open it with its specification in front — the
-    /// Issues list on it and the overview in the editor (DEC-023).
-    func openCreatedProject(_ url: URL, specification slug: String) {
-        openFolder(url) { [weak self] in
-            guard let self else { return }
-            self.features.activeSlug = slug
-            self.layout.leftPanel = "issues"
-            self.layout.issuesFeature = slug
-            self.layout.featureStage = .explore
-            self.showTOC = true
-            self.showFileTree = true
-            self.layout.navigatorTab = .feature
-            self.openFile(url.appendingPathComponent(FeatureStore.folderName).appendingPathComponent(slug).appendingPathComponent("overview.md"))
-        }
-    }
-
-    /// Turn MarkView's GitHub integration on (a Settings switch for every window, DEC-020) and
-    /// look for `slug` in this folder again. Nil when found, else why not.
-    func activateGitHub(expecting slug: String, in folder: URL) async -> String? {
-        // Right after bootstrap the folder may still be opening in this window.
-        for _ in 0..<40 where rootNode?.url.standardizedFileURL != folder.standardizedFileURL {
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-        guard let root = rootNode?.url, root.standardizedFileURL == folder.standardizedFileURL else {
-            return "This window does not show \(folder.lastPathComponent) any more. Open it and use File › Publish to GitHub… to finish."
-        }
-        if !GitHubSettings.enabled { UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey) }
-        // The remote was added after the folder opened: detect again.
-        gitHub.reset()
-        gitHubRoot = root
-        gitHubSettingChanged()
-        for _ in 0..<40 {
-            if gitHub.repos.contains(where: { $0.slug.lowercased() == slug.lowercased() }) { return nil }
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-        return gitHub.lastError ?? "MarkView did not find \(slug) among this folder's remotes."
-    }
-
-    /// "New Feature / New Bug from #n": the issue's text and comments as the material, linked.
-    func startIntake(_ kind: IntakeKind, fromIssue number: Int) {
-        // The sheet opens at once and loads the issue itself (with a spinner).
-        intake = IntakeRequest(kind: kind, linkedIssue: number, loadIssue: number)
-    }
-
-    /// "New … from this pull request": its description as the material (a new issue is filed).
-    func startIntake(_ kind: IntakeKind, fromPullRequest pr: GHPullRequest) {
-        intake = IntakeRequest(kind: kind, text: "Pull request #\(pr.number): \(pr.title) (\(pr.headRefName) → \(pr.baseRefName))",
-                               loadPullRequest: pr.number)
-    }
-
-    /// "I need to understand …": the X-Ray's ⚡ search for the question — what takes part is
-    /// marked in every view, the answer and its places are on the right, and a file opened from
-    /// there shows the places inside it.
-    func understandInXRay(_ question: String, attachments: [URL] = []) {
-        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let root = rootNode?.url, !text.isEmpty else { return }
-        setTemporaryFilter(text)
-        openArchitecture()
-        if let filter = temporaryFilter {
-            architecture.understand(filter: filter, root: root, db: semanticDatabase, attachments: attachments)
-            architecture.activate(filterId: filter.id)
-        }
-    }
-
-    /// "New … from this document": the document is the material (attached, so the AI reads it whole).
-    func startIntake(_ kind: IntakeKind, fromDocument url: URL) {
-        let path = workspaceRelativePath(url)
-        let lead: String
-        switch kind {
-        case .feature, .quickFeature: lead = "Build a feature from the document \(path) (attached)."
-        case .bug: lead = "The document \(path) (attached) describes a problem to analyze as a bug."
-        case .understand: lead = "What implements \(path) in this project, and how do the documented parts work in the code?"
-        case .research: lead = "Review \(path): "
-        }
-        switch kind {
-        case .understand: intake = IntakeRequest(kind: kind, text: lead)
-        case .research: intake = IntakeRequest(kind: kind, text: lead, targets: [url])
-        default: intake = IntakeRequest(kind: kind, text: lead, attachments: [url])
-        }
-    }
-
-    /// New Research (replaces the Deep Research AI tool, DEC-010): the intake sheet, with the open
-    /// document as its first target.
-    func newResearch() {
-        intake = IntakeRequest(kind: .research)
-    }
-
-    func startResearch(fromFolder folder: URL) {
-        intake = IntakeRequest(kind: .research, text: "Review the documents in \(workspaceRelativePath(folder)) and its subfolders: ", targets: [folder])
-    }
-
-    /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
-    var researchDefaultTargets: [URL] {
-        guard let root = rootNode?.url, let tab = activeTab, tab.isFileBacked,
-              ResearchJobs.relative(tab.url, to: root) != nil else { return [] }
-        return [tab.url]
-    }
-
-    /// Before a research job reads `file`: unsaved edits in its tab are saved, or the user
-    /// cancels (DEC-014). True when the file on disk is current.
-    func saveBeforeResearch(_ file: URL, action: String) -> Bool {
-        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }),
-              openTabs[index].isModified else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Save changes to \(openTabs[index].displayName) before \(action)?"
-        alert.informativeText = "The AI works on the document as it is saved on disk."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        saveFile(at: index)
-        return !openTabs[index].isModified
-    }
-
-    /// A handoff is a disk snapshot; save all modified tabs in that feature first.
-    func saveBeforeHandoff(_ folder: URL) -> Bool {
-        let prefix = folder.standardizedFileURL.path + "/"
-        for index in openTabs.indices where openTabs[index].isFileBacked && openTabs[index].isModified &&
-            openTabs[index].url.standardizedFileURL.path.hasPrefix(prefix) {
-            let alert = NSAlert()
-            alert.messageText = "Save changes to \(openTabs[index].displayName) before handoff?"
-            alert.informativeText = "The handoff captures files as saved on disk."
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return false }
-            saveFile(at: index)
-            if openTabs[index].isModified { return false }
-        }
-        return true
-    }
-
-    /// A research job rewrote `file` on disk: its tab shows the new text; a tab with unsaved
-    /// edits gets the same change applied by `applyToEdited` so nothing typed is lost.
-    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {
-        refreshFileTree()
-        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }) else { return }
-        if !openTabs[index].isModified {
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = content
-                tab.originalContent = content
-                tab.isModified = false
-            }
-        } else if let edited = applyToEdited(openTabs[index].content) {
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = edited
-                tab.originalContent = content
-                tab.isModified = edited != content
-            }
-        } else {
-            research.message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
-        }
-    }
-
-    /// Implement with AI: in a project the person first sees the definition of done for this run (and may
-    /// change it); without a project folder the standard one is used at once.
-    func implementWithAI(_ url: URL) {
-        if projectFolder != nil { doneRequest = url } else { startImplementation(url, done: .standard) }
-    }
-
-    /// Hand a document to the AI to implement, establishing a goal in the receiving assistant. The goal
-    /// carries the definition of done. The feature is recorded as "implementation started" with the CLI
-    /// that got it.
-    func startImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession? = nil) {
-        let path = workspaceRelativePath(url)
-        let target = url.standardizedFileURL.path
-        let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
-            ?? features.locate(url)?.feature.slug
-        let block = slug.map { features.lifecycle.handoffBlock(.feature, [$0]) } ?? ""
-        guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { session in
-            guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else { return nil }
-            let prompt = HandoffPrompt.feature(path, backend: backend, done: done)
-            return block.isEmpty ? prompt : prompt + "\n\n" + block
-        }) else { return }
-        guard let slug else { return }
-        // Handed to the assistant: the feature is being implemented (BUG-008). The hand-off that went out is the start
-        // evidence; a hand-off that failed above left the status alone.
-        features.markImplementing(slug, handoff: session.profile.tool?.displayName ?? "AI assistant")
-        if let tool = session.profile.tool {
-            features.recordImplementationStarted(slug, tool: tool, directory: session.directory, runningSince: session.runningSince)
-        }
-    }
-
-    /// Hand the conflicted files to the assistant (Git tab → Conflicts → Resolve with AI). It resolves and
-    /// stages them; committing, pushing and aborting stay with the person.
-    func resolveConflictsWithAI() {
-        let files = gitClient.repoStatus.entries(in: .conflicts).map(\.path)
-        guard !files.isEmpty else { return }
-        guard !assistantIsBusy else {
-            gitClient.lastError = "The assistant is still working. Resolve the conflicts with it when it has finished."
-            return
-        }
-        let prompt = ConflictPrompt.make(files: files, operation: gitClient.operationInProgress, branch: gitClient.branch)
-        sendToAssistant(prompt, submit: true)
-    }
-
-    /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
-    /// `terminal`: the one to fix it in (an agent driving the window names it); else the usual choice.
-    func fixBugWithAI(_ url: URL, in terminal: TerminalSession? = nil) {
-        let claude = terminal.map { $0.profile.tool == .claude } ?? (AIAssistantPreferences.backend(project: aiProject) == .claude)
-        let key = features.bug(at: url)?.key
-        // A bug the lifecycle does not let start (already fixed or closed) is not handed over: nothing could mark it.
-        if let key, !features.lifecycle.canStartByHandoff(.bug, key) {
-            features.lastError = "\(key) is \(features.lifecycle.storedStatus(.bug, key) ?? "not open") and cannot be handed to the assistant to fix. Reopen it first."
-            return
-        }
-        let block = key.map { features.lifecycle.handoffBlock(.bug, [$0]) } ?? ""
-        let base = HandoffPrompt.bug(workspaceRelativePath(url), claude: claude)
-        let prompt = block.isEmpty ? base : base + "\n\n" + block
-        // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
-        guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
-        features.lifecycle.startByHandoff(.bug, key, tool: session.profile.tool?.displayName ?? "AI assistant", actor: .human(features.lifecycleActor))
-    }
-
-    /// Batch Fix with AI (issue #31): the basket's open bugs go to the assistant in one prompt —
-    /// one branch made by the AI, one commit and one outcome per bug. A bug the lifecycle does
-    /// not let start is left out of the prompt; once the prompt went out, each bug in it is marked
-    /// `fixing` (the hand-off is the start evidence) and the basket is emptied. When too few bugs
-    /// can start, or the prompt cannot be sent, nothing is marked and the basket is kept
-    /// (BUG-032). The app runs no git itself (DEC-002).
-    func fixBasketWithAI() {
-        bugBatch.reconcile()
-        let bugs = bugBatch.eligible
-        guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, features.root != nil else { return }
-        let claude = AIAssistantPreferences.backend(project: aiProject) == .claude
-        var session: TerminalSession?
-        let outcome = BatchStart.run(bugs, canStart: { bug in
-            features.lifecycle.canStartByHandoff(.bug, bug.key)
-        }, send: { startable in
-            let base = BatchFixPrompt.make(startable, claude: claude)
-            let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
-            session = sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
-            return session != nil
-        }, start: { bug in
-            let tool = session?.profile.tool?.displayName ?? "AI assistant"
-            let result = features.lifecycle.startByHandoff(.bug, bug.key, tool: tool, actor: .human(features.lifecycleActor), surface: false)
-            return result.reachedStatus
-        })
-        if case .started = outcome { bugBatch.clear() }
-        bugBatch.notice = BatchStart.notice(outcome)
-    }
-
-    /// An intake finished: open what it made, and for a feature show its workspace.
-    func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
-        if let slug = outcome.feature {
-            showFeature(slug, stage: kind == .quickFeature ? .build : .explore)
-        } else if kind == .bug {
-            // The report opens in the editor; its questions are answered in the Feature tab.
-            showTOC = true
-            layout.navigatorTab = .feature
-        }
-        refreshFileTree()
-        if let file = outcome.file { openFile(file) }
-    }
-
-    /// The item ("feature:slug", "bug:BUG-001") whose cycle time the window should open at; the window clears it when it closes.
-    @Published var cycleTimeItem: String?
-
-    /// Opens feature `slug` in the Feature panel at `stage`, with its documents beside it.
-    func showFeature(_ slug: String, stage: FeatureStage) {
-        features.activeSlug = slug
-        layout.leftPanel = "issues"
-        layout.issuesFeature = slug
-        layout.featureStage = stage
-        showTOC = true
-        showFileTree = true
-        layout.navigatorTab = .feature
-    }
-
-    /// A feature was written by the app itself (the prototype hand-off): open it at its Build stage, ready for "Implement with AI", with
-    /// its overview in the editor. Nothing starts by itself.
-    func featureWritten(_ slug: String, overview: URL) {
-        showFeature(slug, stage: .build)
-        refreshFileTree()
-        openFile(overview)
-    }
-
-    /// A contextual action on text selected in the editor: the answer (or the created
-    /// requirement / decision / question) appears in the right panel's Feature tab.
-    func runFeatureAction(_ name: String, text: String, question: String) {
-        // A comment on a research document: the AI revises that section (DEC-017).
-        if name == "comment" {
-            guard let url = activeTab?.url, activeTab?.isFileBacked == true, rootNode != nil else { return }
-            research.comment(on: text, comment: question, in: url)
-            return
-        }
-        guard let action = FeatureAction(rawValue: name) else { return }
-        guard rootNode != nil else { return }
-        let url = activeTab?.url
-        let located = url.flatMap { features.locate($0) }
-        let slug = located?.feature.slug ?? features.active?.slug
-        let document = url.map { features.relativePath($0) }
-        showTOC = true
-        layout.navigatorTab = .feature
-        Task { await features.assistant.perform(action, selection: text, document: document, question: question, feature: slug) }
-    }
-
-    /// Feature workspaces of a folder, with the AI's access to the index and GitHub.
-    private func setUpFeatures(at root: URL) {
-        let newFolder = features.root != root
-        features.setup(root: root)
-        if newFolder { bugBatch.reset() }
-        features.assistant.database = { [weak self] in self?.semanticDatabase }
-        features.assistant.gitHubClient = { [weak self] in self?.gitHub.client }
-    }
-
-    /// Folder the GitHub integration works in (folders only, never a single file).
-    private var gitHubRoot: URL?
-
-    /// Watches the Settings switch (every window follows it).
-    private var gitHubSettingObserver: NSObjectProtocol?
-    private var gitHubWasEnabled = GitHubSettings.enabled
-
-    /// Find the folder's GitHub repository and follow the current branch's CI — only when
-    /// the integration is turned on in Settings (MarkView stays a plain viewer otherwise).
-    private func setUpGitHub(at root: URL) {
-        gitHubRoot = root
-        gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
-        gitHub.onRepoChange = { [weak self] repo in self?.architecture.gitHubRepo = repo }
-        gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
-        if gitHubSettingObserver == nil {
-            gitHubSettingObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, GitHubSettings.enabled != self.gitHubWasEnabled else { return }
-                    self.gitHubSettingChanged()
-                }
-            }
-        }
-        gitHubSettingChanged()
-    }
-
-    /// Start or stop the integration for the open folder, as the Settings switch says.
-    private func gitHubSettingChanged() {
-        gitHubWasEnabled = GitHubSettings.enabled
-        if GitHubSettings.enabled, let root = gitHubRoot {
-            gitHub.setup(root: root)
-            if !gitClient.branch.isEmpty { gitHub.branchChanged(gitClient.branch) }
-        } else {
-            gitHub.reset()
-        }
-    }
-
-    /// Open (or switch to) the editor tab of a workflow run or an issue.
-    func openGitHubTab(_ item: GitHubItem) {
-        guard let root = rootNode?.url ?? gitHub.root else { return }
-        layout.workspaceArea = .files
-        layout.workSection = .git
-        switch item {
-        case .issue: layout.gitSection = .issues
-        case .pullRequest: layout.gitSection = .pullRequests
-        case .run: layout.gitSection = .actions
-        }
-        showCenter = true
-        let url = root.appendingPathComponent(item.marker)
-        if tabsStore.selectTab(matching: url) != nil { return }
-        var tab = OpenTab(url: url, content: "", originalContent: "")
-        tab.kind = .github(item)
-        tabsStore.appendTab(tab)
-    }
-
-    /// "Review" on a pull request: its PR X-Ray, with the AI review started once it loads
-    /// (unless turned off in Settings).
-    func reviewPullRequest(_ number: Int) {
-        architecture.reviewWhenLoaded = GitHubSettings.autoReview
-        openPRXRay(source: "gh:\(number)")
-    }
-
-    /// Work on a pull request's code: check its branch out, refusing when the working tree
-    /// has changes (nothing is stashed or overwritten). Returns an error to show.
-    func checkoutPullRequest(_ number: Int) async -> String? {
-        guard let root = gitClient.workingDirectory ?? rootNode?.url else { return "No folder open." }
-        // Tracked changes only: untracked files (like MarkView's own .dde) do not block a
-        // checkout, and git itself refuses one that would overwrite them.
-        let status = await GitHubClient.execute(["status", "--porcelain", "--untracked-files=no"], in: root, git: true)
-        if !status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "The working tree has uncommitted changes. Commit or discard them before checking out PR #\(number)."
-        }
-        let error = await gitHub.perform("Checkout #\(number)") { try await $0.checkout(number) }
-        await gitClient.refresh()
-        refreshFileTree()
-        return error
-    }
-
-    /// Check out a branch from the branch menu. Returns an error to show.
-    func switchBranch(_ name: String) async -> String? {
-        let error = await gitClient.switchBranch(name)
-        branchChanged()
-        return error
-    }
-
-    /// Create a branch from the branch menu and check it out. Returns an error to show.
-    func createBranch(_ name: String, from base: String?) async -> String? {
-        let error = await gitClient.createBranch(name, from: base)
-        branchChanged()
-        return error
-    }
-
-    /// The working copy now holds another branch's files: show them in the tree and open tabs.
-    private func branchChanged() {
-        refreshFileTree()
-        reloadChangedOpenFiles(all: true)
-    }
-
-    /// The branch a pull request comes from, when it is the one checked out.
-    private func isCheckedOut(_ number: Int) async -> Bool {
-        guard let client = gitHub.client, let pr = try? await client.pullRequest(number) else { return false }
-        return pr.headRefName == gitClient.branch
-    }
-
-    /// Send a fix request for a pull request's code to the AI terminal, after checking its
-    /// branch out when needed. Returns an error to show.
-    func fixInPullRequest(_ number: Int?, prompt: String) async -> String? {
-        var prompt = prompt
-        if let number, gitHub.client != nil {
-            if !(await isCheckedOut(number)), let error = await checkoutPullRequest(number) { return error }
-        } else if let number {
-            // Without the GitHub integration the branch is not checked out for the AI.
-            prompt += "\n\nNote: this is pull request #\(number); its branch may not be the one checked out here."
-        }
-        sendToAssistant(prompt, submit: true)
-        return nil
-    }
-
-    /// "Start with AI" on an issue: a branch for it, then the issue to the AI terminal.
-    func startIssueWithAI(_ issue: GHIssue) async -> String? {
-        guard let root = gitClient.workingDirectory ?? rootNode?.url else { return "No folder open." }
-        let slug = String(issue.title.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
-            .split(separator: "-").prefix(6).joined(separator: "-")
-        let branch = "issue-\(issue.number)" + (slug.isEmpty ? "" : "-" + slug)
-        let exists = await GitHubClient.execute(["rev-parse", "--verify", "--quiet", branch], in: root, git: true)
-        let result = await GitHubClient.execute(exists.status == 0 ? ["switch", branch] : ["switch", "-c", branch], in: root, git: true)
-        if result.status != 0 {
-            return "Could not switch to \(branch): " + result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        await gitClient.refresh()
-        var prompt = "Work on GitHub issue #\(issue.number) of \(gitHub.selectedRepo?.slug ?? "this repository"): \(issue.title)\n\n"
-        prompt += (issue.body ?? "").isEmpty ? "(no description)" : issue.body!
-        let comments = (issue.comments ?? []).suffix(10)
-        if !comments.isEmpty {
-            prompt += "\n\nComments:\n" + comments.map { "- \($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n")
-        }
-        prompt += "\n\nYou are on branch \(branch). Investigate, implement the change, and summarise what you did."
-        sendToAssistant(prompt, submit: true)
-        return nil
-    }
-
-    /// "Fix with AI" on a failed run: its failed steps' logs to the AI terminal.
-    func fixRunWithAI(_ model: GitHubRunModel) {
-        Task {
-            await model.loadFailedLogs()
-            var prompt = model.failureText()
-            if let run = model.run, run.headBranch != gitClient.branch {
-                prompt += "\nNote: the run was on branch \(run.headBranch); the working copy is on \(gitClient.branch)."
-            }
-            prompt += "\nFind the cause in this repository and fix it."
-            sendToAssistant(prompt, submit: true)
-        }
-    }
+    // MARK: - Terminal tabs
 
     /// Open a terminal in `folder` as an editor tab; `startupCommand` is typed once the shell is up.
     @discardableResult
     func openTerminal(in folder: URL, startupCommand: String? = nil, title: String? = nil,
                       activate: Bool = true) -> TerminalSession {
-        let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title)
-        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
-        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
-        session.browserWindowID = browserControlID
-        registerBrowserControl()
-        var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
+        let session = terminals.makeTabTerminal(in: folder, startupCommand: startupCommand, title: title)
+        var tab = OpenTab(url: folder.appendingPathComponent(ProjectPaths.placeholderName("terminal-" + session.id.uuidString)),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
-        terminalTabs[session.id] = session
-        tabsStore.appendTab(tab, activate: activate)
-        startWatchingOpenFiles()
+        tabs.appendTab(tab, activate: activate)
         return session
     }
 
-    // MARK: - Browser and web app preview
 
-    /// A picked page element goes into the AI terminal's input line as text (page, selector,
-    /// screenshot path, HTML) and, for pasting by hand, onto the clipboard as image plus text.
-    func sendPickedElement(_ element: PickedElement, screenshot: URL?, from session: BrowserSession?) {
-        let message = BrowserElementPick.message(for: element, screenshot: screenshot)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        if let screenshot, let image = NSImage(contentsOf: screenshot) { pasteboard.writeObjects([image]) }
-        pasteboard.setString(message, forType: .string)
-        let shot = screenshot == nil ? " (no screenshot: the element is off screen)" : ""
-        if let terminal = aiTerminal {
-            terminal.paste(message + "\n")
-            session?.pickNotice = "Sent \(element.tag) to the AI input\(shot)"
-        } else {
-            session?.pickNotice = "No AI terminal is open — \(element.tag) is on the clipboard\(shot)"
-        }
-    }
-
-    /// Open a browser tab (an empty one for nil), next to the files.
-    @discardableResult
-    func openBrowser(_ url: URL?, activate: Bool = true) -> BrowserSession {
-        let session = BrowserSession(url: url)
-        session.agentName = BrowserAgentTools.nextTabName(taken: browserSessions.map(\.agentName))
-        session.onOpenInNewTab = { [weak self] url in self?.openBrowser(url) }
-        session.onSaveMarkdown = { [weak session] mode in session?.saveRequest = mode }
-        session.onElementPicked = { [weak self, weak session] element, screenshot in
-            self?.sendPickedElement(element, screenshot: screenshot, from: session)
-        }
-        let base = rootNode?.url ?? FileManager.default.temporaryDirectory
-        var tab = OpenTab(url: base.appendingPathComponent(".markview-browser-" + session.id.uuidString),
-                          content: "", originalContent: "")
-        tab.kind = .browser(session)
-        if activate {
-            layout.workspaceArea = .files
-            showCenter = true
-        }
-        tabsStore.appendTab(tab, activate: activate)
-        return session
-    }
-
-    // MARK: - UI Studio
-
-    /// Opens UI Studio on the project's real web interface (REQ-001); the session already open is shown instead.
-    func openUIStudio() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        if let index = openTabs.firstIndex(where: { if case .uiStudio = $0.kind { return true }; return false }) {
-            activeTabIndex = index
-            return
-        }
-        let session = StudioSession(root: root)
-        let base = root.standardizedFileURL.path + "/"
-        session.editorBuffers = { [weak self] in
-            var buffers: [String: String] = [:]
-            for tab in self?.openTabs ?? [] where tab.isFileBacked && tab.isModified {
-                let path = tab.url.standardizedFileURL.path
-                if path.hasPrefix(base) { buffers[String(path.dropFirst(base.count))] = tab.content }
-            }
-            return buffers
-        }
-        session.recordUsage = { [weak self] input, output, cost in
-            self?.semanticDatabase?.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100)
-        }
-        session.openFile = { [weak self] url in self?.openFile(url) }
-        session.featureStore = { [weak self] in self?.features }
-        session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .uiStudio, in: root, suffix: session.id.uuidString),
-                          content: "", originalContent: "")
-        tab.kind = .uiStudio(session)
-        tabsStore.appendTab(tab, activate: true)
-        session.start()
-    }
-
-    /// Ends every UI Studio session of this window (closing the window or the folder): development servers a session
-    /// started are stopped; servers that were already running are left alone (REQ-006).
-    func closeUIStudioSessions() {
-        for tab in openTabs {
-            if case .uiStudio(let session) = tab.kind { Task { await session.close() } }
-        }
-    }
-
-    // MARK: - Prototype Studio
-
-    /// Opens the creator sheet of Prototype Studio.
-    @Published var showPrototypeCreator = false
-    /// What the creator sheet makes: a prototype from requirement documents. Existing code is no longer reconstructed:
-    /// it opens in UI Studio (DEC-002, DEC-005).
-    @Published var prototypeCreatorMode = PrototypeFiles.Mode.requirements
-
-    /// Opens the creator sheet of Prototype Studio for requirements; `.code` ("New Prototype from Code…") opens UI Studio
-    /// on the real application instead of generating a reconstruction (REQ-001).
-    func openPrototypeCreator(mode: PrototypeFiles.Mode) {
-        guard mode == .requirements else { return openUIStudio() }
-        prototypeCreatorMode = mode
-        showPrototypeCreator = true
-    }
-
-    /// A prototype saved in the open project, for the lists in the menu and the creator sheet.
-    struct SavedPrototype: Identifiable {
-        let slug: String
-        let title: String
-        let version: Int
-        let approved: Bool
-        /// A reconstruction of existing code, saved before UI Studio replaced them: history, not the live interface.
-        var historical = false
-        var id: String { slug }
-        /// "Support Desk · v3 · approved", "Admin · v2 · historical reconstruction"
-        var label: String {
-            "\(title) · v\(version)" + (approved ? " · approved" : "") + (historical ? " · historical reconstruction" : "")
-        }
-    }
-
-    /// Prototypes saved in the open project, newest first.
-    func savedPrototypes() -> [SavedPrototype] {
-        guard let root = rootNode?.url else { return [] }
-        return PrototypeFiles.existingSlugs(root: root).compactMap { slug -> (SavedPrototype, Date)? in
-            let folder = PrototypeFiles.folder(root: root, slug: slug)
-            guard let manifest = PrototypeFiles.loadManifest(folder) else { return nil }
-            let date = manifest.history.last?.date ?? .distantPast
-            return (SavedPrototype(slug: slug, title: manifest.title, version: manifest.version, approved: manifest.approved,
-                                   historical: manifest.mode == .code), date)
-        }
-        .sorted { $0.1 > $1.1 }.map(\.0)
-    }
-
-    /// A new prototype from `sources` (project-relative files or folders) and the reviewer's brief; it builds at
-    /// once. In `.code` mode the sources are existing code and `codeScope` lists the web apps detected in them,
-    /// as hints for the planner.
-    func newPrototype(title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements,
-                      codeScope: PrototypeAI.CodeScope = PrototypeAI.CodeScope()) {
-        // Existing code is not reconstructed any more: it opens in UI Studio (DEC-002, DEC-005).
-        guard mode == .requirements else { return openUIStudio() }
-        guard let root = rootNode?.url else { return }
-        let session = PrototypeSession(root: root, title: title, brief: brief, sources: sources, mode: mode)
-        session.codeScope = codeScope
-        openPrototype(session)
-    }
-
-    /// The Deployments tab: where the project runs, with CPU, memory, disks, services and logs of each place.
-    func openDeployments() {
-        guard let root = rootNode?.url else { return }
-        deployments.setRoot(root)
-        deployments.onNeedsAttention = { [weak self] in self?.openDeployments() }
-        for index in openTabs.indices {
-            if case .deployments = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .deployments, in: root), content: "", originalContent: "")
-        tab.kind = .deployments
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// Open the project Git workspace once per window.
-    func openGit() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        for index in openTabs.indices {
-            if case .git = openTabs[index].kind { activeTabIndex = index; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .git, in: root), content: "", originalContent: "")
-        tab.kind = .git
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The Workflow tab: the statuses, transitions and processes of features and bugs in this project, edited graphically or as the
-    /// JSON of `.dde/workflow/workflow.json` (BUG-108). It is the project's own configuration, so it lives in the project window;
-    /// Settings only holds the templates.
-    func openWorkflow() {
-        guard let root = rootNode?.url else { return }
-        hostWindow?.makeKeyAndOrderFront(nil)
-        for index in openTabs.indices {
-            if case .workflow = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .workflow, in: root), content: "", originalContent: "")
-        tab.kind = .workflow
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// One cockpit belongs to this window; the toolbar returns to the existing tab.
-    func openCockpit() {
-        guard let root = rootNode?.url else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        if let index = openTabs.firstIndex(where: { if case .cockpit = $0.kind { return true }; return false }) {
-            activeTabIndex = index
-            return
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .cockpit, in: root), content: "", originalContent: "")
-        let session: CockpitSession
-        if let existing = cockpitSession, existing.root.standardizedFileURL == root.standardizedFileURL {
-            session = existing
-            if existing.execution?.isActive != true { existing.loadRuns() }
-        } else {
-            session = CockpitSession(root: root, workspace: self)
-            cockpitSession = session
-        }
-        tab.kind = .cockpit(session)
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The End-to-End QA tab: scenarios of this project, written from a goal and edited as a graph. The scenarios live in
-    /// `.markview/qa/scenarios` (project assets), so the tab only shows them.
-    func openQA() {
-        guard let root = rootNode?.url else { return }
-        hostWindow?.makeKeyAndOrderFront(nil)
-        qa.attach(root: root)
-        if qa.run.bugFiler == nil { qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: features)) }
-        qa.archive.bugFiler = qa.run.bugFiler
-        for index in openTabs.indices {
-            if case .qa = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .qa, in: root), content: "", originalContent: "")
-        tab.kind = .qa
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The review of observed file changes, as a tab (BUG-109): a sheet could not be enlarged, a tab has the whole centre area.
-    func openChangeReview() {
-        guard let root = rootNode?.url else { return }
-        for index in openTabs.indices {
-            if case .changeReview = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .changeReview, in: root), content: "", originalContent: "")
-        tab.kind = .changeReview
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// The Discussions tab: questions asked before there is a feature, each answered as a page.
-    func openDiscussions() {
-        guard let root = rootNode?.url else { return }
-        discussions.setRoot(root)
-        for index in openTabs.indices {
-            if case .discussions = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
-        }
-        var tab = OpenTab(url: ToolRegistry.sentinelURL(for: .discussions, in: root), content: "", originalContent: "")
-        tab.kind = .discussions
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// Discussions → ask: the project's assistant reads the project (read-only) and answers inside the conversation,
-    /// in the form the question needs. The answer streams into `discussions.live`, then becomes a turn.
-    func askDiscussion(_ slug: String, question: String) {
-        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let root = rootNode?.url, !text.isEmpty, discussions.asking == nil,
-              let discussion = discussions.discussions.first(where: { $0.slug == slug }) else { return }
-        discussions.asking = slug
-        discussions.live = DiscussionStore.Live(question: text)
-        discussions.lastError = nil
-        let scope = discussionScope(discussion, root: root)
-        var request = CLICompletion.Request(
-            project: aiProject ?? root,
-            prompt: DiscussionPrompt.prompt(discussion: discussion, question: text, scope: scope.description,
-                                            language: ActionOutputLanguage.explanationLine()),
-            systemPrompt: DiscussionPrompt.system, readableFolder: scope.readable)
-        if scope.readable.standardizedFileURL != root.standardizedFileURL { request.extraReadableFolders = [root] }
-        request.effort = "medium"
-        request.timeout = 900
-        request.label = "discussion"
-        discussionTask = Task { [weak self] in
-            defer { Task { @MainActor in self?.discussionTask = nil } }
-            do {
-                let result = try await CLICompletion.run(request, onDelta: { [weak self] delta in
-                    Task { @MainActor in
-                        guard let self, self.discussions.asking == slug else { return }
-                        self.discussions.live?.text += delta
-                        self.discussions.live?.status = "Writing the answer"
-                    }
-                }, onActivity: { [weak self] activity in
-                    Task { @MainActor in
-                        guard let self, self.discussions.asking == slug else { return }
-                        switch activity {
-                        case .read(let path): self.discussions.live?.status = DiscussionPrompt.status(read: path); self.discussions.live?.text = ""
-                        case .search(let pattern): self.discussions.live?.status = "Searching for \(pattern.prefix(40))"; self.discussions.live?.text = ""
-                        case .run: self.discussions.live?.status = "Looking at the project"; self.discussions.live?.text = ""
-                        case .webSearch, .webFetch: self.discussions.live?.status = "Reading the web"; self.discussions.live?.text = ""
-                        case .thinking: self.discussions.live?.status = "Thinking"
-                        case .writing, .answerDelta: break
-                        }
-                    }
-                })
-                try Task.checkCancellation()
-                await self?.finishDiscussionTurn(slug, question: text, text: result.text)
-            } catch is CancellationError {
-                await self?.stopDiscussionTurn(slug, keep: nil)
-            } catch {
-                await self?.failDiscussionTurn(error.localizedDescription)
-            }
-        }
-    }
-
-    private func finishDiscussionTurn(_ slug: String, question: String, text: String) {
-        defer { discussions.asking = nil; discussions.live = nil }
-        guard let answer = DiscussionPrompt.parse(text),
-              discussions.addTurn(slug, question: question, answer: answer.answer, followUps: [],
-                                  decisions: answer.decisions, openQuestions: answer.openQuestions) != nil else {
-            discussions.lastError = "The assistant gave no answer."
-            return
-        }
-    }
-
-    private func stopDiscussionTurn(_ slug: String, keep: String?) {
-        discussions.asking = nil
-        discussions.live = nil
-    }
-
-    private func failDiscussionTurn(_ message: String) {
-        discussions.lastError = message
-        discussions.asking = nil
-        discussions.live = nil
-    }
-
-    /// Stops the answer being written; what was written so far is dropped.
-    func stopDiscussion() { discussionTask?.cancel() }
-
-    /// Where the conversation looks: the text the assistant is told, and the folder it may read.
-    private func discussionScope(_ discussion: Discussion, root: URL) -> (description: String, readable: URL) {
-        let raw = discussion.scope ?? ""
-        guard !raw.isEmpty else { return ("The whole project (\(root.lastPathComponent))", root) }
-        let url = raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : root.appendingPathComponent(raw)
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            return ("The whole project (\(root.lastPathComponent)); the chosen path \(raw) no longer exists", root)
-        }
-        let inside = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/")
-        let readable = inside ? root : (isDirectory.boolValue ? url : url.deletingLastPathComponent())
-        return ("\(isDirectory.boolValue ? "The folder" : "The file") `\(raw)`. Stay on it; look elsewhere only when it is needed to answer.", readable)
-    }
-
-    /// File tree → "Discuss…": a discussion about this file or folder.
-    func openDiscussion(about url: URL) {
-        guard let root = rootNode?.url else { return }
-        openDiscussions()
-        let rel = workspaceRelativePath(url)
-        let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
-        if let existing = discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
-            discussions.selectedSlug = existing.slug
-        } else {
-            discussions.create(title: url.lastPathComponent, scope: path)
-        }
-    }
-
-    /// Deployments → "Ask AI to find where it runs": the assistant reads the project and proposes environments.
-    func analyzeDeploymentsWithAI() {
-        guard let root = rootNode?.url else { return }
-        guard !assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
-        let prompt = DeploymentPrompt.analyze(project: root.lastPathComponent, existing: deployments.environments.map(\.name), hasMCP: true)
-        sendToAssistant(prompt, submit: true)
-    }
-
-    /// Deployments → "Ask the AI": a question about one environment goes to the assistant with what MarkView
-    /// last saw (and the log being read); it looks with the markview_deployments tools.
-    func askAboutDeployment(_ id: String, question: String, logTitle: String? = nil, log: String? = nil) {
-        guard let env = deployments.environment(id) else { return }
-        guard !assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
-        let prompt = DeploymentPrompt.ask(environment: env.name, id: env.id, question: question, report: deployments.report(for: id), logTitle: logTitle, log: log)
-        sendToAssistant(prompt, submit: true)
-    }
-
-    func openSavedPrototype(_ slug: String) {
-        guard let root = rootNode?.url else { return }
-        for index in openTabs.indices {
-            if case .prototype(let session) = openTabs[index].kind, session.manifest.slug == slug {
-                activeTabIndex = index
-                return
-            }
-        }
-        if let session = PrototypeSession(root: root, slug: slug) { openPrototype(session) }
-    }
-
-    private func openPrototype(_ session: PrototypeSession) {
-        session.record = { [weak self] result in result.record(in: self?.semanticDatabase) }
-        session.languageNote = ActionOutputLanguage.current == ActionOutputLanguage.documentLanguage
-            ? "" : "\n\nWrite every label, text and message in the prototype in \(ActionOutputLanguage.current)."
-        var tab = OpenTab(url: session.folder.appendingPathComponent(".markview-prototype-" + session.id.uuidString),
-                          content: "", originalContent: "")
-        tab.kind = .prototype(session)
-        layout.workspaceArea = .files
-        showCenter = true
-        tabsStore.appendTab(tab, activate: true)
-    }
-
-    /// Show a local HTML file in a browser tab: the tab already showing it is reloaded, else a new
-    /// one opens. The page may read the project's files, so relative stylesheets and scripts load.
-    func openHTMLInBrowser(_ file: URL) {
-        let file = file.standardizedFileURL
-        guard FileType.isHTML(file), FileManager.default.fileExists(atPath: file.path) else { return }
-        layout.workspaceArea = .files
-        showCenter = true
-        for index in openTabs.indices {
-            if case .browser(let session) = openTabs[index].kind, session.url?.standardizedFileURL == file {
-                activeTabIndex = index
-                session.load(file)
-                return
-            }
-        }
-        let session = openBrowser(nil)
-        session.localReadRoot = containerRoot(for: file)
-        session.load(file)
-    }
-
-    /// A page a terminal program opened: shown in this window's browser, reusing a tab rather than
-    /// adding one — the tab already on the same server, else the active, preview or first browser tab.
-    func openInAppBrowser(_ url: URL) {
-        let candidates: [(index: Int, session: BrowserSession)] = openTabs.indices.compactMap { index in
-            if case .browser(let session) = openTabs[index].kind { return (index, session) }
-            return nil
-        }
-        let sameServer = { (session: BrowserSession) in
-            session.url?.host == url.host && session.url?.port == url.port && session.url?.scheme == url.scheme
-        }
-        let chosen = candidates.first { sameServer($0.session) }
-            ?? candidates.first { $0.index == activeTabIndex }
-            ?? candidates.first { $0.session.isAppPreview }
-            ?? candidates.first
-        layout.workspaceArea = .files
-        showCenter = true
-        if let chosen {
-            activeTabIndex = chosen.index
-            chosen.session.load(url)
-        } else {
-            openBrowser(url)
-        }
-    }
-
-    /// Preview Web App: the project's web app in a browser tab. A development server that
-    /// already answers is shown at once; otherwise the app's dev script runs in a terminal
-    /// tab and the tab shows the server as soon as it prints its address or a port answers.
-    func previewWebApp() {
-        if let index = openTabs.firstIndex(where: { tab in
-            if case .browser(let session) = tab.kind { return session.isAppPreview }
-            return false
-        }), case .browser(let session) = openTabs[index].kind {
-            // One preview tab per window: bring it back and look again.
-            activeTabIndex = index
-            layout.workspaceArea = .files
-            showCenter = true
-            findWebApp(for: session)
-            return
-        }
-        let session = openBrowser(nil)
-        findWebApp(for: session)
-    }
-
-    private func findWebApp(for session: BrowserSession) {
-        session.isAppPreview = true
-        session.preview = .searching
-        session.startWebApp = { [weak self, weak session] target in
-            guard let self, let session else { return }
-            self.startWebApp(target, in: session)
-        }
-        session.showTerminal = { [weak self, weak session] in
-            guard let self, let session else { return }
-            self.showPreviewTerminal(for: session)
-        }
-        guard let root = rootNode?.url else {
-            session.preview = .noApp
-            return
-        }
-        Task { @MainActor in
-            let targets = await Task.detached { WebAppPreview.targets(root: root) }.value
-            switch targets.count {
-            case 0:
-                if let url = await WebAppPreview.firstAnswering(WebAppPreview.commonPorts) {
-                    session.showPreview(url)
-                } else {
-                    session.preview = .noApp
-                }
-            case 1:
-                startWebApp(targets[0], in: session)
-            default:
-                session.preview = .choose(targets)
-            }
-        }
-    }
-
-    /// Show `target` in `session`: at once when its server answers, else after starting it.
-    func startWebApp(_ target: WebAppTarget, in session: BrowserSession) {
-        session.preview = .starting(target, started: false)
-        if target.isElectron { session.standInForElectron() }
-        Task { @MainActor in
-            if !target.reuseRunningServer, let occupied = await WebAppPreview.firstListening(target.ports) {
-                session.preview = .portInUse(target, occupied.port ?? 0)
-                return
-            }
-            if target.reuseRunningServer, let url = await WebAppPreview.firstAnswering(target.ports) {
-                session.showPreview(url)
-                return
-            }
-            let key = target.folder.standardizedFileURL.path
-            let terminal: TerminalSession
-            if target.reuseRunningServer, let id = previewTerminals[key], let existing = terminalTabs[id] {
-                terminal = existing
-            } else {
-                terminal = openTerminal(in: target.folder, startupCommand: target.command,
-                                        title: "Dev server", activate: false)
-                if target.reuseRunningServer { previewTerminals[key] = terminal.id }
-                // A terminal tab starts its shell when its page is shown; this one starts now and
-                // keeps the output until the tab is opened.
-                terminal.start()
-            }
-            session.previewTerminalID = terminal.id
-            session.preview = .starting(target, started: true)
-            let watch = DevServerWatch()
-            terminal.onOutput = { [weak watch] data in watch?.read(data) }
-            defer { terminal.onOutput = nil }
-            let deadline = Date().addingTimeInterval(180)
-            var round = 0
-            while Date() < deadline {
-                guard !session.isClosed, case .starting = session.preview else { return }
-                if let url = watch.url, await WebAppPreview.firstAnswering([url.port ?? 80], timeout: 1) != nil {
-                    session.showPreview(url)
-                    return
-                }
-                if round % 3 == 0, let url = await WebAppPreview.firstAnswering(target.ports) {
-                    session.showPreview(url)
-                    return
-                }
-                round += 1
-                try? await Task.sleep(nanoseconds: 700_000_000)
-            }
-            if case .starting = session.preview { session.preview = .timedOut(target) }
-        }
-    }
-
-    private func showPreviewTerminal(for session: BrowserSession) {
-        guard let id = session.previewTerminalID,
-              let index = openTabs.firstIndex(where: { tab in
-                  if case .terminal(let terminal) = tab.kind { return terminal == id }
-                  return false
-              }) else { return }
-        activeTabIndex = index
-    }
-
-    func terminalSession(_ id: UUID) -> TerminalSession? { terminalTabs[id] }
-
-    /// A terminal tab was closed: end its shell.
-    func closeTerminal(_ id: UUID) {
-        terminalTabs.removeValue(forKey: id)?.terminate()
-        previewTerminals = previewTerminals.filter { $0.value != id }
-    }
-
+    /// End every terminal of the window, and the watch over open files that runs while they do.
     private func stopAllTerminals() {
-        aiTerminals.forEach { $0.terminate() }
-        aiTerminals = []
-        activeAITerminalID = nil
-        terminalTabs.values.forEach { $0.terminate() }
-        terminalTabs = [:]
-        openFilesWatcher?.invalidate()
-        openFilesWatcher = nil
-    }
-
-    /// While terminals run, reload open files an assistant (or a command) changed on disk —
-    /// only tabs without unsaved edits, so nothing typed here is lost.
-    private func startWatchingOpenFiles() {
-        guard openFilesWatcher == nil else { return }
-        openFilesWatcher = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadChangedOpenFiles() }
-        }
-    }
-
-    /// `all` reloads every unmodified tab whose file differs, not only files newer than last seen
-    /// (a branch switch can restore older modification dates).
-    private func reloadChangedOpenFiles(all: Bool = false) {
-        var changed = false
-        // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
-        for index in openTabs.indices {
-            guard case .data = openTabs[index].kind else { continue }
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            guard let seen = openFileDates[url], date > seen else { continue }
-            tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
-            if openTabs[index].notesView {
-                refreshDataNotes(url, revision: openTabs[index].dataRevision)
-            }
-        }
-        for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
-            let url = openTabs[index].url
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
-            defer { openFileDates[url] = date }
-            if !all {
-                guard let seen = openFileDates[url], date > seen else { continue }
-            }
-            guard let content = try? String(contentsOf: url, encoding: .utf8),
-                  content != openTabs[index].originalContent else { continue }
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = content
-                tab.originalContent = content
-                tab.isModified = false
-            }
-            changed = true
-        }
-        if changed { refreshFileTree() }
-    }
-
-    /// Keep a data file's textual Explain source in step with the viewer's reloads.
-    private func refreshDataNotes(_ url: URL, revision: Int) {
-        Task {
-            let text = try? await Task.detached(priority: .utility) { try FileType.readText(at: url) }.value
-            guard let index = tabsStore.firstIndex(of: url), case .data = openTabs[index].kind,
-                  openTabs[index].notesView, openTabs[index].dataRevision == revision else { return }
-            tabsStore.updateTab(at: index) { tab in
-                if let text {
-                    tab.content = text
-                    tab.originalContent = text
-                } else {
-                    tab.notesView = false
-                }
-            }
-        }
-    }
-
-    /// The open document, whole: the terminal writer delivers pastes of any length (BUG-002).
-    private func activeDocumentContext(contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
-        let fileName = activeTab?.url.lastPathComponent ?? defaultFileName
-
-        if let contentOverride {
-            return (fileName, contentOverride)
-        }
-
-        let content = activeTab?.content ?? ""
-        return (fileName, content)
-    }
-
-    private func resolveWorkspaceFileURL(filePath: String?, fallbackDocumentId: String?) -> URL? {
-        let fm = FileManager.default
-
-        if let filePath, !filePath.isEmpty {
-            let directURL = URL(fileURLWithPath: filePath)
-            if fm.fileExists(atPath: directURL.path) {
-                return directURL
-            }
-
-            if let rootURL = rootNode?.url {
-                let relativeURL = rootURL.appendingPathComponent(filePath)
-                if fm.fileExists(atPath: relativeURL.path) {
-                    return relativeURL
-                }
-            }
-        }
-
-        guard let rootURL = rootNode?.url,
-              let fallbackDocumentId,
-              !fallbackDocumentId.isEmpty else { return nil }
-
-        if let resolved = fileURL(forDocumentId: fallbackDocumentId) { return resolved }
-
-        guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
-            return nil
-        }
-
-        while let url = enumerator.nextObject() as? URL {
-            if url.lastPathComponent == fallbackDocumentId {
-                return url
-            }
-        }
-
-        return nil
+        terminals.stopAll()
+        tabs.stopWatchingOpenFiles()
     }
 }
 
-// MARK: - Research maps (feature mind-map, DEC-006, DEC-009)
+/// What the terminals read of the window: the browser agents drive, and the editor (`AITerminalsController`).
+extension WorkspaceManager: FileOperationsHost {}
 
-/// What a change to a research map file came to.
-enum ResearchMapChange {
-    /// The file and the tab that holds it now have this text.
-    case done(String)
-    /// A rule refused the change (its reason is one line); nothing changed.
-    case rejected(String)
-    /// The file is not a readable research map (the reason is one line); nothing changed.
-    case unreadable(String)
+extension WorkspaceManager: AITerminalsHost {
+    var browserControlID: UUID { browser.controlID }
+    func registerBrowserControl() { browser.register() }
+    func openInAppBrowser(_ url: URL) { browser.openInAppBrowser(url) }
+    func terminalStarted() { tabs.startWatchingOpenFiles() }
 }
 
-extension WorkspaceManager {
-    /// The answer to a map action: the snapshot for the page and the text the tab holds now.
-    struct ResearchMapReply {
-        var json: String
-        var content: String?
-    }
+/// What the window's browser asks of the window (`BrowserHost`).
+extension WorkspaceManager: BrowserHostWindow {
+    var controlWorkspace: WorkspaceManager { self }
+    var controlFeatures: FeatureStore { flow.features }
+    var controlDeployments: DeploymentStore { toolTabs.deployments.store }
+    var controlDiscussions: DiscussionStore { toolTabs.discussions.store }
+}
 
-    private func researchMapTab(_ file: URL) -> Int? {
+/// The dev server Preview Web App starts is one of the window's terminals, and a picked page element goes to the shown AI terminal.
+extension AITerminalsController: DevServerTerminals {}
+
+/// What the research maps and jobs read of the window's tabs and do to them and to files (`ResearchMapController`).
+extension WorkspaceManager: ResearchHost {
+    func researchTab(for file: URL) -> ResearchTabText? {
         let path = file.standardizedFileURL.path
-        return openTabs.firstIndex { $0.isFileBacked && $0.url.standardizedFileURL.path == path }
+        guard let tab = tabs.openTabs.first(where: { $0.isFileBacked && $0.url.standardizedFileURL.path == path }) else { return nil }
+        return ResearchTabText(text: tab.content, isModified: tab.isModified)
     }
 
-    /// The current text of a map file: the tab that holds it (unsaved edits included), else the disk.
-    func researchMapText(_ file: URL) -> String? {
-        if let index = researchMapTab(file) { return openTabs[index].content }
-        return try? String(contentsOf: file, encoding: .utf8)
+    func researchTabSaved(_ file: URL, text: String) {
+        let path = file.standardizedFileURL.path
+        guard let index = tabs.openTabs.firstIndex(where: { $0.isFileBacked && $0.url.standardizedFileURL.path == path }) else { return }
+        tabs.updateTab(at: index) { tab in
+            tab.content = text
+            tab.originalContent = text
+            tab.isModified = false
+        }
     }
 
-    /// Applies `change` to the map in `file` and writes the file at once, atomically. The tab that holds the
-    /// file takes the new text as saved, so a map is never shown as modified. A refused change leaves the
-    /// file and the tab as they were. The only writer of a map: the page's actions and the AI jobs go here.
-    @discardableResult
-    func updateResearchMap(_ file: URL, _ change: (inout ResearchMap) throws -> Void) -> ResearchMapChange {
-        guard FileManager.default.fileExists(atPath: file.path) else { return .unreadable("The map file no longer exists.") }
-        guard var text = researchMapText(file) else { return .unreadable("The file cannot be read.") }
-        // A tab without unsaved edits may be behind the disk (another editor or a terminal saved the map less than
-        // the watcher's two seconds ago): the change goes onto what is on disk, never over it.
-        if let index = researchMapTab(file), !openTabs[index].isModified,
-           let onDisk = try? String(contentsOf: file, encoding: .utf8), onDisk != text {
-            text = onDisk
-        }
-        var map: ResearchMap
-        switch ResearchMap.parse(text) {
-        case .success(let parsed): map = parsed
-        case .failure(let problem): return .unreadable(problem.message)
-        }
-        do {
-            try change(&map)
-        } catch let rejection as ResearchMap.Rejection {
-            return .rejected(rejection.message)
-        } catch {
-            return .rejected(error.localizedDescription)
-        }
-        let updated = map.markdown()
-        guard updated != text else {
-            // The tab may still show older text than the disk (see above): bring it up to date without a write.
-            if let index = researchMapTab(file), openTabs[index].content != text, !openTabs[index].isModified {
-                tabsStore.updateTab(at: index) { tab in tab.content = text; tab.originalContent = text }
-            }
-            return .done(text)
-        }
-        do {
-            try Data(updated.utf8).write(to: file, options: .atomic)
-        } catch {
-            return .rejected("The map could not be saved: \(error.localizedDescription)")
-        }
-        if let index = researchMapTab(file) {
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = updated
-                tab.originalContent = updated
-                tab.isModified = false
-            }
-        }
-        return .done(updated)
+    func researchEditorFile(documentID: UUID?, event: String) -> URL? {
+        guard let index = tabs.editorTabIndex(documentID: documentID, event: event), tabs.openTabs[index].isFileBacked else { return nil }
+        return tabs.openTabs[index].url
     }
 
-    /// The snapshot the page draws for `text`, with the AI job working on `file`.
-    func researchMapSnapshotJSON(text: String, file: URL, created: String = "", notice: String = "") -> String {
-        // A node an AI job added (Draw): the first snapshot after it tells the page to show and select the node.
-        let created = created.isEmpty ? (researchMapJobCreated.removeValue(forKey: file.standardizedFileURL.path) ?? "") : created
-        let notice = notice.isEmpty ? (researchMapJobNotice.removeValue(forKey: file.standardizedFileURL.path) ?? "") : notice
-        // `markdown` is the text of the tab: the page shows it in the Source view of the map document.
-        var snapshot: [String: Any]
-        switch ResearchMap.parse(text) {
-        case .success(let map):
-            snapshot = map.snapshot(job: research.mapJobInfo(for: file), created: created, notice: notice)
-        case .failure(let problem):
-            snapshot = ResearchMap.unreadableSnapshot(problem: problem.message)
-        }
-        snapshot["markdown"] = text
-        return ResearchMap.json(snapshot)
+    func researchWatchOpenFiles() { tabs.startWatchingOpenFiles() }
+
+    func saveBeforeResearch(_ file: URL, action: String) -> Bool { tabs.saveBeforeReading(file, action: action) }
+
+    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) -> Bool {
+        refreshFileTree()
+        return tabs.fileRewritten(file, content: content, applyToEdited: applyToEdited)
     }
 
-    /// One action of the map view (bridge message "researchMap"). Validation of every field happens here, at
-    /// the boundary; the rules of the map itself are in `ResearchMap`. Returns the answer for the page, or nil
-    /// when the tab the page names is gone.
-    /// `carriedNotice`: a one-line message that is already known (the result of a picture saved off the main thread).
-    func handleResearchMapAction(_ action: String, payload: [String: Any], documentID: UUID?, carriedNotice: String = "") -> ResearchMapReply? {
-        // The action name comes from the page: it is logged only as plain letters.
-        let loggedAction = String(action.filter { $0.isLetter }.prefix(24))
-        guard let index = editorTabIndex(documentID: documentID, event: "research map \(loggedAction)"),
-              openTabs[index].isFileBacked else { return nil }
-        let file = openTabs[index].url
-        // Edits saved in another editor appear in the map: the watcher reloads the tab (DEC-006).
-        startWatchingOpenFiles()
-        settleInterruptedResearchMap(file, stopping: action == "cancel")
+    func exportResearchPDF(_ markdown: String, fileName: String, near mapFile: URL) {
+        PDFExporter.exportPDF(markdown: markdown, title: (fileName as NSString).deletingPathExtension, fileName: fileName,
+                              baseURL: mapFile.deletingLastPathComponent(),
+                              roots: DocumentFiles.roots(project: project.root, documents: tabs.openTabs.filter(\.isFileBacked).map(\.url)))
+    }
+}
 
-        func string(_ key: String) -> String { (payload[key] as? String) ?? "" }
-        func integer(_ key: String) -> Int? {
-            guard let value = (payload[key] as? NSNumber)?.doubleValue, value.isFinite, abs(value) < 1e9 else { return nil }
-            return Int(value.rounded())
-        }
-        /// An integer that may be cleared: absent leaves it alone, null clears it, a number sets it. Anything else
-        /// becomes 0, which the map refuses with its own message.
-        func clearableInteger(_ key: String) -> Int?? {
-            guard let raw = payload[key] else { return nil }
-            if raw is NSNull { return .some(nil) }
-            return .some(integer(key) ?? 0)
-        }
-        var created = ""
-        var notice = carriedNotice
-        var change: ResearchMapChange?
-
-        switch action {
-        case "snapshot":
-            break
-        case "addChild":
-            change = updateResearchMap(file) { created = try $0.addChild(parent: string("parent"), title: string("title")) }
-        case "update":
-            // A number, a width and a height are set with an integer and cleared with null; an absent key leaves it alone.
-            let number = clearableInteger("number"), width = clearableInteger("width"), height = clearableInteger("height")
-            change = updateResearchMap(file) { [number, width, height] map in
-                try map.update(id: string("id"),
-                               title: payload["title"] as? String,
-                               tags: payload["tags"] as? [String],
-                               color: payload["color"] as? String,
-                               description: payload["description"] as? String,
-                               icon: payload["icon"] as? String,
-                               image: payload["image"] as? String,
-                               number: number,
-                               shape: payload["shape"] as? String,
-                               width: width,
-                               height: height,
-                               visual: payload["visual"] as? String)
-            }
-        case "numberChildren":
-            let clear = (payload["clear"] as? Bool) ?? false
-            change = updateResearchMap(file) { _ = try $0.numberChildren(of: string("id"), clear: clear) }
-        case "delete":
-            change = updateResearchMap(file) { _ = try $0.delete(id: string("id")) }
-        case "move":
-            // An arrow dragged from the new parent onto a node (REQ-015): the node and its subtree become the parent's last child.
-            change = updateResearchMap(file) { try $0.move(id: string("id"), to: string("parent")) }
-        case "moveVisual":
-            guard let x = integer("x"), let y = integer("y") else {
-                notice = "That position is not valid."
-                break
-            }
-            change = updateResearchMap(file) { try $0.moveVisual(id: string("id"), x: x, y: y) }
-        case "link":
-            change = updateResearchMap(file) { try $0.link(string("from"), string("to")) }
-        case "unlink":
-            change = updateResearchMap(file) { $0.unlink(string("from"), string("to")) }
-        case "layout":
-            change = updateResearchMap(file) { try $0.applyLayout(id: string("id"), layout: string("layout")) }
-        case "develop":
-            // Expand topic: the direction is optional (empty: the assistant chooses the sub-topics).
-            let direction = string("direction").trimmingCharacters(in: .whitespacesAndNewlines)
-            notice = research.developMap(file: file, node: string("id"), direction: String(direction.prefix(2000))) ?? ""
-        case "describe":
-            notice = research.describeMap(file: file, node: string("id")) ?? ""
-        case "correct":
-            let note = string("note").trimmingCharacters(in: .whitespacesAndNewlines)
-            if note.isEmpty {
-                notice = "Say what is wrong with this node."
-            } else {
-                notice = research.correctMap(file: file, node: string("id"), note: String(note.prefix(2000))) ?? ""
-            }
-        case "investigate":
-            notice = research.investigateMap(file: file, node: string("id")) ?? ""
-        case "draw":
-            notice = research.drawMap(file: file, node: string("id"), kindID: string("kind"), instruction: string("instruction")) ?? ""
-        case "export":
-            let kind = string("kind")
-            guard kind == "markdown" || kind == "pdf" else {
-                notice = "Choose Markdown report or PDF."
-                break
-            }
-            notice = research.reportMap(file: file, kind: kind, language: string("language")) ?? ""
-        case "translate":
-            notice = research.translateMap(file: file, language: string("language"), mode: string("mode")) ?? ""
-        case "continue":
-            notice = research.continueMap(file: file) ?? ""
-        case "cancel":
-            research.cancelJobs(on: file)   // the map of a job that no longer exists was settled above
-        case "open":
-            notice = openResearchSource(string("source")) ?? ""
-        default:
-            Self.debugLog("[ResearchMap] unknown action \(loggedAction)")
+/// What Recursive Insight reads of the window and does to its tabs (`InsightCoordinator`).
+extension WorkspaceManager: InsightHost {
+    var insightSessions: [InsightSession] {
+        tabs.openTabs.compactMap { tab in
+            if case .insight(let session) = tab.kind { return session }
             return nil
         }
-
-        switch change {
-        case .rejected(let reason)?, .unreadable(let reason)?: notice = reason
-        default: break
-        }
-        let text = researchMapText(file) ?? ""
-        return ResearchMapReply(json: researchMapSnapshotJSON(text: text, file: file, created: created, notice: notice), content: text)
     }
 
-    /// A picture the page was given for a node (chosen, dropped or pasted, REQ-017): saved into `images/` beside the map
-    /// off the main thread, then set on the node through the map's single writer. Returns a one-line reason when it
-    /// fails, or an empty text.
-    func attachResearchMapImage(_ payload: [String: Any], documentID: UUID?) async -> String {
-        guard let index = editorTabIndex(documentID: documentID, event: "research map attachImage"),
-              openTabs[index].isFileBacked else { return "" }
-        let file = openTabs[index].url
-        let id = (payload["id"] as? String) ?? ""
-        let name = String(((payload["name"] as? String) ?? "").prefix(200))
-        let encoded = (payload["data"] as? String) ?? ""
-        guard !id.isEmpty else { return "That node no longer exists." }
-        let stored = await Task.detached(priority: .userInitiated) {
-            ResearchMapImages.store(base64: encoded, suggestedName: name, besideMap: file)
-        }.value
-        switch stored {
-        case .failure(let failure):
-            return failure.message
-        case .success(let path):
-            // The tab may have been closed while the file was written: then the picture stays in images/ and nothing else happens.
-            guard researchMapTab(file) != nil else { return "" }
-            switch updateResearchMap(file, { try $0.update(id: id, image: path) }) {
-            case .rejected(let reason), .unreadable(let reason): return reason
-            case .done: return ""
-            }
-        }
+    var activeInsightSession: InsightSession? {
+        guard let tab = activeTab, case .insight(let session) = tab.kind else { return nil }
+        return session
     }
 
-    /// A map that says "researching" while no job of this window works on it was interrupted (the app quit
-    /// mid-run, or the last update of a run could not be written): it becomes incomplete, so Continue is offered
-    /// and Stop never does nothing.
-    private func settleInterruptedResearchMap(_ file: URL, stopping: Bool) {
-        guard !research.isRunning(on: file), let text = researchMapText(file),
-              case .success(let map) = ResearchMap.parse(text), map.status == .researching else { return }
-        updateResearchMap(file) { $0.markIncomplete(stopping ? "stopped" : "the research was interrupted") }
+    func showInsightTab(_ session: InsightSession, placeholder: URL) {
+        tabs.appendTab(OpenTab(url: placeholder, content: "", originalContent: "", kind: .insight(session)), activate: true)
     }
 
-    /// Opens the source of a finding: a web address in the browser, a project file (with an optional
-    /// `:line` or `:from-to` suffix) in a tab. Returns a one-line reason when it cannot.
-    private func openResearchSource(_ source: String) -> String? {
-        let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-        let lower = text.lowercased()
-        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
-            guard let url = URL(string: text) else { return "That web address is not valid." }
-            NSWorkspace.shared.open(url)
-            return nil
-        }
-        guard let root = rootNode?.url.standardizedFileURL else { return "No project is open." }
-        var path = text
-        var line: Int?
-        var endLine: Int?
-        if let match = text.range(of: #":(\d+)(?:-(\d+))?$"#, options: .regularExpression) {
-            let numbers = text[match].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
-            line = numbers.first
-            endLine = numbers.count > 1 ? numbers[1] : nil
-            path = String(text[..<match.lowerBound])
-        }
-        guard !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { return "Only files inside the project can be opened." }
-        let base = root.standardizedFileURL.resolvingSymlinksInPath()
-        let url = base.appendingPathComponent(path).standardizedFileURL.resolvingSymlinksInPath()
-        var isDirectory: ObjCBool = false
-        guard url.path.hasPrefix(base.path + "/"), FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue else { return "The file \(path) does not exist in the project." }
-        openFile(url, line: line, endLine: endLine)
-        return nil
+    func removeInsightTab(sessionID: UUID) {
+        // The index is resolved now: tabs may have closed while the session was ending.
+        guard let index = tabs.openTabs.firstIndex(where: {
+            if case .insight(let session) = $0.kind { return session.id == sessionID }
+            return false
+        }) else { return }
+        tabs.removeTab(at: index)
     }
 }
 
 extension WorkspaceManager: ProjectOperationsPresenter {
     func showOperationConsole(selecting id: String) {
-        operationSelectedRunID = id
-        operationConsoleVisible = true
+        requests.operationSelectedRunID = id
+        requests.operationConsoleVisible = true
     }
 
     func showOperationEditor(_ request: ProjectOperationEditRequest) {
-        operationEditRequest = request
+        requests.operationEditRequest = request
     }
 
     var operationsHostWindow: NSWindow? { hostWindow }
+}
+
+/// What `CodeAndXRayCoordinator` needs of this window; the coordinator holds no other reference to it (`AR-14` step 11).
+extension WorkspaceManager: CodeXRayHost {
+    var activeTabKind: TabKind? { tabs.activeTab?.kind }
+    var activeTabURL: URL? { tabs.activeTab?.url }
+    var gitBranch: String { gitClient.branch }
+    var defaultAuthor: String { flow.features.defaultOwner }
+
+    func openTabContent(for url: URL) -> String? { tabs.content(ofOpen: url) }
+
+    func scrollToText(_ text: String) {
+        NotificationCenter.default.post(.scrollToText, for: self, object: text)
+    }
+
+    func startRecursiveInsight(at target: URL?, title: String?) { insight.start(at: target, title: title) }
+
+    func fixInPullRequest(_ number: Int?, prompt: String) async -> String? { await flow.fixInPullRequest(number, prompt: prompt) }
+
+    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? { terminals.sendToAssistant(prompt, submit: submit) }
+
+    /// Bring the X-Ray tab of `scope` to the front, opening it when it is not there yet.
+    func showXRayTab(scope: String, root: URL) {
+        layout.workspaceArea = .projectMap
+        tabs.showArchitectureTab(scope: scope, root: root)
+    }
 }

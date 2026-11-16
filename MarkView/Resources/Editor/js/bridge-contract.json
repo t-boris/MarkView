@@ -1,0 +1,164 @@
+{
+  "contract": 1,
+  "description": "The one declaration of every message a MarkView page may post to the app (AR-28). The app reads it in Swift (BridgeContract / TypedWebBridge decode, validate and dispatch) and hands the same text to each page as window.mvBridgeContract, where mvBridge.send validates before it posts. A message whose channel, type or fields do not match is refused on both sides and logged by type name only. Field specs: \"string\", \"int\", \"number\", \"boolean\", \"object\", \"array\", \"any\"; a trailing ? makes the field optional (null counts as absent). The object form adds nonEmpty, min, max, maxItems, enum, format (\"uuid\"), fields (nested object) and items (array element). A message carries `fields` (an object payload) or `items` (an array payload); fields not listed are ignored. mainFrameOnly: only the page's top frame may send it. Every type listed here has exactly one Swift handler and every Swift handler is listed here (tools/tests/bridge-contract-tests.sh).",
+  "definitions": {
+    "block": {
+      "type": "object",
+      "fields": {
+        "id": "string",
+        "documentId": "string?",
+        "type": "string",
+        "level": "int?",
+        "content": "string",
+        "plainText": "string?",
+        "contentHash": "string",
+        "semanticHash": "string?",
+        "headingPath": { "type": "array", "optional": true, "items": "string" },
+        "parentBlockId": "string?",
+        "lineStart": "int",
+        "lineEnd": "int",
+        "position": "int",
+        "language": "string?",
+        "anchor": "string?"
+      }
+    },
+    "heading": {
+      "type": "object",
+      "fields": { "id": "string", "level": "int", "text": "string" }
+    }
+  },
+  "channels": {
+    "bridge": {
+      "description": "The editor page (index.html), handled by WebViewBridge. Envelope: {type, payload, doc}; doc names the tab whose document the page showed (BUG-031).",
+      "messages": {
+        "ready": { "fields": {} },
+        "contentChanged": { "fields": {"markdown": "string", "html": "string?"} },
+        "headingsUpdated": { "items": "heading" },
+        "scrollPosition": { "fields": {"activeHeadingId": "string"} },
+        "linkClicked": { "fields": {"href": "string"} },
+        "editorFontSize": { "fields": {"size": "number"} },
+        "editorWindowPref": { "fields": {"key": "string", "value": "string"} },
+        "blocksChanged": {
+          "fields": {
+            "added": { "type": "array", "items": "block" },
+            "removed": { "type": "array", "items": "string" },
+            "changed": { "type": "array", "items": "block" },
+            "unchanged": { "type": "array", "items": "string" }
+          }
+        },
+        "canvasOpenFile": { "fields": {"path": {"type": "string", "nonEmpty": true}} },
+        "saveRequested": { "fields": {} },
+        "translateRequested": { "fields": {"markdown": "string", "targetLang": "string"} },
+        "selectionAction": { "fields": {"action": "string", "text": "string"} },
+        "featureAction": { "fields": {"action": "string", "text": {"type": "string", "nonEmpty": true}, "question": "string?"} },
+        "refreshRequested": { "fields": {} },
+        "generateGraph": { "fields": {"type": "string?", "editInstruction": "string?", "currentMermaid": "string?"} },
+        "code": {
+          "description": "Code viewer and file margin notes; the fields of each action are read by CodeAndXRayCoordinator.handleCodeAction.",
+          "fields": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "askAI", "askStop", "createFilter", "explain", "explainPR", "explainSymbol", "freshness", "navBack",
+                "navDefinition", "navForward", "navOpen", "navUsages", "notesView", "rate", "tempFilter"
+              ]
+            }
+          }
+        },
+        "arch": {
+          "description": "The X-Ray (architecture) tab; the fields of each action are parsed by XRayCommand.parse and performed by CodeAndXRayCoordinator.perform.",
+          "fields": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "analyze", "analyzePR", "askBook", "askPR", "cancelAnalysis", "compareWithCommit", "copyPRTasks",
+                "createFilter", "deleteFilter", "describe", "describeBook", "explainEdge", "explainPRFile",
+                "filterSearch", "historyCommits", "openFile", "openPRNumber", "openPRXRay", "openURL",
+                "openUnderstandingSource", "operationAcceptProposal", "operationAdd", "operationAddUnknown",
+                "operationAdopt", "operationCancelDiscovery", "operationDiscover", "operationDismissReport",
+                "operationEdit", "operationOpen", "operationRejectProposal", "operationRun", "outlineFile",
+                "prAction", "prFileDiff", "prFindingComment", "prFindingDismiss", "prFindingExplain", "prFindingFix",
+                "prFindingIssue", "prFixAll", "prTasksToTerminal", "rateImportance", "recursiveInsight",
+                "refreshCode", "refreshPRSources", "rescan", "retryUnderstanding", "reviewPR", "saveSearchAnswer",
+                "setComponent", "showPR", "tempFilter", "traceCode"
+              ]
+            }
+          }
+        },
+        "researchMap": {
+          "description": "The research map view; it changes files and starts AI jobs, so only the top frame may send it.",
+          "mainFrameOnly": true,
+          "fields": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "addChild", "attachImage", "cancel", "continue", "correct", "delete", "describe", "develop", "draw",
+                "export", "investigate", "layout", "link", "move", "moveVisual", "numberChildren", "open",
+                "snapshot", "translate", "unlink", "update"
+              ]
+            }
+          }
+        },
+        "jsError": {
+          "fields": {
+            "where": "string?",
+            "message": "string?",
+            "source": "string?",
+            "lineno": "number?",
+            "colno": "number?",
+            "stack": "string?"
+          }
+        },
+        "insightIframeReady": {
+          "mainFrameOnly": true,
+          "fields": { "sessionId": {"type": "string", "nonEmpty": true}, "nodeId": {"type": "string", "nonEmpty": true} }
+        },
+        "insightDeepDiveClicked": {
+          "mainFrameOnly": true,
+          "fields": {
+            "sessionId": { "type": "string", "nonEmpty": true },
+            "sectionId": { "type": "string", "nonEmpty": true },
+            "topicIndex": { "type": "int", "min": 0 }
+          }
+        },
+        "insightBreadcrumbClicked": {
+          "mainFrameOnly": true,
+          "fields": { "sessionId": {"type": "string", "nonEmpty": true}, "nodeId": {"type": "string", "format": "uuid"} }
+        },
+        "insightRequestSave": { "mainFrameOnly": true, "fields": {"sessionId": "string?"} },
+        "insightRequestUp": { "mainFrameOnly": true, "fields": {"sessionId": "string?"} },
+        "insightRequestRegenerate": { "mainFrameOnly": true, "fields": {"sessionId": "string?"} },
+        "insightRequestCustomDeepDive": { "mainFrameOnly": true, "fields": {"sessionId": "string?", "topic": {"type": "string", "nonEmpty": true}} },
+        "insightRequestExploreAll": {
+          "mainFrameOnly": true,
+          "fields": { "sessionId": "string?", "depth": {"type": "int", "optional": true, "min": 1, "max": 3} }
+        },
+        "insightRequestRetrySection": {
+          "mainFrameOnly": true,
+          "fields": { "sessionId": "string?", "sectionId": {"type": "string", "nonEmpty": true} }
+        }
+      }
+    },
+    "discussion": {
+      "description": "The discussion thread page (discussion.html), handled by DiscussionThreadView.Coordinator.",
+      "messages": {
+        "ready": { "fields": {} },
+        "copy": { "fields": {"text": {"type": "string", "nonEmpty": true}} },
+        "save": { "fields": {"name": "string", "data": "string", "base64": "boolean?"} }
+      }
+    },
+    "terminal": {
+      "description": "The terminal page (terminal.html), handled by TerminalSession.",
+      "messages": {
+        "ready": { "fields": {"cols": {"type": "int", "min": 1}, "rows": {"type": "int", "min": 1}} },
+        "input": { "fields": {"data": "string"} },
+        "resize": { "fields": {"cols": {"type": "int", "min": 1}, "rows": {"type": "int", "min": 1}} },
+        "pasteFiles": { "fields": {} },
+        "link": { "fields": {"url": "string"} },
+        "resolveLinks": {
+          "fields": { "request": {"type": "int", "min": 0}, "paths": {"type": "array", "maxItems": 512, "items": "string"} }
+        }
+      }
+    }
+  }
+}

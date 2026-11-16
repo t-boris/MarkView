@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import MarkViewCore
 
 // End-to-End QA (feature end-to-end-qa, REQ-003, REQ-008, REQ-009): the state of a run on screen. It starts the runner, shows what each
 // player's page looks like, keeps the feed of what is happening and what the review finds, asks the person for the yes that production
@@ -104,11 +105,8 @@ final class QARunModel: ObservableObject {
     /// The live view is hidden after "Back to the scenario" and comes back with "Show the run".
     @Published private(set) var dismissed = false
     /// The video is on unless the person turns it off before a run (REQ-009).
-    @Published var recordVideo: Bool { didSet { UserDefaults.standard.set(recordVideo, forKey: Self.videoKey) } }
-    @Published var reviewDepth: ReviewDepth { didSet { UserDefaults.standard.set(reviewDepth.rawValue, forKey: Self.depthKey) } }
-
-    private static let videoKey = "qaRecordVideo"
-    private static let depthKey = "qaReviewDepth"
+    @Published var recordVideo: Bool { didSet { Settings.standard.set(recordVideo, for: Setting.qaRecordVideo) } }
+    @Published var reviewDepth: ReviewDepth { didSet { Settings.standard.set(reviewDepth.rawValue, for: Setting.qaReviewDepth) } }
 
     private(set) var scenario: QAScenario?
     private var plan: QAExecutionPlan?
@@ -156,14 +154,15 @@ final class QARunModel: ObservableObject {
     var activeRunID: String? { isRunning ? runID : nil }
 
     init() {
-        recordVideo = UserDefaults.standard.object(forKey: Self.videoKey) as? Bool ?? true
-        reviewDepth = UserDefaults.standard.string(forKey: Self.depthKey).flatMap(ReviewDepth.init(rawValue:)) ?? .screens
+        recordVideo = Settings.standard.value(Setting.qaRecordVideo)
+        reviewDepth = ReviewDepth(rawValue: Settings.standard.value(Setting.qaReviewDepth)) ?? .screens
     }
 
     deinit {
         runTask?.cancel()
         control?.stop()
         let retained = sessions
+        // task: the browser sessions close after the run is gone; cancelling it would leave them open
         Task { await retained.close() }
     }
 
@@ -293,6 +292,7 @@ final class QARunModel: ObservableObject {
         stop()
         let task = runTask, old = sessions
         sessions = QARunSessions()
+        // task: the old sessions close once the run has ended; cancelling it would leave them open
         Task { await task?.value; await old.close() }
     }
 
@@ -517,7 +517,7 @@ final class QARunModel: ObservableObject {
         let written = await Task.detached(priority: .utility) { () -> Bool in
             do {
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try png.write(to: file, options: .atomic)
+                try AtomicFile.write(png, to: file)
                 return true
             } catch { return false }
         }.value
@@ -529,7 +529,7 @@ final class QARunModel: ObservableObject {
         request.images = [file]
         request.effort = "low"
         do {
-            let result = try await CLICompletion.run(request)
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "qa-review")
             reviewCost += result.costUSD ?? 0
             var found = QAReview.parse(result.structured, input: input, firstFindingNumber: findings.count + 1)
             let picture = QAFrameComposer.thumbnail(from: png)

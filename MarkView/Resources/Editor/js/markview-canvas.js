@@ -22,9 +22,13 @@
             viewport: null, world: null, svg: null, propsPanel: null, zoomLabel: null
         };
 
+        // A colour comes from the .canvas file and ends up in style properties and in the style attribute of the properties
+        // panel, so only a preset, a hex colour, rgb()/hsl() with plain numbers or a colour keyword the browser knows passes (FU-25).
+        const CANVAS_COLOR_SHAPE = /^(?:#[0-9a-f]{3,8}|(?:rgb|hsl)a?\(\s*[\w.%\s,\/-]+\)|[a-z]{3,30})$/i;
         function canvasColor(color, fallback) {
             if (!color) return fallback;
-            return CANVAS_PRESET_COLORS[color] || color;
+            const value = String(CANVAS_PRESET_COLORS[color] || color).trim();
+            return CANVAS_COLOR_SHAPE.test(value) && CSS.supports('color', value) ? value : fallback;
         }
 
         window.renderCanvasView = function() {
@@ -35,9 +39,9 @@
                 if (!data || typeof data !== 'object') throw new Error('Root is not an object');
             } catch (e) {
                 window.leaveCanvasView(); // restore normal padding/scroll for the error view
-                DOM.rendered.innerHTML = '<div class="struct-error">Canvas Parse Error: ' + escapeHTML(e.message) + '</div>'
+                DOM.rendered.innerHTML = '<div class="struct-error">Canvas Parse Error: ' + window.mvKit.escapeHtml(e.message) + '</div>'
                     + '<pre class="language-json" style="padding:12px;margin:0;overflow:auto;"><code>'
-                    + escapeHTML(state.markdown) + '</code></pre>';
+                    + window.mvKit.escapeHtml(state.markdown) + '</code></pre>';
                 return;
             }
             cv.nodes = Array.isArray(data.nodes) ? data.nodes.filter(n => n && n.id != null) : [];
@@ -164,12 +168,12 @@
                         const renderedCanvasHTML = md.render(String(n.text || ''));
                         content.innerHTML = (typeof window.sanitizeMarkdownHTML === 'function')
                             ? window.sanitizeMarkdownHTML(renderedCanvasHTML)
-                            : '<pre class="sanitization-error">' + escapeHTML(String(n.text || '')) + '</pre>';
+                            : '<pre class="sanitization-error">' + window.mvKit.escapeHtml(String(n.text || '')) + '</pre>';
                     } else {
-                        content.innerHTML = '<pre>' + escapeHTML(String(n.text || '')) + '</pre>';
+                        content.innerHTML = '<pre>' + window.mvKit.escapeHtml(String(n.text || '')) + '</pre>';
                     }
                 } catch (e) {
-                    content.innerHTML = '<pre>' + escapeHTML(String(n.text || '')) + '</pre>';
+                    content.innerHTML = '<pre>' + window.mvKit.escapeHtml(String(n.text || '')) + '</pre>';
                 }
                 el.appendChild(content);
             } else if (n.type === 'file') {
@@ -180,8 +184,8 @@
                     : ext === 'canvas' ? '🗺' : ext === 'pdf' ? '📕' : '📄';
                 el.innerHTML = '<div class="canvas-node-content canvas-file">'
                     + '<div class="canvas-file-icon">' + icon + '</div>'
-                    + '<div class="canvas-file-name">' + escapeHTML(name) + '</div>'
-                    + '<div class="canvas-file-path">' + escapeHTML(path) + (n.subpath ? escapeHTML(String(n.subpath)) : '') + '</div>'
+                    + '<div class="canvas-file-name">' + window.mvKit.escapeHtml(name) + '</div>'
+                    + '<div class="canvas-file-path">' + window.mvKit.escapeHtml(path) + (n.subpath ? window.mvKit.escapeHtml(String(n.subpath)) : '') + '</div>'
                     + '<div class="canvas-file-hint">double-click to open</div>'
                     + '</div>';
                 el.addEventListener('dblclick', ev => {
@@ -192,7 +196,7 @@
                 const url = String(n.url || '');
                 el.innerHTML = '<div class="canvas-node-content canvas-link">'
                     + '<div class="canvas-file-icon">🌐</div>'
-                    + '<div class="canvas-link-url">' + escapeHTML(url) + '</div>'
+                    + '<div class="canvas-link-url">' + window.mvKit.escapeHtml(url) + '</div>'
                     + '<div class="canvas-file-hint">double-click to open</div>'
                     + '</div>';
                 el.addEventListener('dblclick', ev => {
@@ -458,28 +462,28 @@
             if (kind === 'node') {
                 const n = cv.nodeById.get(String(id));
                 if (!n) return;
-                html += '<div class="canvas-props-title">' + escapeHTML(n.type || 'text') + ' node'
+                html += '<div class="canvas-props-title">' + window.mvKit.escapeHtml(n.type || 'text') + ' node'
                     + '<button class="canvas-props-close" title="Close (Esc)">✕</button></div>';
-                html += canvasPropRow('id', escapeHTML(String(n.id)));
+                html += canvasPropRow('id', window.mvKit.escapeHtml(String(n.id)));
                 html += canvasPropRow('x', String(n.x || 0)) + canvasPropRow('y', String(n.y || 0));
                 html += canvasPropRow('width', String(n.width || 0)) + canvasPropRow('height', String(n.height || 0));
                 if (n.color) {
                     const c = canvasColor(n.color, '');
-                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + c + '"></span>' + escapeHTML(String(n.color)));
+                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + window.mvKit.escapeHtml(c) + '"></span>' + window.mvKit.escapeHtml(String(n.color)));
                 }
                 if (n.type === 'file') {
-                    html += canvasPropRow('file', escapeHTML(String(n.file || '')));
-                    if (n.subpath) html += canvasPropRow('subpath', escapeHTML(String(n.subpath)));
+                    html += canvasPropRow('file', window.mvKit.escapeHtml(String(n.file || '')));
+                    if (n.subpath) html += canvasPropRow('subpath', window.mvKit.escapeHtml(String(n.subpath)));
                 } else if (n.type === 'link') {
-                    html += canvasPropRow('url', escapeHTML(String(n.url || '')));
+                    html += canvasPropRow('url', window.mvKit.escapeHtml(String(n.url || '')));
                 } else if (n.type === 'group') {
-                    if (n.label) html += canvasPropRow('label', escapeHTML(String(n.label)));
-                    if (n.background) html += canvasPropRow('background', escapeHTML(String(n.background)));
-                    if (n.backgroundStyle) html += canvasPropRow('bg style', escapeHTML(String(n.backgroundStyle)));
+                    if (n.label) html += canvasPropRow('label', window.mvKit.escapeHtml(String(n.label)));
+                    if (n.background) html += canvasPropRow('background', window.mvKit.escapeHtml(String(n.background)));
+                    if (n.backgroundStyle) html += canvasPropRow('bg style', window.mvKit.escapeHtml(String(n.backgroundStyle)));
                 } else if (n.type === 'text' || n.text != null) {
                     const text = String(n.text || '');
                     html += canvasPropRow('length', text.length + ' chars');
-                    html += '<div class="canvas-prop-block"><pre>' + escapeHTML(text) + '</pre></div>';
+                    html += '<div class="canvas-prop-block"><pre>' + window.mvKit.escapeHtml(text) + '</pre></div>';
                 }
             } else {
                 const e = cv.edges.find(x => String(x.id) === String(id));
@@ -488,14 +492,14 @@
                 const toN = cv.nodeById.get(String(e.toNode));
                 html += '<div class="canvas-props-title">edge'
                     + '<button class="canvas-props-close" title="Close (Esc)">✕</button></div>';
-                html += canvasPropRow('id', escapeHTML(String(e.id)));
-                html += canvasPropRow('from', escapeHTML(canvasNodeTitle(fromN) || String(e.fromNode)) + (e.fromSide ? ' · ' + escapeHTML(e.fromSide) : ''));
-                html += canvasPropRow('to', escapeHTML(canvasNodeTitle(toN) || String(e.toNode)) + (e.toSide ? ' · ' + escapeHTML(e.toSide) : ''));
-                html += canvasPropRow('ends', escapeHTML((e.fromEnd || 'none') + ' → ' + (e.toEnd || 'arrow')));
-                if (e.label) html += canvasPropRow('label', escapeHTML(String(e.label)));
+                html += canvasPropRow('id', window.mvKit.escapeHtml(String(e.id)));
+                html += canvasPropRow('from', window.mvKit.escapeHtml(canvasNodeTitle(fromN) || String(e.fromNode)) + (e.fromSide ? ' · ' + window.mvKit.escapeHtml(e.fromSide) : ''));
+                html += canvasPropRow('to', window.mvKit.escapeHtml(canvasNodeTitle(toN) || String(e.toNode)) + (e.toSide ? ' · ' + window.mvKit.escapeHtml(e.toSide) : ''));
+                html += canvasPropRow('ends', window.mvKit.escapeHtml((e.fromEnd || 'none') + ' → ' + (e.toEnd || 'arrow')));
+                if (e.label) html += canvasPropRow('label', window.mvKit.escapeHtml(String(e.label)));
                 if (e.color) {
                     const c = canvasColor(e.color, '');
-                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + c + '"></span>' + escapeHTML(String(e.color)));
+                    html += canvasPropRow('color', '<span class="canvas-swatch" style="background:' + window.mvKit.escapeHtml(c) + '"></span>' + window.mvKit.escapeHtml(String(e.color)));
                 }
             }
             cv.propsPanel.innerHTML = html;

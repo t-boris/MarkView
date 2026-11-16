@@ -21,10 +21,6 @@ ln -s "$test_root/infra/.env" "$test_root/infra/scripts/linked.env"
 cat > "$test_root/main.swift" <<'SWIFT'
 import Foundation
 
-struct ArchitectureScanner {
-    static func isDeploymentHint(_ path: String) -> Bool { path == "Makefile" }
-}
-
 @main struct Check {
     static func main() {
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
@@ -48,5 +44,5 @@ struct ArchitectureScanner {
 }
 SWIFT
 
-swiftc -parse-as-library "$repo_root/MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift" "$test_root/main.swift" -o "$test_root/check"
+swiftc -parse-as-library "$repo_root/MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$test_root/main.swift" -o "$test_root/check"
 "$test_root/check" "$test_root/project"

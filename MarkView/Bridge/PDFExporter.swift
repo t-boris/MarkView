@@ -1,6 +1,9 @@
 import AppKit
 import WebKit
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Exports the active document as a PDF that is ready to be shared: a title page, running header and footer with page numbers,
 /// contents when the document is long, bookmarks and working links, the colours of a chosen style as the page background, and
@@ -17,18 +20,19 @@ enum PDFExporter {
 
         static let themes: [(value: String, title: String)] = [("paper", "Paper"), ("white", "White"), ("midnight", "Midnight")]
         static let papers: [(value: String, title: String)] = [("a4", "A4"), ("letter", "US Letter"), ("a4Landscape", "A4 Landscape")]
-        private static let themeKey = "pdfExport.theme", paperKey = "pdfExport.paper"
 
         static func remembered(_ defaults: UserDefaults = .standard) -> Style {
+            let settings = Settings(defaults)
             var style = Style()
-            if let theme = defaults.string(forKey: themeKey), themes.contains(where: { $0.value == theme }) { style.theme = theme }
-            if let paper = defaults.string(forKey: paperKey), papers.contains(where: { $0.value == paper }) { style.paper = paper }
+            if let theme = settings.stored(Setting.pdfTheme), themes.contains(where: { $0.value == theme }) { style.theme = theme }
+            if let paper = settings.stored(Setting.pdfPaper), papers.contains(where: { $0.value == paper }) { style.paper = paper }
             return style
         }
 
         func remember(_ defaults: UserDefaults = .standard) {
-            defaults.set(theme, forKey: Style.themeKey)
-            defaults.set(paper, forKey: Style.paperKey)
+            let settings = Settings(defaults)
+            settings.set(theme, for: Setting.pdfTheme)
+            settings.set(paper, for: Setting.pdfPaper)
         }
     }
 
@@ -68,11 +72,12 @@ enum PDFExporter {
     }
 
     /// A document the page builds on request, such as the report of a research map: printed from its Markdown.
-    static func exportPDF(markdown: String, title: String, fileName: String, baseURL: URL?, documentFiles: DocumentFileSchemeHandler) {
+    /// `roots` are the folders a picture of the document may come from (`DocumentFiles.roots`).
+    static func exportPDF(markdown: String, title: String, fileName: String, baseURL: URL?, roots: [URL]) {
         let folder = baseURL ?? FileManager.default.temporaryDirectory
         let chapter = BookPDFChapter(id: "c0", url: folder.appendingPathComponent((fileName as NSString).deletingPathExtension + ".md"),
                                      path: fileName, title: title, format: "markdown", text: markdown, original: markdown)
-        begin(fileName: fileName, roots: documentFiles.allowedRoots()) { chapter }
+        begin(fileName: fileName, roots: roots) { chapter }
     }
 
     // MARK: - Making the PDF

@@ -47,10 +47,10 @@ MarkView native macOS application, workspace vivaa-platform. Installed MarkView 
 
 ## Suspected code
 
-- `MarkView/Views/FeatureNavigatorView.swift` — Applies the shared sort to Features and Bugs separately before rendering and binds the sort menu to the store; inspect list updates and menu state at runtime.
-- `MarkView/Models/FeatureStore.swift` — Publishes and persists the selected sort and loads the feature and bug arrays; relevant to state propagation and stale data.
-- `MarkView/Models/IssueListing.swift` — Implements date fallbacks, priority ranks, directions and tie breakers; effective keys can explain an unchanged order.
-- `MarkView/Models/FeatureModels.swift` — Loads feature metadata and supplies the date, priority and ID facts used by the comparator.
+- `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` — Applies the shared sort to Features and Bugs separately before rendering and binds the sort menu to the store; inspect list updates and menu state at runtime.
+- `MarkView/Models/Lifecycle/FeatureStore.swift` — Publishes and persists the selected sort and loads the feature and bug arrays; relevant to state propagation and stale data.
+- `MarkView/Models/Lifecycle/IssueListing.swift` — Implements date fallbacks, priority ranks, directions and tie breakers; effective keys can explain an unchanged order.
+- `MarkView/Models/Lifecycle/FeatureModels.swift` — Loads feature metadata and supplies the date, priority and ID facts used by the comparator.
 - `tools/tests/IssueListingTests.swift` — Covers comparator behavior but does not verify SwiftUI menu and list updates with the affected workspace.
 - `docs/features/issues-panel-status-filters-sorting-status-display-and/requirements/REQ-002.md` — Defines the expected sorting fields, directions and missing-priority behavior.
 

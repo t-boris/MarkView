@@ -65,8 +65,8 @@ MarkView macOS app (Darwin 27.0.0), AI panel terminals. Affected: Codex, Copilot
 
 ## Suspected code
 
-- `MarkView/Models/WorkspaceManager.swift` — startupCommand(for:) (3096–3105): the switch adds the bypass flag only in the .claude case; `.codex, .cline, .copilot: return run`.
-- `MarkView/Models/CLICompletion.swift` — Holds per-tool CLI knowledge (binaryName, modelArgs). This is the natural home for a per-tool fullAccessArgs property (inference).
+- `MarkView/Models/Workspace/WorkspaceManager.swift` — startupCommand(for:) (3096–3105): the switch adds the bypass flag only in the .claude case; `.codex, .cline, .copilot: return run`.
+- `MarkView/Models/AI/CLICompletion.swift` — Holds per-tool CLI knowledge (binaryName, modelArgs). This is the natural home for a per-tool fullAccessArgs property (inference).
 - `docs/architecture/security.md` — Should record the decision to always run all agents without approvals.
 
 ## Likely causes

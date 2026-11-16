@@ -1,5 +1,21 @@
 import AppKit
 import Combine
+import MarkViewCore
+
+/// What the window's session (`WindowSessionController`) needs of a window beyond restoring it: its theme, a signal when anything the
+/// session records changed, the shutdown that ends what the window started, and what keeps the window open.
+@MainActor
+protocol WindowSessionWindow: WindowSessionHost {
+    var theme: WindowTheme { get }
+    var taskBag: TaskBag { get }
+    var projectOperations: ProjectOperationsStore? { get }
+    /// Fires when anything the saved session records changes: the tabs, the panels, the theme, the interface state, the project.
+    var sessionChanges: AnyPublisher<Void, Never> { get }
+    /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
+    func openDocumentsOnly(_ urls: [URL])
+    /// The window closes: everything it started stops.
+    func windowWillClose()
+}
 
 /// App-owned restoration works even when macOS is set to close windows on quit.
 @MainActor
@@ -9,11 +25,11 @@ final class WindowSessionController {
 
     private final class Entry {
         weak var window: NSWindow?
-        weak var workspace: WorkspaceManager?
+        weak var workspace: (any WindowSessionWindow)?
         var restoring = true
         var subscriptions = Set<AnyCancellable>()
         var closeDelegate: ProjectOperationWindowCloseDelegate?
-        init(window: NSWindow, workspace: WorkspaceManager) {
+        init(window: NSWindow, workspace: any WindowSessionWindow) {
             self.window = window
             self.workspace = workspace
         }
@@ -27,9 +43,9 @@ final class WindowSessionController {
     private var pending: [UUID: WorkspaceWindowState] = [:]
     private var order: [UUID] = []
     private var entries: [UUID: Entry] = [:]
-    private var saveTask: Task<Void, Never>?
+    /// The delayed save of the sessions; a new request replaces it (`AR-19`).
+    private let tasks = TaskBag()
     private var revision = 0
-    private var saveBlockedByNewerSchema = false
     private(set) var terminating = false
 
     init() {
@@ -68,7 +84,7 @@ final class WindowSessionController {
         return true
     }
 
-    func attach(id: UUID, window: NSWindow, workspace: WorkspaceManager, openWindow: @escaping (UUID) -> Void) async {
+    func attach(id: UUID, window: NSWindow, workspace: any WindowSessionWindow, openWindow: @escaping (UUID) -> Void) async {
         openSceneWindow = openWindow
         var closedBeforeLoad = false
         let closeObserver = NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
@@ -80,7 +96,7 @@ final class WindowSessionController {
             loaded = true
             var windows = archive?.windows ?? []
             // One-time migration from versions that only remembered one folder.
-            if archive == nil, let path = UserDefaults.standard.string(forKey: WorkspaceManager.lastFolderKey) {
+            if archive == nil, let path = Settings.standard.stored(Setting.lastFolder) {
                 windows = [WorkspaceWindowState(id: UUID(), folder: URL(fileURLWithPath: path))]
             }
             order = windows.map(\.id)
@@ -115,8 +131,8 @@ final class WindowSessionController {
             window.center()
         }
 
-        workspace.objectWillChange.merge(with: workspace.layout.objectWillChange, workspace.theme.objectWillChange, workspace.windowUI.objectWillChange)
-            .sink { [weak self] _ in self?.scheduleSave() }
+        workspace.sessionChanges
+            .sink { [weak self] in self?.scheduleSave() }
             .store(in: &entry.subscriptions)
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
                      NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
@@ -128,8 +144,7 @@ final class WindowSessionController {
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .filter { ($0.object as? NSWindow) === window }
             .sink { [weak self, weak workspace] _ in
-                // UI Studio sessions stop the development servers they started (REQ-006).
-                workspace?.closeUIStudioSessions()
+                workspace?.windowWillClose()
                 self?.remove(id)
             }
             .store(in: &entry.subscriptions)
@@ -140,7 +155,7 @@ final class WindowSessionController {
         }
         if let state {
             if let frame = state.frame { restoreFrame(frame, on: window) }
-            await workspace.restoreWindowState(state)
+            await WindowSessionSnapshotter.restore(state, into: workspace)
             if state.minimized { window.miniaturize(nil) }
         }
         guard entries[id] === entry else { return } // closed while its folder was loading
@@ -161,6 +176,8 @@ final class WindowSessionController {
         entries.removeValue(forKey: id)
         pending.removeValue(forKey: id)
         order.removeAll { $0 == id }
+        // The Finder request poll runs while a window is open; a request waits in its file for the next one.
+        if entries.isEmpty { FinderOpenRequests.shared.stop() }
         scheduleSave()
     }
 
@@ -168,7 +185,7 @@ final class WindowSessionController {
         var states = pending
         for (id, entry) in entries where !entry.restoring {
             guard let window = entry.window, let workspace = entry.workspace else { continue }
-            var state = workspace.windowState(id: id)
+            var state = WindowSessionSnapshotter.snapshot(of: workspace, id: id)
             state.frame = window.frame
             state.minimized = window.isMiniaturized
             states[id] = state
@@ -182,35 +199,38 @@ final class WindowSessionController {
     }
 
     private func scheduleSave() {
-        guard !terminating, !saveBlockedByNewerSchema else { return }
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
+        guard !terminating else { return }
+        tasks.store(Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 400_000_000) } catch { return }
-            guard let self, !self.terminating, !self.saveBlockedByNewerSchema else { return }
+            guard let self, !self.terminating else { return }
             self.revision += 1
             do {
-                try await self.storage.save(self.archive(), revision: self.revision)
-            } catch let err as SchemaStoreError {
-                self.saveBlockedByNewerSchema = true
-                NSLog("[WindowSession] Autosave paused: %@", err.localizedDescription)
+                if case .refused(let announce) = try await self.storage.save(self.archive(), revision: self.revision), announce {
+                    self.announceRefusedSave()
+                }
             } catch {
-                NSLog("[WindowSession] Could not save window sessions: %@", error.localizedDescription)
+                AppLog.windowSession.error("Could not save window sessions: \(error.localizedDescription)")
             }
-        }
+        }, for: "save")
     }
 
-    func saveBeforeTermination() async throws {
+    /// The refusal reaches the user once per launch, in the banner every window already has for save errors, on the
+    /// front window (`WindowSessionStorage` decides when it is the first one).
+    private func announceRefusedSave() {
+        AppLog.windowSession.error("Autosave refused: windowSessions.json was written by a newer MarkView and is left untouched.")
+        let workspace = NSApp.orderedWindows.lazy.compactMap { window in self.entries.values.first { $0.window === window }?.workspace }.first
+            ?? entries.values.lazy.compactMap(\.workspace).first
+        workspace?.tabs.lastSaveError = "The saved windows were written by a newer MarkView and are left untouched. Windows you open now will not be remembered."
+    }
+
+    /// Never fails and never holds up the quit: see `WindowSessionStorage.saveAtQuit`.
+    func saveBeforeTermination() async {
         terminating = true
-        saveTask?.cancel()
+        tasks.cancel(key: "save")
         // If quit arrives before the first window attached, retain the loaded archive.
         let previous = await loadedArchive.value
         revision += 1
-        do {
-            try await storage.save(loaded ? archive() : previous ?? WindowSessionArchive(windows: []), revision: revision)
-        } catch {
-            terminating = false
-            throw error
-        }
+        await storage.saveAtQuit(loaded ? archive() : previous ?? WindowSessionArchive(windows: []), revision: revision)
     }
 
     private func restoreFrame(_ frame: CGRect, on window: NSWindow) {
@@ -231,10 +251,10 @@ final class WindowSessionController {
 @MainActor
 private final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDelegate {
     var previous: NSWindowDelegate?
-    weak var workspace: WorkspaceManager?
+    weak var workspace: (any WindowSessionWindow)?
     private var closeAfterStop = false
 
-    init(previous: NSWindowDelegate?, workspace: WorkspaceManager) {
+    init(previous: NSWindowDelegate?, workspace: any WindowSessionWindow) {
         self.previous = previous
         self.workspace = workspace
     }
@@ -261,15 +281,15 @@ private final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDeleg
         alert.addButton(withTitle: "Stop operations and close")
         guard alert.runModal() == .alertSecondButtonReturn else { return false }
         store.cancelForClose()
-        Task { [weak self, weak sender] in
-            while store.runs.values.contains(where: \.isActive) {
+        workspace?.taskBag.store(Task { [weak self, weak sender] in
+            while !Task.isCancelled, store.runs.values.contains(where: \.isActive) {
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
-            guard let self, let sender else { return }
+            guard !Task.isCancelled, let self, let sender else { return }
             self.closeAfterStop = true
             sender.performClose(nil)
             self.closeAfterStop = false
-        }
+        }, for: "close-after-stop")
         return false
     }
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// A code-only projection of the X-Ray. Layer guesses are a visible draft until
 /// the existing source-based component analysis supplies semantic assignments.
@@ -394,7 +397,7 @@ enum CodeArchitecture {
         for file in interleaved(primary) + interleaved(tests) {
             guard remaining > 100, let path = file.path else { break }
             let url = base.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
-            guard url.path.hasPrefix(base.path + "/"),
+            guard ProjectPaths.containsStrictly(url, root: base),
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
                   (values.fileSize ?? Int.max) <= ArchitectureScanner.maxParseBytes,
                   let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
@@ -499,6 +502,18 @@ enum CodeArchitecture {
 
     /// The assistant needs all affected paths to repair an answer, while the
     /// user-facing error intentionally displays only the first few problems.
+    /// The model in an answer: its structured JSON, else the JSON object in its text. An answer with no object at all is `unusable`.
+    static func decode(_ result: CLICompletion.Result) throws -> CodeArchitectureModel {
+        let text = result.text
+        let hasObject = result.structured != nil || (text.contains("{") && text.contains("}"))
+        do {
+            guard hasObject else { throw AIOperationError.emptyResponse("code-architecture") }
+            return try AIJSONSalvage.decode(CodeArchitectureModel.self, from: text, structured: result.structured, operation: "code-architecture")
+        } catch AIOperationError.emptyResponse {
+            throw DiagramAI.Failure.unusable(["The answer was not an architecture JSON object"])
+        }
+    }
+
     static func repairFeedback(for error: Error) -> String {
         if case DiagramAI.Failure.unusable(let problems) = error {
             return problems.prefix(40).map { "- " + $0 }.joined(separator: "\n")
@@ -682,7 +697,7 @@ enum CodeArchitecture {
         guard !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { return nil }
         let base = root.resolvingSymlinksInPath().standardizedFileURL
         let url = base.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
-        guard url.path.hasPrefix(base.path + "/"),
+        guard ProjectPaths.containsStrictly(url, root: base),
               let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
               (values.fileSize ?? Int.max) <= ArchitectureScanner.maxParseBytes else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
@@ -726,23 +741,6 @@ enum CodeArchitecture {
             if sourceLocation(edge.evidence ?? "", root: root) == nil { problems.append("Step \(i + 1) needs a project source file and valid line") }
         }
         if !problems.isEmpty { throw DiagramAI.Failure.unusable(problems) }
-    }
-
-    static func sequenceMermaid(_ spec: DiagramSpec) -> String {
-        // Never interpolate model text as Mermaid syntax or HTML.
-        func label(_ text: String) -> String {
-            text.map { ch -> String in
-                if ch.isLetter || ch.isNumber || " .,_()-/".contains(ch) { return String(ch) }
-                return " "
-            }.joined()
-        }
-        var lines = ["sequenceDiagram"]
-        for (i, node) in spec.nodes.enumerated() { lines.append("participant p\(i) as \(label(node.label))") }
-        let ids = Dictionary(spec.nodes.enumerated().map { ($0.element.id, "p\($0.offset)") }, uniquingKeysWith: { a, _ in a })
-        for edge in spec.edges {
-            if let from = ids[edge.from], let to = ids[edge.to] { lines.append("\(from)->>\(to): \(label(edge.label))") }
-        }
-        return lines.joined(separator: "\n")
     }
 }
 

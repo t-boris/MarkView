@@ -50,10 +50,10 @@ issue: "#294"
 
 ## Existing behaviour
 
-- Features and bugs have separate status vocabularies: features run from idea to archived; bugs use open, fixing, fixed and closed. (`MarkView/Models/FeatureVocabulary.swift`)
-- Project MCP tools list, read and create features and bugs and change their statuses. The guide describes their workflows; some feature-object decisions require explicit user authority. (`MarkView/Models/ProjectAgentTools.swift`)
-- The Issues list derives open, closed and in-progress views from stored statuses. It also recognizes some values outside the main vocabulary. (`MarkView/Models/IssueListing.swift`)
-- Feature implementation handoff sends work to an agent before marking the feature implementing; the single-bug handoff currently marks fixing before sending the prompt. (`MarkView/Models/WorkspaceManager.swift`)
-- Lifecycle capture already collects some GitHub PR and check events, but its coverage and association with work are limited. (`MarkView/Models/LifecycleCapture.swift`)
-- Manual GitHub Sync closes an open GitHub issue when all linked items are done; it does not reopen closed issues. (`MarkView/Models/IssueSync.swift`)
-- MarkView registers project MCP for supported agents and provides a project-call fallback; registration alone does not prove that an agent follows the workflow. (`MarkView/Models/AgentBrowserRegistration.swift`)
+- Features and bugs have separate status vocabularies: features run from idea to archived; bugs use open, fixing, fixed and closed. (`MarkView/Models/Lifecycle/FeatureVocabulary.swift`)
+- Project MCP tools list, read and create features and bugs and change their statuses. The guide describes their workflows; some feature-object decisions require explicit user authority. (`MarkView/Models/AgentTools/ProjectAgentTools.swift`)
+- The Issues list derives open, closed and in-progress views from stored statuses. It also recognizes some values outside the main vocabulary. (`MarkView/Models/Lifecycle/IssueListing.swift`)
+- Feature implementation handoff sends work to an agent before marking the feature implementing; the single-bug handoff currently marks fixing before sending the prompt. (`MarkView/Models/Workspace/WorkspaceManager.swift`)
+- Lifecycle capture already collects some GitHub PR and check events, but its coverage and association with work are limited. (`MarkView/Models/Lifecycle/LifecycleCapture.swift`)
+- Manual GitHub Sync closes an open GitHub issue when all linked items are done; it does not reopen closed issues. (`MarkView/Models/Lifecycle/IssueSync.swift`)
+- MarkView registers project MCP for supported agents and provides a project-call fallback; registration alone does not prove that an agent follows the workflow. (`MarkView/Models/Browser/AgentBrowserRegistration.swift`)

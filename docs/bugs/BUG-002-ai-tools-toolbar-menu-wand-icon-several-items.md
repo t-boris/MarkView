@@ -95,10 +95,10 @@ MarkView macOS app (SwiftUI + embedded PTY terminal), macOS Darwin 27.0.0, AI ba
 
 ## Suspected code
 
-- `MarkView/Models/TerminalSession.swift` — write() (~line 317) breaks on written <= 0, so EAGAIN/EINTR drops the remaining text and the ESC[201~ terminator. paste() then sends \r inside an unclosed paste. pasteWhenReady waits up to 45 s with no feedback.
-- `MarkView/Models/WorkspaceManager.swift` — runAITool (line 2836) returns silently when WorkspaceAITool(rawValue:) is nil or aiPrompt() is nil. opensGraphCreator tools go to presentGraphCreator. activeDocumentContext(contentLimit: 15000) truncates without a marker. startRecursiveInsight requires an open folder.
-- `MarkView/Views/ContentView.swift` — AIToolsMenu (lines 460-480) passes string names that must match WorkspaceAITool raw values. Recursive Insight bypasses runAITool.
-- `MarkView/Models/AIPrompts.swift` — Long prompts plus up to 15k chars of document content exceed the PTY buffer, which triggers partial writes.
+- `MarkView/Models/Terminal/TerminalSession.swift` — write() (~line 317) breaks on written <= 0, so EAGAIN/EINTR drops the remaining text and the ESC[201~ terminator. paste() then sends \r inside an unclosed paste. pasteWhenReady waits up to 45 s with no feedback.
+- `MarkView/Models/Workspace/WorkspaceManager.swift` — runAITool (line 2836) returns silently when WorkspaceAITool(rawValue:) is nil or aiPrompt() is nil. opensGraphCreator tools go to presentGraphCreator. activeDocumentContext(contentLimit: 15000) truncates without a marker. startRecursiveInsight requires an open folder.
+- `MarkView/Views/Workspace/ContentView.swift` — AIToolsMenu (lines 460-480) passes string names that must match WorkspaceAITool raw values. Recursive Insight bypasses runAITool.
+- `MarkView/Models/AI/AIPrompts.swift` — Long prompts plus up to 15k chars of document content exceed the PTY buffer, which triggers partial writes.
 
 ## Likely causes
 
@@ -160,7 +160,7 @@ submitted. This is both reported symptoms: truncated text and "the item does not
 
 **Fix.**
 
-- `MarkView/Models/PTYWriter.swift` (new): input to the PTY is queued; what the PTY cannot take yet
+- `MarkView/Models/Terminal/PTYWriter.swift` (new): input to the PTY is queued; what the PTY cannot take yet
   is sent from a `DispatchSourceWrite` as the program reads, in order, retrying `EINTR`. The main
   thread never blocks, and an Enter queued after a paste always lands after `ESC[201~`. Input for an
   exited program is dropped.

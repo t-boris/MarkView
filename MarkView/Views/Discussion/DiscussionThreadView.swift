@@ -1,5 +1,8 @@
 import SwiftUI
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The conversation of a discussion as a web page (`Editor/discussion.html`): each answer drawn in the form that fits it.
 /// Swift sends the turns and the live answer; the page requests drawing saves and Markdown copies.
@@ -13,12 +16,15 @@ struct DiscussionThreadView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(context.coordinator, name: "discussion")
-        // The first paint already has this window's theme; later changes arrive through `mvSetTheme`.
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: theme.firstPaintScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            handlers: [.message("discussion", context.coordinator.messages)],
+            userScripts: [
+                // `mvBridge.send` in the page validates every message against the contract (AR-28).
+                context.coordinator.messages.contract.userScript,
+                // The first paint already has this window's theme; later changes arrive through `mvSetTheme`.
+                WKUserScript(source: theme.firstPaintScript, injectionTime: .atDocumentStart, forMainFrameOnly: true),
+            ])
+        let view = WebHost.makeWebView(configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
         context.coordinator.view = view
@@ -30,34 +36,43 @@ struct DiscussionThreadView: NSViewRepresentable {
         context.coordinator.update(turns: turns, live: live, theme: theme.webArguments)
     }
 
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate {
         weak var view: WKWebView?
+        /// The page's messages (channel "discussion" of `bridge-contract.json`).
+        let messages = TypedWebBridge(channel: "discussion")
         private var ready = false
         private var sentTurns: [DiscussionTurn]?
         private var sentLive: DiscussionStore.Live??
-        private var sentTheme: String?
-        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: String)?
+        private var sentTheme: WebThemeArguments?
+        private var wanted: (turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: WebThemeArguments)?
 
-        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: String) {
+        func update(turns: [DiscussionTurn], live: DiscussionStore.Live?, theme: WebThemeArguments) {
             wanted = (turns, live, theme)
             flush()
         }
 
         private func flush() {
             guard ready, let view, let wanted else { return }
-            if sentTheme != wanted.theme { sentTheme = wanted.theme; view.evaluateJavaScript("mvSetTheme(\(wanted.theme))") }
+            if sentTheme != wanted.theme { sentTheme = wanted.theme; call("window.mvSetTheme", wanted.theme.list, on: view) }
             if sentTurns != wanted.turns {
                 sentTurns = wanted.turns
-                view.evaluateJavaScript("mvSetTurns(\(Self.literal(Self.json(wanted.turns.map { ["question": $0.question, "answer": $0.answer] }))))")
+                // The page takes the turns as one JSON text and parses it itself.
+                call("window.mvSetTurns", [Self.json(wanted.turns.map { ["question": $0.question, "answer": $0.answer] })], on: view)
             }
             if sentLive == nil || sentLive! != wanted.live {
                 sentLive = .some(wanted.live)
                 if let live = wanted.live {
-                    view.evaluateJavaScript("mvSetLive(\(Self.literal(Self.json(["question": live.question, "text": live.text, "status": live.status]))))")
+                    call("window.mvSetLive", [Self.json(["question": live.question, "text": live.text, "status": live.status])], on: view)
                 } else {
-                    view.evaluateJavaScript("mvSetLive(null)")
+                    call("window.mvSetLive", [NSNull()], on: view)
                 }
             }
+        }
+
+        /// Calls a function of the discussion page (`JS.call`: the arguments are JSON, never script text).
+        private func call(_ function: String, _ args: [Any], on view: WKWebView) {
+            guard let script = JS.call(function, args: args) else { return }
+            view.evaluateJavaScript(script)
         }
 
         /// A plain JSON value as text. Takes no `Any` downcasts: an empty array casts to every array type, which once recursed forever.
@@ -66,29 +81,23 @@ struct DiscussionThreadView: NSViewRepresentable {
             return String(data: data, encoding: .utf8) ?? "[]"
         }
 
-        /// A JSON text as a JavaScript string literal.
-        private static func literal(_ text: String) -> String {
-            guard let data = try? JSONSerialization.data(withJSONObject: [text]), let array = String(data: data, encoding: .utf8) else { return "\"[]\"" }
-            return String(array.dropFirst().dropLast())
-        }
-
-        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
-            switch type {
-            case "ready":
+        override init() {
+            super.init()
+            messages.on(DiscussionMessage.Ready.self) { [weak self] _ in
+                guard let self else { return }
                 ready = true
                 sentTurns = nil; sentLive = nil; sentTheme = nil
                 flush()
-            case "copy":
-                guard let text = body["text"] as? String, !text.isEmpty else { return }
+            }
+            messages.on(DiscussionMessage.Copy.self) { message in
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            case "save":
-                guard let name = body["name"] as? String, let data = body["data"] as? String else { return }
-                let bytes = (body["base64"] as? Bool == true) ? Data(base64Encoded: data) : data.data(using: .utf8)
+                NSPasteboard.general.setString(message.payload.text, forType: .string)
+            }
+            messages.on(DiscussionMessage.Save.self) { message in
+                let save = message.payload
+                let bytes = save.base64 == true ? Data(base64Encoded: save.data) : save.data.data(using: .utf8)
                 guard let bytes else { return }
-                DispatchQueue.main.async { Self.save(bytes, suggested: name) }
-            default: break
+                DispatchQueue.main.async { Self.save(bytes, suggested: save.name) }
             }
         }
 

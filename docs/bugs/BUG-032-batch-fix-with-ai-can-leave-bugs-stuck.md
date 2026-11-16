@@ -28,7 +28,7 @@ Either every selected bug is `fixing` and the prompt was sent, or the bugs are l
 
 ## Actual
 
-In `fixBasketWithAI` (MarkView/Models/WorkspaceManager.swift) the loop that sets `status: fixing` runs first and its result is not checked. When `sendToAssistant(prompt, submit: true)` then returns nil, the function returns early: the bugs stay `fixing`, the basket is not cleared, and no run exists. A bug whose status write failed is still listed in the prompt as being fixed. The only recovery is the manual status reset.
+In `fixBasketWithAI` (MarkView/Models/Workspace/WorkspaceManager.swift) the loop that sets `status: fixing` runs first and its result is not checked. When `sendToAssistant(prompt, submit: true)` then returns nil, the function returns early: the bugs stay `fixing`, the basket is not cleared, and no run exists. A bug whose status write failed is still listed in the prompt as being fixed. The only recovery is the manual status reset.
 
 ## Environment
 
@@ -55,7 +55,7 @@ The order stays as it was: bugs are marked `fixing` before the prompt is sent (D
 `open` into each report after that, and a later write by the app would overwrite it. What changed is that the app
 now checks each step and undoes its own marks.
 
-- `BatchStart.run` (new, `MarkView/Models/BugBasket.swift`, Foundation only) does the sequence. The status write and
+- `BatchStart.run` (new, `MarkView/Models/Lifecycle/BugBasket.swift`, Foundation only) does the sequence. The status write and
   the send are passed in as closures, so the sequence can be tested without the app:
   1. Each bug is marked. A bug whose write fails is left out of the prompt.
   2. If fewer than `BugBasket.minimumBatch` bugs were marked, nothing is sent and the bugs already marked are put

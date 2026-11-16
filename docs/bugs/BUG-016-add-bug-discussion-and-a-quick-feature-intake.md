@@ -63,11 +63,11 @@ MarkView native macOS app (SwiftUI), targeting macOS 13+. Affected surfaces: Iss
 
 ## Suspected code
 
-- `MarkView/Views/FeaturePanelView.swift` — BugPanelView renders structured questions, Investigate, manual status selection, and Fix with AI, but no free-form bug discussion control.
-- `MarkView/Models/FeatureIntake.swift` — answerBug requires a question ID; investigateBug performs a report rewrite; IntakeKind and newFeature expose only the full feature intake route.
-- `MarkView/Models/FeatureStore.swift` — Discussion append and retrieval target a feature's discussion.md; no bug discussion equivalent is evident.
-- `MarkView/Models/FeatureModels.swift` — BugReport stores status, but the model has no rule for AI readiness proposals or user-confirmed handoff.
-- `MarkView/Views/FeatureNavigatorView.swift` — The intake sheet dispatches the feature choice directly to newFeature without a Quick Feature option.
+- `MarkView/Views/Lifecycle/FeaturePanelView.swift` — BugPanelView renders structured questions, Investigate, manual status selection, and Fix with AI, but no free-form bug discussion control.
+- `MarkView/Models/Lifecycle/FeatureIntake.swift` — answerBug requires a question ID; investigateBug performs a report rewrite; IntakeKind and newFeature expose only the full feature intake route.
+- `MarkView/Models/Lifecycle/FeatureStore.swift` — Discussion append and retrieval target a feature's discussion.md; no bug discussion equivalent is evident.
+- `MarkView/Models/Lifecycle/FeatureModels.swift` — BugReport stores status, but the model has no rule for AI readiness proposals or user-confirmed handoff.
+- `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` — The intake sheet dispatches the feature choice directly to newFeature without a Quick Feature option.
 - `docs/architecture/modules/feature-workflow.md` — The documented bug path uses question rounds and re-investigation; free-form discussion is documented for features, and New Feature has one intake flow.
 
 ## Likely causes

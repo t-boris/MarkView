@@ -51,18 +51,18 @@ Confirmed: opening and reading PDFs inside MarkView, including multipage documen
 
 ## Baseline behaviour before this implementation
 
-- FileType and TabKind have no dedicated PDF case. Regular files are openable regardless of extension; unknown formats fall back to text loading, which rejects binary content or unsupported encodings. (`MarkView/Models/DocumentState.swift`)
-- openFile reuses existing tabs and routes archives, data files, and images to dedicated viewers. Other files are attempted as text. Text-reading failures offer opening the file in the default application. (`MarkView/Models/WorkspaceManager.swift`)
-- The workspace already hosts dedicated image, archive, browser, and other tab views alongside the editor, but has no dedicated PDF reader view. (`MarkView/Views/ContentView.swift`)
+- FileType and TabKind have no dedicated PDF case. Regular files are openable regardless of extension; unknown formats fall back to text loading, which rejects binary content or unsupported encodings. (`MarkView/Models/Workspace/DocumentState.swift`)
+- openFile reuses existing tabs and routes archives, data files, and images to dedicated viewers. Other files are attempted as text. Text-reading failures offer opening the file in the default application. (`MarkView/Models/Workspace/WorkspaceManager.swift`)
+- The workspace already hosts dedicated image, archive, browser, and other tab views alongside the editor, but has no dedicated PDF reader view. (`MarkView/Views/Workspace/ContentView.swift`)
 - File → Open File uses an unrestricted file picker and passes the selected file to WorkspaceManager; PDF selection is not prevented by the picker. (`MarkView/App/MarkViewApp.swift`)
-- Feature-source ingestion already extracts embedded PDF text page by page using PDFKit. This extraction path does not perform OCR. (`MarkView/Models/FeatureIngest.swift`)
-- The browser can save pages as PDFs; opening a downloaded PDF explicitly delegates to the macOS default application. (`MarkView/Views/BrowserTabView.swift`)
+- Feature-source ingestion already extracts embedded PDF text page by page using PDFKit. This extraction path does not perform OCR. (`MarkView/Models/Lifecycle/FeatureIngest.swift`)
+- The browser can save pages as PDFs; opening a downloaded PDF explicitly delegates to the macOS default application. (`MarkView/Views/Browser/BrowserTabView.swift`)
 - Documented PDF capabilities include document export and PDF-book export with linked contents, page numbers, and bookmarks. These are export capabilities, not an integrated reader. (`README.md`)
 
 ## Implementation
 
-The dedicated native PDF reader is implemented in `Models/PDFReader.swift` and
-`Views/PDFReaderView.swift`. PDF tabs retain their reader state, bypass the text
+The dedicated native PDF reader is implemented in `Models/Book/PDFReader.swift` and
+`Views/Book/PDFReaderView.swift`. PDF tabs retain their reader state, bypass the text
 editor and saving/indexing paths, and restore with the window session. DEC-004
 records technical boundary and failure handling choices without reopening any
 answered product question. See `implementation/plan.md` for current task status,

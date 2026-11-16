@@ -61,9 +61,9 @@ MarkView native macOS app (macOS 13+, SwiftUI). App and macOS versions were not 
 
 ## Suspected code
 
-- `MarkView/Models/FeatureAI.swift` — The successful completion path sets phase to completed and retains the entry in actions; removal occurs only through dismissAction.
-- `MarkView/Views/FeaturePanelView.swift` — actionProgress renders all entries in assistant.actions and provides manual dismissal for finished entries.
-- `MarkView/Views/TOCView.swift` — Routes the Tasks tab to FeaturePanelView, confirming the affected surface.
+- `MarkView/Models/Lifecycle/FeatureAI.swift` — The successful completion path sets phase to completed and retains the entry in actions; removal occurs only through dismissAction.
+- `MarkView/Views/Lifecycle/FeaturePanelView.swift` — actionProgress renders all entries in assistant.actions and provides manual dismissal for finished entries.
+- `MarkView/Views/Workspace/TOCView.swift` — Routes the Tasks tab to FeaturePanelView, confirming the affected surface.
 
 ## Likely causes
 

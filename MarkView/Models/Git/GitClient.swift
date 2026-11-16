@@ -1,4 +1,8 @@
+import Combine
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Git integration — status, diff, commit, push/pull
 @MainActor
@@ -33,8 +37,8 @@ class GitClient: ObservableObject {
     @Published var lastError: String?
 
     var workingDirectory: URL?
-    /// Told the current branch after every refresh (the GitHub store follows it).
-    var onBranch: ((String) -> Void)?
+    /// The current branch, sent after every refresh (the GitHub store of the window follows it).
+    let branchReports = PassthroughSubject<String, Never>()
 
     struct GitFileStatus: Identifiable {
         let id = UUID()
@@ -134,7 +138,7 @@ class GitClient: ObservableObject {
 
         // Branch
         branch = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        onBranch?(branch)
+        branchReports.send(branch)
         await loadBranches(in: dir)
         await loadWorktrees(in: dir)
 
@@ -182,7 +186,7 @@ class GitClient: ObservableObject {
         }
         if branchMoved {
             branch = parsed.head == "(detached)" ? "HEAD" : parsed.head
-            onBranch?(branch)
+            branchReports.send(branch)
             Task { await refresh() }
         }
         let current = Self.operation(in: dir)
@@ -368,7 +372,7 @@ class GitClient: ObservableObject {
         if !text.components(separatedBy: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) {
             if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
             text += entry + "\n"
-            do { try text.write(to: file, atomically: true, encoding: .utf8) } catch {
+            do { try AtomicFile.write(text, to: file) } catch {
                 lastError = "Couldn't update .gitignore: \(error.localizedDescription)"
                 return
             }
@@ -377,7 +381,7 @@ class GitClient: ObservableObject {
     }
 
     func discardChanges(_ file: String) {
-        guard let dir = workingDirectory else { return }
+        guard workingDirectory != nil else { return }
         mutate(["checkout", "--", file], activity: "Discarding changes…")
     }
 
@@ -464,75 +468,21 @@ class GitClient: ObservableObject {
 
     // MARK: - Helpers
 
-    // Runs git OFF the main thread. Reads the pipe to EOF BEFORE waitUntilExit so a
-    // large output (e.g. `git status` on a big repo) can't fill the 64KB pipe buffer
-    // and deadlock the process — which previously froze the whole app on the main thread.
+    /// Runs git (through `/usr/bin/env`, which finds it on the PATH) off the main thread with no time limit: the standard
+    /// output as text, nil when git could not be started.
     nonisolated private func run(_ args: String..., in dir: URL) async -> String? {
         await run(args, in: dir)
     }
 
     nonisolated private func run(_ args: [String], in dir: URL) async -> String? {
-        let argv = args
-        return await Task.detached(priority: .utility) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = argv
-            process.currentDirectoryURL = dir
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice  // ignored — avoids a 2nd pipe deadlock
-            do {
-                try process.run()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()  // drains until git exits
-                process.waitUntilExit()
-                return String(data: data, encoding: .utf8)
-            } catch { return nil }
-        }.value
+        let result = await execute(args, in: dir)
+        return result.status == -1 ? nil : result.output
     }
 
-    /// Runs git off the main thread and keeps the exit status, stdout and stderr (both drained concurrently).
+    /// Runs git off the main thread and keeps the exit status (-1 when git could not be started), stdout and stderr.
     nonisolated private func execute(_ args: [String], in dir: URL) async -> (status: Int32, output: String, error: String) {
-        await Task.detached(priority: .utility) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = args
-            process.currentDirectoryURL = dir
-            let outPipe = Pipe(), errPipe = Pipe()
-            process.standardOutput = outPipe
-            process.standardError = errPipe
-            do {
-                try process.run()
-                let errHandle = errPipe.fileHandleForReading
-                let errFuture = Task.detached { errHandle.readDataToEndOfFile() }
-                let out = outPipe.fileHandleForReading.readDataToEndOfFile()
-                let err = await errFuture.value
-                process.waitUntilExit()
-                return (process.terminationStatus, String(decoding: out, as: UTF8.self), String(decoding: err, as: UTF8.self))
-            } catch { return (-1, "", error.localizedDescription) }
-        }.value
-    }
-
-    nonisolated private func runWithError(_ args: String..., in dir: URL) async -> (output: String?, error: String?) {
-        let argv = args
-        return await Task.detached(priority: .utility) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = argv
-            process.currentDirectoryURL = dir
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            process.standardOutput = outPipe
-            process.standardError = errPipe
-            do {
-                try process.run()
-                // Drain stderr concurrently so neither pipe buffer can fill and deadlock.
-                let errHandle = errPipe.fileHandleForReading
-                let errFuture = Task.detached { errHandle.readDataToEndOfFile() }
-                let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-                let err = String(data: await errFuture.value, encoding: .utf8)
-                process.waitUntilExit()
-                return (out, err)
-            } catch { return (nil, error.localizedDescription) }
-        }.value
+        let result = await Subprocess.run(SubprocessSpec(
+            executable: "/usr/bin/env", arguments: args, cwd: dir, timeout: 0, maxOutputBytes: SubprocessSpec.unboundedOutput))
+        return (result.exitCode, result.stdout, result.stderr)
     }
 }

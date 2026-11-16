@@ -1,16 +1,11 @@
 import Foundation
 
 // End-to-End QA (feature end-to-end-qa, REQ-001): asks the assistant for a scenario and gives the answer back with what is wrong with
-// it until it is whole or the tries are used up. What the assistant is asked and how its answer is read is QAGeneration; the call to
-// the assistant itself is passed in, so this loop is checked on its own (tools/tests/qa-tests.sh). Foundation only.
+// it until it is whole or the tries are used up (an AIOperation with `maxAttempts - 1` repairs). What the assistant is asked and how its
+// answer is read is QAGeneration; the request around a prompt and the runner are passed in, so the tries are checked on their own
+// (tools/tests/qa-tests.sh).
 
 enum QAGenerator {
-    /// What one call to the assistant brings back.
-    struct Answer {
-        var structured: Any?
-        var costUSD: Double?
-    }
-
     struct Outcome {
         var scenario: QAScenario
         /// What is still wrong with the scenario after the last try; empty when it is whole.
@@ -19,31 +14,45 @@ enum QAGenerator {
         var costUSD: Double?
     }
 
-    /// One call to the assistant: the prompt in, the answer out.
-    typealias Complete = (_ prompt: String) async throws -> Answer
+    /// A try that came back with problems: the next prompt carries them.
+    private struct Unsound: Error {
+        let result: QAGenerationResult
+    }
 
     /// Asks up to `maxAttempts` times. A try that comes back with problems is repeated with the earlier answer and the problems in the
-    /// prompt; the last scenario is returned either way, so the person can fix what is left in the editor.
+    /// prompt; the last scenario is returned either way, so the person can fix what is left in the editor. `prepare` makes the request
+    /// of a prompt (the assistant, folder, images and schema belong to the caller).
     static func generate(_ request: QAGenerationRequest, maxAttempts: Int = 3, onAttempt: ((Int) -> Void)? = nil,
-                         complete: Complete) async throws -> Outcome {
+                         prepare: @escaping (_ prompt: String) -> CLICompletion.Request,
+                         onActivity: (@Sendable (CLICompletion.Activity) -> Void)? = nil,
+                         runner: @escaping AIOperation<String, QAGenerationResult>.Runner = AIAssistantRunner.run) async throws -> Outcome {
         let base = QAGeneration.prompt(request)
-        var prompt = base
-        var last: QAGenerationResult?
-        var cost: Double?
         let tries = max(1, maxAttempts)
-        for attempt in 1...tries {
-            try Task.checkCancellation()
-            onAttempt?(attempt)
-            let answer = try await complete(prompt)
-            if let spent = answer.costUSD { cost = (cost ?? 0) + spent }
-            let result = QAGeneration.parse(answer.structured, request: request)
-            last = result
-            if result.isClean { return Outcome(scenario: result.scenario, remaining: [], attempts: attempt, costUSD: cost) }
-            let previous = answer.structured.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
-                .map { String(decoding: $0, as: UTF8.self) } ?? ""
-            prompt = QAGeneration.retryPrompt(base: base, previous: previous, result: result)
-        }
-        let final = last ?? QAGeneration.parse(nil, request: request)
-        return Outcome(scenario: final.scenario, remaining: final.messages, attempts: tries, costUSD: cost)
+        var cost: Double?
+        let asking = AIOperation<String, (result: QAGenerationResult, attempt: Int)>(
+            name: "qa-generate",
+            maxRepairAttempts: tries - 1,
+            buildRequest: { prompt in
+                onAttempt?(1)
+                return prepare(prompt)
+            },
+            parse: { _, answer, attempt in (QAGeneration.parse(answer.structured, request: request), attempt.number) },
+            validate: { _, read, attempt in
+                if !read.result.isClean, !attempt.isLast { throw Unsound(result: read.result) }
+            },
+            repair: { context in
+                onAttempt?(context.attempt.number + 1)
+                let previous = context.result.structured.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+                    .map { String(decoding: $0, as: UTF8.self) } ?? ""
+                guard let unsound = context.error as? Unsound else { return prepare(base) }
+                return prepare(QAGeneration.retryPrompt(base: base, previous: previous, result: unsound.result))
+            },
+            onResult: { answer in
+                if let spent = answer.costUSD { cost = (cost ?? 0) + spent }
+            },
+            runner: runner)
+        let (read, _) = try await asking.execute(base, onActivity: onActivity)
+        return Outcome(scenario: read.result.scenario, remaining: read.result.isClean ? [] : read.result.messages,
+                       attempts: read.attempt, costUSD: cost)
     }
 }

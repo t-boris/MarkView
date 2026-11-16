@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The tab of Prototype Studio: the live prototype on the left, the review conversation on the right.
 /// "Point" lets the reviewer click an element in the preview and say what to do with it.
@@ -10,9 +13,9 @@ struct PrototypeStudioView: View {
     @ObservedObject var session: PrototypeSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var draft = ""
-    @WindowStorage("prototypeChatWidth") private var chatWidth = 340.0
+    @WindowStorage(Setting.prototypeChatWidth) private var chatWidth: Double
     /// What Point sends about the element: its HTML, or its HTML and a screenshot of it.
-    @WindowStorage("prototypePickScreenshot") private var pickScreenshot = true
+    @WindowStorage(Setting.prototypePickScreenshot) private var pickScreenshot: Bool
     @State private var dragStartWidth: Double?
     @FocusState private var draftFocused: Bool
     /// The "Assumptions & gaps" popover of the header (REQ-001: the reconstruction's limits are disclosed).
@@ -138,7 +141,7 @@ struct PrototypeStudioView: View {
             .help("Click an element in the preview to say what should change about it")
             if session.manifest.mode == .code {
                 // Existing code is no longer reconstructed again: the current interface opens in UI Studio (DEC-005).
-                Button { workspaceManager.openUIStudio() } label: {
+                Button { workspaceManager.openTool(.uiStudio) } label: {
                     Label("Sync from code", systemImage: "macwindow.and.cursorarrow")
                 }
                 .controlSize(.small).fixedSize()
@@ -180,7 +183,7 @@ struct PrototypeStudioView: View {
             }
             .controlSize(.small).fixedSize()
             .help("Copy \(PrototypeReference.string(slug: session.slug)) — for an AI agent with access to this project; always resolves to the latest saved version")
-            Button { workspaceManager.openHTMLInBrowser(session.siteIndex) } label: {
+            Button { workspaceManager.browser.openHTML(session.siteIndex) } label: {
                 Image(systemName: "globe")
             }
             .buttonStyle(.plain).foregroundColor(palette.textDim).disabled(!session.hasSite)
@@ -855,16 +858,13 @@ private struct PrototypePreview: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        let controller = configuration.userContentController
-        controller.add(context.coordinator, name: "mvPick")
-        controller.add(context.coordinator, name: "mvError")
-        controller.add(context.coordinator, name: "mvAudit")
         context.coordinator.theme = Coordinator.ThemeKey(session.manifest.themes)
-        context.coordinator.install(on: controller, pickScript: Self.pickScript)
-        // One origin for all files of the site: errors in app.js and screens/*.js keep their text (BUG-047).
-        configuration.setURLSchemeHandler(context.coordinator.files, forURLScheme: PrototypeSchemeHandler.scheme)
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            handlers: ["mvPick", "mvError", "mvAudit"].map { .message($0, context.coordinator) },
+            userScripts: context.coordinator.scripts(pickScript: Self.pickScript),
+            // One origin for all files of the site: errors in app.js and screens/*.js keep their text (BUG-047).
+            urlSchemeHandlers: [(PrototypeSchemeHandler.scheme, context.coordinator.files)])
+        let webView = WebHost.makeWebView(configuration: configuration)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         context.coordinator.load(session: session, keepingScreen: false)
@@ -887,10 +887,6 @@ private struct PrototypePreview: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.configuration.userContentController.removeAllScriptMessageHandlers()
-    }
-
     @MainActor
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var session: PrototypeSession
@@ -906,14 +902,14 @@ private struct PrototypePreview: NSViewRepresentable {
 
         /// The scripts every page of the preview starts with: the pick overlay, the screen audit and the theme attribute. They are
         /// installed again when the theme changes so the next page already paints with it.
-        func install(on controller: WKUserContentController, pickScript: String) {
-            controller.removeAllUserScripts()
-            controller.addUserScript(WKUserScript(source: pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            controller.addUserScript(WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        func scripts(pickScript: String) -> [WKUserScript] {
+            var scripts = [WKUserScript(source: pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true),
+                           WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true)]
             if let attribute = theme.attribute, let id = theme.id {
-                controller.addUserScript(WKUserScript(source: PrototypeThemes.startScript(attribute: attribute, id: id),
-                                                      injectionTime: .atDocumentStart, forMainFrameOnly: true))
+                scripts.append(WKUserScript(source: PrototypeThemes.startScript(attribute: attribute, id: id),
+                                            injectionTime: .atDocumentStart, forMainFrameOnly: true))
             }
+            return scripts
         }
 
         /// Applies a change of theme to the open page at once, without a reload, and to the pages that follow.
@@ -921,11 +917,19 @@ private struct PrototypePreview: NSViewRepresentable {
             guard new != theme, let webView else { return }
             let old = theme
             theme = new
-            install(on: webView.configuration.userContentController, pickScript: PrototypePreview.pickScript)
-            if let previous = old.attribute, previous != new.attribute {
-                webView.evaluateJavaScript(PrototypeThemes.applyScript(attribute: previous, id: nil))
-            }
-            if let attribute = new.attribute { webView.evaluateJavaScript(PrototypeThemes.applyScript(attribute: attribute, id: new.id)) }
+            let controller = webView.configuration.userContentController
+            controller.removeAllUserScripts()
+            scripts(pickScript: PrototypePreview.pickScript).forEach(controller.addUserScript)
+            if let previous = old.attribute, previous != new.attribute { setThemeAttribute(previous, to: nil) }
+            if let attribute = new.attribute { setThemeAttribute(attribute, to: new.id) }
+        }
+
+        /// Sets (or, with no id, removes) the theme attribute of the page that is open. The names come from the prototype's
+        /// stylesheets, so they travel as `JS.call` arguments, never as script text.
+        private func setThemeAttribute(_ attribute: String, to id: String?) {
+            let script = id.flatMap { JS.call("document.documentElement.setAttribute", args: [attribute, $0]) }
+                ?? JS.call("document.documentElement.removeAttribute", args: [attribute])
+            if let script { webView?.evaluateJavaScript(script) }
         }
 
         /// The last audit request of the session this preview took up (BUG-053).
@@ -982,18 +986,15 @@ private struct PrototypePreview: NSViewRepresentable {
 
         func applyPickMode(_ on: Bool) {
             pickMode = on
-            webView?.evaluateJavaScript("window.__mvPick && window.__mvPick(\(on))")
+            if let script = JS.call("window.__mvPick", args: [on], ifDefined: true) { webView?.evaluateJavaScript(script) }
         }
 
         /// Outlines the instances of `component` in the page (none with nil) and reports how many it holds.
         func applyHighlight(_ component: String?, force: Bool = false) {
             guard force || component != highlighted, let webView else { return }
             highlighted = component
-            let value = component.map { path -> String in
-                let data = (try? JSONSerialization.data(withJSONObject: [path])) ?? Data("[\"\"]".utf8)
-                return String(decoding: data, as: UTF8.self) + "[0]"
-            } ?? "null"
-            webView.evaluateJavaScript("window.__mvHighlight ? window.__mvHighlight(\(value)) : null") { [weak self] result, _ in
+            guard let script = JS.call("window.__mvHighlight", args: [component as Any], ifDefined: true) else { return }
+            webView.evaluateJavaScript(script) { [weak self] result, _ in
                 guard let self, self.highlighted == component else { return }
                 self.session.highlightedInstances = component == nil ? nil : (result as? NSNumber)?.intValue
             }
@@ -1007,6 +1008,7 @@ private struct PrototypePreview: NSViewRepresentable {
 
         /// A screenshot of the pointed-at element, kept with the pick; sent only if the reviewer chose HTML + screenshot.
         private func snapshot(of pick: PrototypeAI.Pick) {
+            // task: waits 80 ms for the page to settle before a snapshot; weak self
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                 guard let self, let webView = self.webView else { return }
                 let config = WKSnapshotConfiguration()
@@ -1022,25 +1024,23 @@ private struct PrototypePreview: NSViewRepresentable {
             }
         }
 
-        nonisolated func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             let name = message.name, body = message.body
-            Task { @MainActor in
-                if name == "mvError", let text = body as? String {
-                    session.report(error: String(text.prefix(300)))
-                } else if name == "mvAudit" {
-                    session.finishAudit(PrototypeAudit.report(from: body))
-                } else if name == "mvPick", let info = body as? [String: Any] {
-                    func field(_ key: String) -> String { info[key] as? String ?? "" }
-                    let box = info["rect"] as? [String: Any] ?? [:]
-                    func number(_ key: String) -> CGFloat { CGFloat((box[key] as? NSNumber)?.doubleValue ?? 0) }
-                    let rect = CGRect(x: number("x"), y: number("y"), width: number("w"), height: number("h"))
-                    let component = PrototypeFiles.componentPath(field("component"))
-                    let pick = PrototypeAI.Pick(selector: field("selector"), tag: field("tag"), text: field("text"),
-                                                html: field("html"), screen: field("screen"), rect: rect, component: component)
-                    session.pick = pick
-                    session.pickMode = false
-                    snapshot(of: pick)
-                }
+            if name == "mvError", let text = body as? String {
+                session.report(error: String(text.prefix(300)))
+            } else if name == "mvAudit" {
+                session.finishAudit(PrototypeAudit.report(from: body))
+            } else if name == "mvPick", let info = body as? [String: Any] {
+                func field(_ key: String) -> String { info[key] as? String ?? "" }
+                let box = info["rect"] as? [String: Any] ?? [:]
+                func number(_ key: String) -> CGFloat { CGFloat((box[key] as? NSNumber)?.doubleValue ?? 0) }
+                let rect = CGRect(x: number("x"), y: number("y"), width: number("w"), height: number("h"))
+                let component = PrototypeFiles.componentPath(field("component"))
+                let pick = PrototypeAI.Pick(selector: field("selector"), tag: field("tag"), text: field("text"),
+                                            html: field("html"), screen: field("screen"), rect: rect, component: component)
+                session.pick = pick
+                session.pickMode = false
+                snapshot(of: pick)
             }
         }
     }

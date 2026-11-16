@@ -8,7 +8,7 @@ import JavaScriptCore
 enum PrototypeRuntime {
     /// The files the runtime writes before any assistant run. `seed.js` and `styles.css` are placeholders the assistant
     /// replaces; until then the screens render against an empty `DB` with the base layout.
-    static func files(plan: PrototypeAI.Plan, key: String, roles: [String]) -> [PrototypeFiles.File] {
+    static func files(plan: PrototypePlan, key: String, roles: [String]) -> [PrototypeFiles.File] {
         let index = PrototypeFiles.insertScreenScripts(into: indexHTML(title: plan.title, key: key), ids: plan.screens.map(\.id))
             ?? indexHTML(title: plan.title, key: key)
         return [
@@ -59,7 +59,7 @@ enum PrototypeRuntime {
     }
 
     /// `App.configure(…)` with the plan's screens and roles, appended to the runtime.
-    private static func configuration(plan: PrototypeAI.Plan, roles: [String]) -> String {
+    private static func configuration(plan: PrototypePlan, roles: [String]) -> String {
         let screens: [[String: Any]] = plan.screens.map {
             ["id": $0.id, "name": $0.name, "route": $0.route, "embedded": $0.embedded, "hosts": $0.hosts]
         }

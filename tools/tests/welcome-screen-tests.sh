@@ -10,8 +10,9 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/WelcomeScreenTests.swift "$out/main.swift"
 swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" \
-    MarkView/Models/Appearance/ProjectBackdrop.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Workspace/WelcomeActions.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Appearance/WebThemeArguments.swift Packages/MarkViewCore/Sources/MarkViewCore/JS.swift MarkView/Models/Appearance/ProjectBackdrop.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Workspace/WelcomeActions.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Appearance/BackdropRegistry.swift \
     MarkView/Views/Appearance/ProjectBackdropLayers.swift MarkView/Views/Appearance/DevBackdropLayers.swift MarkView/Views/Appearance/AtmosphereBackdropLayers.swift MarkView/Views/Appearance/BackdropLayerBuilders.swift MarkView/Views/Appearance/WelcomeBackdropView.swift MarkView/Views/Workspace/WelcomeView.swift \
-    MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift \
+    MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift \
     "$out/main.swift" -o "$out/welcome-tests"
+cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/welcome-tests"

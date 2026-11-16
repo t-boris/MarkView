@@ -5,6 +5,12 @@ Swift side that hosts it (`EditorView.swift`, `WebViewBridge.swift`), PDF export
 (`PDFExporter.swift`), the embedded terminal page (`terminal.html`, JS side only), the
 vendor build tooling (`tools/web-vendor/`). (The old dormant `EditorWeb/` prototype has been deleted.)
 
+Status (2026-11-15, code at `ac3001ba`): sections 4, 5, 7, 8, 9 and 11 and the risk list in section 10 were re-read against the code for this
+edit. The bridge is now declared by `Editor/js/bridge-contract.json` and decoded by `TypedWebBridge` (AR-28); the 2.17.0 text about hand-parsed
+messages, the `/tmp` diagnostic log, CDN scripts and string-interpolated JS no longer holds and is replaced below. Sections 3 and 6, the
+vendored-library table and the data-viewer section keep their 2.17.0 text; their paths and symbols were checked mechanically, their narrative
+was not re-read.
+
 Sibling docs: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 [ai-assistants-and-dictation](ai-assistants-and-dictation.md) ·
 [feature-workflow](feature-workflow.md) ·
@@ -24,10 +30,10 @@ The subsystem owns:
   the tree and in the source view), JSON Canvas, read-only source code
   (CodeMirror 6), data files (tables, Parquet, SQLite, Excel, HAR, logs — `markview-data.js`),
   the X-Ray / Architecture graph host, and the Recursive Insight sandboxed iframe. The mode is switched in-page; the web view is never recreated per tab
-  (`EditorView.swift:10-38`, `EditorView.swift:288-375`).
+  (`EditorView.swift`, `EditorView.swift`).
 - The single script message handler `bridge` and its JSON-ish message protocol
-  (`EditorView.swift:16`, `WebViewBridge.swift:76-347`).
-- All Swift→JS calls into the editor (`WebViewBridge.swift:366-670`, plus a few inline in
+  (`EditorView.swift`, `WebViewBridge.swift`).
+- All Swift→JS calls into the editor (`WebViewBridge.swift`, plus a few inline in
   `EditorView.swift` and `PDFExporter.swift`).
 - Markdown rendering (markdown-it + plugins, KaTeX, Mermaid, Prism), heading/TOC extraction,
   semantic block extraction and diffing, find-in-page, WYSIWYG formatting and Turndown
@@ -50,7 +56,7 @@ It does **not** own:
 - Insight session generation and `blocksChanged` indexing
   ([semantic-index-and-insight](semantic-index-and-insight.md)).
 - The PTY / process side of the terminal, and the GitHub HTML view
-  (`GitHubViews.swift:1264-1298`, JavaScript disabled there).
+  (`GitHubViews.swift`, JavaScript disabled there).
 
 ---
 
@@ -58,11 +64,14 @@ It does **not** own:
 
 | Path | Role |
 |---|---|
-| `MarkView/Views/EditorView.swift` | `NSViewRepresentable` hosting the editor `WKWebView`; `Coordinator` = navigation delegate + `WebViewBridgeDelegate`; routes tabs by kind; image inlining; notification observers |
-| `MarkView/Bridge/WebViewBridge.swift` | `WKScriptMessageHandler` for `bridge`; payload parsing/validation; all typed Swift→JS commands; `/tmp` diag logger; `WebViewBridgeDelegate` protocol |
+| `MarkView/Views/Workspace/EditorView.swift` | `NSViewRepresentable` hosting the editor `WKWebView`; `Coordinator` = navigation delegate + `WebViewBridgeDelegate`; routes tabs by kind; image inlining; notification observers |
+| `MarkView/Bridge/WebViewBridge.swift` | The `bridge` channel: `registerHandlers` (one `messages.on` per contract message, each calling the `WebViewBridgeDelegate`), the Swift→JS commands (built with `JS.call` from `MarkViewCore`), the `WebViewBridgeDelegate` protocol; `AnyCodable` is declared here and used nowhere else |
+| `MarkView/Bridge/TypedWebBridge.swift` | `BridgeContract` (reads `bridge-contract.json`), `TypedWebBridge` (checks each message against the contract, decodes the payload into its type, calls the one registered handler; a refusal is logged by type name only) |
+| `MarkView/Bridge/PageMessages.swift` | One `BridgePayload` type per message (`EditorMessage`, the discussion and terminal messages) |
+| `MarkView/Resources/Editor/js/bridge-contract.json` | The one declaration of every message a page may post, per channel (`bridge`, `discussion`, `terminal`); `mv-kit.js` (`mvBridge.send`) validates against it before posting |
 | `MarkView/Bridge/PDFExporter.swift` | Entry points (active tab, research-map report), save panel with paper and style, `render` through `BookPDFRenderer` in `document` mode, atomic save |
 | `MarkView/Bridge/PrototypeSchemeHandler.swift` | `mvproto://site/<path>`: serves a prototype's `site/` folder to the Prototype Studio preview so all files share one origin and a script error keeps its text and line (a `file://` page reports only "Script error."); paths are confined to the folder (`..`, encoded `..` and symlinks out of it → 403); no caching |
-| `MarkView/Resources/Editor/index.html` | Editor page: CSP, ~1270 lines of inline CSS (`index.html:33-1307`), DOM skeleton, ordered `<script>` tags |
+| `MarkView/Resources/Editor/index.html` | Editor page: CSP, ~1270 lines of inline CSS (`index.html`), DOM skeleton, ordered `<script>` tags |
 | `MarkView/Resources/Editor/terminal.html` | xterm.js page for embedded terminals; `terminal` message handler protocol |
 | `js/markview-early.js` | First script: global `error`/`unhandledrejection` capture → `jsError` |
 | `js/markview-state.js` | Global `state`, `DOM` cache, markdown-it instance `md`, Mermaid init |
@@ -70,7 +79,7 @@ It does **not** own:
 | `js/markview-render.js` | `renderMarkdown`, frontmatter panel, Mermaid/Prism passes, headings, semantic blocks + diff, heading IntersectionObserver |
 | `js/markview-edit.js` | Stats, font slider, Turndown, source/WYSIWYG mode switch, format commands, floating format bar, save/translate/refresh senders |
 | `js/markview-find.js` | Selection actions (translate/explain), feature-action menu, action popup, `window.showSelectionResult`, find bar |
-| `js/markview-themes.js` | The window theme: tokens of the eleven appearances (classic-dark, classic-light, darcula, midnight, graphite, tokyo-night, carbon-red, nord, forest, paper, daylight) as ~118 CSS custom properties on `<html>`, `data-preset` / `data-theme` / `data-accent`; `MarkViewThemes.apply(id, accent)`; shared by the editor, discussion and terminal pages. Its base colours are compared with `Models/AppTheme.swift` by `tools/tests/theme-model-tests.sh` |
+| `js/markview-themes.js` | The window theme: tokens of the eleven appearances (classic-dark, classic-light, darcula, midnight, graphite, tokyo-night, carbon-red, nord, forest, paper, daylight) as ~118 CSS custom properties on `<html>`, `data-preset` / `data-theme` / `data-accent`; `MarkViewThemes.apply(id, accent)`; shared by the editor, discussion and terminal pages. Its base colours are compared with `Models/Appearance/AppTheme.swift` by `tools/tests/theme-model-tests.sh` |
 | `js/markview-bridge.js` | Theme entry (`applyTheme`), `sendToSwift`, second error capture, base `window.setContent` |
 | `js/markview-structured.js` | JSON/XML/YAML tree view, format/minify, struct headings; `window.setStructuredContent` |
 | `js/markview-insight-srcdoc.js` | Insight: escapes, lib map, blob materialisation, iframe `srcdoc` builder incl. the iframe script |
@@ -80,12 +89,12 @@ It does **not** own:
 | `js/markview-canvas.js` | JSON Canvas viewer (pan/zoom), wraps `setContent`/`scrollToHeading`; `canvasOpenFile` |
 | `js/markview-panels.js` | `window.MVPanels.resizable` (drag-resizable side panels, width in localStorage) |
 | `js/markview-code.js` | Code viewer (lazy-loads `codemirror.bundle.js`), margin notes, nav, AI ask; wraps `setContent`/`setStructuredContent`/`setTheme`; `code` messages |
-| `js/markview-architecture.js` | X-Ray host (lazy-loads Cytoscape + ELK); wraps `setContent`/`setStructuredContent`/`setCodeContent`/`setTheme`; `arch` messages |
+| `js/markview-architecture-*.js` | X-Ray host (lazy-loads Cytoscape + ELK); wraps `setContent`/`setStructuredContent`/`setCodeContent`/`setTheme`; `arch` messages |
 | `js/markview-diagram-viewer.js` | Full-window pan/zoom viewer for rendered Mermaid SVGs |
 | `js/markview-d3-mermaid.js` | `%%INTERACTIVE` Mermaid → D3+dagre canvas; `generateGraph`; end-checkpoint sentinel; schedules `init` |
 | `js/markview-init.js` | Textarea input, link interception, global shortcuts, `init()` (sends `ready`) |
 | `vendor/css/markview-canvas.css` | Canvas viewer styles |
-| `vendor/MANIFEST.txt` | Supply-chain manifest (version, SHA-256, source URL, CVE check) for the CDN-sourced vendored libs |
+| `vendor/MANIFEST.txt` | Supply-chain manifest (version, SHA-256, source URL, CVE check) for the vendored libs it lists |
 | `tools/web-vendor/build.sh`, `package.json`, `package-lock.json`, `codemirror-entry.js`, `xterm-entry.js` | esbuild bundling of CodeMirror (`MVCode`) and xterm (`MVTerm`); copies Cytoscape/ELK/xterm.css |
 | `MarkView.xcodeproj/project.pbxproj` | Bundles `Resources/Editor` (including `vendor/`, `book.html`, `discussion.html`, `terminal.html`, `index.html`) |
 
@@ -107,9 +116,9 @@ It does **not** own:
 | `cytoscape.min.js` | cytoscape 3.34.3 | `tools/web-vendor/package.json` |
 | `elk.bundled.js` | elkjs 0.12.0 | `tools/web-vendor/package.json` |
 | `cytoscape-elk.js` | cytoscape-elk 2.3.0 | `tools/web-vendor/package.json` |
-| **CDN (not vendored)** d3 7.9.0, @dagrejs/dagre 1.1.4, turndown 7.1.3, turndown-plugin-gfm 1.0.2 | loaded from `cdn.jsdelivr.net` | `index.html:1539-1544` |
+| d3, turndown, turndown-plugin-gfm, DOMPurify | `vendor/js/d3.min.js`, `turndown.min.js`, `turndown-plugin-gfm.min.js`, `dompurify.min.js` (all vendored; versions are in `MANIFEST.txt`, not re-checked here) | `index.html` |
 
-`MANIFEST.txt` does not cover the `tools/web-vendor` bundles, and nothing covers the CDN scripts.
+`MANIFEST.txt` does not cover the `tools/web-vendor` bundles. No editor script loads from a CDN: the CSP is `script-src 'self' 'wasm-unsafe-eval'` and `index.html` has no `https://` script tag.
 
 ---
 
@@ -117,37 +126,38 @@ It does **not** own:
 
 ### Swift
 
-- **`EditorView`** (`EditorView.swift:6`) — `makeNSView` builds `WKWebViewConfiguration`, registers
-  `bridge` as the `"bridge"` handler (`:16`), enables `developerExtrasEnabled` via private KVC
-  (`:19`), reads `index.html` from the bundle, rewrites `data-preset="classic-dark" data-theme="dark"` to the window's
-  `WindowTheme.htmlAttributes` (`:51`), and loads it with `loadHTMLString(html, baseURL: <bundle>/Editor/)` (`:182-187`).
-  `updateNSView` pushes the active tab and theme on every SwiftUI update (`:40-53`).
-- **`EditorView.Coordinator`** (`:61`) — state: `isEditorReady`, `pendingContent/URL/Tab`,
+- **`EditorView`** (`EditorView.swift`) — `makeNSView` builds `WKWebViewConfiguration`, registers
+  `bridge` as the `"bridge"` handler, builds its configuration through `WebHost.makeConfiguration` (`MarkViewCore`; the inspector is enabled in Debug builds only), reads `index.html` from the bundle, rewrites `data-preset="classic-dark" data-theme="dark"` to the window's
+  `WindowTheme.htmlAttributes`, and loads it with `loadHTMLString(html, baseURL: <bundle>/Editor/)`.
+  `updateNSView` pushes the active tab and theme on every SwiftUI update.
+- **`EditorView.Coordinator`** — state: `isEditorReady`, `pendingContent/URL/Tab`,
   `lastLoadedContent` (dedupe key), `lastLoadedDocumentURL`, `currentDocumentBaseURL`,
   `currentCodeURL`, `pendingCodeReveal`, `currentLineRevealURL`, `lastTheme`, insight
   subscription state (`insightCancellables`, `currentInsightSessionId`,
   `lastForwardedSectionLength`), `architectureCancellable`/`architectureScope`,
   `codeNotesCancellable`.
-  - `loadContentIfNeeded(_:documentURL:tab:)` (`:288`) — central router by `TabKind`
+  - `loadContentIfNeeded(_:documentURL:tab:)` — central router by `TabKind`
     (`.insight`, `.architecture`, `.terminal/.image/.github` = no-op, `.file`) and then by
     `FileType` (code / notes-view / structured / markdown).
-  - `routeInsight` (`:437`), `routeArchitecture` (`:392`), `routeCodeNotes` (`:378`) —
+  - `routeInsight`, `routeArchitecture`, `routeCodeNotes` —
     Combine subscriptions that push state into JS.
-  - `resolveImagePaths(in:relativeTo:)` (`:632`) — regex `![..](path)` → base64 data URI.
-  - `webView(_:decidePolicyFor:)` (`:238`) — navigation policy.
-  - NotificationCenter observers (`:118-167`): `.performPDFExport`, `.scrollToHeading`,
+  - Pictures are not inlined any more (`resolveImagePaths` is gone): the page asks for them through the `markview-doc:///<path>` scheme (`DocumentFileSchemeHandler`, rule in `DocumentFiles`).
+  - `webView(_:decidePolicyFor:)` — navigation policy.
+  - NotificationCenter observers: `.performPDFExport`, `.scrollToHeading`,
     `.revealCodeLine`, `.codeNavEvent`, `.scrollToText`.
-- **`WebViewBridge`** (`WebViewBridge.swift:71`) — `NSObject, WKScriptMessageHandler`; holds a
-  `weak var delegate: WebViewBridgeDelegate?`. `userContentController(_:didReceive:)` (`:76`)
-  handles `headingsUpdated`, `blocksChanged`, the nine insight messages and `jsError` inline, then
-  falls through to `handleMessage(type:data:)` (`:247`). Encoding helper `encodeStringForJS`
-  (`:357`) uses the array-wrap `JSONSerialization` idiom. `logInsightDiag` (`:460`) appends to
-  `/tmp/markview-insight-diag.log`, stderr and NSLog.
-- **`BridgeMessage` / `AnyCodable`** (`WebViewBridge.swift:6-68`) — declared but unused: messages
-  are parsed from `message.body as? [String: Any]`.
-- **`WebViewBridgeDelegate`** (`:691-725`) — 26 callbacks; the only implementation is
-  `EditorView.Coordinator` (`EditorView.swift:718-965`), which hops each to `@MainActor` and calls
-  `WorkspaceManager`.
+- **`TypedWebBridge`** (`TypedWebBridge.swift`) — the `WKScriptMessageHandler` of one channel. `receive` refuses a body without a string
+  `type`, a type not in the contract, a message from a frame other than the top frame when the contract says `mainFrameOnly`, and a
+  payload that does not match its spec; then it decodes the payload into the registered `BridgePayload` and calls the handler on the main
+  actor. Every refusal is logged by type name only (`AppLog.bridge`).
+- **`WebViewBridge`** (`WebViewBridge.swift`) — owns the `TypedWebBridge` for the `bridge` channel and registers one handler per message in
+  `registerHandlers`; each handler calls the `weak var delegate: WebViewBridgeDelegate?`. `jsError` is the only message with no delegate
+  call: it goes to `logInsightDiag`, which in a Debug build writes one `AppLog.insight` line and deletes a leftover
+  `/tmp/markview-insight-diag.log` from an older release (AR-09).
+- **`BridgeMessage<Payload>`** (`TypedWebBridge.swift`) — what a handler receives: the decoded `payload`, the `doc` (id of the tab the page
+  described) and the raw dictionary, which the `code`, `arch` and `researchMap` handlers pass on because their owners read the fields by action.
+  `AnyCodable` (`WebViewBridge.swift`) is still declared and nothing else uses it.
+- **`WebViewBridgeDelegate`** — 27 methods; the only implementation is `EditorView.Coordinator` (`EditorView.swift`), which hops each to
+  `@MainActor` and calls the window's objects (`TabsController`, `CodeAndXRayCoordinator`, `FeatureFlowCoordinator`, `InsightCoordinator`).
 - **`PDFExporter`** (`PDFExporter.swift`) — `exportPDF(from:tab:fileName:documentFiles:)` prints a file tab from the text the tab holds
   (an insight tab from the page that shows it), `exportPDF(markdown:title:fileName:baseURL:documentFiles:)` prints a document the page builds
   on request (the report of a research map), `render(_:style:entry:allowFile:)` makes the PDF without a panel. The engine paginates page by
@@ -159,43 +169,43 @@ It does **not** own:
 
 | Global | Defined | Purpose |
 |---|---|---|
-| `state` | `markview-state.js:4` | `mode` (`source`/`preview`/`structured`/`structured-source`/`insight`/`code`; `arch-mode` is a body class), `theme`, `markdown`, `headings`, `activeHeadingId`, `isRendering`, `documentBaseURL`, `fileType` (`markdown`/`json`/`xml`/`yaml`/`canvas`/`code`), insight fields (`insightIframe`, `insightSessionId`, `insightCurrentNodeId`, `insightSkeleton`, `insightSectionLibsNeeded`, `insightBlobURLs`, `insightLibBytes`, `insightLoadTimer`, `insightIframeReady`, `insightPendingChunks`) |
-| `DOM` | `markview-state.js:27` | Cached element refs (`editor` textarea, `rendered` contentEditable, panes, status, insight chrome) |
-| `md` | `markview-state.js:50` | markdown-it instance (`html: true, breaks, linkify, typographer`) + footnote, task-lists, admonition containers (`info/warning/tip/danger`), image renderer override |
-| `previousBlocks` | `markview-render.js:282` | Last extracted semantic blocks for diffing |
-| `wysiwygDirty`, `turndownService` | `markview-edit.js:124`, `:42` | Whether WYSIWYG DOM was edited; Turndown instance |
-| `formatBarSelectedText`, `featureText` | `markview-edit.js:252`, `markview-find.js:45` | Captured selection for RU/EN/?/✦ buttons |
-| `findState` | `markview-find.js:158` | Find bar state and `<mark>` highlights |
-| `cv` | `markview-canvas.js:14` | JSON Canvas viewer state |
-| `dv` | `markview-diagram-viewer.js:8` | Diagram viewer state |
-| `window.MVPanels`, `window.MVCode`, `window.MVTerm` | `markview-panels.js:7`, `codemirror-entry.js` (last line), `xterm-entry.js` | Panel resizer; CodeMirror factory; xterm exports |
-| `window.pendingCodeLine` | `markview-code.js:257` | Line reveal queued until the code viewer exists |
+| `state` | `markview-state.js` | `mode` (`source`/`preview`/`structured`/`structured-source`/`insight`/`code`; `arch-mode` is a body class), `theme`, `markdown`, `headings`, `activeHeadingId`, `isRendering`, `documentBaseURL`, `fileType` (`markdown`/`json`/`xml`/`yaml`/`canvas`/`code`), insight fields (`insightIframe`, `insightSessionId`, `insightCurrentNodeId`, `insightSkeleton`, `insightSectionLibsNeeded`, `insightBlobURLs`, `insightLibBytes`, `insightLoadTimer`, `insightIframeReady`, `insightPendingChunks`) |
+| `DOM` | `markview-state.js` | Cached element refs (`editor` textarea, `rendered` contentEditable, panes, status, insight chrome) |
+| `md` | `markview-state.js` | markdown-it instance (`html: true, breaks, linkify, typographer`) + footnote, task-lists, admonition containers (`info/warning/tip/danger`), image renderer override |
+| `previousBlocks` | `markview-render.js` | Last extracted semantic blocks for diffing |
+| `wysiwygDirty`, `turndownService` | `markview-edit.js` | Whether WYSIWYG DOM was edited; Turndown instance |
+| `formatBarSelectedText`, `featureText` | `markview-edit.js`, `markview-find.js` | Captured selection for RU/EN/?/✦ buttons |
+| `findState` | `markview-find.js` | Find bar state and `<mark>` highlights |
+| `cv` | `markview-canvas.js` | JSON Canvas viewer state |
+| `dv` | `markview-diagram-viewer.js` | Diagram viewer state |
+| `window.MVPanels`, `window.MVCode`, `window.MVTerm` | `markview-panels.js`, `codemirror-entry.js` (last line), `xterm-entry.js` | Panel resizer; CodeMirror factory; xterm exports |
+| `window.pendingCodeLine` | `markview-code.js` | Line reveal queued until the code viewer exists |
 
 **Function wrapping chain.** Several `window.*` entry points are monkey-patched by later scripts,
-so load order is semantic (`index.html:1583-1590` comments):
+so load order is semantic (`index.html` comments):
 
-- `window.setContent`: base `markview-bridge.js:70` → canvas cleanup `markview-canvas.js:60` →
-  leave code view `markview-code.js:1263` → leave X-Ray `markview-architecture.js:2087`.
-- `window.setStructuredContent`: `markview-structured.js:4` → `markview-code.js:1268` →
-  `markview-architecture.js:2087`.
-- `window.setTheme`: `markview-globals.js:7` → `markview-code.js:1273` →
-  `markview-architecture.js:2096`.
-- `window.scrollToHeading`: `markview-globals.js:15` → `markview-canvas.js:69` (`cv-` ids pan the canvas).
-- `window.setCodeContent`: `markview-code.js:204` → `markview-architecture.js:2087`.
+- `window.setContent`: base `markview-bridge.js` → canvas cleanup `markview-canvas.js` →
+  leave code view `markview-code.js` → leave X-Ray `markview-architecture-*.js`.
+- `window.setStructuredContent`: `markview-structured.js` → `markview-code.js` →
+  `markview-architecture-*.js`.
+- `window.setTheme`: `markview-globals.js` → `markview-code.js` →
+  `markview-architecture-*.js`.
+- `window.scrollToHeading`: `markview-globals.js` → `markview-canvas.js` (`cv-` ids pan the canvas).
+- `window.setCodeContent`: `markview-code.js` → `markview-architecture-*.js`.
 
-### Script load order (`index.html:1524-1593`)
+### Script load order (`index.html`)
 
-1. markdown-it + footnote, task-lists, container (vendored)
+1. `markview-themes.js`, `mv-kit.js`, then markdown-it + footnote, task-lists, container (vendored)
 2. mermaid, katex, auto-render (vendored)
-3. **d3, dagre, turndown, turndown-plugin-gfm from `cdn.jsdelivr.net`**
+3. d3, DOMPurify, turndown, turndown-plugin-gfm (vendored)
 4. Prism + 15 language components, js-yaml (vendored)
 5. `markview-early` → `state` → `mdext` → `render` → `edit` → `find` → `bridge` → `structured`
    → `insight-srcdoc` → `insight-helpers` → `insight-handlers` → `globals` → `canvas` → `panels`
-   → `code` → `architecture` → `diagram-viewer` → `d3-mermaid` → `init`
+   → `code` → `architecture-model/graph/panels/details/toolbar` → `diagram-viewer` → `d3-mermaid` → `data` → `research-map-*` (seven files) → `init`. `markview-themes.js` and `mv-kit.js` load first, in `<head>`
 
-Lazy loads: `codemirror.bundle.js` on first code view (`markview-code.js:164-176`); `cytoscape.min.js`
-→ `elk.bundled.js` → `cytoscape-elk.js` on first X-Ray render (`markview-architecture.js:72-87`);
-Insight iframe `<script src>` for prism/mermaid/chart/katex (`markview-insight-srcdoc.js:191-205`).
+Lazy loads: `codemirror.bundle.js` on first code view (`markview-code.js`); `cytoscape.min.js`
+→ `elk.bundled.js` → `cytoscape-elk.js` on first X-Ray render (`markview-architecture-*.js`);
+Insight iframe `<script src>` for prism/mermaid/chart/katex (`markview-insight-srcdoc.js`).
 
 ---
 
@@ -203,136 +213,150 @@ Insight iframe `<script src>` for prism/mermaid/chart/katex (`markview-insight-s
 
 **Into this subsystem**
 
-- SwiftUI: `ContentView.swift:55` instantiates `EditorView()`; environment objects
+- SwiftUI: `ContentView.swift` instantiates `EditorView()`; environment objects
   `WorkspaceManager`, `WindowTheme`.
 - Notifications posted elsewhere and observed in `EditorView.Coordinator.init`:
-  `.performPDFExport` (posted `ContentView.swift:339`), `.scrollToHeading` (`TOCView.swift:50`),
-  `.scrollToText` (`TOCView.swift:173`, `WorkspaceManager.swift:1156`, `:1334`, `:3061`),
-  `.revealCodeLine` (`WorkspaceManager.swift:1281`), `.codeNavEvent` (`CodeNavigation.swift:396`).
-- `WorkspaceManager.releaseInsightBlobsHook` (`WorkspaceManager.swift:379`) is set by
-  `routeInsight` (`EditorView.swift:465`) and invoked from `closeTab` (`WorkspaceManager.swift:1567`).
+  `.performPDFExport` (posted `ContentView.swift`), `.scrollToHeading` (`TOCView.swift`),
+  `.scrollToText` (`TOCView.swift`, `WorkspaceManager.swift`),
+  `.revealCodeLine` (`WorkspaceManager.swift`), `.codeNavEvent` (`CodeNavigation.swift`).
+- `InsightCoordinator.blobReleases` (a `PassthroughSubject`) is what the editor listens to while `routeInsight` (`EditorView.swift`) shows an
+  insight tab; `InsightCoordinator.close` sends it, and the window runs `close` when `TabsController.closeTab` reports `TabsEvent.insightClosed`.
 - Published stores observed: `InsightSession.$skeleton/$currentNodeSections/$lastError/$statusMessage`,
   `ArchitectureStore.$revision/$progress`, `codeExplain.$revision`, `architecture.$revision`.
 
 **Out of this subsystem** (all through `EditorView.Coordinator` → `WorkspaceManager`, main actor):
-`updateActiveTabContent` (`WorkspaceManager.swift:2763`), `updateActiveTabHeadings` (`:2772`),
-`updateActiveHeading` (`:2786`), `updateActiveTabScrollPosition` (`:2779`, never reached, see §10),
-`handleBlocksDelta` (`:2931`), `handleCursorBlockChange` (`:3073`), `saveActiveFile` (`:1648`),
-`reloadActiveTabFromDisk` (`:2797`), `translateDocument` (`:1726`), `handleSelectionAction`
-(`:1657`), `runFeatureAction` (`:3307`), `runGraphEdit` (`:2848`), `presentGraphCreator` (`:2827`),
-`openCanvasFileReference` (`:1344`), `handleCodeAction` (`:915`), `setNotesView` (`:907`),
-`handleArchitectureAction` (`:1127`), `openFile(_:lineFragment:)` (`:1286`), `openWikiLink`
-(`:1300`), `prepareCodeNotes`/`codeNotesJSON` (`:879`, `:885`), `xrayStore(for:)` (`:1009`),
-`didReceiveInsightIframeReady` … `didRequestInsightRetrySection` (`:2216-2349`).
+`updateActiveTabContent` (`WorkspaceManager.swift`), `updateActiveTabHeadings`,
+`updateActiveHeading`, `updateActiveTabScrollPosition` (never reached, see §10),
+`handleBlocksDelta`, `handleCursorBlockChange`, `saveActiveFile`,
+`reloadActiveTabFromDisk`, `translateDocument`, `handleSelectionAction`, `runFeatureAction`, `runGraphEdit`, `presentGraphCreator`,
+`openCanvasFileReference`, `handleCodeAction`, `setNotesView`,
+`handleArchitectureAction`, `openFile(_:lineFragment:)`, `openWikiLink`, `prepareCodeNotes`/`codeNotesJSON`, `xrayStore(for:)`,
+`didReceiveInsightIframeReady` … `didRequestInsightRetrySection`.
 Also `NSWorkspace.shared.open` for external URLs and non-openable local files.
 
 ---
 
 ## 5. Bridge message catalog
 
-Transport: JS calls `window.webkit.messageHandlers.bridge.postMessage({type, payload})`
-(helper `sendToSwift`, `markview-bridge.js:26`; direct posts in `markview-early.js:10`,
-`markview-architecture.js:68`, `markview-code.js:263`, `markview-d3-mermaid.js:380`). Swift requires
-`body` to be a dictionary with a string `type` (`WebViewBridge.swift:78-82`).
+Transport: the page calls `window.mvBridge.send(type, payload, channel)` (`mv-kit.js`; the editor's helper is `sendToSwift` in
+`markview-bridge.js`, which uses channel `bridge`), which validates the message against `window.mvBridgeContract` (the text of
+`bridge-contract.json`) and then posts `{type, payload, doc}` to `window.webkit.messageHandlers.<channel>`. Swift checks the same
+message again in `TypedWebBridge.receive` (section 9). There are three channels: `bridge` (28 messages, below), `discussion` (3: `copy`,
+`ready`, `save`) and `terminal` (6, section 5.4). The tables below are generated from the contract and from `WebViewBridge.registerHandlers`;
+the per-field detail (enums, bounds, which fields are optional) is in the contract.
 
-### 5.1 JS → Swift (`bridge` handler)
+### 5.1 JS → Swift (`bridge` channel)
 
-| type | payload | Sender(s) | Handler (bridge → delegate impl) | Validation at boundary |
+| type | payload (from the contract) | Sent by | Delegate call in `WebViewBridge.registerHandlers` | Note |
 |---|---|---|---|---|
-| `ready` | `{}` | `markview-init.js:76` | `WebViewBridge.swift:268` → `EditorView.swift:795` | none. **Never delivered in practice** (§10.1) |
-| `contentChanged` | `{markdown: string, html?: string}` | `markview-render.js:205` (every render, with full `html`), `markview-edit.js:294` (save), `markview-init.js:10` (non-markdown input), `markview-structured.js:214,221,233` (format/minify) | `WebViewBridge.swift:251` → `EditorView.swift:719` → `updateActiveTabContent` | `markdown` must be `String`; `html` ignored |
-| `headingsUpdated` | `[{id: string, level: int, text: string}]` (bare array) | `markview-render.js:265`, `markview-structured.js:276`, `markview-canvas.js:526` | `WebViewBridge.swift:90` → `EditorView.swift:726` | array of dicts; each item via `HeadingItem(from:)` (`:675-687`), invalid items dropped |
-| `blocksChanged` | `{added: Block[], removed: string[], changed: Block[], unchanged: string[]}`; Block = `{id, documentId, type, level, content, plainText, contentHash, headingPath, parentBlockId, lineStart, lineEnd, position, language, anchor}` | `markview-render.js:190` | `WebViewBridge.swift:99` (deferred with `DispatchQueue.main.async`) → `EditorView.swift:783` → `handleBlocksDelta` | dict required; `SemanticBlock(from:)` drops invalid |
-| `scrollPosition` | `{activeHeadingId: string\|null}` | `markview-render.js:495` (IntersectionObserver), `markview-init.js:34` (anchor click) | `WebViewBridge.swift:263` → `EditorView.swift:732` → `updateActiveHeading` | `String` required (null ignored) |
-| `linkClicked` | `{href: string}` (absolute `file://`, `http(s)`, `mailto`, or `markview-wikilink:<note>[#<heading>]`) | `markview-init.js:41`, `markview-mdext.js:137`, `markview-canvas.js:195` | `WebViewBridge.swift:271` → `EditorView.swift:755` | `URL(string:)`; scheme switch `file`/`http`/`https`/`mailto`/`markview-wikilink`; others dropped |
-| `canvasOpenFile` | `{path: string}` (relative) | `markview-canvas.js:184` | `WebViewBridge.swift:292` → `EditorView.swift:878` → `openCanvasFileReference` | non-empty; WorkspaceManager rejects `/`-prefixed and `..` (`WorkspaceManager.swift:1346`) |
-| `saveRequested` | `{}` | `markview-edit.js:295` | `WebViewBridge.swift:304` → `EditorView.swift:809` | skipped for non-file-backed tabs |
-| `refreshRequested` | `{}` | `markview-edit.js:310` | `WebViewBridge.swift:325` → `EditorView.swift:884` | skipped for non-file-backed tabs |
-| `translateRequested` | `{markdown: string, targetLang: "Russian"\|"English"}` | `markview-edit.js:306` | `WebViewBridge.swift:307` → `EditorView.swift:824` | both `String`; error reply via `showSelectionResult` |
-| `selectionAction` | `{action: "translate_ru"\|"translate_en"\|"explain", text: string}` | `markview-find.js:40` | `WebViewBridge.swift:313` → `EditorView.swift:850` | both `String`; action checked in WorkspaceManager |
-| `featureAction` | `{action: string, text: string, question: string}` (actions listed `index.html:1479-1492`) | `markview-find.js:80` | `WebViewBridge.swift:319` → `EditorView.swift:844` → `runFeatureAction` | non-empty `text`; action name checked in Swift |
-| `generateGraph` | `{type: "edit", editInstruction: string, currentMermaid: string}` | `markview-d3-mermaid.js:285` | `WebViewBridge.swift:328` → `EditorView.swift:867` | defaults when missing; non-`edit` types have no JS sender |
-| `code` | `{action, …fields}` — actions: `explain`, `rate{filter}`, `freshness`, `explainPR`, `tempFilter{criterion}`, `createFilter{name,criterion}`, `notesView{show}`, `navDefinition{name,line}`, `navUsages{name,line}`, `navBack{line}`, `navForward{line}`, `navOpen{path,target,line}`, `explainSymbol{name,line}`, `askAI{id,question,text,start,…}`, `askStop{id}` | `markview-code.js:263` via `postCode` (call sites `:581-1210`) | `WebViewBridge.swift:282` → `EditorView.swift:738` → `setNotesView` or `handleCodeAction(url: currentCodeURL)` | `action` must be `String`; fields unvalidated here |
-| `arch` | `{action, …fields}` — actions: `openFile{path,find?,line?,endLine?,fromPR?,fromSearch?}`, `filterSearch`, `rateImportance`, `explainEdge`, `deleteFilter`, `describe`, `setComponent`, `outlineFile`, `saveSearchAnswer`, `askPR`, `explainPRFile`, `prFileDiff`, `analyzePR`, `prTasksToTerminal`, `copyPRTasks`, `prFixAll`, `prAction{op,body?,method}`, `openURL{url}`, `prFinding*{path,index}`, `createFilter`, `refreshPRSources`, `openPRXRay`, `showPR`, `openPRNumber`, `cancelAnalysis`, `tempFilter`, `reviewPR`, `analyze`, `rescan` | `markview-architecture.js:62-69` via `post` (call sites `:352-2083`) | `WebViewBridge.swift:287` → `EditorView.swift:749` → `handleArchitectureAction` | `action` must be `String`; e.g. `openFile` confined to root in `WorkspaceManager.swift:1134-1138` |
-| `textChanged` | `{cursorBlock: string}` | **no JS sender** | `WebViewBridge.swift:299` → `EditorView.swift:789` | dead path |
-| `jsError` | `{where, message, source, lineno, colno, stack}` | `markview-early.js:10`, `markview-bridge.js:45,58`, `markview-d3-mermaid.js:380` (end-checkpoint), many insight diagnostics in `markview-insight-handlers.js` (`:66`, `:135`, `:153`, `:174`, `:179`, `:327`, `:350`, `:385`, `:496`) | `WebViewBridge.swift:164` → `logInsightDiag` | fields coerced with defaults; stack truncated to 800 |
-| `insightIframeReady` | `{sessionId, nodeId}` | `markview-insight-handlers.js:420` (relay of iframe ready) | `WebViewBridge.swift:120` → `:207` → `EditorView.swift:912` | main frame only; non-empty strings |
-| `insightDeepDiveClicked` | `{sessionId, sectionId, topicIndex: int}` | `markview-insight-handlers.js:445` | `WebViewBridge.swift:124` → `:220` → `EditorView.swift:918` | main frame; non-empty; `topicIndex >= 0`. JS also checks section/topic bounds (`markview-insight-handlers.js:429-444`) |
-| `insightBreadcrumbClicked` | `{sessionId, nodeId: UUID}` | `markview-insight-handlers.js:458`, `markview-insight-helpers.js:123` | `WebViewBridge.swift:128` → `:234` → `EditorView.swift:924` | main frame; `UUID(uuidString:)` |
-| `insightRequestSave` | `{sessionId}` | `markview-insight-handlers.js:465` | `WebViewBridge.swift:132` → `EditorView.swift:930` | main frame; payload ignored |
-| `insightRequestUp` | `{sessionId}` | `markview-insight-handlers.js:469`, `markview-insight-helpers.js:94` | `WebViewBridge.swift:136` → `EditorView.swift:936` | main frame |
-| `insightRequestRegenerate` | `{sessionId}` | `markview-insight-handlers.js:473`, `markview-insight-helpers.js:111` | `WebViewBridge.swift:140` → `EditorView.swift:942` | main frame |
-| `insightRequestCustomDeepDive` | `{sessionId, topic}` | `markview-insight-handlers.js:479` | `WebViewBridge.swift:144` → `EditorView.swift:948` | main frame; non-empty `topic` |
-| `insightRequestExploreAll` | `{sessionId, depth: 1..3}` | `markview-insight-handlers.js:485` | `WebViewBridge.swift:150` → `EditorView.swift:954` | main frame; clamps to 1 unless `1...3` |
-| `insightRequestRetrySection` | `{sessionId, sectionId}` | `markview-insight-handlers.js:491` | `WebViewBridge.swift:158` → `EditorView.swift:960` | main frame; non-empty |
-| anything else | — | — | `WebViewBridge.swift:344` NSLog "Unknown bridge message type" | — |
+| `ready` | `{}` | `markview-init.js` | `bridgeEditorReady` |  |
+| `contentChanged` | `markdown: string`, `html: string?` | `markview-code.js`, `markview-edit.js`, `markview-init.js`, `markview-render.js`, `markview-structured.js` | `bridge(didUpdateContent)` |  |
+| `headingsUpdated` | array of heading | `markview-canvas.js`, `markview-render.js`, `markview-structured.js` | `bridge(didExtractHeadings)` |  |
+| `scrollPosition` | `activeHeadingId: string` | `markview-init.js`, `markview-render.js` | `bridge(didSelectHeading)` |  |
+| `linkClicked` | `href: string` | `markview-canvas.js`, `markview-init.js`, `markview-mdext.js` | `bridge(didClickLink)` |  |
+| `editorFontSize` | `size: number` | `markview-edit.js` | `bridge(didChangeEditorFontSize)` |  |
+| `editorWindowPref` | `key: string`, `value: string` | `EditorWindowPrefs.swift` | `bridge(didSetWindowPref)` |  |
+| `blocksChanged` | `added: [block]`, `removed: [string]`, `changed: [block]`, `unchanged: [string]` | `markview-render.js` | `bridge(didReceiveBlocksDelta)` |  |
+| `canvasOpenFile` | `path: string non-empty` | `markview-canvas.js`, `markview-d3-mermaid.js` | `bridge(didRequestCanvasOpenFile)` |  |
+| `saveRequested` | `{}` | `markview-edit.js` | `bridgeSaveRequested` |  |
+| `translateRequested` | `markdown: string`, `targetLang: string` | `markview-edit.js` | `bridge(didRequestTranslation)` |  |
+| `selectionAction` | `action: string`, `text: string` | `markview-find.js` | `bridge(didRequestSelectionAction)` |  |
+| `featureAction` | `action: string`, `text: string non-empty`, `question: string?` | `markview-find.js` | `bridge(didRequestFeatureAction)` |  |
+| `refreshRequested` | `{}` | `markview-edit.js` | `bridgeRefreshRequested` |  |
+| `generateGraph` | `type: string?`, `editInstruction: string?`, `currentMermaid: string?` | `markview-d3-mermaid.js` | `bridge(didRequestGraph)` |  |
+| `code` | `action` (enum of 15 actions) plus the fields of that action | `markview-code.js` | `bridge(didReceiveCodeAction)` |  |
+| `arch` | `action` (enum of 53 actions) plus the fields of that action | `markview-architecture-model.js` | `bridge(didReceiveArchitectureAction)` |  |
+| `researchMap` | `action` (enum of 21 actions) plus the fields of that action | `markview-research-map-core.js` | `bridge(didReceiveResearchMapAction)` | top frame only |
+| `jsError` | `where: string?`, `message: string?`, `source: string?`, `lineno: number?`, `colno: number?`, `stack: string?` | `markview-bridge.js`, `markview-d3-mermaid.js`, `markview-early.js`, `markview-insight-handlers.js`, `markview-research-map-core.js` | none (logged only) |  |
+| `insightIframeReady` | `sessionId: string non-empty`, `nodeId: string non-empty` | `markview-insight-handlers.js` | `bridge(didReceiveInsightIframeReady)` | top frame only |
+| `insightDeepDiveClicked` | `sessionId: string non-empty`, `sectionId: string non-empty`, `topicIndex: int 0..` | `markview-insight-handlers.js` | `bridge(didRequestInsightDeepDive)` | top frame only |
+| `insightBreadcrumbClicked` | `sessionId: string non-empty`, `nodeId: string` | `markview-insight-handlers.js`, `markview-insight-helpers.js` | `bridge(didRequestInsightBreadcrumb)` | top frame only |
+| `insightRequestSave` | `sessionId: string?` | `markview-insight-handlers.js` | `bridgeRequestInsightSave` | top frame only |
+| `insightRequestUp` | `sessionId: string?` | `markview-insight-handlers.js`, `markview-insight-helpers.js` | `bridgeRequestInsightUp` | top frame only |
+| `insightRequestRegenerate` | `sessionId: string?` | `markview-insight-handlers.js`, `markview-insight-helpers.js` | `bridgeRequestInsightRegenerate` | top frame only |
+| `insightRequestCustomDeepDive` | `sessionId: string?`, `topic: string non-empty` | `markview-insight-handlers.js` | `bridgeRequestInsightCustomDeepDive` | top frame only |
+| `insightRequestExploreAll` | `sessionId: string?`, `depth: int 1..3` | `markview-insight-handlers.js` | `bridgeRequestInsightExploreAll` | top frame only |
+| `insightRequestRetrySection` | `sessionId: string?`, `sectionId: string non-empty` | `markview-insight-handlers.js` | `bridgeRequestInsightRetrySection` | top frame only |
+
+Anything that is not in this list is refused by `TypedWebBridge` and logged by type name. The `code` actions are performed by
+`CodeAndXRayCoordinator.handleCodeAction` / `handleNavigation`, the `arch` actions are parsed by `XRayCommand.parse` and performed by
+`CodeAndXRayCoordinator.perform`, and the `researchMap` actions go to the research-map handler of the window. Semantic checks (paths inside
+the project root, known action names) happen in those owners, after the schema check.
 
 ### 5.2 Insight iframe → parent (`window.postMessage`, not the WebKit bridge)
 
-Sent by the iframe script via `postParent` (`markview-insight-srcdoc.js:243`, target `'*'`).
+Sent by the iframe script via `postParent` (`markview-insight-srcdoc.js`, target `'*'`).
 Accepted only when `ev.source === state.insightIframe.contentWindow` and `type` is in
-`INSIGHT_ALLOWED_TYPES` (`markview-insight-handlers.js:306-360`); origin is **not** checked
-(`:336-347`). Types: `insightIframeReady` (`srcdoc.js:614-616`), `insightDeepDiveClicked
-{sectionId, topicIndex}` (`:416`), `insightRequestSave` (`:418`), `insightRequestUp` (`:420`),
-`insightRequestCustomDeepDive {topic, lang}` (`:427`, `:601`), `insightRequestExploreAll {depth, lang}`
-(`:435`), `insightRequestRetrySection {sectionId}` (`:438`), `insightDebug {where, msg}`
-(`:248-611`, relayed to Swift as `jsError`). `lang` is dropped by the relay.
+`INSIGHT_ALLOWED_TYPES` (`markview-insight-handlers.js`); origin is **not** checked (the iframe is `sandbox="allow-scripts"`, a null origin). Types: `insightIframeReady` (`markview-insight-srcdoc.js`), `insightDeepDiveClicked
+{sectionId, topicIndex}`, `insightRequestSave`, `insightRequestUp`,
+`insightRequestCustomDeepDive {topic, lang}`, `insightRequestExploreAll {depth, lang}`, `insightRequestRetrySection {sectionId}`, `insightDebug {where, msg}`
+(relayed to Swift as `jsError`). `lang` is dropped by the relay.
 
 Parent → iframe (`contentWindow.postMessage(..., '*')`): `updateInsightSection {sessionId, sectionId,
-htmlChunk}` (`markview-insight-handlers.js:182`, `:401`), `initSectionLib {sectionId}` (`:209`,
-`:413`), `updateInsightProgress {message, phase}` (`:281`, `:378`). Iframe listener:
-`markview-insight-srcdoc.js:372-400`.
+htmlChunk}` (`markview-insight-handlers.js`), `initSectionLib {sectionId}`, `updateInsightProgress {message, phase}`. Iframe listener:
+`markview-insight-srcdoc.js`.
 
 ### 5.3 Swift → JS (`evaluateJavaScript`)
 
+Every command is built with `JS.call(function, args:)` (`Packages/MarkViewCore/Sources/MarkViewCore/JS.swift`), which encodes each argument as a
+JSON literal (`JS.JSONText` passes an already-encoded JSON object through); a value that cannot be encoded is logged and the call is dropped
+(`WebViewBridge.run`). `JS.sequence` joins several calls into one script. Every document-bound command is preceded by
+`window.mvSetDocument(<tab id>)` (`markview-edit.js`), so a message the page posts afterwards names the tab it describes (BUG-031). The 2.17.0
+text that listed single-quoted interpolation and the array-wrap idiom no longer applies.
+
 | JS function | Args | Swift call site | JS definition |
 |---|---|---|---|
-| `window.setContent(md)` | JSON string literal (array-wrap) | `WebViewBridge.swift:380` (`loadContent`), called from `EditorView.swift:373`, `:898` | `markview-bridge.js:70` (+ wrappers, §3) |
-| `window.setStructuredContent(content, '<fileType>')` | JSON literal + single-quoted `FileType.rawValue` | `WebViewBridge.swift:439`, from `EditorView.swift:363` | `markview-structured.js:4` |
-| `window.setCodeContent.apply(null, [text, language, fileName])` | JSON array | `WebViewBridge.swift:407`, from `EditorView.swift:355` | `markview-code.js:204` |
-| `window.setCodeNotes(json)` | object literal from `codeNotesJSON` | `WebViewBridge.swift:414`, from `EditorView.swift:387` | `markview-code.js:777` |
-| `window.onCodeNavEvent(json)` | `{type: state\|definitions\|usages\|answer, …}` | `WebViewBridge.swift:419`, from `EditorView.swift:156` | `markview-code.js:1238` |
-| `window.codeGotoLine(line, endLine)` | ints | `WebViewBridge.swift:424`, from `EditorView.swift:424` | `markview-code.js:255` |
-| `window.documentGotoLine(line)` | int | `WebViewBridge.swift:428`, from `EditorView.swift:426` | `markview-globals.js:46` |
-| `window.showArchitecture(json)` | payload object literal | `WebViewBridge.swift:393`, from `EditorView.swift:402`, `:414` | `markview-architecture.js:1910` |
-| `window.setArchitectureProgress(json\|null)` | object literal | `WebViewBridge.swift:400`, from `EditorView.swift:410` | `markview-architecture.js:2041` |
-| `window.leaveCodeView(); window.leaveArchitectureView()` | — | `EditorView.swift:308` | `markview-code.js:195`, `markview-architecture.js:1891` |
-| `void window.loadInsightSkeleton(skeleton, sid, nid, crumbs)` | `JSONEncoder` skeleton, encoded strings, `[{nodeId,title}]` | `WebViewBridge.swift:512`, from `EditorView.swift:491` | `markview-insight-handlers.js:39` (async) |
-| `window.updateInsightSection(sid, secId, html)` | encoded strings | `WebViewBridge.swift:535`, from `EditorView.swift:540`, `:558` | `markview-insight-handlers.js:149` |
-| `window.setInsightError(sid, msg, true\|false)` | encoded strings + bool literal | `WebViewBridge.swift:559`, from `EditorView.swift:578` | `markview-insight-handlers.js:224` |
-| `window.setInsightStatus(sid, msg, phase)` | encoded strings | `WebViewBridge.swift:582`, from `EditorView.swift:603` | `markview-insight-handlers.js:247` |
-| `window.releaseInsightBlobs()` | — | `WebViewBridge.swift:599`, via hook `EditorView.swift:465-468` | `markview-insight-handlers.js:292` |
-| `window.setDocumentBase('<url>')` | **single-quoted interpolation** | `WebViewBridge.swift:614`, from `EditorView.swift:333` | `markview-globals.js:3` |
+| `window.setContent(md)` | JSON string literal (array-wrap) | `WebViewBridge.swift` (`loadContent`), called from `EditorView.swift` | `markview-bridge.js` (+ wrappers, §3) |
+| `window.setStructuredContent(content, fileType)` | two JSON literals | `WebViewBridge.loadStructuredContent`, from `EditorView.swift` | `markview-structured.js` |
+| `window.setCodeContent.apply(null, [text, language, fileName])` | JSON array | `WebViewBridge.swift`, from `EditorView.swift` | `markview-code.js` |
+| `window.setCodeNotes(json)` | object literal from `codeNotesJSON` | `WebViewBridge.swift`, from `EditorView.swift` | `markview-code.js` |
+| `window.onCodeNavEvent(json)` | `{type: state\|definitions\|usages\|answer, …}` | `WebViewBridge.swift`, from `EditorView.swift` | `markview-code.js` |
+| `window.codeGotoLine(line, endLine)` | ints | `WebViewBridge.swift`, from `EditorView.swift` | `markview-code.js` |
+| `window.documentGotoLine(line)` | int | `WebViewBridge.swift`, from `EditorView.swift` | `markview-globals.js` |
+| `window.showArchitecture(json)` | payload object literal | `WebViewBridge.swift`, from `EditorView.swift` | `markview-architecture-*.js` |
+| `window.setArchitectureProgress(json\|null)` | object literal | `WebViewBridge.swift`, from `EditorView.swift` | `markview-architecture-*.js` |
+| `window.leaveCodeView(); window.leaveArchitectureView()` | — | `EditorView.swift` | `markview-code.js`, `markview-architecture-*.js` |
+| `void window.loadInsightSkeleton(skeleton, sid, nid, crumbs)` | `JSONEncoder` skeleton, encoded strings, `[{nodeId,title}]` | `WebViewBridge.swift`, from `EditorView.swift` | `markview-insight-handlers.js` (async) |
+| `window.updateInsightSection(sid, secId, html)` | encoded strings | `WebViewBridge.swift`, from `EditorView.swift` | `markview-insight-handlers.js` |
+| `window.setInsightError(sid, msg, true\|false)` | encoded strings + bool literal | `WebViewBridge.swift`, from `EditorView.swift` | `markview-insight-handlers.js` |
+| `window.setInsightStatus(sid, msg, phase)` | encoded strings | `WebViewBridge.swift`, from `EditorView.swift` | `markview-insight-handlers.js` |
+| `window.releaseInsightBlobs()` | — | `WebViewBridge.swift`, via hook `EditorView.swift` | `markview-insight-handlers.js` |
+| `window.setDocumentBase(url)` | JSON literal | `WebViewBridge.setDocumentBase`, from `EditorView.swift` | `markview-globals.js` |
 | `window.setTheme('<appearance id>', '#RRGGBB'\|null)` | `WindowTheme.webArguments` (ids and hex only) | `WebViewBridge.setTheme`, from `EditorView.Coordinator.setTheme` | `markview-globals.js` → `markview-themes.js` (+ wrappers) |
-| `window.scrollToHeading('<id>')` | **single-quoted interpolation** | `WebViewBridge.swift:637`, from `EditorView.swift:688` | `markview-globals.js:15`, `markview-canvas.js:69` |
-| `window.scrollToText` / `window.scrollToHeadingText` `.apply(null, [text])` | JSON array | `EditorView.swift:698` | `markview-globals.js:22`, `markview-mdext.js:114` |
-| `window.showSelectionResult(title, markdown)` | JSON literals | `EditorView.swift:830-831` (translate error), `:861` (selection result) | `markview-find.js:131` |
-| Load probe IIFE (returns JSON) | — | `EditorView.swift:195-225` | inline |
+| `window.scrollToHeading(id)` | JSON literal | `WebViewBridge.scrollToHeading`, from `EditorView.swift` | `markview-globals.js`, `markview-canvas.js` |
+| `window.scrollToText` / `window.scrollToHeadingText` `.apply(null, [text])` | JSON array | `EditorView.swift` | `markview-globals.js`, `markview-mdext.js` |
+| `window.showSelectionResult(title, markdown)` | JSON literals | `EditorView.swift` (translate error) (selection result) | `markview-find.js` |
+| Load probe IIFE (returns JSON) | — | `EditorView.swift` | inline |
 | Insight page probe IIFE | — | `PDFExporter.swift` (`insightProbe`) | inline, reads `window.state.mode` and `#insight-iframe` |
-| `window.getHTML()` | — | `WebViewBridge.swift:648` (`requestHTML`) — **no caller** | `markview-globals.js:66` |
-| `window.preparePrintLayout()` / `window.restoreEditLayout()` | — | `WebViewBridge.swift:662`, `:668` — **no caller** | `markview-globals.js:74`, `:121` |
+| `window.getHTML()` | — | none: `requestHTML` is gone from `WebViewBridge.swift` | `markview-globals.js` (defined, no Swift caller) |
+| `window.preparePrintLayout()` / `window.restoreEditLayout()` | — | none: no Swift caller | `markview-globals.js` |
+| `window.setDataContent(payload)` | one JSON object `{src, kind, name, reload}` | `WebViewBridge.loadDataContent` | `markview-data.js` |
+| `window.mvResearchMapSet(documentId, snapshot, …)` | JSON literals | `WebViewBridge.setResearchMap` | `markview-research-map-tree.js` |
+| `window.setProjectOperations(json)` | JSON object | `WebViewBridge.setProjectOperations` | `markview-architecture-toolbar.js` |
+| `window.revealStructure(path, line)` | JSON literals | `WebViewBridge.revealStructure` | `markview-structured.js` |
+| `window.mvSetDocument(id)` | JSON literal | `WebViewBridge.documentIDCall`, prefixed to the document commands | `markview-edit.js`, `markview-research-map-entry.js` |
 
 JS functions exposed but never called from Swift: `toggleSourceMode`, `getMarkdown`
-(`markview-globals.js:11`, `:70`), `setCodeBaseSize` (called from JS `markview-edit.js:34`),
-`architectureFocus` (called from JS `markview-architecture.js:1319`), `struct*` (inline handlers).
+(`markview-globals.js`), `setCodeBaseSize` (called from JS `markview-edit.js`),
+`architectureFocus` (called from JS `markview-architecture-*.js`), `struct*` (inline handlers).
 
-### 5.4 Terminal page (`terminal` handler, `TerminalSession.swift:114`)
+### 5.4 Terminal page (`terminal` handler, `TerminalSession.swift`)
 
 | Direction | Message / function | JS site | Swift site |
 |---|---|---|---|
-| JS→Swift | `{type:"ready", cols, rows}` | `terminal.html:192` | `TerminalSession.swift:126` |
-| JS→Swift | `{type:"input", data}` | `terminal.html:136`, `:141`, `:155` | `:131` |
-| JS→Swift | `{type:"resize", cols, rows}` | `terminal.html:132` | `:133` |
-| JS→Swift | `{type:"pasteFiles"}` | `terminal.html:153` | `:135` |
-| JS→Swift | `{type:"link", url}` | `terminal.html:38` | `:137` |
-| JS→Swift | `{type:"resolveLinks", request:int, paths:[string]}` | `terminal.html:124` | `:139` (≤512 paths, request ≥0) |
-| Swift→JS | `mvWrite('<base64>')` | `terminal.html:158` | `TerminalSession.swift:436` |
-| Swift→JS | `mvResolvedLinks(request, [paths])` | `terminal.html:76` | `:163` |
+| JS→Swift | `{type:"ready", cols, rows}` | `terminal.html` | `TerminalSession.swift` |
+| JS→Swift | `{type:"input", data}` | `terminal.html` | |
+| JS→Swift | `{type:"resize", cols, rows}` | `terminal.html` | |
+| JS→Swift | `{type:"pasteFiles"}` | `terminal.html` | |
+| JS→Swift | `{type:"link", url}` | `terminal.html` | |
+| JS→Swift | `{type:"resolveLinks", request:int, paths:[string]}` | `terminal.html` | (≤512 paths, request ≥0) |
+| Swift→JS | `mvWrite('<base64>')` | `terminal.html` | `TerminalSession.swift` |
+| Swift→JS | `mvResolvedLinks(request, [paths])` | `terminal.html` | |
 | Swift→JS | `mvSetTheme('<appearance id>', accent\|null)`, `mvFocus()`, `mvReset()`, `mvExited(code)` | `terminal.html` (`discussion.html` has the same `mvSetTheme`) | `TerminalSession.applyTheme`, `DiscussionThreadView` |
-| (diagnostics) | `mvMouseMode()`, `mvText()`, `mvSize()` | `terminal.html:179-186` | tests only |
+| (diagnostics) | `mvMouseMode()`, `mvText()`, `mvSize()` | `terminal.html` | tests only |
 
 The terminal page is loaded with `loadFileURL(page, allowingReadAccessTo: Editor/)`
-(`TerminalSession.swift:117`), unlike the editor's `loadHTMLString`.
+(`TerminalSession.swift`), unlike the editor's `loadHTMLString`.
 
 ---
 
@@ -357,26 +381,24 @@ sequenceDiagram
   C->>JS: setDocumentBase, setContent / setStructuredContent / setCodeContent
 ```
 
-Steps: `EditorView.swift:10-38` → `:182-187` → `:291-296` (pending) → `:191-236` (didFinish).
+Steps: `EditorView.swift` → → (pending) → (didFinish).
 Theme: HTML string rewrite of the `<html>` attributes at load (editor); discussion and terminal pages get the same attributes from a `WKUserScript` at document start (`WindowTheme.firstPaintScript`); later `setTheme` only when `isEditorReady` and changed.
 
 ### 6.2 Render markdown (file tab)
 
-1. `loadContentIfNeeded` (`EditorView.swift:288`): `.file` branch clears insight subs (`:317-327`),
-   sends `setDocumentBase` when the directory changes (`:329-335`), dedupes on
-   `loadKey`/URL (`:337-347`).
-2. Routes: `FileType.code` or notes view → `setCodeContent` (`:351-361`); non-markdown →
-   `setStructuredContent` (`:362-366`); markdown → `resolveImagePaths` (sync file reads) →
-   `setContent` (`:370-374`).
+1. `loadContentIfNeeded` (`EditorView.swift`): `.file` branch clears insight subs,
+   sends `setDocumentBase` when the directory changes, dedupes on
+   `loadKey`/URL.
+2. Routes: `FileType.code` or notes view → `setCodeContent`; non-markdown →
+   `setStructuredContent`; markdown → `setContent` (pictures load through `markview-doc:///`; there is no inlining step).
 3. JS `setContent` chain resets canvas/code/X-Ray views, sets `DOM.editor.value`,
-   `wysiwygDirty=false`, `initTurndown()`, `switchToPreview()` (`markview-bridge.js:70-76`).
-4. `switchToPreview` → `renderMarkdown()` (`markview-edit.js:94-106`):
-   frontmatter extraction (`markview-render.js:39-43`), markdown-it parse with `data-line`
-   attributes (`:47-54`), `innerHTML` (`:98`), `resolveLocalURLs` (`:4-26`), Mermaid block
-   conversion (`:104-131`), async Prism (`:134-140`), async `mermaid.run` + expand buttons
-   (`:143-166`), `extractHeadings` → `headingsUpdated` (`:222-266`), `extractBlocks`/`diffBlocks`
-   → `blocksChanged` (`:175-199`), `contentChanged {markdown, html}` (`:205`).
-5. `setupHeadingObserver` posts `scrollPosition` as headings cross the viewport (`:477-505`).
+   `wysiwygDirty=false`, `initTurndown()`, `switchToPreview()` (`markview-bridge.js`).
+4. `switchToPreview` → `renderMarkdown()` (`markview-edit.js`):
+   frontmatter extraction (`markview-render.js`), markdown-it parse with `data-line`
+   attributes, `innerHTML`, `resolveLocalURLs`, Mermaid block
+   conversion, async Prism, async `mermaid.run` + expand buttons, `extractHeadings` → `headingsUpdated`, `extractBlocks`/`diffBlocks`
+   → `blocksChanged`, `contentChanged {markdown, html}`.
+5. `setupHeadingObserver` posts `scrollPosition` as headings cross the viewport.
 
 ### 6.3 Edit → save round trip
 
@@ -401,30 +423,27 @@ sequenceDiagram
   C->>WM: saveActiveFile → tab.content.write(to: url) (main thread)
 ```
 
-Code: `markview-edit.js:127-141`, `:289-296`, `:314-333`; `EditorView.swift:719-723`, `:809-822`;
-`WorkspaceManager.swift:1648-1652`, `:2742-2756`, `:2763-2769`. ⌘R → `refreshRequested` →
-`reloadActiveTabFromDisk` → `loadContent` directly (`EditorView.swift:884-902`; no image inlining
+Code: `markview-edit.js`; `EditorView.swift`;
+`WorkspaceManager.swift`. ⌘R → `refreshRequested` →
+`reloadActiveTabFromDisk` → `loadContent` directly (`EditorView.swift`; no image inlining
 on this path).
 
 ### 6.4 Mermaid / diagrams
 
 - Standard fenced ```` ```mermaid ```` → `<div class="mermaid" data-source>` → `mermaid.run`
-  (`markview-render.js:124-165`); `decorateMermaidDiagrams` adds expand buttons
-  (`markview-diagram-viewer.js:188`); double-click/expand opens `openDiagramViewer`
-  (`markview-diagram-viewer.js:156`, `:207`) with wheel zoom, shift+wheel pan, drag pan.
+  (`markview-render.js`); `decorateMermaidDiagrams` adds expand buttons
+  (`markview-diagram-viewer.js`); double-click/expand opens `openDiagramViewer`
+  (`markview-diagram-viewer.js`) with wheel zoom, shift+wheel pan, drag pan.
 - Source containing `%%INTERACTIVE` → `.mermaid-canvas` → `initMermaidCanvas` after 200 ms
-  (`markview-render.js:111-122`), which needs CDN `d3` and `dagre`
-  (`markview-d3-mermaid.js:4-8`). AI edit from its popup posts `generateGraph{type:"edit"}`
-  (`:278-291`) → `runGraphEdit`.
-- Turndown rule writes `data-source` back as a mermaid fence (`markview-edit.js:55-64`).
+  (`markview-render.js`), which needs vendored `d3` (`markview-d3-mermaid.js`; no editor script references `dagre` any more). AI edit from its popup posts `generateGraph{type:"edit"}` → `runGraphEdit`.
+- Turndown rule writes `data-source` back as a mermaid fence (`markview-edit.js`).
 
 ### 6.5 Find
 
 `⌘F` → `openFind` unless `state.mode === 'code'` (CodeMirror search panel via
-`codeViewOpenSearch`) (`markview-find.js:352-362`). Rendered modes walk text nodes of
-`DOM.rendered` and wrap matches in `<mark class="find-highlight">` (`:241-273`); source modes use
-`setSelectionRange` on the textarea (`:284-314`). Case and regex toggles re-run the search
-(`:183-197`). `clearHighlights` unwraps marks (`:199-210`). Entirely in JS; no bridge traffic.
+`codeViewOpenSearch`) (`markview-find.js`). Rendered modes walk text nodes of
+`DOM.rendered` and wrap matches in `<mark class="find-highlight">`; source modes use
+`setSelectionRange` on the textarea. Case and regex toggles re-run the search. `clearHighlights` unwraps marks. Entirely in JS; no bridge traffic.
 
 ### 6.6 PDF export
 
@@ -444,45 +463,44 @@ sequenceDiagram
   P->>P: +1.5 s → pdf(configuration:) one tall page → splitIntoA4Pages → write → reveal in Finder
 ```
 
-Code: `ContentView.swift:339`, `EditorView.swift:118-124`, `:701-704`, `PDFExporter.swift:19-137`,
-`:142-192`. The print document has no scripts or vendor CSS (`:196-267`), so it relies on
+Code: `ContentView.swift`, `EditorView.swift`, `PDFExporter.swift`. The print document has no scripts or vendor CSS, so it relies on
 already-rendered SVG/KaTeX HTML from the live DOM. Width 595 pt, height 842 pt, margin 40 px.
 
 ### 6.7 Code viewer
 
 1. `FileType.code` (or a markdown tab with `notesView == true`) → `loadCodeContent`
-   (`EditorView.swift:351-360`).
-2. `setCodeContent` → `enterCodeView` hides other panes (`markview-code.js:182-193`); markdown
+   (`EditorView.swift`).
+2. `setCodeContent` → `enterCodeView` hides other panes (`markview-code.js`); markdown
    uses an internal formatted viewer; otherwise `loadBundle()` injects
-   `codemirror.bundle.js` once and calls `MVCode.create` / `setDoc` (`:204-252`).
+   `codemirror.bundle.js` once and calls `MVCode.create` / `setDoc`.
 3. `routeCodeNotes` subscribes to `codeExplain.$revision` + `architecture.$revision`, debounced
-   120 ms, pushing `setCodeNotes(codeNotesJSON)` (`EditorView.swift:378-389`).
+   120 ms, pushing `setCodeNotes(codeNotesJSON)` (`EditorView.swift`).
 4. Line reveals: `.revealCodeLine` → `pendingCodeReveal` → `codeGotoLine` or `documentGotoLine`
-   depending on whether the URL is the code URL (`EditorView.swift:137-146`, `:419-428`); JS queues
-   in `window.pendingCodeLine` until the viewer exists (`markview-code.js:255-258`).
+   depending on whether the URL is the code URL (`EditorView.swift`); JS queues
+   in `window.pendingCodeLine` until the viewer exists (`markview-code.js`).
 5. User actions post `code` messages; results return via `.codeNavEvent` → `onCodeNavEvent`
-   only if the event URL equals `currentCodeURL` (`EditorView.swift:149-157`).
+   only if the event URL equals `currentCodeURL` (`EditorView.swift`).
 
 ### 6.8 Recursive Insight (transport only)
 
-`routeInsight` (`EditorView.swift:437-611`) subscribes to four publishers. `$skeleton` →
+`routeInsight` (`EditorView.swift`) subscribes to four publishers. `$skeleton` →
 `loadInsightSkeleton` (builds srcdoc, sets iframe `sandbox="allow-scripts allow-same-origin"`,
-starts a 10 s ready timer; `markview-insight-handlers.js:39-146`). `$currentNodeSections` → per-section
+starts a 10 s ready timer; `markview-insight-handlers.js`). `$currentNodeSections` → per-section
 suffix deltas via `lastForwardedSectionLength`, with shrink detection and a one-shot failure
-placeholder (`EditorView.swift:515-566`). JS buffers chunks until `insightIframeReady`, strips
+placeholder (`EditorView.swift`). JS buffers chunks until `insightIframeReady`, strips
 scripts/handlers per chunk, then posts into the iframe and debounces `initSectionLib` 100 ms
-(`markview-insight-handlers.js:149-213`, `:360-424`). Semantics are in
+(`markview-insight-handlers.js`). Semantics are in
 [semantic-index-and-insight](semantic-index-and-insight.md).
 
 ### 6.9 Link navigation
 
 Clicks inside `DOM.rendered` are intercepted: `#anchor` scrolls in-page and posts `scrollPosition`;
-other links post `linkClicked` with the resolved `link.href` (`markview-init.js:18-42`). Swift opens
+other links post `linkClicked` with the resolved `link.href` (`markview-init.js`). Swift opens
 openable `file://` targets as tabs (honouring `#L42` fragments), other `file://` targets with
 `NSWorkspace.open`, `http/https/mailto` in the browser, and `markview-wikilink:` via
-`openWikiLink` (`EditorView.swift:755-775`). Real navigations are filtered by
+`openWikiLink` (`EditorView.swift`). Real navigations are filtered by
 `decidePolicyFor` with the same rules; `.other` navigations are allowed, anything else cancelled
-(`EditorView.swift:238-284`).
+(`EditorView.swift`).
 
 ---
 
@@ -490,12 +508,11 @@ openable `file://` targets as tabs (honouring `#L42` fragments), other `file://`
 
 | Item | Where | Format | Owner |
 |---|---|---|---|
-| `markview-font-size` | localStorage | number string (10–20) | `markview-edit.js:20-25`, read `markview-code.js:44` |
-| `markview-code-notes-width` | localStorage | px int | `markview-code.js:64` via `MVPanels` (`markview-panels.js:25-30`) |
-| `markview-xray-details-width` | localStorage | px int | `markview-architecture.js:2053` |
-| `markview-xray-details-hidden` | localStorage | `"1"` / `""` | `markview-architecture.js:2058-2062` |
-| `/tmp/markview-insight-diag.log` | file, append-only, never rotated | `[ISO8601] [InsightDiag] …` lines | `WebViewBridge.swift:460-477` (also stderr + NSLog) |
-| Exported PDF | user-chosen path (`NSSavePanel`) | PDF | `PDFExporter.swift:74-81`, `:120` |
+| `markview-font-size` | localStorage | number string (10–20) | `markview-edit.js`, read `markview-code.js` |
+| `markview-code-notes-width` | localStorage | px int | `markview-code.js` via `MVPanels` (`markview-panels.js`) |
+| `markview-xray-details-width` | localStorage | px int | `markview-architecture-*.js` |
+| `markview-xray-details-hidden` | localStorage | `"1"` / `""` | `markview-architecture-*.js` |
+| Exported PDF | user-chosen path (`NSSavePanel`) | PDF | `PDFExporter.swift` |
 | In-memory | `Coordinator` fields (§3), JS `state` | — | this module |
 
 No `UserDefaults` or `@AppStorage` keys are read or written in this subsystem. The theme comes from the window's
@@ -506,71 +523,58 @@ the editor never writes files itself.
 
 ## 8. Concurrency and threading
 
-- `WKScriptMessageHandler` callbacks arrive on the main thread; `WebViewBridge` is not annotated
-  `@MainActor`. Every delegate method wraps its work in `Task { @MainActor in … }`
-  (`EditorView.swift:719-965`), so ordering relative to other main-actor tasks is by enqueue
-  order. `blocksChanged` adds an extra `DispatchQueue.main.async` hop before the Task
-  (`WebViewBridge.swift:101`).
+- `WKScriptMessageHandler` callbacks arrive on the main thread; `TypedWebBridge.receive` runs the handler with
+  `MainActor.assumeIsolated`, and `WebViewBridge` is not annotated `@MainActor`. Every delegate method in `EditorView.Coordinator` wraps its
+  work in `Task { @MainActor in … }` (`EditorView.swift`), so ordering relative to other main-actor tasks is by enqueue order.
+  `blocksChanged` adds an extra `DispatchQueue.main.async` hop before the delegate call (`WebViewBridge.swift`).
 - `EditorView.Coordinator` is not `@MainActor` either; it is driven from `updateNSView`, main-queue
   notification observers (`queue: .main`) and Combine sinks with `.receive(on: DispatchQueue.main)`
-  or main-scheduler `debounce`/`throttle` (`EditorView.swift:384`, `:399`, `:407`, `:478`, `:516`,
-  `:573`, `:596`).
-- **Main-thread I/O:** `resolveImagePaths` does `Data(contentsOf:)` for every referenced image and
-  base64-encodes it synchronously on the main thread (`EditorView.swift:632-678`), on every load of
-  a markdown or notes-view tab. `saveFile` writes synchronously on the main actor
-  (`WorkspaceManager.swift:2748`, owned elsewhere). `logInsightDiag` opens/appends the diag file
-  synchronously on whichever thread calls it (main in practice) for every bridge message
-  (`WebViewBridge.swift:87`, `:460-477`).
-- `PDFExporter` is `@MainActor` for `exportPDF`/`generatePDF`, uses a fixed 1.5 s
-  `asyncAfter` before capture (`PDFExporter.swift:111`), then `offscreen.pdf` inside a `Task`.
-  Static `pdfWebView`/`pdfDelegate` (`:15-16`) mean a second export started before the first
-  finishes replaces the retained view; the first delegate's `[weak offscreen]` then becomes nil and
-  silently does nothing. `showError` uses `runModal` (`:270-278`).
+  or main-scheduler `debounce`/`throttle` (`EditorView.swift`).
+- **Main-thread I/O (2.17.0):** the per-load image inlining (`resolveImagePaths`) is gone: pictures are served by
+  `DocumentFileSchemeHandler` on request. `logInsightDiag` no longer writes a file (section 5). Whether `saveFile` still writes on the
+  main actor (`TabsController.saveFile`) was not re-checked here.
+- `PDFExporter` is `@MainActor` (`PDFExporter.swift`). The 2.17.0 text about a fixed 1.5 s `asyncAfter` and static `pdfWebView`/`pdfDelegate` no
+  longer matches the file (it has neither); the export now runs through `BookPDFRenderer`, whose concurrency was not re-read here. `showError`
+  still uses `runModal`.
 - `evaluateJavaScript` completions are main-thread; most calls ignore results. `loadInsightSkeleton`
-  is async in JS and wrapped in `void` to avoid the "unsupported type" error (`WebViewBridge.swift:510-512`).
-- JS timers: 10 s insight iframe-ready timeout (`markview-insight-helpers.js:180-188`), 100 ms
-  per-section lib init debounce (`markview-insight-handlers.js:204-212`), 200 ms interactive canvas
-  delay (`markview-render.js:122`), 100 ms heading observer attach (`:500`).
+  is async in JS and wrapped in `void` to avoid the "unsupported type" error (`WebViewBridge.swift`).
+- JS timers: 10 s insight iframe-ready timeout (`markview-insight-helpers.js`), 100 ms
+  per-section lib init debounce (`markview-insight-handlers.js`), 200 ms interactive canvas
+  delay (`markview-render.js`), 100 ms heading observer attach.
 - Terminal: `resolveLinks`/`activateLink` resolve paths in `Task.detached` and call back into JS
-  (`TerminalSession.swift:156-181`); PTY output is batched at ~16 ms (`:430-437`).
+  (`TerminalSession.swift`); PTY output is batched at ~16 ms.
 
 ---
 
 ## 9. Error handling, edge cases, payload validation
 
-- **Malformed messages**: non-dictionary body or missing `type` is logged and dropped
-  (`WebViewBridge.swift:78-82`). Unknown types are NSLogged (`:344`). Missing/typed-wrong fields
-  cause a silent no-op in each case.
-- **Insight**: strongest validation — `frameInfo.isMainFrame` guard on all nine types
-  (`:119-163`), non-empty strings, `topicIndex >= 0`, UUID shape, depth clamp; log lines sanitised
-  against CRLF/NUL (`:196-203`). JS side validates `ev.source`, a type allowlist, section/topic
-  bounds and a UUID regex (`markview-insight-handlers.js:324-424`); stale-session chunks are dropped
-  (`:151-158`).
-- **Other message types have no frame check** and only type-cast validation; semantic validation
-  lives in `WorkspaceManager` (e.g. X-Ray `openFile` root confinement
-  `WorkspaceManager.swift:1134-1138`, canvas path check `:1346`).
-- **Swift→JS encoding**: strings go through the array-wrap `JSONSerialization` idiom
-  (`WebViewBridge.swift:357-364`, `:372-379`, `:405`, `EditorView.swift:695`, `:838-842`). Exceptions:
-  `setDocumentBase` and `scrollToHeading` interpolate inside single quotes (`:614`, `:637`);
-  `setStructuredContent` interpolates an enum raw value (`:439`); JSON payloads from stores are
-  injected verbatim as object literals (`:393`, `:400`, `:414`, `:419`).
-- **evaluateJavaScript errors** are NSLogged (and for insight also written to the diag log); the
-  `jsError` channel exists because WebKit reports JS exceptions only as "<private>"
-  (`markview-bridge.js:36-42`).
-- **Library absence**: markdown-it failure falls back to an escaped `<pre>` (`markview-render.js:55-60`);
-  Mermaid/Prism/Turndown/d3 are feature-tested with `typeof`. If the CDN is unreachable,
+- **Malformed or unknown messages** (AR-28): `TypedWebBridge.receive` refuses a body that is not a dictionary with a string `type`, a type that
+  is not in the contract for that channel, a payload that does not match its spec (kinds, `nonEmpty`, bounds, `enum`, UUID format, item
+  counts) and a type with no registered handler. Each refusal is one `AppLog.bridge` error line with the channel and type name (control
+  characters replaced, 64 characters at most) and never a payload value. The page validates the same contract before it posts
+  (`mvBridge.send`), so a malformed message is normally stopped on the JS side first.
+- **Frame check**: the contract marks `researchMap` and the nine Insight messages `mainFrameOnly`; `receive` refuses them from any other
+  frame. The other messages have no frame check.
+- **Semantic validation** is not in the bridge: it lives in the owners (for example `CodeAndXRayCoordinator` for the X-Ray `openFile` root
+  confinement and the canvas path check, `InsightCoordinator` for skeleton and manifest membership of an Insight click).
+- **Swift→JS encoding**: every argument goes through `JS.call` as a JSON literal; there is no string interpolation left in
+  `WebViewBridge.swift` (the commands are the ones in section 5.3).
+- **`evaluateJavaScript` errors** are logged through `AppLog.bridge` (`WebViewBridge.run`); the `jsError` message exists because WebKit
+  reports JS exceptions only as "<private>" (`markview-bridge.js`), and the Swift handler logs it by `where`/`message`.
+- **Library absence**: markdown-it failure falls back to an escaped `<pre>` (`markview-render.js`);
+  Mermaid/Prism/Turndown/d3 are feature-tested with `typeof`. If a script were missing,
   `TurndownService` is undefined, `syncWysiwygToMarkdown` returns early
-  (`markview-edit.js:130-131`), and a WYSIWYG edit is **not** written back on ⌘S (the unchanged
-  textarea is sent). Interactive canvases stay at "Loading libraries..."
-  (`markview-d3-mermaid.js:5-8`). CodeMirror load failure shows an inline message
-  (`markview-code.js:248-250`).
-- **Structured parse errors** render an error view (`markview-canvas.js:34-42`, structured tree
-  analogous); `structFormat`/`structMinify` swallow errors (`markview-structured.js:206-235`).
-- **PDF**: empty probe → alert (`PDFExporter.swift:69-72`); write/pdf errors → alert (`:122-124`);
-  CG failures fall back to the unsplit tall PDF (`:143-168`).
+  (`markview-edit.js`), and a WYSIWYG edit is **not** written back on ⌘S (the unchanged
+  textarea is sent); all of these libraries are vendored now, so this is a defensive path. Interactive canvases show "Loading libraries..."
+  (`markview-d3-mermaid.js`) when `d3` is missing. CodeMirror load failure shows an inline message
+  (`markview-code.js`).
+- **Structured parse errors** render an error view (`markview-canvas.js`, structured tree
+  analogous); `structFormat`/`structMinify` swallow errors (`markview-structured.js`).
+- **PDF**: empty probe → alert (`PDFExporter.swift`); write/pdf errors → alert;
+  CG failures fall back to the unsplit tall PDF.
 - **`window.confirm` unusable** (no `WKUIDelegate`), so whole-document translation confirmation is
-  built in the popup (`markview-find.js:88-116`). `prompt()` is still used by WYSIWYG insert
-  commands (`markview-edit.js:178`, `:188`, `:196`, `:210`, `:221`); without a `WKUIDelegate`
+  built in the popup (`markview-find.js`). `prompt()` is still used by WYSIWYG insert
+  commands (`markview-edit.js`); without a `WKUIDelegate`
   these return `null` in WKWebView, so link/image/code-block/mermaid/table inserts from the toolbar
   likely do nothing or use defaults (verify manually).
 
@@ -578,82 +582,93 @@ the editor never writes files itself.
 
 ## 10. Risks, tech debt, oddities
 
-1. **`init()` never runs; `ready` never reaches Swift.** `markview-d3-mermaid.js:393-397` evaluates
-   `init` while `markview-init.js` (which declares it, `:62`) has not yet loaded
-   (`index.html:1592-1593`). Evidence: the diag log contains one `Script error.` from
+These are the 2.17.0 findings. Each item ends with its status at `ac3001ba` where the code was checked (by reading, nothing was run); an item
+with no status line was not re-checked.
+
+1. **`init()` never runs; `ready` never reaches Swift.** `markview-d3-mermaid.js` evaluates
+   `init` while `markview-init.js` (which declares it) has not yet loaded
+   (`index.html`). Evidence: the diag log contains one `Script error.` from
    `window.error` and `early-window.error` per page load and zero `IN type=ready` entries. Effects:
-   `bridgeEditorReady` (`EditorView.swift:795-807`) is dead; startup relies on `didFinish`; the
-   textarea focus and initial `applyTheme` in `init` (`markview-init.js:62-77`) do not happen.
+   `bridgeEditorReady` (`EditorView.swift`) is dead; startup relies on `didFinish`; the
+   textarea focus and initial `applyTheme` in `init` (`markview-init.js`) do not happen.
+   Status: not re-checked. The evidence (the diag log) is gone; a handler for `ready` exists (`EditorMessage.Ready` → `bridgeEditorReady`).
 2. **Loading a document can rewrite it with inlined images.** `resolveImagePaths` replaces image
-   paths with base64 data URIs before `setContent` (`EditorView.swift:370-373`); `renderMarkdown`
-   immediately posts `contentChanged` with that text (`markview-render.js:205`), which becomes
-   `tab.content` and sets `isModified` (`WorkspaceManager.swift:2763-2768`); `saveFile` writes
-   `tab.content` (`:2748`). Traced statically; confirm with a document that has a relative image.
+   paths with base64 data URIs before `setContent` (`EditorView.swift`); `renderMarkdown`
+   immediately posts `contentChanged` with that text (`markview-render.js`), which becomes
+   `tab.content` and sets `isModified` (`WorkspaceManager.swift`); `saveFile` writes
+   `tab.content`. Traced statically; confirm with a document that has a relative image.
+   Status: fixed by reading. `resolveImagePaths` no longer exists; a picture is requested through `markview-doc:///` and the text of the tab is not rewritten.
 3. **CDN scripts in a supposedly offline app.** d3, dagre, turndown, turndown-plugin-gfm load from
-   `cdn.jsdelivr.net` (`index.html:1539-1544`) with the CSP allowing it (`:21`), contrary to
-   `CLAUDE.md` ("never load them from a CDN") and `tools/web-vendor/build.sh:2`. No SRI hashes.
+   `cdn.jsdelivr.net` (`index.html`) with the CSP allowing it, contrary to
+   `CLAUDE.md` ("never load them from a CDN") and `tools/web-vendor/build.sh`. No SRI hashes.
    Offline it breaks WYSIWYG save (§9) and interactive graphs.
+   Status: fixed. `d3`, `turndown` and `turndown-plugin-gfm` are vendored (`vendor/js/`), `dagre` is no longer referenced, and the CSP is `script-src 'self' 'wasm-unsafe-eval'`.
 4. **Untrusted Markdown runs in the bridge-privileged frame.** `md` uses `html: true`
-   (`markview-state.js:53`) and output goes to `innerHTML` (`markview-render.js:98`); the CSP
-   permits `'unsafe-inline'` scripts (`index.html:21`), so inline event handlers in a document
+   (`markview-state.js`) and output goes to `innerHTML` (`markview-render.js`); the CSP
+   permits `'unsafe-inline'` scripts (`index.html`), so inline event handlers in a document
    execute and can call `webkit.messageHandlers.bridge` (e.g. `saveRequested`, `arch` actions such
    as `prTasksToTerminal`/`prAction`, `linkClicked` with `file://` which `NSWorkspace.open`s
-   non-openable files, `EditorView.swift:763-764`). Additional unescaped `innerHTML` sinks:
-   frontmatter keys/values (`markview-render.js:65-92`), TOC status built from heading text
-   (`:273-274`), AI results rendered with the same `md` (`markview-find.js:131-139`),
-   `fmtImage` (`markview-edit.js:191`). `MANIFEST.txt:13` claims `html: false`, which is stale.
-5. **Insight iframe is not null-origin.** Swift comments and `index.html:13-19` describe
+   non-openable files, `EditorView.swift`). Additional unescaped `innerHTML` sinks:
+   frontmatter keys/values (`markview-render.js`), TOC status built from heading text, AI results rendered with the same `md` (`markview-find.js`),
+   `fmtImage` (`markview-edit.js`). `MANIFEST.txt` claims `html: false`, which is stale.
+   Status: reworked. Rendered Markdown HTML is sanitised by vendored DOMPurify before it reaches the DOM (`index.html` comment, AR-01; hooks in `mv-kit.js`), and the CSP no longer allows inline scripts. `md` still has `html: true` (`markview-state.js`). Whether every `innerHTML` sink listed here goes through the sanitiser was not re-checked.
+5. **Insight iframe is not null-origin.** Swift comments and `index.html` describe
    `sandbox="allow-scripts"`, but JS sets `allow-scripts allow-same-origin` at runtime
-   (`markview-insight-handlers.js:132`), so iframe script shares the parent origin and can reach
+   (`markview-insight-handlers.js`), so iframe script shares the parent origin and can reach
    `window.parent`. The compensating control is regex stripping per chunk
-   (`markview-insight-handlers.js:1-29`, `:166`); chunks are concatenated in the iframe
-   (`markview-insight-srcdoc.js:381-382`), so a tag split across chunks is not stripped. The
-   iframe CSP allows `'unsafe-inline'` scripts (`markview-insight-srcdoc.js:170`). The
+   (`markview-insight-handlers.js`); chunks are concatenated in the iframe
+   (`markview-insight-srcdoc.js`), so a tag split across chunks is not stripped. The
+   iframe CSP allows `'unsafe-inline'` scripts (`markview-insight-srcdoc.js`). The
    `isMainFrame` guards exist only on insight types.
+   Status: fixed for the sandbox: the iframe is created with `sandbox="allow-scripts"` only (AR-02, `markview-insight-handlers.js`). The chunk-splitting and srcdoc CSP points were not re-checked. The `mainFrameOnly` guard now covers the Insight messages and `researchMap`, set in the contract.
 6. **Blob materialisation is dead weight.** `loadInsightSkeleton` fetches libs (mermaid is 2.9 MB)
-   into `insightLibBytes` and creates blob URLs (`markview-insight-handlers.js:77-94`,
-   `markview-insight-srcdoc.js:93-122`), but the srcdoc references direct `vendor/js` paths
-   (`markview-insight-srcdoc.js:191-205`).
-7. **String interpolation into JS** in `setDocumentBase('\(base)')` (`WebViewBridge.swift:614`) —
+   into `insightLibBytes` and creates blob URLs (`markview-insight-handlers.js`,
+   `markview-insight-srcdoc.js`), but the srcdoc references direct `vendor/js` paths
+   (`markview-insight-srcdoc.js`).
+7. **String interpolation into JS** in `setDocumentBase('\(base)')` (`WebViewBridge.swift`) —
    `'` is legal in `URL.absoluteString`, so a folder name with an apostrophe breaks the call — and
-   `scrollToHeading('\(headingId)')` (`:637`), where the id can come from raw HTML in the document.
+   `scrollToHeading('\(headingId)')`, where the id can come from raw HTML in the document.
+   Status: fixed. Every Swift→JS command uses `JS.call` with JSON-encoded arguments.
 8. **Diagnostic log leaks content and grows unbounded.** Every message type, 300-char prefixes of
    evaluated JS (including insight HTML), and JS error stacks go to world-readable
-   `/tmp/markview-insight-diag.log` (`WebViewBridge.swift:87`, `:513`, `:536`, `:460-477`); the
+   `/tmp/markview-insight-diag.log` (`WebViewBridge.swift`); the
    file was ~6.9 MB at time of writing. Insight JS emits a `jsError` diagnostic for every
-   `postMessage` and chunk (`markview-insight-handlers.js:66`, `:174`, `:179`, `:327`). Conflicts
+   `postMessage` and chunk (`markview-insight-handlers.js`). Conflicts
    with the "do not print full user documents to logs" rule.
+   Status: fixed (AR-09). `logInsightDiag` writes nothing to disk, logs through `AppLog.insight` in a Debug build only, and deletes a leftover `/tmp/markview-insight-diag.log`. A `jsError` is logged by its fields, not as a stack dump to a file.
 9. **Payload bloat.** `contentChanged` carries the full rendered `html` on every keystroke
-   (`markview-render.js:205-208`), including inlined base64 images, and Swift ignores it
-   (`WebViewBridge.swift:251-254`). The whole document is re-rendered per `input` event with no
-   debounce (`markview-init.js:4-12`).
-10. **Dead code**: `BridgeMessage`/`AnyCodable` (`WebViewBridge.swift:6-68`); `textChanged`
-    handler with no sender (`:299-302`); `didChangeScrollPosition` delegate never invoked
-    (`:696`, `EditorView.swift:777`); `generateGraph` non-edit branch (`WebViewBridge.swift:334-336`);
-    `requestHTML`, `preparePrintLayout`, `restoreEditLayout` (`:647-670`); `PDFExporter`'s unused
-    `bridge` parameter (`PDFExporter.swift:22`); the `headingsUpdated` case in `handleMessage`
-    (`WebViewBridge.swift:258-260`); duplicate global error listeners (`markview-early.js`,
-    `markview-bridge.js:43-67`).
+   (`markview-render.js`), including inlined base64 images, and Swift ignores it
+   (`WebViewBridge.swift`). The whole document is re-rendered per `input` event with no
+   debounce (`markview-init.js`).
+10. **Dead code**: `BridgeMessage`/`AnyCodable` (`WebViewBridge.swift`); `textChanged`
+    handler with no sender; `didChangeScrollPosition` delegate never invoked
+    (`EditorView.swift`); `generateGraph` non-edit branch (`WebViewBridge.swift`);
+    `requestHTML`, `preparePrintLayout`, `restoreEditLayout`; `PDFExporter`'s unused
+    `bridge` parameter (`PDFExporter.swift`); the `headingsUpdated` case in `handleMessage`
+    (`WebViewBridge.swift`); duplicate global error listeners (`markview-early.js`,
+    `markview-bridge.js`).
+    Status: partly. `handleMessage` and the `textChanged` message are gone, and `BridgeMessage` is now a generic type that handlers use. `AnyCodable` is declared and unused. `getHTML`, `preparePrintLayout` and `restoreEditLayout` are still defined in `markview-globals.js` with no Swift caller. The rest was not re-checked.
 11. **Observer leaks**: three `addObserver(forName:…)` tokens are discarded
-    (`EditorView.swift:137`, `:149`, `:160`) and never removed in `deinit` (`:170-177`).
-    `WKUserContentController` strongly retains `bridge` and is never cleaned up (`:16`); the
-    terminal uses a weak proxy (`TerminalSession.swift:441-446`) but the editor does not.
+    (`EditorView.swift`) and never removed in `deinit`.
+    `WKUserContentController` strongly retains `bridge` and is never cleaned up; the
+    terminal uses a weak proxy (`TerminalSession.swift`) but the editor does not.
+    Status: partly. The editor's handler is registered through `WebHost`, which wraps it in `WeakScriptMessageHandler`, so the controller no longer retains the bridge. The discarded observer tokens were not re-checked.
 12. **Web Inspector enabled in all builds** via private `developerExtrasEnabled` KVC
-    (`EditorView.swift:19`).
+    (`EditorView.swift`).
+    Status: fixed. `developerExtrasEnabled` and `isInspectable` are set only `#if DEBUG` in `WebHost`.
 13. **Global-scope coupling.** 20 classic scripts share one global namespace; behaviour depends on
     wrapper order (§3). `toggleModeWrapper` is referenced in an inline handler
-    (`index.html:1356`) and defined as a function declaration in `markview-structured.js:286`.
-14. **PDF export fragility**: fixed 1.5 s wait (`PDFExporter.swift:111`); no vendor CSS in the
-    print document, so KaTeX/Prism styling is lost; `source-raw` exports raw markdown in a `<pre>`
-    (`:51-53`); the off-screen view has JavaScript enabled and loads captured HTML with the editor
-    base URL (`:90-136`).
+    (`index.html`) and defined as a function declaration in `markview-structured.js`.
+14. **PDF export fragility**: fixed 1.5 s wait (`PDFExporter.swift`); no vendor CSS in the
+    print document, so KaTeX/Prism styling is lost; `source-raw` exports raw markdown in a `<pre>`; the off-screen view has JavaScript enabled and loads captured HTML with the editor
+    base URL.
 15. **Vendored library debt** recorded in `MANIFEST.txt`: mermaid 10.6.1 (DOMPurify advisory),
     KaTeX 0.16.9 (CVE-2024-28243..28246, CVE-2025-23207), Prism 1.29.0 (CVE-2024-53382), all
-    "upgrade scheduled separately". The manifest's mitigation text assumes `html: false` and a
-    null-origin iframe, neither of which holds (items 4, 5).
+    "upgrade scheduled separately". Status: the manifest's mitigation text now describes the current posture (`html: true` with DOMPurify under a
+    strict CSP, `securityLevel: 'strict'` for Mermaid, a null-origin Insight iframe); whether the pinned versions were upgraded was not re-checked.
 16. **Odd defaults**: the WYSIWYG toolbar hard-codes RU/EN translation buttons
-    (`index.html:1350-1352`); Mermaid theme is re-initialised on theme change but already rendered
-    diagrams are not re-run (`markview-bridge.js:12-14`).
+    (`index.html`); Mermaid theme is re-initialised on theme change but already rendered
+    diagrams are not re-run (`markview-bridge.js`).
 
 ---
 
@@ -661,31 +676,30 @@ the editor never writes files itself.
 
 ### Add a JS → Swift bridge message
 
-1. JS: call `sendToSwift('<type>', {…})` (`markview-bridge.js:26`). For code viewer / X-Ray actions,
-   prefer a new `action` under the existing `code`/`arch` types (`postCode`, `post`).
-2. Swift: add a `case "<type>":` in `WebViewBridge.handleMessage` (`WebViewBridge.swift:247`) with
-   type-checked field extraction; if the payload is large or must be frame-checked, handle it inline
-   in `userContentController` like `blocksChanged` or the insight cases.
-3. Add a method to `WebViewBridgeDelegate` (`:691`) and implement it in
-   `EditorView.Coordinator` (`EditorView.swift:718+`) as `Task { @MainActor in … }` calling
-   `WorkspaceManager`.
-4. Validate semantically in `WorkspaceManager` (paths inside the root, known action names).
-5. Update the catalog in this document.
+1. Declare it in `MarkView/Resources/Editor/js/bridge-contract.json` under the channel (`bridge` for the editor): the payload fields, their kinds,
+   `nonEmpty`, bounds, `enum`, and `mainFrameOnly: true` when only the top frame may send it. For code viewer and X-Ray actions, prefer a new
+   value of the `action` enum of `code` or `arch` (the fields of an action are read by its owner).
+2. Swift: add a `BridgePayload` type with `static let messageType` in `Bridge/PageMessages.swift`, and register a handler with
+   `messages.on(EditorMessage.<Name>.self)` in `WebViewBridge.registerHandlers`. A message in the contract with no handler, or a handler for a
+   type not in the contract, is reported (an assertion in a Debug build, a logged refusal otherwise); `tools/tests/bridge-contract-tests.sh` compares the registered types with the contract (not run for this edit).
+3. Add a method to `WebViewBridgeDelegate` and implement it in `EditorView.Coordinator` (`EditorView.swift`) as `Task { @MainActor in … }`
+   calling the owner (`TabsController`, `CodeAndXRayCoordinator`, `FeatureFlowCoordinator`, `InsightCoordinator`).
+4. JS: send it with `sendToSwift('<type>', {…})` (`markview-bridge.js`), which goes through `mvBridge.send` and the contract check.
+5. Validate semantically in the owner (paths inside the root, known action names); the contract only checks the shape.
 
 ### Add a Swift → JS command
 
 1. JS: define `window.<fn>` in the module that owns the state; if it replaces a view, make the other
-   views' wrappers leave (pattern at `markview-architecture.js:2087-2094`).
-2. Swift: add a method on `WebViewBridge` that encodes every string with `encodeStringForJS` or a
-   JSON array + `.apply(null, …)` (`WebViewBridge.swift:404-410`); guard with `window.<fn> &&` when
-   the script may not be loaded.
+   views' wrappers leave (pattern at `markview-architecture-*.js`).
+2. Swift: add a method on `WebViewBridge` that builds the call with `JS.call("window.<fn>", args: […])` and runs it through `run(_:what:in:)`
+   (`WebViewBridge.swift`); pass `ifDefined: true` when the script may not be loaded.
 3. Call it from `EditorView.Coordinator`, only after `isEditorReady`.
 
 ### Add a new content mode / tab kind
 
-Route in `loadContentIfNeeded` (`EditorView.swift:302-327`), add an `enter…View`/`leave…View` pair in
+Route in `loadContentIfNeeded` (`EditorView.swift`), add an `enter…View`/`leave…View` pair in
 JS, and wrap `setContent`/`setStructuredContent`/`setCodeContent` so the new view hides when others
-load. Reset `lastLoadedContent` when leaving the file pipeline (as `routeArchitecture` does at `:394`).
+load. Reset `lastLoadedContent` when leaving the file pipeline (as `routeArchitecture` does at).
 
 ### Update a vendored library
 
@@ -696,10 +710,9 @@ load. Reset `lastLoadedContent` when leaving the file pipeline (as `routeArchite
 - markdown-it family, mermaid, KaTeX (+fonts), Prism, js-yaml, Chart.js: replace the file in
   `vendor/js` (or `vendor/css`), then update the version, SHA-256 (`shasum -a 256`), source URL and
   CVE check in `vendor/MANIFEST.txt`. If Chart/mermaid/KaTeX file names change, update
-  `INSIGHT_LIB_FILES` and `LIB_PATHS` (`markview-insight-srcdoc.js:54-61`, `:188-194`).
-- To vendor the CDN libraries (d3, dagre, turndown, turndown-plugin-gfm), add them to
-  `tools/web-vendor/package.json`, copy their dist files in `build.sh`, switch the tags at
-  `index.html:1539-1544`, and drop `https://cdn.jsdelivr.net` from the CSP (`index.html:21`).
+  `INSIGHT_LIB_FILES` and `LIB_PATHS` (`markview-insight-srcdoc.js`).
+- To add a library, add it to `tools/web-vendor/package.json`, copy its dist file in `build.sh`, and add a `vendor/js` script tag in
+  `index.html`; the CSP allows only `'self'` scripts, so a CDN tag would not load.
 - `MarkView.xcodeproj/project.pbxproj` copies the `Resources/Editor` resource files (and `tools/web-vendor/build.sh` updates `vendor/`).
   Rebuild the app afterwards (`CLAUDE.md` Verification).
 
@@ -715,22 +728,22 @@ scope, so names must be unique across modules.
 
 - **Bridge** — the `bridge` `WKScriptMessageHandler` (`WebViewBridge`) plus the Swift→JS command
   methods.
-- **`sendToSwift`** — JS helper that posts `{type, payload}` to the bridge.
-- **Array-wrap idiom** — `JSONSerialization` of `[string]` with brackets dropped, producing a safe
-  JS string literal.
+- **`sendToSwift`** — JS helper that posts `{type, payload}` to the `bridge` channel through `mvBridge.send`, which checks the contract first.
+- **Bridge contract** — `bridge-contract.json`, the one declaration of the messages a page may post; read by `BridgeContract` in Swift and by `mv-kit.js` in the page.
+- **`JS.call`** — the `MarkViewCore` helper that builds a JavaScript call with JSON-encoded arguments.
 - **WYSIWYG / preview mode** — `#editor-rendered` contentEditable view; **source mode** — the
   `#editor-input` textarea.
 - **`wysiwygDirty`** — the WYSIWYG DOM was edited; Turndown runs only on save or switch to source.
 - **Semantic block** — paragraph/section/list/table/quote/codeBlock unit with FNV-1a id and hash,
   diffed into `blocksChanged`.
 - **Notes view** — a markdown tab shown in the code viewer with AI margin notes (`tab.notesView`).
-- **X-Ray** — the Architecture tab (`TabKind.architecture`), rendered by `markview-architecture.js`.
+- **X-Ray** — the Architecture tab (`TabKind.architecture`), rendered by `markview-architecture-*.js`.
 - **Recursive Insight** — LLM-generated multi-section pages in a sandboxed iframe; skeleton =
   section list, chunk = streamed section HTML.
-- **`%%INTERACTIVE`** — marker inside a mermaid block that switches to the D3/dagre canvas.
+- **`%%INTERACTIVE`** — marker inside a mermaid block that switches to the D3 canvas.
 - **JSON Canvas** — `.canvas` files (jsoncanvas.org 1.0) shown by `markview-canvas.js`.
 - **Wikilink** — `[[Note#Heading|label]]`, sent to Swift as `markview-wikilink:` URLs.
-- **Diag log** — `/tmp/markview-insight-diag.log`.
+- **Diag log** — the old `/tmp/markview-insight-diag.log`; it no longer exists (see `logInsightDiag`, section 5).
 
 
 ## Data viewers and JSON/YAML editing (Task 84)

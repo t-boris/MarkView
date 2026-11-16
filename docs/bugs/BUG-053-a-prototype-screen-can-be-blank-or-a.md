@@ -45,7 +45,7 @@ MarkView 5.5.0, project broker-fabric, prototype strikedesk v8, rendered in head
 
 ## Resolution
 
-- `PrototypeAudit.stubProblem` (new file `Models/PrototypeAudit.swift`) checks every screen the build writes: no code besides comments, no
+- `PrototypeAudit.stubProblem` (new file `Models/Prototype/PrototypeAudit.swift`) checks every screen the build writes: no code besides comments, no
   `App.register`, no `render`, or a short file (under 400 characters) whose text says "not implemented", "TODO", "coming soon". Such an answer is
   not saved; the second try is told why and runs at medium effort; a screen that is still a stub is listed as failed (the build reply names it).
 - `PrototypeAudit.script` is injected into the Studio preview. After a build, a sync, or a revision that touched a screen, `app.js` or `index.html`,

@@ -116,7 +116,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] Оба словаря статусов заданы в коде отдельными массивами. — `MarkView/Models/FeatureVocabulary.swift:5`
+- [Project fact] Оба словаря статусов заданы в коде отдельными массивами. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:5`
 - [AI inference] Графы переходов features и bugs стоит конфигурировать отдельно при общей модели правил.
 
 ### Сервис переходов уже существует {#n8}
@@ -127,7 +127,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] FeatureStore+Lifecycle связывает IssueTransitionService, журнал переходов и Markdown-статусы; запрос проверяет наблюдавшийся статус. — `MarkView/Models/FeatureStore+Lifecycle.swift:3`
+- [Project fact] FeatureStore+Lifecycle связывает IssueTransitionService, журнал переходов и Markdown-статусы; запрос проверяет наблюдавшийся статус. — `MarkView/Models/Lifecycle/FeatureStore+Lifecycle.swift:3`
 - [Project fact] Внешнее изменение статуса сохраняется как неподтверждённое до подтверждения или разрешения человеком. — `docs/features/issue-lifecycle-management/decisions/DEC-015.md`
 
 ### Проектный Definition of Done {#n9}
@@ -138,7 +138,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] DefinitionOfDone хранит проектный чек-лист и формирует текст цели для ассистента. — `MarkView/Models/DefinitionOfDone.swift:3`
+- [Project fact] DefinitionOfDone хранит проектный чек-лист и формирует текст цели для ассистента. — `MarkView/Models/Lifecycle/DefinitionOfDone.swift:3`
 - [AI inference] Инструкция в промпте не является самостоятельным механизмом принудительной проверки перехода.
 
 ### Проверка доставки и GitHub {#n10}
@@ -149,8 +149,8 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] IssueEvidenceCollector собирает данные Git и GitHub и не считает недоступный обязательный источник пройденной проверкой. — `MarkView/Models/IssueEvidenceCollector.swift:3`
-- [Project fact] IssueGitHubPlanner рассматривает закрытие, повторное открытие и расхождения; GitHub не меняет локальный статус напрямую. — `MarkView/Models/IssueGitHubSync.swift:24`
+- [Project fact] IssueEvidenceCollector собирает данные Git и GitHub и не считает недоступный обязательный источник пройденной проверкой. — `MarkView/Models/Lifecycle/IssueEvidenceCollector.swift:3`
+- [Project fact] IssueGitHubPlanner рассматривает закрытие, повторное открытие и расхождения; GitHub не меняет локальный статус напрямую. — `MarkView/Models/Lifecycle/IssueGitHubSync.swift:24`
 
 ### Шаблоны и конструктор {#n3}
 
@@ -213,7 +213,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] DocumentationPaths распознаёт пути внутри docs/ и tasks/ и файлы с суффиксом .md; WorkUnit требует непустой известный список. — `MarkView/Models/IssueLifecycleEvidence.swift:83`
+- [Project fact] DocumentationPaths распознаёт пути внутри docs/ и tasks/ и файлы с суффиксом .md; WorkUnit требует непустой известный список. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:83`
 - [Project fact] Руководство включает в documentation-only изменения presentations, но проверка путей не содержит общего правила для их форматов. — `CLAUDE.md:59`
 - [AI inference] Несовпадение областей действия руководства и классификатора требует явного решения о форматах и контексте файлов.
 
@@ -225,8 +225,8 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] Модель различает виды задачи feature и bug, а documentation-only определяется отдельно по изменённым путям. — `MarkView/Models/IssueSync.swift:8`
-- [Project fact] Классификация documentation-only требует, чтобы каждый изменённый путь был документационным. — `MarkView/Models/IssueLifecycleEvidence.swift:83`
+- [Project fact] Модель различает виды задачи feature и bug, а documentation-only определяется отдельно по изменённым путям. — `MarkView/Models/Lifecycle/IssueSync.swift:8`
+- [Project fact] Классификация documentation-only требует, чтобы каждый изменённый путь был документационным. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:83`
 - [Open assumption] В проекте допустимо применять документационное исключение к задаче любого вида; это следует подтвердить в политике.
 
 ### Приоритет пересекающихся правил {#n35}
@@ -237,7 +237,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] ProjectDeliveryPolicy начинает с checklist и распознаёт определённые явные правила руководства как переопределение; обязательный PR имеет приоритет перед распознанным разрешением прямых коммитов. — `MarkView/Models/IssueLifecycleEvidence.swift:98`
+- [Project fact] ProjectDeliveryPolicy начинает с checklist и распознаёт определённые явные правила руководства как переопределение; обязательный PR имеет приоритет перед распознанным разрешением прямых коммитов. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:98`
 - [AI inference] Общий порядок приоритетов и обработка конфликтующих локальных уточнений здесь предложены как дизайн, а не как существующая универсальная реализация.
 - [Open assumption] Применение более строгого требования до решения человека соответствует желаемой политике проекта.
 
@@ -272,7 +272,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] Текущий ProjectDeliveryPolicy выводит требования PR и CI из Definition of Done и распознаёт некоторые явные инструкции в руководстве проекта. — `MarkView/Models/IssueLifecycleEvidence.swift:98`
+- [Project fact] Текущий ProjectDeliveryPolicy выводит требования PR и CI из Definition of Done и распознаёт некоторые явные инструкции в руководстве проекта. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:98`
 - [AI inference] Без правил приоритета агент и проверяющий сервис могут получить разные ответы о том, что обязательно.
 
 ### Переходы и защиты {#n4}
@@ -293,7 +293,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] Текущие правила требуют startEvidence; оно представлено успешным handoff или привязкой AI-сессии. — `MarkView/Models/IssueLifecycle.swift:39`
+- [Project fact] Текущие правила требуют startEvidence; оно представлено успешным handoff или привязкой AI-сессии. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:39`
 - [AI inference] Ручное начало работы потребует определённого проектом подтверждения, если его нужно учитывать без AI-сессии.
 
 ### Доставка и приёмка {#n17}
@@ -305,7 +305,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 #### Evidence
 
 - [Project fact] В действующем решении завершение реализации и приёмка разделены; решение предусматривает merge, обязательные проверки и необходимый релиз. — `docs/features/issue-lifecycle-management/decisions/DEC-007.md`
-- [Project fact] Для AI-приёмки текущая политика требует текст проверки, а для feature — также отмеченные критерии приёмки. — `MarkView/Models/IssueLifecycle.swift:133`
+- [Project fact] Для AI-приёмки текущая политика требует текст проверки, а для feature — также отмеченные критерии приёмки. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:133`
 
 ### Важное расхождение реализации {#n18}
 
@@ -316,7 +316,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 #### Evidence
 
 - [Project fact] Решение DEC-007 описывает завершение после merge, обязательных проверок и необходимого релиза. — `docs/features/issue-lifecycle-management/decisions/DEC-007.md`
-- [Project fact] IssueEvidenceCollector вычисляет releaseRequired только для bug, а для feature выключает checksRequired и pullRequestRequired. — `MarkView/Models/IssueEvidenceCollector.swift:40`
+- [Project fact] IssueEvidenceCollector вычисляет releaseRequired только для bug, а для feature выключает checksRequired и pullRequestRequired. — `MarkView/Models/Lifecycle/IssueEvidenceCollector.swift:40`
 
 ### Результат проверки условий {#n19}
 
@@ -326,7 +326,7 @@ Feature проходит через `idea`, `exploring`, `ready`, `implementing`
 
 #### Evidence
 
-- [Project fact] DeliveryVerdict различает complete, incomplete и unknown; отсутствующие, недоступные, устаревшие и неоднозначные данные не считаются успехом. — `MarkView/Models/IssueLifecycle.swift:108`
+- [Project fact] DeliveryVerdict различает complete, incomplete и unknown; отсутствующие, недоступные, устаревшие и неоднозначные данные не считаются успехом. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:108`
 - [AI inference] Та же трёхзначная модель полезна для всех настраиваемых условий переходов.
 
 ### Роль AI и человека {#n20}
@@ -337,8 +337,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] LifecyclePolicy предоставляет nextSteps и допускает force только от человека с указанной причиной. — `MarkView/Models/IssueLifecycle.swift:357`
-- [Project fact] Для передачи агенту формируется блок с текущим статусом и доступными следующими шагами. — `MarkView/Models/FeatureStore+Lifecycle.swift:157`
+- [Project fact] LifecyclePolicy предоставляет nextSteps и допускает force только от человека с указанной причиной. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:357`
+- [Project fact] Для передачи агенту формируется блок с текущим статусом и доступными следующими шагами. — `MarkView/Models/Lifecycle/FeatureStore+Lifecycle.swift:157`
 
 ### Гонки, повторы и обход {#n21}
 
@@ -348,7 +348,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] TransitionRequest содержит ключ идемпотентности, ожидаемый from и время наблюдения данных. — `MarkView/Models/IssueLifecycle.swift:202`
+- [Project fact] TransitionRequest содержит ключ идемпотентности, ожидаемый from и время наблюдения данных. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:202`
 - [Project fact] Внешние изменения Markdown сохраняются как неподтверждённые и требуют подтверждения или решения человека. — `docs/features/issue-lifecycle-management/decisions/DEC-015.md`
 - [AI inference] Версия политики в записи позволит объяснить старые решения после изменения правил проекта.
 
@@ -370,7 +370,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Сборщик различает исключительные и общие номера GitHub issue; ссылка только на общую issue считается неоднозначной. — `MarkView/Models/IssueEvidenceCollector.swift:8`
+- [Project fact] Сборщик различает исключительные и общие номера GitHub issue; ссылка только на общую issue считается неоднозначной. — `MarkView/Models/Lifecycle/IssueEvidenceCollector.swift:8`
 - [AI inference] Явная связь с revision надёжнее попытки вывести соответствие только из свободного текста.
 
 ### События GitHub и сверка {#n23}
@@ -403,7 +403,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Если обязательны GitHub-проверки, PR или релиз, а интеграция отключена, сборщик отмечает источник недоступным. — `MarkView/Models/IssueEvidenceCollector.swift:52`
+- [Project fact] Если обязательны GitHub-проверки, PR или релиз, а интеграция отключена, сборщик отмечает источник недоступным. — `MarkView/Models/Lifecycle/IssueEvidenceCollector.swift:52`
 - [AI inference] Для локальных проверок понадобятся идентификация команды, результат и привязка к проверенному состоянию кода.
 
 ### Статусы GitHub issues {#n26}
@@ -415,7 +415,7 @@ AI получает текущий статус, разрешённые след
 #### Evidence
 
 - [Project fact] Принятое решение закрывает GitHub issue только при подтверждённом завершении всех связанных работ; override и неподтверждённое внешнее изменение не считаются verified completion. — `docs/features/issue-lifecycle-management/decisions/DEC-010.md`
-- [Project fact] Планировщик фиксирует расхождение при преждевременном закрытии GitHub issue без изменения локального статуса. — `MarkView/Models/IssueGitHubSync.swift:94`
+- [Project fact] Планировщик фиксирует расхождение при преждевременном закрытии GitHub issue без изменения локального статуса. — `MarkView/Models/Lifecycle/IssueGitHubSync.swift:94`
 
 ### Внедрение и открытые вопросы {#n6}
 
@@ -436,7 +436,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] LifecyclePolicy сейчас использует статические таблицы переходов для feature и bug. — `MarkView/Models/IssueLifecycle.swift:285`
+- [Project fact] LifecyclePolicy сейчас использует статические таблицы переходов для feature и bug. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:285`
 - [AI inference] Сохранение поведения при миграции уменьшает риск неожиданных переходов существующих задач.
 
 ### Модель статусов и переходов {#n37}
@@ -447,7 +447,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] LifecycleRule содержит исходные статусы, целевой статус, TransitionKind и условия по LifecycleActorKind; LifecycleVocabulary отдельно определяет активные и завершённые статусы. — `MarkView/Models/IssueLifecycle.swift:247`
+- [Project fact] LifecycleRule содержит исходные статусы, целевой статус, TransitionKind и условия по LifecycleActorKind; LifecycleVocabulary отдельно определяет активные и завершённые статусы. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:247`
 - [AI inference] При настраиваемых статусах одной таблицы переходов недостаточно для сохранения смысла активной и завершённой работы.
 
 ### Единая политика для потребителей {#n38}
@@ -458,9 +458,9 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] IssueTransitionService вызывает LifecyclePolicy.decide; контекст задачи вызывает LifecyclePolicy.nextSteps, а IssueCompletion использует LifecycleVocabulary для распознавания завершённых статусов. — `MarkView/Models/IssueTransitionLog.swift:332`
-- [Project fact] Сбор delivery evidence сейчас привязан к целевым статусам implemented и fixed; начало handoff — к implementing и fixing. — `MarkView/Models/FeatureStore+Lifecycle.swift:108`
-- [Project fact] Контекст задачи сортирует следующие шаги по LifecycleVocabulary.statuses. — `MarkView/Models/IssueLifecycleContext.swift:402`
+- [Project fact] IssueTransitionService вызывает LifecyclePolicy.decide; контекст задачи вызывает LifecyclePolicy.nextSteps, а IssueCompletion использует LifecycleVocabulary для распознавания завершённых статусов. — `MarkView/Models/Lifecycle/IssueTransitionLog.swift:332`
+- [Project fact] Сбор delivery evidence сейчас привязан к целевым статусам implemented и fixed; начало handoff — к implementing и fixing. — `MarkView/Models/Lifecycle/FeatureStore+Lifecycle.swift:108`
+- [Project fact] Контекст задачи сортирует следующие шаги по LifecycleVocabulary.statuses. — `MarkView/Models/Lifecycle/IssueLifecycleContext.swift:402`
 - [AI inference] Передача одного разрешённого снимка политики этим потребителям уменьшит расхождения между решением, отображением и сбором доказательств.
 
 ### Совместимость существующих проектов {#n39}
@@ -471,8 +471,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Словари feature и bug заданы в FeatureVocabulary; LifecyclePolicy отклоняет неизвестный целевой статус, а неизвестный исходный рассматривает как переход вне таблицы. — `MarkView/Models/FeatureVocabulary.swift:5`
-- [Project fact] DefinitionOfDone загружается из отдельного файла и при отсутствии или ошибке чтения возвращает standard. — `MarkView/Models/DefinitionOfDone.swift:69`
+- [Project fact] Словари feature и bug заданы в FeatureVocabulary; LifecyclePolicy отклоняет неизвестный целевой статус, а неизвестный исходный рассматривает как переход вне таблицы. — `MarkView/Models/Lifecycle/FeatureVocabulary.swift:5`
+- [Project fact] DefinitionOfDone загружается из отдельного файла и при отсутствии или ошибке чтения возвращает standard. — `MarkView/Models/Lifecycle/DefinitionOfDone.swift:69`
 - [AI inference] Встроенный профиль старого поведения позволяет перейти на новую модель без массового переписывания статусов и без изменения правил по умолчанию.
 
 ### Перенос Definition of Done {#n40}
@@ -483,8 +483,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] При загрузке встроенные пункты получают актуальную формулировку и сохранённый пользователем режим; пользовательские пункты сохраняются. — `MarkView/Models/DefinitionOfDone.swift:82`
-- [Project fact] goalText преобразует пункты в инструкции для цели агента; LifecyclePolicy отдельно проверяет типизированные LifecycleCondition. — `MarkView/Models/DefinitionOfDone.swift:116`
+- [Project fact] При загрузке встроенные пункты получают актуальную формулировку и сохранённый пользователем режим; пользовательские пункты сохраняются. — `MarkView/Models/Lifecycle/DefinitionOfDone.swift:82`
+- [Project fact] goalText преобразует пункты в инструкции для цели агента; LifecyclePolicy отдельно проверяет типизированные LifecycleCondition. — `MarkView/Models/Lifecycle/DefinitionOfDone.swift:116`
 - [Open assumption] Связь произвольного текстового пункта с автоматически проверяемым условием пока не определена.
 
 ### История при смене политики {#n41}
@@ -495,8 +495,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] TransitionRecord хранит from, to, transitionKind и evidence, но не содержит версию политики. — `MarkView/Models/IssueTransitionLog.swift:34`
-- [Project fact] IssueCompletion заново проходит историю и классифицирует статусы через текущий LifecycleVocabulary, включая baseline и completion. — `MarkView/Models/IssueCompletion.swift:163`
+- [Project fact] TransitionRecord хранит from, to, transitionKind и evidence, но не содержит версию политики. — `MarkView/Models/Lifecycle/IssueTransitionLog.swift:34`
+- [Project fact] IssueCompletion заново проходит историю и классифицирует статусы через текущий LifecycleVocabulary, включая baseline и completion. — `MarkView/Models/Lifecycle/IssueCompletion.swift:163`
 - [AI inference] Если переопределить значение статуса без учёта старой семантики, результат чтения прошлой истории может измениться.
 - [Open assumption] Способ привязки исторических записей к исходной версии политики ещё предстоит определить.
 
@@ -508,7 +508,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] DefinitionOfDone.load возвращает standard и при отсутствии файла, и при ошибке чтения или декодирования. — `MarkView/Models/DefinitionOfDone.swift:73`
+- [Project fact] DefinitionOfDone.load возвращает standard и при отсутствии файла, и при ошибке чтения или декодирования. — `MarkView/Models/Lifecycle/DefinitionOfDone.swift:73`
 - [AI inference] Явное различение этих случаев поможет не принять повреждённую или более новую политику за проект без настроек.
 - [Open assumption] Поведение при неподдерживаемой версии и порядок преобразования версий новой политики пока не определены.
 
@@ -521,7 +521,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Текущая модель уже различает старт, завершение, приёмку, отмену, повторное открытие и откат. — `MarkView/Models/IssueLifecycle.swift:73`
+- [Project fact] Текущая модель уже различает старт, завершение, приёмку, отмену, повторное открытие и откат. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:73`
 - [AI inference] Проверки должны покрывать и запрещённые переходы, а также изменения данных между проверкой и применением.
 
 ### Контракт результата проверки {#n43}
@@ -532,7 +532,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] LifecycleCondition перечисляет условия, DeliveryVerdict различает complete, incomplete и unknown, а Rejection содержит missing, message и hints. — `MarkView/Models/IssueLifecycle.swift:38`
+- [Project fact] LifecycleCondition перечисляет условия, DeliveryVerdict различает complete, incomplete и unknown, а Rejection содержит missing, message и hints. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:38`
 - [AI inference] Единый типизированный результат на каждое условие позволит интерфейсу и тестам показывать точную причину блокировки.
 
 ### Предпросмотр и повторная проверка {#n44}
@@ -543,7 +543,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] LifecyclePolicy.decide вычисляет решение; nextSteps уже возвращает доступные шаги и их неудовлетворённые условия. — `MarkView/Models/IssueLifecycle.swift:339`
+- [Project fact] LifecyclePolicy.decide вычисляет решение; nextSteps уже возвращает доступные шаги и их неудовлетворённые условия. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:339`
 - [Project fact] Тесты проверяют устаревший запрос, повтор команды и изменение статуса между проверкой и compare-and-set. — `tools/tests/IssueTransitionLogChecks.swift:86`
 - [AI inference] Изменение доказательств доставки или версии политики между просмотром и применением требует повторной оценки, даже если статус не изменился.
 
@@ -555,8 +555,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] TransitionRecord хранит актёра, время, причину, обойдённые и отсутствующие условия, доказательства и фазы операции. — `MarkView/Models/IssueTransitionLog.swift:11`
-- [Project fact] При override perform сейчас записывает пустой список evidence; отказ записывается через try?, поэтому ошибка добавления записи игнорируется. — `MarkView/Models/IssueTransitionLog.swift:344`
+- [Project fact] TransitionRecord хранит актёра, время, причину, обойдённые и отсутствующие условия, доказательства и фазы операции. — `MarkView/Models/Lifecycle/IssueTransitionLog.swift:11`
+- [Project fact] При override perform сейчас записывает пустой список evidence; отказ записывается через try?, поэтому ошибка добавления записи игнорируется. — `MarkView/Models/Lifecycle/IssueTransitionLog.swift:344`
 - [AI inference] Версия политики и структурированные результаты отдельных проверок нужны для воспроизводимого объяснения исторического решения.
 
 ### Матрица проверки доставки {#n46}
@@ -613,8 +613,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] В UI Studio правила симуляции представлены декларативными операциями, а StudioSimulator исполняет зарегистрированные правила без вызова модели. — `MarkView/Models/UIStudioModels.swift:83`
-- [Project fact] StudioSimulator отвечает по зарегистрированным правилам, используя одно изменяемое состояние. — `MarkView/Models/UIStudioSimulation.swift:153`
+- [Project fact] В UI Studio правила симуляции представлены декларативными операциями, а StudioSimulator исполняет зарегистрированные правила без вызова модели. — `MarkView/Models/UIStudio/UIStudioModels.swift:83`
+- [Project fact] StudioSimulator отвечает по зарегистрированным правилам, используя одно изменяемое состояние. — `MarkView/Models/UIStudio/UIStudioSimulation.swift:153`
 - [AI inference] Общий движок для симуляции и исполнения уменьшает риск расхождения результатов; внешние действия при симуляции должны подменяться имитацией.
 
 ### Контракт адаптеров интеграций {#n50}
@@ -626,7 +626,7 @@ AI получает текущий статус, разрешённые след
 #### Evidence
 
 - [Project fact] IssueSyncLinks использует явные ссылки на issues; обычное упоминание номера в тексте ссылкой не считается. — `docs/architecture/modules/feature-workflow.md:410`
-- [Project fact] IssueSyncRun получает данные GitHub и передаёт связанные элементы планировщику действий. — `MarkView/Models/IssueSyncRun.swift:58`
+- [Project fact] IssueSyncRun получает данные GitHub и передаёт связанные элементы планировщику действий. — `MarkView/Models/Lifecycle/IssueSyncRun.swift:58`
 - [AI inference] Разделение получения фактов и исполнения действий позволит подключать другие системы без переноса их особенностей в модель процесса.
 
 ### Каталог автоматических действий {#n51}
@@ -637,8 +637,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] IssueSyncRun выполняет закрытие и повторное открытие GitHub issue и фиксирует результат записи. — `MarkView/Models/IssueSyncRun.swift:140`
-- [Project fact] Отчёт синхронизации хранится в памяти до следующего запуска или закрытия проекта. — `MarkView/Models/IssueSync.swift:259`
+- [Project fact] IssueSyncRun выполняет закрытие и повторное открытие GitHub issue и фиксирует результат записи. — `MarkView/Models/Lifecycle/IssueSyncRun.swift:140`
+- [Project fact] Отчёт синхронизации хранится в памяти до следующего запуска или закрытия проекта. — `MarkView/Models/Lifecycle/IssueSync.swift:259`
 - [AI inference] Явный каталог возможностей помогает не сохранять правила с действиями, для которых нет исполнителя, и позволяет показывать последствия настройки.
 
 ### Права и доступность действий {#n52}
@@ -649,7 +649,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Проверка IssueSync перед записью включает наличие gh, авторизацию, GitHub origin и viewerPermission; ошибка останавливает запуск. — `MarkView/Models/IssueSyncRun.swift:184`
+- [Project fact] Проверка IssueSync перед записью включает наличие gh, авторизацию, GitHub origin и viewerPermission; ошибка останавливает запуск. — `MarkView/Models/Lifecycle/IssueSyncRun.swift:184`
 - [Project fact] GitHub-интеграция включается отдельной настройкой и по умолчанию выключена. — `docs/architecture/configuration.md:36`
 - [AI inference] Проверка возможностей при настройке и исполнении учитывает изменение прав или подключения после создания правила.
 
@@ -672,7 +672,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Фильтр использует фиксированные множества завершённых и активных статусов; неизвестный статус считается открытым. — `MarkView/Models/IssueListing.swift:25`
+- [Project fact] Фильтр использует фиксированные множества завершённых и активных статусов; неизвестный статус считается открытым. — `MarkView/Models/Lifecycle/IssueListing.swift:25`
 - [Open assumption] Потребность в произвольных статусах пока не подтверждена; фиксированного словаря может хватить для первой версии.
 
 ### Вариант №2 но предоставлять default {#n58}
@@ -685,7 +685,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Планировщик предусматривает закрытие issue при подтверждённом завершении всей связанной работы и повторное открытие после возобновления работы. — `MarkView/Models/IssueGitHubSync.swift:73`
+- [Project fact] Планировщик предусматривает закрытие issue при подтверждённом завершении всей связанной работы и повторное открытие после возобновления работы. — `MarkView/Models/Lifecycle/IssueGitHubSync.swift:73`
 - [Open assumption] Граница полномочий новой политики на внешние действия ещё не установлена.
 
 ### if we have github support - use it for sync {#n59}
@@ -698,8 +698,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Переходы feature в implementing и bug в fixing требуют startEvidence для человека, AI и системы. — `MarkView/Models/IssueLifecycle.swift:304`
-- [Project fact] В качестве свидетельства начала используются запись о передаче агенту или явное присоединение сессии. — `MarkView/Models/IssueLifecycleContext.swift:13`
+- [Project fact] Переходы feature в implementing и bug в fixing требуют startEvidence для человека, AI и системы. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:304`
+- [Project fact] В качестве свидетельства начала используются запись о передаче агенту или явное присоединение сессии. — `MarkView/Models/Lifecycle/IssueLifecycleContext.swift:13`
 - [Open assumption] Допустимые свидетельства начала работы вручную ещё нужно согласовать.
 
 ### Human note is enough {#n60}
@@ -712,8 +712,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] При обязательном релизе проверка требует опубликованный релиз, содержащий работу; недоступное состояние остаётся неизвестным. — `MarkView/Models/IssueLifecycleEvidence.swift:211`
-- [Project fact] Изменения только документации исключаются при поиске работы по реализации. — `MarkView/Models/IssueEvidenceCollector.swift:77`
+- [Project fact] При обязательном релизе проверка требует опубликованный релиз, содержащий работу; недоступное состояние остаётся неизвестным. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:211`
+- [Project fact] Изменения только документации исключаются при поиске работы по реализации. — `MarkView/Models/Lifecycle/IssueEvidenceCollector.swift:77`
 - [Open assumption] Единое понятие опубликованного релиза может не подходить для всех типов работы и проектов.
 
 ### Feature и bug сегодня {#n62}
@@ -724,7 +724,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Требование релиза вычисляется только для bug; для feature требования PR и проверок при сборе доказательств отключаются. — `MarkView/Models/IssueEvidenceCollector.swift:40`
+- [Project fact] Требование релиза вычисляется только для bug; для feature требования PR и проверок при сборе доказательств отключаются. — `MarkView/Models/Lifecycle/IssueEvidenceCollector.swift:40`
 - [AI inference] Значение релиза для feature следует определить отдельно от текущего критерия реализации.
 
 ### Событие и доказательство доставки {#n63}
@@ -735,7 +735,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Сборщик исключает черновики и проверяет, что опубликованный после слияния релиз содержит соответствующий коммит. — `MarkView/Models/IssueEvidenceCollector.swift:374`
+- [Project fact] Сборщик исключает черновики и проверяет, что опубликованный после слияния релиз содержит соответствующий коммит. — `MarkView/Models/Lifecycle/IssueEvidenceCollector.swift:374`
 - [AI inference] Публикация релиза не доказывает, что приложение установлено или изменение развёрнуто в целевой среде.
 
 ### Доставка приложения MarkView {#n64}
@@ -758,7 +758,7 @@ AI получает текущий статус, разрешённые след
 #### Evidence
 
 - [Project fact] Изменения только документации отправляются напрямую в main и не требуют сборки приложения или DMG. — `CLAUDE.md:59`
-- [Project fact] Текущий оценщик исключает документационные единицы и требует хотя бы одну слитую единицу реализации. — `MarkView/Models/IssueLifecycleEvidence.swift:179`
+- [Project fact] Текущий оценщик исключает документационные единицы и требует хотя бы одну слитую единицу реализации. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:179`
 - [Project fact] Для feature, состоящих только из спецификации, решение предусматривает отметку человеком. — `docs/features/issue-lifecycle-management/decisions/DEC-012.md:34`
 
 ### Смешанные изменения и охват {#n66}
@@ -769,7 +769,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Единица считается документационной, только если все её известные непустые пути относятся к документации. — `MarkView/Models/IssueLifecycleEvidence.swift:83`
+- [Project fact] Единица считается документационной, только если все её известные непустые пути относятся к документации. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:83`
 - [Project fact] При обязательном релизе оценщик проверяет состояние релиза каждой недокументационной единицы; это покрыто отдельной проверкой. — `tools/tests/IssueEvidenceChecks.swift:66`
 - [Open assumption] Правило охвата каждой единицы подходит для всех будущих типов работы и способов доставки.
 
@@ -781,7 +781,7 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] ReleaseRequirement возвращает true только для пункта deploy с mode require; при отсутствии или некорректном JSON возвращает false. — `MarkView/Models/IssueLifecycleEvidence.swift:341`
+- [Project fact] ReleaseRequirement возвращает true только для пункта deploy с mode require; при отсутствии или некорректном JSON возвращает false. — `MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift:341`
 - [Project fact] Проверки отдельно подтверждают поведение для ask, отсутствующего и повреждённого файла. — `tools/tests/IssueEvidenceChecks.swift:155`
 - [AI inference] Для проектов с обязательной доставкой такой default может скрыть отсутствие действующей политики.
 
@@ -793,8 +793,8 @@ AI получает текущий статус, разрешённые след
 
 #### Evidence
 
-- [Project fact] Сейчас принудительная смена статуса разрешена только человеку и требует причину. — `MarkView/Models/IssueLifecycle.swift:349`
-- [Project fact] Завершение через override учитывается как неподтверждённое доказательствами доставки. — `MarkView/Models/IssueCompletion.swift:242`
+- [Project fact] Сейчас принудительная смена статуса разрешена только человеку и требует причину. — `MarkView/Models/Lifecycle/IssueLifecycle.swift:349`
+- [Project fact] Завершение через override учитывается как неподтверждённое доказательствами доставки. — `MarkView/Models/Lifecycle/IssueCompletion.swift:242`
 - [Open assumption] Полномочия на изменение новой проектной политики и допустимая область исключений ещё не определены.
 
 ### User can change it {#n61}

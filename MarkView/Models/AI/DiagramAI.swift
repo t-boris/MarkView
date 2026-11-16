@@ -273,10 +273,28 @@ enum DiagramAI {
         return "the title, labels and notes are written in \(found.name) but must be written in \(wanted); rewrite every one of them in \(wanted) and keep the names of files and code"
     }
 
+    /// A sequence diagram (`sequenceDiagram`): one participant per node, one message per edge, in the order of the edges.
+    static func sequenceMermaid(_ spec: DiagramSpec) -> String {
+        // Never interpolate model text as Mermaid syntax or HTML.
+        func label(_ text: String) -> String {
+            text.map { ch -> String in
+                if ch.isLetter || ch.isNumber || " .,_()-/".contains(ch) { return String(ch) }
+                return " "
+            }.joined()
+        }
+        var lines = ["sequenceDiagram"]
+        for (i, node) in spec.nodes.enumerated() { lines.append("participant p\(i) as \(label(node.label))") }
+        let ids = Dictionary(spec.nodes.enumerated().map { ($0.element.id, "p\($0.offset)") }, uniquingKeysWith: { a, _ in a })
+        for edge in spec.edges {
+            if let from = ids[edge.from], let to = ids[edge.to] { lines.append("\(from)->>\(to): \(label(edge.label))") }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// The diagram as plain Mermaid for a node description: no editor markers and no comment lines, so that any Mermaid
     /// renderer draws it. A `sequence` diagram is a real `sequenceDiagram`; the other kinds are flowcharts.
     static func plainMermaid(_ spec: DiagramSpec, kind: DiagramKind) -> String {
-        if kind == .sequence { return CodeArchitecture.sequenceMermaid(spec) }
+        if kind == .sequence { return sequenceMermaid(spec) }
         // The editor's own parser reads bare edge labels; the Mermaid library does not accept brackets in them, so they are quoted here.
         let edge = try! NSRegularExpression(pattern: #"^(\S+) -->\|(.*)\| (\S+)$"#)
         return mermaid(spec).components(separatedBy: "\n").filter { !$0.hasPrefix("%%") }.map { line -> String in
@@ -325,56 +343,62 @@ enum DiagramAI {
                          expectedLanguage: String? = nil, maxNodes: Int? = nil,
                          onStage: @escaping @Sendable (String) -> Void,
                          record: @escaping @Sendable (CLICompletion.Result) -> Void) async throws -> DiagramSpec {
-        var attempt = prompt
-        var lastProblems: [String] = []
-        for round in 0...2 {
-            try Task.checkCancellation()
-            var request = CLICompletion.Request(project: project ?? root, prompt: attempt, systemPrompt: system,
+        func request(_ asked: String, as label: String) -> CLICompletion.Request {
+            var request = CLICompletion.Request(project: project ?? root, prompt: asked, systemPrompt: system,
                                                 jsonSchema: schema, readableFolder: root)
             request.model = model
             request.effort = "medium"
             request.timeout = 600
-            request.label = round == 0 ? label : "\(label):repair\(round)"
-            onStage(round == 0 ? "Starting" : "Fixing the diagram (attempt \(round + 1))")
-            let result = try await CLICompletion.run(request, onDelta: { _ in onStage("Writing the diagram") },
-                                                     onActivity: { activity in
-                switch activity {
-                case .read: onStage("Reading project files")
-                case .search: onStage("Checking relations in the code")
-                case .run: onStage("Inspecting the project")
-                case .thinking: onStage("Thinking")
-                case .writing, .answerDelta: onStage("Writing the diagram")
-                default: break
-                }
-            })
-            record(result)
-            guard let spec = decode(result) else {
-                lastProblems = ["the answer was not a diagram in the required JSON format"]
-                attempt = prompt + "\n\nYour previous answer was not the required JSON object. Answer with the JSON object only."
-                continue
-            }
-            var (checked, structural) = validate(spec, root: root)
-            // A diagram printed on a page next to its text: more nodes than fit shrink the text until it cannot be read.
-            if let maxNodes, checked.nodes.count > maxNodes {
-                structural.append("the diagram has \(checked.nodes.count) nodes but a page holds at most \(maxNodes): merge details into one representative node or leave them out, and say what you left out in `omitted`")
-            }
-            // A wrong language is asked to be fixed twice; the last round accepts it (a label made of code names can look foreign).
-            let wrongLanguage = structural.isEmpty ? languageProblem(checked, expected: expectedLanguage) : nil
-            if structural.isEmpty && (wrongLanguage == nil || round == 2) { return checked }
-            let problems = structural + (wrongLanguage.map { [$0] } ?? [])
-            lastProblems = problems
-            let previous = (try? String(data: JSONEncoder().encode(spec), encoding: .utf8)) ?? ""
-            attempt = prompt + """
-
-
-            Your previous diagram had these problems; fix every one and answer with the complete corrected diagram:
-            \(problems.prefix(20).map { "- \($0)" }.joined(separator: "\n"))
-
-            Previous diagram:
-            \(previous)
-            """
+            request.label = label
+            return request
         }
-        throw Failure.unusable(lastProblems)
+        let operation = AIOperation<String, DiagramSpec>(
+            name: label,
+            maxRepairAttempts: 2,
+            buildRequest: { request($0, as: label) },
+            parse: { _, result, attempt in
+                guard let spec = decode(result) else { throw Failure.unusable(["the answer was not a diagram in the required JSON format"]) }
+                var (checked, structural) = validate(spec, root: root)
+                // A diagram printed on a page next to its text: more nodes than fit shrink the text until it cannot be read.
+                if let maxNodes, checked.nodes.count > maxNodes {
+                    structural.append("the diagram has \(checked.nodes.count) nodes but a page holds at most \(maxNodes): merge details into one representative node or leave them out, and say what you left out in `omitted`")
+                }
+                // A wrong language is asked to be fixed twice; the last round accepts it (a label made of code names can look foreign).
+                let wrongLanguage = structural.isEmpty ? languageProblem(checked, expected: expectedLanguage) : nil
+                if structural.isEmpty && (wrongLanguage == nil || attempt.isLast) { return checked }
+                throw Failure.unusable(structural + (wrongLanguage.map { [$0] } ?? []))
+            },
+            repair: { context in
+                onStage("Fixing the diagram (attempt \(context.attempt.number + 1))")
+                let repairLabel = "\(label):repair\(context.attempt.number)"
+                guard let spec = decode(context.result) else {
+                    return request(prompt + "\n\nYour previous answer was not the required JSON object. Answer with the JSON object only.", as: repairLabel)
+                }
+                var problems: [String] = []
+                if case Failure.unusable(let found)? = context.error as? Failure { problems = found }
+                let previous = (try? String(data: JSONEncoder().encode(spec), encoding: .utf8)) ?? ""
+                return request(prompt + """
+
+
+                Your previous diagram had these problems; fix every one and answer with the complete corrected diagram:
+                \(problems.prefix(20).map { "- \($0)" }.joined(separator: "\n"))
+
+                Previous diagram:
+                \(previous)
+                """, as: repairLabel)
+            },
+            onResult: { record($0) })
+        onStage("Starting")
+        return try await operation.execute(prompt, onDelta: { _ in onStage("Writing the diagram") }, onActivity: { activity in
+            switch activity {
+            case .read: onStage("Reading project files")
+            case .search: onStage("Checking relations in the code")
+            case .run: onStage("Inspecting the project")
+            case .thinking: onStage("Thinking")
+            case .writing, .answerDelta: onStage("Writing the diagram")
+            default: break
+            }
+        }).output
     }
 
     private static func decode(_ result: CLICompletion.Result) -> DiagramSpec? {

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// AI filters for the Architecture tab: rate parts of a system or a document
 /// against a criterion. Importance is the built-in filter; users add their own
@@ -18,16 +21,14 @@ enum ImportanceRater {
 
     // MARK: User filters
 
-    private static let storageKey = "ai.customFilters"
-
     /// The user's own filters ("payment flow", …), shared by the Architecture tab and the
     /// code viewer across projects. Ratings stay per project.
     static var customFilters: [Filter] {
         get {
-            (UserDefaults.standard.data(forKey: storageKey)).flatMap { try? JSONDecoder().decode([Filter].self, from: $0) } ?? []
+            Settings.standard.stored(Setting.customFilters).flatMap { try? JSONDecoder().decode([Filter].self, from: $0) } ?? []
         }
         set {
-            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: storageKey)
+            Settings.standard.set(try? JSONEncoder().encode(newValue), for: Setting.customFilters)
         }
     }
 
@@ -186,6 +187,11 @@ enum ImportanceRater {
         request.effort = "low"
         request.timeout = 240
         return request
+    }
+
+    /// The rating call as an operation: one run whose answer becomes the ratings of `keys` (unknown keys and levels are dropped).
+    static func operation(keys: Set<String>, filter: Filter = importance) -> AIOperation<CLICompletion.Request, [String: Rating]> {
+        AIOperation(name: "importance", parse: { parse($0.structured, keys: keys, filter: filter) })
     }
 
     /// Ratings for the requested keys; unknown keys and levels are dropped.

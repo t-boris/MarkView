@@ -12,13 +12,12 @@ cp tools/tests/ProjectAIChoiceTests.swift "$out/main.swift"
 cat > "$out/Stub.swift" <<'SWIFT'
 import Foundation
 enum ACPAssistant {
-    static func cachedModels(_ tool: CLITool) -> [AIModelOption] { [] }
     static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] { [] }
     static func run(_ request: CLICompletion.Request, tool: CLITool, toolPath: String, model: String?, workDir: URL,
                     onDelta: (@Sendable (String) -> Void)?, onActivity: (@Sendable (CLICompletion.Activity) -> Void)?)
         async throws -> CLICompletion.Result { fatalError("not used by the checks") }
 }
-final class SemanticDatabase {
+actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
     nonisolated static func documentId(for fileURL: URL, root: URL) -> String {
         let rootPath = root.standardizedFileURL.path
@@ -28,6 +27,6 @@ final class SemanticDatabase {
     }
 }
 SWIFT
-swiftc -o "$out/project-ai-choice-tests" MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/AssistantProviderRegistry.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/AICallLog.swift \
+swiftc -o "$out/project-ai-choice-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift MarkView/Models/AI/AICallLog.swift \
     MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/AgentProcesses.swift "$out/Stub.swift" "$out/main.swift"
 "$out/project-ai-choice-tests"

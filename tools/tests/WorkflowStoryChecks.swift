@@ -1,6 +1,6 @@
 import Foundation
 
-// BUG-115: a transition in plain words (Models/WorkflowTransitionStory.swift). Run through tools/tests/workflow-story-tests.sh.
+// BUG-115: a transition in plain words (Models/Lifecycle/WorkflowTransitionStory.swift). Run through tools/tests/workflow-story-tests.sh.
 
 var failures = 0
 func check(_ ok: Bool, _ message: String, _ detail: String = "") {

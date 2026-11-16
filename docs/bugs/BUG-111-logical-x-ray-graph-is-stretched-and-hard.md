@@ -84,9 +84,9 @@ MarkView 5.43.0 on macOS, X-Ray Logical view. The screenshot shows Pull request 
 
 ## Suspected code
 
-- `MarkView/Resources/Editor/vendor/js/markview-architecture.js:1172` — The layout selects rectangle packing or a rightward layered ELK layout based on top-level connectivity and node count. The affected graph's path is unknown.
-- `MarkView/Resources/Editor/vendor/js/markview-architecture.js:1202` — The layout automatically fits the graph when no target or preserved view is requested; fitting a wide graph could make labels small.
-- `MarkView/Resources/Editor/vendor/js/markview-architecture.js:1267` — Rendering rebuilds the graph and invokes layout, making this relevant to the initial view and its viewport state.
+- `MarkView/Resources/Editor/js/markview-architecture.js:1172` — The layout selects rectangle packing or a rightward layered ELK layout based on top-level connectivity and node count. The affected graph's path is unknown.
+- `MarkView/Resources/Editor/js/markview-architecture.js:1202` — The layout automatically fits the graph when no target or preserved view is requested; fitting a wide graph could make labels small.
+- `MarkView/Resources/Editor/js/markview-architecture.js:1267` — Rendering rebuilds the graph and invokes layout, making this relevant to the initial view and its viewport state.
 
 ## Likely causes
 

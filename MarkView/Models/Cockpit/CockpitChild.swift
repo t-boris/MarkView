@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 actor CockpitExitSignal {
     private var done = false
@@ -9,6 +12,7 @@ actor CockpitExitSignal {
 }
 
 /// A long-lived bundled helper. File handles are drained off the main thread; stdin is the app-lifetime lease.
+// unchecked Sendable: `lock` guards the process, the pending continuation, the buffered output and the flags.
 final class CockpitChild: @unchecked Sendable {
     enum Failure: LocalizedError {
         case launch, exited, timeout, responseTooLarge
@@ -21,14 +25,14 @@ final class CockpitChild: @unchecked Sendable {
             }
         }
     }
-    private let process = Process()
-    private let input = Pipe(), output = Pipe(), errors = Pipe()
     private let lock = NSLock()
+    private var child: SubprocessChild?
     private var continuation: CheckedContinuation<Data, Error>?
     private var buffer = Data()
     private var decided = false
     private var stopped = false
-    var isRunning: Bool { process.isRunning }
+    private var current: SubprocessChild? { lock.lock(); defer { lock.unlock() }; return child }
+    var isRunning: Bool { current?.isRunning ?? false }
 
     static func launch(executable: URL, arguments: [String], timeout: TimeInterval = 120,
                        ptyDescriptor: Int32? = nil, onExit: @escaping @Sendable () -> Void = {}) async throws -> (CockpitChild, Data) {
@@ -46,41 +50,33 @@ final class CockpitChild: @unchecked Sendable {
         if stopped { lock.unlock(); if let ptyDescriptor { close(ptyDescriptor) }; onExit(); continuation.resume(throwing: CancellationError()); return }
         self.continuation = continuation
         lock.unlock()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardInput = input
-        process.standardOutput = output
-        let pty = ptyDescriptor.map { FileHandle(fileDescriptor: $0, closeOnDealloc: true) }
-        if let pty { process.standardError = pty } else { process.standardError = errors }
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if !data.isEmpty { self?.read(data) }
-        }
-        // Drain diagnostics without storing them: helper messages must not enter app logs.
-        if pty == nil { errors.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData } }
-        process.terminationHandler = { [weak self] process in
-            onExit()
-            AgentProcesses.remove(process)
-            self?.finish(.failure(Failure.exited))
-            self?.output.fileHandleForReading.readabilityHandler = nil
-            self?.errors.fileHandleForReading.readabilityHandler = nil
-        }
+        // Standard input is the app-lifetime lease (closed by `stop`). Diagnostics go to the terminal's PTY when there is one and
+        // are dropped otherwise: helper messages must not enter app logs.
+        let spec = SubprocessSpec(
+            executable: executable.path, arguments: arguments, timeout: 0,
+            stderrRouting: ptyDescriptor.map { .descriptor($0) } ?? .discard, keepsInputOpen: true)
+        let started: SubprocessChild
         do {
-            try process.run()
-            try? pty?.close()
-            AgentProcesses.add(process, stop: { [weak self] in self?.stop() })
-            if !process.isRunning { AgentProcesses.remove(process) }
+            started = try Subprocess.start(spec, onStdout: { [weak self] data in self?.read(data) },
+                                           onExit: { [weak self] child, _ in
+                onExit()
+                AgentProcesses.remove(child)
+                self?.finish(.failure(Failure.exited))
+            })
         } catch {
-            try? pty?.close()
-            output.fileHandleForReading.readabilityHandler = nil
-            errors.fileHandleForReading.readabilityHandler = nil
+            if let ptyDescriptor { close(ptyDescriptor) }
             onExit()
             finish(.failure(Failure.launch))
             return
         }
-        // Cancellation can arrive while Process.run is starting.
+        if let ptyDescriptor { close(ptyDescriptor) }
+        lock.lock(); self.child = started; lock.unlock()
+        AgentProcesses.add(started, stop: { [weak self] in self?.stop() })
+        if !started.isRunning { AgentProcesses.remove(started) }
+        // Cancellation can arrive while the child is starting.
         lock.lock(); let shouldStop = stopped; lock.unlock()
         if shouldStop { stopInput() }
+        // task: the child's time limit: finish() ends it once and ignores it after the child ended
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + max(1, timeout)) { [weak self] in
             guard let self, self.finish(.failure(Failure.timeout)) else { return }
             self.stop()
@@ -88,11 +84,7 @@ final class CockpitChild: @unchecked Sendable {
     }
 
     func waitForExit() async {
-        while process.isRunning {
-            await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.05) { continuation.resume() }
-            }
-        }
+        await current?.waitForExit()
     }
 
     private func read(_ data: Data) {
@@ -126,11 +118,12 @@ final class CockpitChild: @unchecked Sendable {
     }
 
     private func stopInput() {
-        try? input.fileHandleForWriting.close()
-        let process = self.process
+        let child = current
+        child?.closeInput()
+        // task: kills a child that did not close after its input ended; it checks isRunning first
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 8) {
-            guard process.isRunning else { return }
-            process.terminate()
+            guard let child, child.isRunning else { return }
+            child.terminate()
         }
     }
 

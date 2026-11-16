@@ -116,9 +116,7 @@ extension StudioSession {
         }
         let base = presets.first { $0.id == "builtin-populated" } ?? presets[0]
         let (revision, snapshot) = await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers())
-        var refused: [String]?
-        for attempt in 1...2 {
-            guard !closed, !Task.isCancelled else { return false }
+        func screenRequest(refusedContext refused: [String]?) -> CLICompletion.Request {
             var call = CLICompletion.Request(project: root,
                                              prompt: StudioPrompts.editPrompt(screen.request, selection: nil, scenario: base, revision: revision,
                                                                               history: [], redactor: redactor, clarification: nil,
@@ -131,65 +129,76 @@ extension StudioSession {
             call.timeout = 240
             call.effort = "medium"
             call.label = "ui-studio:screen"
-            let plan: StudioEditPlan
-            do {
-                let result = try await CLICompletion.run(call)
-                recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-                guard let parsed = StudioPrompts.editPlan(from: result.structured) else { return fail("The assistant's answer was not a set of changes.") }
-                plan = parsed
-            } catch is CancellationError {
-                return false
-            } catch {
-                return fail(error.localizedDescription)
-            }
-            guard plan.kind == .context, !plan.needsClarification else {
-                return fail(plan.needsClarification ? "The assistant asked a question instead of preparing the scenario." : "The assistant proposed no scenario change.")
-            }
-            var context = plan.context ?? StudioContextPlan(structured: nil)
-            context.expectedPath = screen.expectedPath ?? ""
-            context.expectedSelector = screen.selector
-            // A scenario with no steps starts where its screen is; one with steps starts where the assistant says and navigates.
-            if context.route.isEmpty, context.steps.isEmpty, !screen.hasPlaceholderRoute { context.route = screen.route }
-            // A route with a placeholder names no page to load: without steps (or a route the assistant made concrete) the scenario
-            // cannot reach it, so it is not saved as prepared; the click asks the assistant, which can navigate to a real record.
-            if screen.hasPlaceholderRoute, context.route.isEmpty, context.steps.isEmpty {
-                return fail("The screen's address (\(screen.route)) has a placeholder and the assistant gave no steps that reach a real page.")
-            }
-            var problems = StudioContextValidator.problems(context, current: base, spec: spec)
-            if attempt == 1 { problems += StudioContextValidator.givenUpProblems(context, current: base, spec: spec) }
-            if !problems.isEmpty {
-                if attempt == 1 {
-                    refused = problems
-                    continue
-                }
-                return fail("The scenario was refused: " + problems.prefix(3).joined(separator: " "))
-            }
-            let id = StudioScreenBook.scenarioID(for: screen)
-            var next = StudioContextValidator.scenario(context, from: base, spec: spec, request: screen.request,
-                                                       taken: (savedScenarios + presets).filter { $0.id != id })
-            next.id = id
-            let unique = StudioContextValidator.uniqueName(screen.name, taken: (savedScenarios + presets).filter { $0.id != id })
-            next.name = unique.name
-            next.contractFingerprint = StudioScenarioCompatibility.fingerprint(next, spec: spec)
-            guard StudioContextValidator.sameSources(snapshot, await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers()).1) else {
-                return fail("The project's files changed while the assistant worked; it is prepared again next time.")
-            }
-            let root = root
-            do {
-                let scenarios = try await Task.detached { () throws -> [StudioScenario] in
-                    try StudioStore.saveScenario(next, root: root)
-                    return StudioStore.loadScenarios(root)
-                }.value
-                reloadSavedScenarios(scenarios)
-            } catch {
-                return fail("The scenario could not be saved: \(error.localizedDescription)")
-            }
-            screenBook.markPrepared(entry.id, scenarioID: id, sources: await sourceHashes(of: screen))
-            persistScreenBook()
-            sessionLog.add(.preparation, "The screen \(screen.name) is prepared as the scenario \(next.name)")
-            return true
+            return call
         }
-        return false
+        // Asked twice at most: the second time with the problems the check found in the first answer.
+        let preparing = AIOperation<[String]?, StudioContextPlan>(
+            name: "ui-studio:screen",
+            maxRepairAttempts: 1,
+            buildRequest: { refused in screenRequest(refusedContext: refused) },
+            parse: { _, result, _ in
+                guard let plan = StudioPrompts.editPlan(from: result.structured) else { throw ScreenFailure("The assistant's answer was not a set of changes.") }
+                guard plan.kind == .context, !plan.needsClarification else {
+                    throw ScreenFailure(plan.needsClarification ? "The assistant asked a question instead of preparing the scenario." : "The assistant proposed no scenario change.")
+                }
+                var context = plan.context ?? StudioContextPlan(structured: nil)
+                context.expectedPath = screen.expectedPath ?? ""
+                context.expectedSelector = screen.selector
+                // A scenario with no steps starts where its screen is; one with steps starts where the assistant says and navigates.
+                if context.route.isEmpty, context.steps.isEmpty, !screen.hasPlaceholderRoute { context.route = screen.route }
+                // A route with a placeholder names no page to load: without steps (or a route the assistant made concrete) the scenario
+                // cannot reach it, so it is not saved as prepared; the click asks the assistant, which can navigate to a real record.
+                if screen.hasPlaceholderRoute, context.route.isEmpty, context.steps.isEmpty {
+                    throw ScreenFailure("The screen's address (\(screen.route)) has a placeholder and the assistant gave no steps that reach a real page.")
+                }
+                return context
+            },
+            validate: { [weak self] _, context, attempt in
+                guard let self else { throw CancellationError() }
+                var problems = StudioContextValidator.problems(context, current: base, spec: self.spec)
+                if attempt.number == 1 { problems += StudioContextValidator.givenUpProblems(context, current: base, spec: self.spec) }
+                guard problems.isEmpty else {
+                    if attempt.isLast { throw ScreenFailure("The scenario was refused: " + problems.prefix(3).joined(separator: " ")) }
+                    // A closed session does not ask again.
+                    guard !self.closed else { throw CancellationError() }
+                    throw ScreenRefusal(problems: problems)
+                }
+            },
+            repair: { context in screenRequest(refusedContext: (context.error as? ScreenRefusal)?.problems) },
+            onResult: { [weak self] result in self?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
+        guard !closed, !Task.isCancelled else { return false }
+        let context: StudioContextPlan
+        do {
+            context = try await preparing.execute(nil).output
+        } catch is CancellationError {
+            return false
+        } catch {
+            return fail(error.localizedDescription)
+        }
+        let id = StudioScreenBook.scenarioID(for: screen)
+        var next = StudioContextValidator.scenario(context, from: base, spec: spec, request: screen.request,
+                                                   taken: (savedScenarios + presets).filter { $0.id != id })
+        next.id = id
+        let unique = StudioContextValidator.uniqueName(screen.name, taken: (savedScenarios + presets).filter { $0.id != id })
+        next.name = unique.name
+        next.contractFingerprint = StudioScenarioCompatibility.fingerprint(next, spec: spec)
+        guard StudioContextValidator.sameSources(snapshot, await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers()).1) else {
+            return fail("The project's files changed while the assistant worked; it is prepared again next time.")
+        }
+        let projectRoot = root
+        do {
+            let scenarios = try await Task.detached { () throws -> [StudioScenario] in
+                try StudioStore.saveScenario(next, root: projectRoot)
+                return StudioStore.loadScenarios(projectRoot)
+            }.value
+            reloadSavedScenarios(scenarios)
+        } catch {
+            return fail("The scenario could not be saved: \(error.localizedDescription)")
+        }
+        screenBook.markPrepared(entry.id, scenarioID: id, sources: await sourceHashes(of: screen))
+        persistScreenBook()
+        sessionLog.add(.preparation, "The screen \(screen.name) is prepared as the scenario \(next.name)")
+        return true
     }
 
     // MARK: - The click
@@ -261,4 +270,17 @@ extension StudioSession {
             screenTask = nil
         }
     }
+}
+
+/// A screen's preparation ended for a reason that asking again cannot mend; `reason` is what the screen book shows.
+private struct ScreenFailure: LocalizedError, AIUnrepairable {
+    let reason: String
+    init(_ reason: String) { self.reason = reason }
+    var errorDescription: String? { reason }
+}
+
+/// The static check refused the scenario; its problems go back to the assistant once.
+private struct ScreenRefusal: LocalizedError {
+    let problems: [String]
+    var errorDescription: String? { problems.joined(separator: " ") }
 }

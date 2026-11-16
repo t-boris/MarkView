@@ -10,13 +10,12 @@ trap 'rm -rf "$out"' EXIT
 cat > "$out/Stub.swift" << 'EOF'
 import Foundation
 enum ACPAssistant {
-    static func cachedModels(_ tool: CLITool) -> [AIModelOption] { [] }
     static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] { [] }
     static func run(_ request: CLICompletion.Request, tool: CLITool, toolPath: String, model: String?, workDir: URL,
                     onDelta: (@Sendable (String) -> Void)?, onActivity: (@Sendable (CLICompletion.Activity) -> Void)?)
         async throws -> CLICompletion.Result { fatalError("not used by unit tests") }
 }
-final class SemanticDatabase {
+actor SemanticDatabase {
     func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
     nonisolated static func documentId(for fileURL: URL, root: URL) -> String {
         fileURL.lastPathComponent
@@ -30,9 +29,9 @@ swiftc -o "$out/phase5-tests" \
     "$ROOT"/Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     "$ROOT/MarkView/Models/AI/AIAssistants.swift" \
     "$ROOT/MarkView/Models/AI/AIOperation.swift" \
-    "$ROOT/MarkView/Models/AI/AssistantProviderRegistry.swift" \
+    "$ROOT"/MarkView/Models/AI/Providers/*.swift \
     "$ROOT/MarkView/Models/Appearance/ProjectColor.swift" \
-    "$ROOT/MarkView/Models/Workspace/LinkedFolders.swift" \
+    "$ROOT/MarkView/Models/Workspace/LinkedFolders.swift" "$ROOT/MarkView/Models/AI/LinkedFolderStore.swift" \
     "$ROOT/MarkView/Models/AI/AICallLog.swift" \
     "$ROOT/MarkView/Models/AI/CLICompletion.swift" \
     "$ROOT/MarkView/Models/AI/AgentProcesses.swift" \

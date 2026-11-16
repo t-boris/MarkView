@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa): the scenario list, the graph editor and the generation sheet. The graph is native SwiftUI over
 // QAGraphLayout (a pure layered layout), so it needs no bridge to the web editor. Every edit goes through QAModel, which saves it.
@@ -130,7 +133,7 @@ struct QATabView: View {
 
 // MARK: - The editor
 
-enum QAPanel: String, Hashable, WindowUIStorable { case branches, step, setup, run }
+enum QAPanel: String, Hashable { case branches, step, setup, run }
 
 struct QAEditorView: View {
     @Environment(\.palette) private var palette
@@ -139,8 +142,13 @@ struct QAEditorView: View {
     @ObservedObject private var archive: QARunArchive
     let wide: Bool
     /// Which part of the inspector is open. It belongs to the window and survives a switch to another tab of the window and back.
-    @WindowStorage("qa.panel") private var panel = QAPanel.branches
-    @WindowStorage("qa.inspectorWidth") private var inspectorWidth = 380.0
+    @WindowStorage(Setting.qaPanel) private var panelName: String
+    @WindowStorage(Setting.qaInspectorWidth) private var inspectorWidth: Double
+    private var panel: QAPanel {
+        get { QAPanel(rawValue: panelName) ?? .branches }
+        nonmutating set { panelName = newValue.rawValue }
+    }
+    private var panelBinding: Binding<QAPanel> { Binding(get: { panel }, set: { panel = $0 }) }
     @State private var dragStartWidth: CGFloat?
 
     init(model: QAModel, wide: Bool) {
@@ -201,7 +209,7 @@ struct QAEditorView: View {
                     VSplitView {
                         QAGraphCanvas(model: model, scenario: scenario).frame(minHeight: 180)
                         VStack(spacing: 0) {
-                            Picker("", selection: $panel) {
+                            Picker("", selection: panelBinding) {
                                 Text("Branches").tag(QAPanel.branches)
                                 Text("Step").tag(QAPanel.step)
                                 Text("Setup").tag(QAPanel.setup)
@@ -590,10 +598,10 @@ struct QAInspector: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: QAModel
     let scenario: QAScenario
-    @WindowStorage("qa.showApps") private var showApps = true
-    @WindowStorage("qa.showPlayers") private var showPlayers = true
-    @WindowStorage("qa.showEnvironments") private var showEnvironments = true
-    @WindowStorage("qa.showBaseline") private var showBaseline = false
+    @WindowStorage(Setting.qaShowApps) private var showApps: Bool
+    @WindowStorage(Setting.qaShowPlayers) private var showPlayers: Bool
+    @WindowStorage(Setting.qaShowEnvironments) private var showEnvironments: Bool
+    @WindowStorage(Setting.qaShowBaseline) private var showBaseline: Bool
     let panel: QAPanel
     /// The sign-in being added for a player; one at a time.
     @State private var loginDraft: QALoginDraft?
@@ -1067,8 +1075,9 @@ private extension QANode {
     func binding<Value>(_ model: QAModel, _ keyPath: WritableKeyPath<QANode, Value>) -> Binding<Value> {
         let id = self.id
         let current = self[keyPath: keyPath]
-        return Binding(get: { model.current?.node(id)?[keyPath: keyPath] ?? current },
-                       set: { value in model.edit { $0.update(node: id) { $0[keyPath: keyPath] = value } } })
+        // SwiftUI reads and writes a binding on the main thread; the closures are only declared `@Sendable`.
+        return Binding(get: { MainActor.assumeIsolated { model.current?.node(id)?[keyPath: keyPath] ?? current } },
+                       set: { value in MainActor.assumeIsolated { model.edit { $0.update(node: id) { $0[keyPath: keyPath] = value } } } })
     }
 }
 

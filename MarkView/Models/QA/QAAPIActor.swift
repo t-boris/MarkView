@@ -1,7 +1,7 @@
 import Foundation
 
 /// HTTP has no window, screenshots or visual review. Every branch receives fresh sessions and captured values.
-final class QAAPIActor: QAActorDriver, QAAPIExecuting {
+actor QAAPIActor: QAActorDriver, QAAPIExecuting {
     private let client: QAAPIClient
     private let address: String
     private var latest = "No requests sent yet."

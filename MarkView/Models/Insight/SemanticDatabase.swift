@@ -4,19 +4,42 @@ import SQLite3
 import MarkViewCore
 #endif
 
-/// SQLite wrapper for .dde/state.db — stores semantic blocks, documents, and compilation cache
-@MainActor
-class SemanticDatabase {
-    var dbPointer: OpaquePointer? { db }
-    var sqliteTransientValue: sqlite3_destructor_type { Self.sqliteTransient }
-    private var db: OpaquePointer?
-    let dbPath: String
+/// SQLite wrapper for .dde/state.db — stores semantic blocks, documents, and compilation cache.
+///
+/// An actor (`AR-37`): the connection belongs to the actor and every statement runs on its executor, never on the main
+/// thread, so a lock held by the indexer child process (`busy_timeout`) or a large transaction cannot freeze the UI.
+/// Callers `await`; each method is one atomic step of the actor, and a caller that needs two writes applied in order
+/// awaits the first before it starts the second.
+actor SemanticDatabase {
+    /// The database file, or nil while this session uses an in-memory index because the file had to be left alone.
+    nonisolated let dbPath: String?
+    let db: OpaquePointer
 
-    init(workspacePath: URL, dbName: String = "state.db") throws {
+    private init(handle: OpaquePointer, path: String?) {
+        self.db = handle
+        self.dbPath = path
+    }
+
+    /// The state database of a project folder: `.dde/state.db`, or the same name in the app container when the folder
+    /// is read-only. The file is opened and migrated off the caller's thread.
+    static func open(workspacePath: URL, dbName: String = "state.db") async throws -> SemanticDatabase {
+        let file = try await Task.detached(priority: .userInitiated) {
+            try Self.openFile(workspacePath: workspacePath, dbName: dbName)
+        }.value
+        return SemanticDatabase(handle: file.handle, path: file.path)
+    }
+
+    // unchecked Sendable: the SQLite handle is opened on a background thread and handed once to the actor that owns it; nothing else keeps a copy.
+    private struct OpenedFile: @unchecked Sendable {
+        let handle: OpaquePointer
+        let path: String?
+    }
+
+    private static func openFile(workspacePath: URL, dbName: String) throws -> OpenedFile {
         let fm = FileManager.default
 
         // Try .dde/ next to workspace first; fall back to app container if sandboxed
-        var ddeDir = workspacePath.appendingPathComponent(".dde")
+        var ddeDir = ProjectPaths.localFolder(workspacePath)
         do {
             if !fm.fileExists(atPath: ddeDir.path) {
                 try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)
@@ -27,39 +50,43 @@ class SemanticDatabase {
             let workspaceId = ProjectPaths.projectCacheIdentifier(for: workspacePath)
             ddeDir = appSupport.appendingPathComponent("MarkView/Projects/\(workspaceId)")
             try fm.createDirectory(at: ddeDir, withIntermediateDirectories: true)
-            NSLog("[SemanticDB] Sandbox fallback: \(ddeDir.path)")
+            AppLog.index.notice("Sandbox fallback: \(ddeDir.path)")
         }
 
-        let dbURL = ddeDir.appendingPathComponent(dbName)
-        self.dbPath = dbURL.path
+        let path = ddeDir.appendingPathComponent(dbName).path
+        let (opened, persistent) = try openMigrated(path: path)
+        return OpenedFile(handle: opened.handle, path: persistent ? path : nil)
+    }
 
-        var dbPointer: OpaquePointer?
-        guard sqlite3_open(dbPath, &dbPointer) == SQLITE_OK, let pointer = dbPointer else {
-            let msg = String(cString: sqlite3_errmsg(dbPointer))
-            throw SemanticDBError.openFailed(msg)
-        }
-        self.db = pointer
-
-        // If the database predates the current docId scheme, discard the WHOLE file
-        // and recreate it empty — O(1) and leaves no bloat, vs cascade-deleting every
-        // row on the main thread. The out-of-process indexer then rebuilds it.
-        // (A fresh/empty DB has no `documents` table, so it's left untouched here.)
-        if userVersion() < Self.docIdSchemeVersion, tableExists("documents") {
-            sqlite3_close(self.db)
-            self.db = nil
-            let fm = FileManager.default
-            for suffix in ["", "-wal", "-shm"] { try? fm.removeItem(atPath: dbPath + suffix) }
-            var fresh: OpaquePointer?
-            guard sqlite3_open(dbPath, &fresh) == SQLITE_OK, let reopened = fresh else {
-                throw SemanticDBError.openFailed(String(cString: sqlite3_errmsg(fresh)))
+    /// Open `path` and bring it to the current schema (`AR-38`). A file that must stay as it is (written by a newer
+    /// release, or a migration step failed and was rolled back) is not touched: this session gets an empty in-memory
+    /// index and the log says so. An unreadable file is moved aside to a dated backup and rebuilt; the index is derived
+    /// data, so the rebuild loses nothing the next index run cannot recreate, and no document is involved.
+    private static func openMigrated(path: String) throws -> (opened: SQLiteOpened, persistent: Bool) {
+        do {
+            let opened = try SQLiteSchema.open(path: path, migrations: SemanticSchema.migrations,
+                                               pragmas: SemanticSchema.pragmas,
+                                               busyTimeoutMilliseconds: SemanticSchema.busyTimeoutMilliseconds)
+            if let backup = opened.backup {
+                AppLog.index.error("\(path) was unreadable; moved aside to \(backup.path) and rebuilt (derived index data)")
             }
-            self.db = reopened
-            NSLog("[SemanticDB] Old docId scheme detected — recreated fresh database")
+            if opened.startVersion != opened.endVersion {
+                AppLog.index.notice("Schema of \(path) migrated from version \(opened.startVersion) to \(opened.endVersion)")
+            }
+            return (opened, true)
+        } catch let error as SQLiteSchemaError {
+            switch error {
+            case .newerSchema, .migrationFailed:
+                AppLog.index.error("\(path) left untouched, using an empty in-memory index for this session: \(error.localizedDescription)")
+                do {
+                    return (try SQLiteSchema.openInMemory(migrations: SemanticSchema.migrations, pragmas: SemanticSchema.pragmas), false)
+                } catch {
+                    throw SemanticDBError.openFailed(error.localizedDescription)
+                }
+            default:
+                throw SemanticDBError.openFailed(error.localizedDescription)
+            }
         }
-
-        try setPragmas()
-        try createTables()
-        try execute("PRAGMA user_version = \(Self.docIdSchemeVersion)")
     }
 
     // MARK: - Document ID scheme
@@ -86,812 +113,8 @@ class SemanticDatabase {
         #endif
     }
 
-    /// Bumped when the docId scheme changes; gates a one-time structural rebuild.
-    private static let docIdSchemeVersion: Int32 = 1
-
-    private func userVersion() -> Int32 {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return sqlite3_column_int(stmt, 0)
-    }
-
-    private func tableExists(_ name: String) -> Bool {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", -1, &stmt, nil) == SQLITE_OK else { return false }
-        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
-        return sqlite3_step(stmt) == SQLITE_ROW
-    }
-
     deinit {
-        if let db = db {
-            sqlite3_close(db)
-        }
-    }
-
-    // MARK: - Setup
-
-    private func setPragmas() throws {
-        try execute("PRAGMA foreign_keys = ON")
-        try execute("PRAGMA journal_mode = WAL")
-        try execute("PRAGMA synchronous = NORMAL")
-        // Retry (instead of failing with SQLITE_BUSY) when the out-of-process
-        // structural indexer and the app touch the DB concurrently. WAL allows
-        // one writer + many readers across processes; this bounds writer waits.
-        try execute("PRAGMA busy_timeout = 5000")
-        try execute("PRAGMA temp_store = MEMORY")
-        try execute("PRAGMA cache_size = -20000")
-    }
-
-    private func createTables() throws {
-        // Projects
-        try execute("""
-            CREATE TABLE IF NOT EXISTS projects (
-                project_id TEXT PRIMARY KEY,
-                project_name TEXT NOT NULL,
-                root_path TEXT NOT NULL UNIQUE,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                dde_version TEXT,
-                schema_version TEXT NOT NULL,
-                config_json TEXT
-            )
-        """)
-
-        // Documents
-        try execute("""
-            CREATE TABLE IF NOT EXISTS documents (
-                document_id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                file_name TEXT NOT NULL,
-                file_ext TEXT NOT NULL,
-                file_mtime INTEGER,
-                file_size_bytes INTEGER,
-                content_hash TEXT NOT NULL,
-                frontmatter_json TEXT,
-                language TEXT,
-                status TEXT DEFAULT 'active',
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                UNIQUE(project_id, file_path),
-                FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project_id)")
-
-        // Blocks
-        try execute("""
-            CREATE TABLE IF NOT EXISTS blocks (
-                block_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                parent_block_id TEXT,
-                block_kind TEXT NOT NULL,
-                heading_path_json TEXT NOT NULL,
-                anchor TEXT,
-                order_index INTEGER NOT NULL,
-                line_start INTEGER,
-                line_end INTEGER,
-                raw_markdown TEXT NOT NULL,
-                plain_text TEXT,
-                text_hash TEXT NOT NULL,
-                semantic_hash TEXT,
-                compile_status TEXT DEFAULT 'stale',
-                last_compiled_at INTEGER,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-                FOREIGN KEY (parent_block_id) REFERENCES blocks(block_id) ON DELETE CASCADE
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_blocks_document ON blocks(document_id)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_blocks_doc_order ON blocks(document_id, order_index)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_blocks_text_hash ON blocks(text_hash)")
-
-        // Block compilation cache
-        try execute("""
-            CREATE TABLE IF NOT EXISTS block_compilation_cache (
-                block_id TEXT PRIMARY KEY,
-                text_hash TEXT NOT NULL,
-                semantic_hash TEXT,
-                extracted_entities_json TEXT,
-                extracted_claims_json TEXT,
-                extracted_relations_json TEXT,
-                cache_created_at INTEGER NOT NULL,
-                cache_updated_at INTEGER NOT NULL,
-                FOREIGN KEY (block_id) REFERENCES blocks(block_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Entities
-        try execute("""
-            CREATE TABLE IF NOT EXISTS entities (
-                entity_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                type TEXT NOT NULL,
-                canonical_name TEXT NOT NULL,
-                aliases_json TEXT,
-                attributes_json TEXT,
-                description TEXT,
-                status TEXT DEFAULT 'active',
-                source_file TEXT,
-                source_block_id TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_entities_canonical ON entities(canonical_name)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type)")
-
-        // Claims
-        try execute("""
-            CREATE TABLE IF NOT EXISTS claims (
-                claim_id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                subject_entity_id TEXT,
-                predicate TEXT,
-                object TEXT,
-                object_entity_id TEXT,
-                source_file TEXT NOT NULL,
-                source_block_id TEXT NOT NULL,
-                raw_text TEXT,
-                status TEXT DEFAULT 'proposed',
-                confidence REAL DEFAULT 0.5,
-                authority_level TEXT,
-                superseded_by TEXT,
-                scope_kind TEXT DEFAULT 'global',
-                scope_value TEXT,
-                temporal_context_id TEXT,
-                effective_from TEXT,
-                effective_to TEXT,
-                evidence_block_ids_json TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                FOREIGN KEY (subject_entity_id) REFERENCES entities(entity_id) ON DELETE SET NULL,
-                FOREIGN KEY (source_block_id) REFERENCES blocks(block_id) ON DELETE CASCADE,
-                FOREIGN KEY (temporal_context_id) REFERENCES temporal_contexts(temporal_context_id) ON DELETE SET NULL
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_claims_block ON claims(source_block_id)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_claims_entity ON claims(subject_entity_id)")
-
-        // Entity Relations
-        try execute("""
-            CREATE TABLE IF NOT EXISTS entity_relations (
-                relation_id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                source_file TEXT,
-                source_block_id TEXT,
-                confidence REAL DEFAULT 0.5,
-                created_at INTEGER NOT NULL
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_relations_source ON entity_relations(source_id)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_relations_target ON entity_relations(target_id)")
-
-        // Temporal Contexts
-        try execute("""
-            CREATE TABLE IF NOT EXISTS temporal_contexts (
-                temporal_context_id TEXT PRIMARY KEY,
-                label TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                order_index INTEGER DEFAULT 0,
-                start_time TEXT,
-                end_time TEXT,
-                parent_temporal_context_id TEXT,
-                FOREIGN KEY (parent_temporal_context_id) REFERENCES temporal_contexts(temporal_context_id) ON DELETE SET NULL
-            )
-        """)
-
-        // Transitions
-        try execute("""
-            CREATE TABLE IF NOT EXISTS transitions (
-                transition_id TEXT PRIMARY KEY,
-                entity_id TEXT NOT NULL,
-                from_state TEXT NOT NULL,
-                to_state TEXT NOT NULL,
-                from_temporal_context_id TEXT,
-                to_temporal_context_id TEXT,
-                preconditions_json TEXT,
-                postconditions_json TEXT,
-                rollback_strategy TEXT,
-                trigger TEXT,
-                evidence_block_ids_json TEXT,
-                FOREIGN KEY (entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Diagnostics
-        try execute("""
-            CREATE TABLE IF NOT EXISTS diagnostics (
-                diagnostic_id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                message TEXT NOT NULL,
-                explanation TEXT,
-                document_id TEXT NOT NULL,
-                block_id TEXT,
-                claim_ids_json TEXT,
-                entity_ids_json TEXT,
-                suggested_fix TEXT,
-                is_suppressed INTEGER DEFAULT 0,
-                created_at INTEGER NOT NULL,
-                FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_diagnostics_doc ON diagnostics(document_id)")
-
-        // AI Jobs
-        try execute("""
-            CREATE TABLE IF NOT EXISTS ai_jobs (
-                job_id TEXT PRIMARY KEY,
-                job_type TEXT NOT NULL,
-                priority TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                document_id TEXT,
-                block_ids_json TEXT,
-                input_hash TEXT NOT NULL,
-                model_policy TEXT,
-                privacy_mode TEXT NOT NULL,
-                result_ref TEXT,
-                error_state TEXT,
-                created_at INTEGER NOT NULL,
-                started_at INTEGER,
-                completed_at INTEGER,
-                retry_count INTEGER DEFAULT 0,
-                cost_tokens INTEGER
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_hash ON ai_jobs(input_hash)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_status ON ai_jobs(status)")
-
-        // Compile profiles
-        try execute("""
-            CREATE TABLE IF NOT EXISTS compile_profiles (
-                profile_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                audience TEXT,
-                required_claim_types_json TEXT,
-                required_entity_types_json TEXT,
-                section_order_json TEXT,
-                strictness TEXT DEFAULT 'moderate',
-                language TEXT DEFAULT 'en'
-            )
-        """)
-
-        // Compile jobs
-        try execute("""
-            CREATE TABLE IF NOT EXISTS compile_jobs (
-                compile_job_id TEXT PRIMARY KEY,
-                profile_id TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                created_at INTEGER NOT NULL,
-                completed_at INTEGER,
-                FOREIGN KEY (profile_id) REFERENCES compile_profiles(profile_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Compile artifacts
-        try execute("""
-            CREATE TABLE IF NOT EXISTS compile_artifacts (
-                artifact_id TEXT PRIMARY KEY,
-                compile_job_id TEXT NOT NULL,
-                artifact_kind TEXT NOT NULL,
-                section_key TEXT,
-                content TEXT NOT NULL,
-                content_hash TEXT,
-                source_block_ids_json TEXT,
-                source_claim_ids_json TEXT,
-                created_at INTEGER NOT NULL,
-                FOREIGN KEY (compile_job_id) REFERENCES compile_jobs(compile_job_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Document templates
-        try execute("""
-            CREATE TABLE IF NOT EXISTS document_templates (
-                template_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                sections_json TEXT,
-                required_claim_types_json TEXT,
-                required_entity_types_json TEXT
-            )
-        """)
-
-        // Completeness evaluations
-        try execute("""
-            CREATE TABLE IF NOT EXISTS completeness_evaluations (
-                evaluation_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                template_id TEXT,
-                structural_score REAL,
-                semantic_score REAL,
-                overall_score REAL,
-                missing_parts_json TEXT,
-                evaluated_at INTEGER NOT NULL,
-                FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Recompute graph nodes
-        try execute("""
-            CREATE TABLE IF NOT EXISTS recompute_nodes (
-                node_id TEXT PRIMARY KEY,
-                node_type TEXT NOT NULL,
-                is_dirty INTEGER DEFAULT 0,
-                last_computed_at INTEGER
-            )
-        """)
-
-        // Recompute graph edges
-        try execute("""
-            CREATE TABLE IF NOT EXISTS recompute_edges (
-                edge_id TEXT PRIMARY KEY,
-                source_node_id TEXT NOT NULL,
-                target_node_id TEXT NOT NULL,
-                edge_type TEXT NOT NULL,
-                FOREIGN KEY (source_node_id) REFERENCES recompute_nodes(node_id) ON DELETE CASCADE,
-                FOREIGN KEY (target_node_id) REFERENCES recompute_nodes(node_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Usage tracking — persists across sessions
-        try execute("""
-            CREATE TABLE IF NOT EXISTS usage_stats (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                total_input_tokens INTEGER NOT NULL DEFAULT 0,
-                total_output_tokens INTEGER NOT NULL DEFAULT 0,
-                total_jobs INTEGER NOT NULL DEFAULT 0,
-                total_cost_cents REAL NOT NULL DEFAULT 0.0
-            )
-        """)
-        // Ensure single row exists
-        try execute("INSERT OR IGNORE INTO usage_stats (id, total_input_tokens, total_output_tokens, total_jobs, total_cost_cents) VALUES (1, 0, 0, 0, 0.0)")
-
-        // ============================================
-        // V1: Structure-First Tables (C4/arc42)
-        // ============================================
-
-        // Modules: directories as logical units
-        try execute("""
-            CREATE TABLE IF NOT EXISTS modules (
-                module_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL UNIQUE,
-                parent_module_id TEXT,
-                level INTEGER NOT NULL DEFAULT 0,
-                description TEXT,
-                file_count INTEGER DEFAULT 0,
-                FOREIGN KEY (parent_module_id) REFERENCES modules(module_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Symbols: headings, definitions, links, code blocks found by parsing
-        try execute("""
-            CREATE TABLE IF NOT EXISTS symbols (
-                symbol_id TEXT PRIMARY KEY,
-                module_id TEXT,
-                document_id TEXT,
-                name TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                line_start INTEGER,
-                line_end INTEGER,
-                context TEXT,
-                FOREIGN KEY (module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
-                FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_symbols_doc ON symbols(document_id)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_symbols_module ON symbols(module_id)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind)")
-
-        // Structural relations: deterministic links between modules/docs
-        try execute("""
-            CREATE TABLE IF NOT EXISTS struct_relations (
-                relation_id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                source_doc TEXT,
-                evidence TEXT
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_srel_source ON struct_relations(source_id)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_srel_target ON struct_relations(target_id)")
-        try execute("CREATE INDEX IF NOT EXISTS idx_srel_type ON struct_relations(type)")
-
-        // Artifacts: generated content (summaries, diagrams, ADRs)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS artifacts (
-                artifact_id TEXT PRIMARY KEY,
-                module_id TEXT,
-                kind TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                model_used TEXT
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_artifacts_module ON artifacts(module_id)")
-
-        // FTS5 full-text search index
-        try execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS fts_documents USING fts5(
-                document_id,
-                title,
-                content,
-                tokenize='porter unicode61'
-            )
-        """)
-
-        // ============================================
-        // V2: Hybrid Retrieval + Citations
-        // ============================================
-
-        // Chunks for embedding (split documents into ~500 char pieces)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS chunks (
-                chunk_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                text TEXT NOT NULL,
-                char_start INTEGER,
-                char_end INTEGER,
-                embedding_file TEXT,
-                FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(document_id)")
-
-        // Quality attributes (arc42)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS quality_tags (
-                tag_id TEXT PRIMARY KEY,
-                module_id TEXT,
-                attribute TEXT NOT NULL,
-                value TEXT NOT NULL DEFAULT 'unknown',
-                source_artifact_id TEXT,
-                FOREIGN KEY (module_id) REFERENCES modules(module_id) ON DELETE CASCADE
-            )
-        """)
-
-        // Citations linking artifacts to source documents
-        try execute("""
-            CREATE TABLE IF NOT EXISTS citations (
-                citation_id TEXT PRIMARY KEY,
-                artifact_id TEXT NOT NULL,
-                document_id TEXT NOT NULL,
-                line_start INTEGER,
-                line_end INTEGER,
-                quote_text TEXT
-            )
-        """)
-        try execute("CREATE INDEX IF NOT EXISTS idx_citations_artifact ON citations(artifact_id)")
-
-        // ============================================
-        // V3: Implementation + GraphRAG (tables created early)
-        // ============================================
-
-        // Change plans
-        try execute("""
-            CREATE TABLE IF NOT EXISTS change_plans (
-                plan_id TEXT PRIMARY KEY,
-                module_id TEXT,
-                description TEXT NOT NULL,
-                steps_json TEXT,
-                status TEXT DEFAULT 'draft',
-                created_at INTEGER NOT NULL
-            )
-        """)
-
-        // GraphRAG communities
-        try execute("""
-            CREATE TABLE IF NOT EXISTS communities (
-                community_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                module_ids_json TEXT,
-                summary TEXT,
-                level INTEGER DEFAULT 0
-            )
-        """)
-
-        // Architecture views (ArchitectureStore)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS arch_nodes (
-                view TEXT NOT NULL,
-                id TEXT NOT NULL,
-                parent_id TEXT,
-                kind TEXT NOT NULL,
-                name TEXT NOT NULL,
-                path TEXT,
-                language TEXT,
-                loc INTEGER NOT NULL DEFAULT 0,
-                files INTEGER NOT NULL DEFAULT 0,
-                summary TEXT,
-                role TEXT,
-                tech TEXT,
-                signature TEXT,
-                summary_signature TEXT,
-                component TEXT,
-                tags_json TEXT,
-                PRIMARY KEY (view, id)
-            )
-        """)
-        // Databases created before these columns existed keep their table; add them.
-        try addMissingColumns("arch_nodes", [
-            ("signature", "TEXT"), ("summary_signature", "TEXT"), ("component", "TEXT"), ("tags_json", "TEXT"),
-            // Book view: where a section or item is in its document.
-            ("line", "INTEGER"), ("end_line", "INTEGER"), ("anchor", "TEXT"),
-        ])
-        try execute("""
-            CREATE TABLE IF NOT EXISTS arch_edges (
-                view TEXT NOT NULL,
-                source TEXT NOT NULL,
-                target TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                weight INTEGER NOT NULL DEFAULT 1,
-                label TEXT,
-                PRIMARY KEY (view, source, target, kind)
-            )
-        """)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS arch_coverage (
-                node_id TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                docs_json TEXT NOT NULL DEFAULT '[]'
-            )
-        """)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS arch_metrics (
-                node_id TEXT PRIMARY KEY,
-                json TEXT NOT NULL
-            )
-        """)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS arch_reviews (
-                diff_hash TEXT PRIMARY KEY,
-                json TEXT NOT NULL,
-                created_at INTEGER NOT NULL
-            )
-        """)
-        try execute("""
-            CREATE TABLE IF NOT EXISTS arch_meta (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-        """)
-
-        // Schema version tracking
-        try execute("""
-            CREATE TABLE IF NOT EXISTS applied_migrations (
-                migration_id TEXT PRIMARY KEY,
-                applied_at INTEGER NOT NULL
-            )
-        """)
-    }
-
-    private func columnNames(_ table: String) -> Set<String> {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK else { return [] }
-        var names: Set<String> = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let name = sqlite3_column_text(stmt, 1) { names.insert(String(cString: name)) }
-        }
-        return names
-    }
-
-    /// Add nullable columns that an older version of `table` lacks, keeping its rows.
-    private func addMissingColumns(_ table: String, _ columns: [(name: String, type: String)]) throws {
-        let existing = columnNames(table)
-        for column in columns where !existing.contains(column.name) {
-            try execute("ALTER TABLE \(table) ADD COLUMN \(column.name) \(column.type)")
-        }
-    }
-
-    // MARK: - Architecture
-
-    /// Replace the stored architecture with `snapshot` in one transaction.
-    func saveArchitecture(_ snapshot: ArchitectureSnapshot) throws {
-        try execute("BEGIN IMMEDIATE")
-        do {
-            for table in ["arch_nodes", "arch_edges", "arch_coverage", "arch_metrics", "arch_meta"] {
-                try execute("DELETE FROM \(table)")
-            }
-            for view in snapshot.views { try insertArchView(view) }
-            for (nodeId, entry) in snapshot.coverage {
-                let docs = String(decoding: try JSONEncoder().encode(entry.docs), as: UTF8.self)
-                try execute("INSERT INTO arch_coverage (node_id, status, docs_json) VALUES (?, ?, ?)",
-                            params: [.text(nodeId), .text(entry.status), .text(docs)])
-            }
-            let encoder = JSONEncoder()
-            for (nodeId, metrics) in snapshot.metrics {
-                try execute("INSERT INTO arch_metrics (node_id, json) VALUES (?, ?)",
-                            params: [.text(nodeId), .text(String(decoding: try encoder.encode(metrics), as: UTF8.self))])
-            }
-            func json<T: Encodable>(_ value: T) throws -> String { String(decoding: try encoder.encode(value), as: UTF8.self) }
-            let meta: [String: String?] = [
-                "systemName": snapshot.systemName,
-                "systemPurpose": snapshot.systemPurpose,
-                "codeSequences": try snapshot.codeSequences.map { try json($0) },
-                "codeModel": try snapshot.codeModel.map { try json($0) },
-                "codeCoverage": try snapshot.codeCoverage.map { try json($0) },
-                "components": try json(snapshot.components),
-                "assignments": try json(snapshot.assignments),
-                "overrides": try json(snapshot.overrides),
-                "logicalSignature": snapshot.logicalSignature,
-                "language": snapshot.language,
-                "logicalDraft": snapshot.logicalDraft ? "1" : nil,
-                // One-off filters are never stored.
-                "ratings": try json(snapshot.ratings.filter { !ImportanceRater.isTemporary($0.key) }),
-                "coverageReport": snapshot.coverageReport,
-                "deploymentSignature": snapshot.deploymentSignature,
-                "scannedAt": String(snapshot.scannedAt.timeIntervalSince1970),
-                "enrichedAt": snapshot.enrichedAt.map { String($0.timeIntervalSince1970) },
-                "gitHead": snapshot.gitHead,
-                "deploymentHints": String(decoding: try JSONEncoder().encode(snapshot.deploymentHints), as: UTF8.self),
-            ]
-            for (key, value) in meta {
-                guard let value else { continue }
-                try execute("INSERT INTO arch_meta (key, value) VALUES (?, ?)", params: [.text(key), .text(value)])
-            }
-            try execute("COMMIT")
-        } catch {
-            try? execute("ROLLBACK")
-            throw error
-        }
-    }
-
-    private func insertArchView(_ view: ArchView) throws {
-        for node in view.nodes {
-            try execute("""
-                INSERT OR REPLACE INTO arch_nodes (view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json, line, end_line, anchor)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, params: [.text(view.id), .text(node.id), .textOrNull(node.parent), .text(node.kind), .text(node.name),
-                          .textOrNull(node.path), .textOrNull(node.language), .int(node.loc), .int(node.files),
-                          .textOrNull(node.summary), .textOrNull(node.role), .textOrNull(node.tech),
-                          .textOrNull(node.signature), .textOrNull(node.summarySignature), .textOrNull(node.component),
-                          .textOrNull(node.tags.flatMap { try? String(decoding: JSONEncoder().encode($0), as: UTF8.self) }),
-                          .intOrNull(node.line), .intOrNull(node.endLine), .textOrNull(node.anchor)])
-        }
-        for edge in view.edges {
-            try execute("""
-                INSERT OR REPLACE INTO arch_edges (view, source, target, kind, weight, label) VALUES (?, ?, ?, ?, ?, ?)
-            """, params: [.text(view.id), .text(edge.source), .text(edge.target), .text(edge.kind),
-                          .int(edge.weight), .textOrNull(edge.label)])
-        }
-    }
-
-    /// Cached AI review of a diff, keyed by the diff's SHA-256.
-    func loadArchitectureReview(key: String) -> String? {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT json FROM arch_reviews WHERE diff_hash = ?", -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return sqlite3_column_text(stmt, 0).map { String(cString: $0) }
-    }
-
-    func saveArchitectureReview(key: String, json: String) {
-        try? execute("INSERT OR REPLACE INTO arch_reviews (diff_hash, json, created_at) VALUES (?, ?, ?)",
-                     params: [.text(key), .text(json), .int(Int(Date().timeIntervalSince1970))])
-    }
-
-    /// The stored architecture, or nil when this workspace was never scanned.
-    func loadArchitecture() -> ArchitectureSnapshot? { Self.readArchitecture(db) }
-
-    /// The stored architecture read on a read-only connection of its own, off the main
-    /// actor: the automatic code analysis loads it at project open without blocking the UI.
-    /// WAL mode lets this reader run beside the main connection and the indexer.
-    nonisolated func loadArchitectureDetached() async -> ArchitectureSnapshot? {
-        let path = dbPath
-        return await Task.detached(priority: .userInitiated) {
-            var handle: OpaquePointer?
-            let opened = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil)
-            // A failed open still allocates a handle that must be closed.
-            defer { sqlite3_close(handle) }
-            guard opened == SQLITE_OK else { return nil }
-            sqlite3_busy_timeout(handle, 5000)
-            return Self.readArchitecture(handle)
-        }.value
-    }
-
-    /// The architecture tables of `db` as a snapshot; the connection stays the caller's.
-    nonisolated private static func readArchitecture(_ db: OpaquePointer?) -> ArchitectureSnapshot? {
-        func text(_ stmt: OpaquePointer?, _ column: Int32) -> String? {
-            sqlite3_column_text(stmt, column).map { String(cString: $0) }
-        }
-        var meta: [String: String] = [:]
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT key, value FROM arch_meta", -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let key = text(stmt, 0), let value = text(stmt, 1) { meta[key] = value }
-            }
-        }
-        sqlite3_finalize(stmt)
-        guard let scanned = meta["scannedAt"].flatMap(Double.init) else { return nil }
-
-        var nodesByView: [String: [ArchNode]] = [:]
-        stmt = nil
-        // In insertion order: the Book view's parts and chapters are stored in reading order.
-        if sqlite3_prepare_v2(db, "SELECT view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json, line, end_line, anchor FROM arch_nodes ORDER BY rowid", -1, &stmt, nil) == SQLITE_OK {
-            func int(_ column: Int32) -> Int? {
-                sqlite3_column_type(stmt, column) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, column))
-            }
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let node = ArchNode(id: text(stmt, 1) ?? "", parent: text(stmt, 2), kind: text(stmt, 3) ?? "",
-                                    name: text(stmt, 4) ?? "", path: text(stmt, 5), language: text(stmt, 6),
-                                    loc: Int(sqlite3_column_int64(stmt, 7)), files: Int(sqlite3_column_int64(stmt, 8)),
-                                    summary: text(stmt, 9), role: text(stmt, 10), tech: text(stmt, 11),
-                                    signature: text(stmt, 12), summarySignature: text(stmt, 13), component: text(stmt, 14),
-                                    tags: (text(stmt, 15)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) },
-                                    line: int(16), endLine: int(17), anchor: text(stmt, 18))
-                nodesByView[text(stmt, 0) ?? "", default: []].append(node)
-            }
-        }
-        sqlite3_finalize(stmt)
-
-        var edgesByView: [String: [ArchEdge]] = [:]
-        stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT view, source, target, kind, weight, label FROM arch_edges", -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let edge = ArchEdge(source: text(stmt, 1) ?? "", target: text(stmt, 2) ?? "", kind: text(stmt, 3) ?? "",
-                                    weight: Int(sqlite3_column_int64(stmt, 4)), label: text(stmt, 5))
-                edgesByView[text(stmt, 0) ?? "", default: []].append(edge)
-            }
-        }
-        sqlite3_finalize(stmt)
-
-        var coverage: [String: CoverageEntry] = [:]
-        stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT node_id, status, docs_json FROM arch_coverage", -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let docs = (text(stmt, 2)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-                coverage[text(stmt, 0) ?? ""] = CoverageEntry(status: text(stmt, 1) ?? "none", docs: docs)
-            }
-        }
-        sqlite3_finalize(stmt)
-
-        var metrics: [String: FileMetrics] = [:]
-        stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT node_id, json FROM arch_metrics", -1, &stmt, nil) == SQLITE_OK {
-            let decoder = JSONDecoder()
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let id = text(stmt, 0), let data = text(stmt, 1)?.data(using: .utf8),
-                   let value = try? decoder.decode(FileMetrics.self, from: data) { metrics[id] = value }
-            }
-        }
-        sqlite3_finalize(stmt)
-
-        let order = ["modules", "deployment", "docs"]
-        let views = nodesByView.keys.sorted { (order.firstIndex(of: $0) ?? 9) < (order.firstIndex(of: $1) ?? 9) }
-            .map { ArchView(id: $0, nodes: nodesByView[$0] ?? [], edges: edgesByView[$0] ?? []) }
-        let hints = (meta["deploymentHints"]?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-        func decode<T: Decodable>(_ key: String, _ type: T.Type) -> T? {
-            (meta[key]?.data(using: .utf8)).flatMap { try? JSONDecoder().decode(type, from: $0) }
-        }
-        return ArchitectureSnapshot(views: views, coverage: coverage, metrics: metrics,
-                                    coverageReport: meta["coverageReport"],
-                                    deploymentSignature: meta["deploymentSignature"],
-                                    systemName: meta["systemName"], systemPurpose: meta["systemPurpose"],
-                                    components: decode("components", [LogicalComponent].self) ?? [],
-                                    assignments: decode("assignments", [String: LogicalAssignment].self) ?? [:],
-                                    overrides: decode("overrides", [String: String].self) ?? [:],
-                                    logicalSignature: meta["logicalSignature"],
-                                    language: meta["language"],
-                                    logicalDraft: meta["logicalDraft"] == "1",
-                                    ratings: decode("ratings", [String: [String: ImportanceRater.Rating]].self) ?? [:],
-                                    deploymentHints: hints,
-                                    scannedAt: Date(timeIntervalSince1970: scanned),
-                                    enrichedAt: meta["enrichedAt"].flatMap(Double.init).map(Date.init(timeIntervalSince1970:)),
-                                    gitHead: meta["gitHead"],
-                                    codeSequences: decode("codeSequences", [CodeSequence].self),
-                                    codeModel: decode("codeModel", CodeArchitectureModel.self),
-                                    codeCoverage: decode("codeCoverage", CodeCoverage.self))
+        sqlite3_close(db)
     }
 
     // MARK: - Project CRUD
@@ -938,9 +161,9 @@ class SemanticDatabase {
         return results
     }
 
-    // MARK: - Block CRUD
+    // MARK: - Blocks
 
-    func upsertBlock(_ block: SemanticBlock, documentId: String) throws {
+    private func upsertBlock(_ block: SemanticBlock, documentId: String) throws {
         let now = Int(Date().timeIntervalSince1970)
         let headingPathJSON = (try? JSONEncoder().encode(block.headingPath))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -962,130 +185,18 @@ class SemanticDatabase {
         ])
     }
 
-    func deleteBlock(id: String) throws {
-        try execute("DELETE FROM blocks WHERE block_id = ?", params: [.text(id)])
-    }
-
-    // MARK: - Entity CRUD
-
-    func upsertEntity(_ entity: SemanticEntity) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        let aliasesJSON = (try? JSONEncoder().encode(entity.safeAliases)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let attrsJSON = (try? JSONEncoder().encode(entity.attributes ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}" as String
-        try execute("""
-            INSERT INTO entities (entity_id, name, type, canonical_name, aliases_json, attributes_json,
-                description, status, source_file, source_block_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(entity_id) DO UPDATE SET name=?, canonical_name=?, aliases_json=?, attributes_json=?, updated_at=?
-        """, params: [.text(entity.id), .text(entity.name), .text(entity.type), .text(entity.canonicalName),
-                     .text(aliasesJSON), .text(attrsJSON), .textOrNull(entity.description), .text(entity.safeStatus),
-                     .textOrNull(entity.sourceFile), .textOrNull(entity.sourceBlockId), .int(now), .int(now),
-                     .text(entity.name), .text(entity.canonicalName), .text(aliasesJSON), .text(attrsJSON), .int(now)])
-    }
-
-    // MARK: - Claim CRUD
-
-    func upsertClaim(_ claim: SemanticClaim) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        let evidenceJSON = (try? JSONEncoder().encode(claim.safeEvidenceBlockIds)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        try execute("""
-            INSERT INTO claims (claim_id, type, subject_entity_id, predicate, object, object_entity_id,
-                source_file, source_block_id, raw_text, status, confidence, scope_kind, scope_value,
-                temporal_context_id, evidence_block_ids_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(claim_id) DO UPDATE SET raw_text=?, status=?, confidence=?, updated_at=?
-        """, params: [.text(claim.id), .text(claim.safeType), .text(claim.safeSubjectEntityId),
-                     .text(claim.predicate ?? ""), .text(claim.safeObject), .textOrNull(claim.objectEntityId),
-                     .text(claim.safeSourceFile), .text(claim.safeSourceBlockId), .text(claim.safeRawText),
-                     .text(claim.safeStatus), .real(claim.safeConfidence), .text(claim.safeScopeKind),
-                     .textOrNull(claim.scopeValue), .textOrNull(claim.temporalContextId),
-                     .text(evidenceJSON), .int(now), .int(now),
-                     .text(claim.safeRawText), .text(claim.safeStatus), .real(claim.safeConfidence), .int(now)])
-    }
-
-    func deleteClaimsForBlock(_ blockId: String) throws {
-        try execute("DELETE FROM claims WHERE source_block_id = ?", params: [.text(blockId)])
-    }
-
-    // MARK: - Relation CRUD
-
-    func upsertRelation(_ relation: SemanticRelation) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        try execute("""
-            INSERT INTO entity_relations (relation_id, source_id, target_id, type, source_file, source_block_id, confidence, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(relation_id) DO UPDATE SET type=?
-        """, params: [.text(relation.id), .text(relation.sourceId), .text(relation.targetId),
-                     .text(relation.type), .textOrNull(relation.sourceFile), .textOrNull(relation.sourceBlockId),
-                     .real(relation.confidence ?? 0.5), .int(now), .text(relation.type)])
-    }
-
-    func deleteRelationsForBlock(_ blockId: String) throws {
-        try execute("DELETE FROM entity_relations WHERE source_block_id = ?", params: [.text(blockId)])
-    }
-
-    // MARK: - Temporal Context CRUD
-
-    func upsertTemporalContext(_ tc: TemporalContext) throws {
-        try execute("""
-            INSERT INTO temporal_contexts (temporal_context_id, label, kind, order_index, start_time, end_time, parent_temporal_context_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(temporal_context_id) DO UPDATE SET label=?, order_index=?
-        """, params: [.text(tc.id), .text(tc.label), .text(tc.kind), .int(tc.orderIndex),
-                     .textOrNull(tc.startTime), .textOrNull(tc.endTime), .textOrNull(tc.parentTemporalContextId),
-                     .text(tc.label), .int(tc.orderIndex)])
-    }
-
-    // MARK: - Diagnostic CRUD
-
-    func deleteDiagnosticsForBlock(_ blockId: String) throws {
-        try execute("DELETE FROM diagnostics WHERE block_id = ?", params: [.text(blockId)])
-    }
-
-    // MARK: - AI Job CRUD
-
-    func findCachedJob(inputHash: String) throws -> String? {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT result_ref FROM ai_jobs WHERE input_hash = ? AND status = 'completed' LIMIT 1"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, inputHash, -1, SQLITE_TRANSIENT)
-        if sqlite3_step(stmt) == SQLITE_ROW, let ptr = sqlite3_column_text(stmt, 0) {
-            return String(cString: ptr)
+    /// One block delta of an open document: the added and changed blocks are written, the removed ones are deleted with
+    /// their claims, relations and diagnostics. Each statement stands alone and a failed one is skipped, as before.
+    func applyBlockDelta(documentId: String, upserts: [SemanticBlock], removed: [String]) {
+        for block in upserts {
+            try? upsertBlock(block, documentId: documentId)
         }
-        return nil
-    }
-
-    // MARK: - Query Helpers
-
-    /// Clear all semantic data (entities, claims, relations, diagnostics, jobs, cache) — keeps schema
-    func clearAll() throws {
-        let tables = [
-            "compile_artifacts", "compile_jobs", "completeness_evaluations",
-            "recompute_edges", "recompute_nodes",
-            "ai_jobs", "diagnostics", "transitions", "entity_relations",
-            "claims", "entities", "temporal_contexts",
-            "block_compilation_cache", "blocks", "documents"
-        ]
-        for table in tables {
-            try execute("DELETE FROM \(table)")
+        for id in removed {
+            try? execute("DELETE FROM blocks WHERE block_id = ?", params: [.text(id)])
+            try? execute("DELETE FROM claims WHERE source_block_id = ?", params: [.text(id)])
+            try? execute("DELETE FROM entity_relations WHERE source_block_id = ?", params: [.text(id)])
+            try? execute("DELETE FROM diagnostics WHERE block_id = ?", params: [.text(id)])
         }
-
-        // Also clear the file-based response cache
-        let cacheDir = URL(fileURLWithPath: dbPath)
-            .deletingLastPathComponent() // .dde/
-            .appendingPathComponent("cache")
-            .appendingPathComponent("provider_responses")
-        if let files = try? FileManager.default.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: nil) {
-            for file in files {
-                try? FileManager.default.removeItem(at: file)
-            }
-        }
-
-        // Reset usage stats
-        try execute("UPDATE usage_stats SET total_input_tokens=0, total_output_tokens=0, total_jobs=0, total_cost_cents=0 WHERE id=1")
-
-        NSLog("[DDE] Database + cache fully cleared")
     }
 
     // MARK: - Usage Stats (persisted across sessions)
@@ -1125,74 +236,6 @@ class SemanticDatabase {
                 total_cost_cents = total_cost_cents + ?
             WHERE id = 1
         """, params: [.int(inputTokens), .int(outputTokens), .real(costCents)])
-    }
-
-    // MARK: - Bulk Query (load all into memory)
-
-    func entityCount() -> Int {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT COUNT(DISTINCT canonical_name) FROM entities", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int(stmt, 0))
-    }
-
-    func claimCount() -> Int {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM claims", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int(stmt, 0))
-    }
-
-    /// Get deduplicated entities grouped by type (returns max ~300)
-    func uniqueEntities() -> [SemanticEntity] {
-        var results: [SemanticEntity] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT entity_id, name, type, canonical_name, description, status, source_file, source_block_id FROM entities GROUP BY LOWER(canonical_name) ORDER BY type, name"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(stmt, 0))
-            let name = String(cString: sqlite3_column_text(stmt, 1))
-            let type = String(cString: sqlite3_column_text(stmt, 2))
-            let canonical = String(cString: sqlite3_column_text(stmt, 3))
-            let desc = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
-            let status = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-            let srcFile = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-            let srcBlock = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
-            results.append(SemanticEntity(id: id, name: name, type: type, canonicalName: canonical,
-                                          aliases: nil, attributes: nil, description: desc,
-                                          status: status, sourceFile: srcFile, sourceBlockId: srcBlock))
-        }
-        return results
-    }
-
-    func allClaims() -> [SemanticClaim] {
-        var results: [SemanticClaim] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT claim_id, type, subject_entity_id, predicate, object, source_file, source_block_id, raw_text, status, confidence, scope_kind FROM claims"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(stmt, 0))
-            let type = sqlite3_column_text(stmt, 1).map { String(cString: $0) }
-            let subj = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-            let pred = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
-            let obj = sqlite3_column_text(stmt, 4).map { String(cString: $0) }
-            let srcFile = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-            let srcBlock = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-            let rawText = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
-            let status = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
-            let confidence = sqlite3_column_double(stmt, 9)
-            let scopeKind = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
-            results.append(SemanticClaim(id: id, type: type, subjectEntityId: subj, predicate: pred,
-                                         object: obj != nil ? .string(obj!) : nil, objectEntityId: nil,
-                                         sourceFile: srcFile, sourceBlockId: srcBlock, rawText: rawText,
-                                         status: status, confidence: confidence,
-                                         scopeKind: scopeKind))
-        }
-        return results
     }
 
     // MARK: - V1 Structural Index
@@ -1284,97 +327,21 @@ class SemanticDatabase {
         return results
     }
 
-    func symbolsForModule(_ moduleId: String) -> [(name: String, kind: String, doc: String?, context: String?)] {
-        var results: [(String, String, String?, String?)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT name, kind, document_id, context FROM symbols WHERE module_id = ? ORDER BY kind, name"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, moduleId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                String(cString: sqlite3_column_text(stmt, 1)),
-                sqlite3_column_text(stmt, 2).map { String(cString: $0) },
-                sqlite3_column_text(stmt, 3).map { String(cString: $0) }
-            ))
+    /// Drop what the index holds for documents that left the project (an excluded folder): their heading, link and
+    /// code-block symbols, and their search text (replaced by an empty entry, as the exclusion always did).
+    func forgetDocuments(_ ids: [String]) {
+        for id in ids {
+            for kind in ["heading", "link", "code_block"] {
+                try? execute("DELETE FROM symbols WHERE document_id = ? AND kind = ?", params: [.text(id), .text(kind)])
+            }
+            indexDocumentFTS(documentId: id, title: "", content: "")
         }
-        return results
-    }
-
-    /// Clear symbols of a given kind for a document
-    func clearSymbols(forDocument docId: String, kind: String) {
-        try? execute("DELETE FROM symbols WHERE document_id = ? AND kind = ?", params: [.text(docId), .text(kind)])
-    }
-
-    // MARK: - V2 Chunks + Citations
-
-    func insertChunk(id: String, documentId: String, text: String, charStart: Int, charEnd: Int) {
-        try? execute("INSERT OR IGNORE INTO chunks (chunk_id, document_id, text, char_start, char_end) VALUES (?, ?, ?, ?, ?)",
-                    params: [.text(id), .text(documentId), .text(text), .int(charStart), .int(charEnd)])
-    }
-
-    func chunksForDocument(_ documentId: String) -> [(id: String, text: String, charStart: Int, charEnd: Int)] {
-        var results: [(String, String, Int, Int)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT chunk_id, text, char_start, char_end FROM chunks WHERE document_id = ? ORDER BY char_start"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, documentId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                String(cString: sqlite3_column_text(stmt, 1)),
-                Int(sqlite3_column_int(stmt, 2)),
-                Int(sqlite3_column_int(stmt, 3))
-            ))
-        }
-        return results
-    }
-
-    func citationsForArtifact(_ artifactId: String) -> [(documentId: String, lineStart: Int?, quoteText: String?)] {
-        var results: [(String, Int?, String?)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT document_id, line_start, quote_text FROM citations WHERE artifact_id = ?"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, artifactId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                sqlite3_column_type(stmt, 1) == SQLITE_NULL ? nil : Int(sqlite3_column_int(stmt, 1)),
-                sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-            ))
-        }
-        return results
-    }
-
-    func insertQualityTag(id: String, moduleId: String, attribute: String, value: String, artifactId: String?) {
-        try? execute("INSERT OR REPLACE INTO quality_tags (tag_id, module_id, attribute, value, source_artifact_id) VALUES (?, ?, ?, ?, ?)",
-                    params: [.text(id), .text(moduleId), .text(attribute), .text(value), .textOrNull(artifactId)])
-    }
-
-    /// Get content hash for a document (for change detection)
-    func getDocumentHash(_ documentId: String) -> String? {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT content_hash FROM documents WHERE document_id = ?"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, documentId, -1, SQLITE_TRANSIENT)
-        if sqlite3_step(stmt) == SQLITE_ROW, let ptr = sqlite3_column_text(stmt, 0) {
-            return String(cString: ptr)
-        }
-        return nil
-    }
-
-    /// Execute raw SQL with a single text param (for reconciler)
-    func execute_raw(_ sql: String, text: String) throws {
-        try execute(sql, params: [.text(text)])
     }
 
     // MARK: - Low-level SQL
+    // Internal to the module so a domain that keeps its own tables in this database can extend the actor (see the Architecture domain).
 
-    private enum SQLValue {
+    enum SQLValue {
         case text(String)
         case textOrNull(String?)
         case int(Int)
@@ -1384,10 +351,10 @@ class SemanticDatabase {
 
     /// SQLITE_TRANSIENT tells SQLite to copy string data immediately,
     /// so the temporary Swift string buffer can be safely freed.
-    private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-    private var SQLITE_TRANSIENT: sqlite3_destructor_type { Self.sqliteTransient }
+    static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    var SQLITE_TRANSIENT: sqlite3_destructor_type { Self.sqliteTransient }
 
-    private func execute(_ sql: String, params: [SQLValue] = []) throws {
+    func execute(_ sql: String, params: [SQLValue] = []) throws {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
 

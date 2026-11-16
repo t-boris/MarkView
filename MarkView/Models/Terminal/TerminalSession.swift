@@ -1,6 +1,9 @@
 import AppKit
 import Darwin
 import WebKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// An alternate process endpoint. The terminal renderer and prompt delivery do not depend on
 /// whether bytes come from a local PTY or an authenticated remote connection.
@@ -14,55 +17,12 @@ protocol TerminalConnection: AnyObject {
     func stop()
 }
 
-/// What a terminal in the AI panel runs: an assistant inside the user's shell, or the
-/// shell alone.
-enum TerminalProfile: String, CaseIterable, Identifiable {
-    case claude, codex, cline, copilot, antigravity, shell
-
-    var id: String { rawValue }
-
-    init(_ tool: CLITool) {
-        switch tool {
-        case .claude: self = .claude
-        case .codex: self = .codex
-        case .cline: self = .cline
-        case .copilot: self = .copilot
-        case .antigravity: self = .antigravity
-        }
-    }
-
-    var tool: CLITool? {
-        switch self {
-        case .claude: return .claude
-        case .codex: return .codex
-        case .cline: return .cline
-        case .copilot: return .copilot
-        case .antigravity: return .antigravity
-        case .shell: return nil
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .cline: return "Cline"
-        case .copilot: return "Copilot"
-        case .antigravity: return "Antigravity"
-        case .shell: return "Shell"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .claude: return "sparkle"
-        case .codex: return "chevron.left.forwardslash.chevron.right"
-        case .cline: return "circle.hexagongrid"
-        case .copilot: return "airplane"
-        case .antigravity: return "wand.and.stars"
-        case .shell: return "terminal"
-        }
-    }
+/// Where a terminal sends what the person opens in it: a file goes to the editor of the window, a web address to its browser tab.
+/// The window's `AITerminalsHost` is the target of its terminals (`AITerminalsController`).
+@MainActor
+protocol TerminalLinkTarget: AnyObject {
+    func openFile(_ url: URL, line: Int?, endLine: Int?)
+    func openInAppBrowser(_ url: URL)
 }
 
 /// One embedded terminal: a login shell on a pseudo-terminal (PTY) that Swift owns,
@@ -72,7 +32,7 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
 /// loses the screen. Output is read on a background queue and sent to the page in
 /// batches; keystrokes and size changes come back through the "terminal" handler.
 @MainActor
-final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler {
+final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var connection: TerminalConnection?
     var isRemote: Bool { connection != nil }
     @Published var remoteConnectionState: RemoteConnectionState?
@@ -88,7 +48,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     var observedModel: String?
     /// The model the Agents header asked this Claude Code session to switch to with `/model`. The
     /// session's log confirms it later; until then it tells an explicit pick from the model the
-    /// session started with (see `WorkspaceManager.claudeModelReported`).
+    /// session started with (see `AITerminalsController.liveModelReported`).
     var pendingModelPick: String?
     /// When this run began (created or started again). A model picked in MarkView after it restarts
     /// the assistant; one remembered from the running session (`/model`) does not.
@@ -109,17 +69,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     @Published private(set) var profile: TerminalProfile
     /// Tab title in the AI panel ("Claude Code", "Codex 2").
     var title: String
-    /// Supplied by the workspace for both AI-panel terminals and folder terminal tabs.
-    var openFile: ((URL, Int?) -> Void)?
+    /// The window this terminal belongs to, for both AI-panel terminals and folder terminal tabs: files open in its editor and web
+    /// addresses in its browser tab (links clicked here, and pages programs in it open: `TerminalBrowserBridge`). Nil, as for a project
+    /// operation, keeps the default apps.
+    private(set) weak var links: (any TerminalLinkTarget)?
     var openExternalURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
-    /// Shows a web address in the browser tab of this terminal's window: links clicked here and
-    /// pages programs in it open (`TerminalBrowserBridge`). Nil keeps the default browser.
-    var openInAppBrowser: ((URL) -> Void)?
 
     @Published private(set) var isRunning = false
     @Published private(set) var exitCode: Int32?
 
     private(set) lazy var webView: WKWebView = makeWebView()
+    /// The page's messages (channel "terminal" of `bridge-contract.json`), checked, decoded and handed to `registerMessageHandlers`.
+    let messages = TypedWebBridge(channel: "terminal")
     /// Dictation into this terminal. Owned by the session, so a recording survives switching
     /// tabs and panels (the microphone button is only a view of it).
     private(set) lazy var dictation = WhisperClient()
@@ -131,7 +92,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var childPID: pid_t = 0
     /// The terminal's shell process: agents started in it are its descendants.
     var shellPID: pid_t { childPID }
-    /// The window whose browser tabs agents in this terminal drive (`BrowserControlServer`).
+    /// The window whose browser tabs agents in this terminal drive (`AgentToolServer`).
     var browserWindowID: UUID?
     private var operationStartedOnce = false
     private var readSource: DispatchSourceRead?
@@ -152,14 +113,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var startupSentAt: Date?
     private var lastOutputAt: Date?
     private var pendingPastes: [(text: String, submit: Bool, queued: Date)] = []
-    private var pasteTimer: Timer?
+    /// The poll that waits for the terminal to be ready for a queued paste: a job of the app's scheduler that keeps running in the
+    /// background (an unattended run still needs its prompt), and the staggered delivery of a batch (`AR-19`).
+    private var pasteKey: String { "terminal-paste-" + id.uuidString }
+    private var pasteDelivery: Task<Void, Never>?
     private var size = winsize(ws_row: 30, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
     /// Interface text scale for the terminal glyphs; the host view keeps it current.
     private var fontScale = AppFontScale.storedFactor
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil,
          resumeCommand: String? = nil, title: String? = nil, model: String? = nil,
-         operationCommand: String? = nil) {
+         operationCommand: String? = nil, links: (any TerminalLinkTarget)? = nil) {
+        self.links = links
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand
@@ -168,6 +133,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         self.operationCommand = operationCommand
         self.title = title ?? profile.title
         super.init()
+        registerMessageHandlers()
     }
 
     // MARK: - Web view
@@ -176,48 +142,50 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     static var pageURL = Bundle.main.url(forResource: "terminal", withExtension: "html", subdirectory: "Editor")
 
     private func makeWebView() -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(WeakMessageHandler(self), name: "terminal")
-        // The first fit already uses the current scale, so the PTY starts with the final grid.
-        // The first paint already has the window's theme (the page is created lazily, after the host applied it).
-        configuration.userContentController.addUserScript(WKUserScript(
-            source: "window.mvFontScale = \(Double(fontScale)); window.mvOperation = \(operationCommand != nil); \(themeFirstPaint)",
-            injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let configuration = WebHost.makeConfiguration(
+            handlers: [.message("terminal", messages)],
+            userScripts: [
+                // `mvBridge.send` in the page validates every message against the contract (AR-28).
+                messages.contract.userScript,
+                // The first fit already uses the current scale, so the PTY starts with the final grid.
+                // The first paint already has the window's theme (the page is created lazily, after the host applied it).
+                WKUserScript(
+                    source: "window.mvFontScale = \(Double(fontScale)); window.mvOperation = \(operationCommand != nil); \(themeFirstPaint)",
+                    injectionTime: .atDocumentStart, forMainFrameOnly: true),
+            ])
+        let view = WebHost.makeWebView(configuration: configuration)
         if let page = Self.pageURL {
             view.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
         }
         return view
     }
 
-    nonisolated func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        MainActor.assumeIsolated {
-            guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
-            switch type {
-            case "ready":
-                pageReady = true
-                resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
-                webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
-                applyFontScale()
-                if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
-                else { flush() }
-                if outputDropped { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
-            case "input":
-                if isRunning, let text = body["data"] as? String { write(text) }
-            case "resize":
-                resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
-            case "pasteFiles":
-                pasteClipboardFiles()
-            case "link":
-                if let text = body["url"] as? String { activateLink(text) }
-            case "resolveLinks":
-                if let request = body["request"] as? Int, request >= 0,
-                   let paths = body["paths"] as? [String], paths.count <= 512 {
-                    resolveLinks(paths, request: request)
-                }
-            default:
-                break
-            }
+    private func registerMessageHandlers() {
+        messages.on(TerminalMessage.Ready.self) { [weak self] message in
+            guard let self else { return }
+            pageReady = true
+            resize(cols: message.payload.cols, rows: message.payload.rows)
+            if let themeArguments { callPage("window.mvSetTheme", themeArguments.list) }
+            applyFontScale()
+            if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
+            else { flush() }
+            if outputDropped { callPage("window.mvDropped") }
+        }
+        messages.on(TerminalMessage.Input.self) { [weak self] message in
+            guard let self, isRunning else { return }
+            write(message.payload.data)
+        }
+        messages.on(TerminalMessage.Resize.self) { [weak self] message in
+            self?.resize(cols: message.payload.cols, rows: message.payload.rows)
+        }
+        messages.on(TerminalMessage.PasteFiles.self) { [weak self] _ in
+            self?.pasteClipboardFiles()
+        }
+        messages.on(TerminalMessage.Link.self) { [weak self] message in
+            self?.activateLink(message.payload.url)
+        }
+        messages.on(TerminalMessage.ResolveLinks.self) { [weak self] message in
+            self?.resolveLinks(message.payload.paths, request: message.payload.request)
         }
     }
 
@@ -232,9 +200,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
                 let cwd = TerminalLink.workingDirectory(foregroundPID: probe.foreground, shellPID: probe.shell, fallback: probe.fallback)
                 return paths.filter { if case .file = TerminalLink.resolve($0, directory: cwd) { return true }; return false }
             }.value
-            guard let data = try? JSONSerialization.data(withJSONObject: valid),
-                  let json = String(data: data, encoding: .utf8) else { return }
-            _ = try? await webView.evaluateJavaScript("window.mvResolvedLinks && window.mvResolvedLinks(\(request), \(json))")
+            guard let script = JS.call("window.mvResolvedLinks", args: [request, valid], ifDefined: true) else { return }
+            _ = try? await webView.evaluateJavaScript(script)
         }
     }
 
@@ -248,14 +215,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
             }.value
             switch target {
             case .web(let url):
-                if let openInAppBrowser, TerminalBrowserBridge.isEnabled,
+                if let links, TerminalBrowserBridge.isEnabled,
                    ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                    openInAppBrowser(url)
+                    links.openInAppBrowser(url)
                 } else {
                     openExternalURL(url)
                 }
             case .file(let url, let line):
-                if FileType.isOpenable(url), let openFile { openFile(url, line) }
+                if FileType.isOpenable(url), let links { links.openFile(url, line: line, endLine: nil) }
                 else { openExternalURL(url) }
             case nil: break
             }
@@ -263,17 +230,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     /// The theme of the window this terminal is shown in, as the arguments of the page's `mvSetTheme`
-    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads.
-    private var themeArguments = "'classic-dark', null"
+    /// (`WindowTheme.webArguments`); kept so the page gets it again when it reloads. Nil until the view has given it.
+    private var themeArguments: WebThemeArguments?
     /// The same theme as <html> attributes, set at document start so a reload paints it from the first frame.
     private var themeFirstPaint = ""
 
     /// `arguments` and `firstPaint` are `WindowTheme.webArguments` and `WindowTheme.firstPaintScript`.
-    func applyTheme(arguments: String, firstPaint: String) {
+    func applyTheme(arguments: WebThemeArguments, firstPaint: String) {
         themeArguments = arguments
         themeFirstPaint = firstPaint
         guard pageReady else { return }
-        webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(themeArguments))")
+        callPage("window.mvSetTheme", arguments.list)
+    }
+
+    /// Calls a function of the terminal page when it has defined it (`JS.call`: the arguments are JSON, never script text).
+    private func callPage(_ function: String, _ args: [Any] = []) {
+        guard let script = JS.call(function, args: args, ifDefined: true) else { return }
+        webView.evaluateJavaScript(script)
     }
 
     func setFontScale(_ scale: CGFloat) {
@@ -285,18 +258,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// The page refits and posts `resize` when the grid changes, which resizes the PTY.
     private func applyFontScale() {
         guard pageReady else { return }
-        webView.evaluateJavaScript("window.mvSetFontScale && window.mvSetFontScale(\(Double(fontScale)))")
+        callPage("window.mvSetFontScale", [Double(fontScale)])
     }
 
     func refit() {
         // The page may finish loading while its web view is still offscreen. Refitting
         // after attachment must also bootstrap the first `ready` message.
-        webView.evaluateJavaScript("window.mvRefit && window.mvRefit()")
+        callPage("window.mvRefit")
     }
 
     func focus() {
         webView.window?.makeFirstResponder(webView)
-        webView.evaluateJavaScript("window.mvFocus && window.mvFocus()")
+        callPage("window.mvFocus")
     }
 
     // MARK: - Process
@@ -344,7 +317,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "MarkView"
         if environment["LANG"] == nil { environment["LANG"] = "en_US.UTF-8" }
-        if openInAppBrowser != nil {
+        if links != nil {
             environment.merge(TerminalBrowserBridge.environment(for: self, shell: shell, inherited: environment)) { $1 }
         }
 
@@ -479,7 +452,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         pendingOutput.removeAll()
         outputDropped = false
         exitMarkerPending = nil
-        webView.evaluateJavaScript("window.mvReset && window.mvReset()")
+        callPage("window.mvReset")
         start()
     }
 
@@ -498,7 +471,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         let reaping = stoppedPID > 0 ? TerminalChildProcess.stopAndReap(stoppedPID, beforeReap: beforeReap) : nil
         isRunning = false
         exitCode = 130
-        if pageReady { webView.evaluateJavaScript("window.mvExited && window.mvExited(130)") }
+        if pageReady { callPage("window.mvExited", [130]) }
         return reaping
     }
 
@@ -535,6 +508,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         write("\u{1b}[200~" + text + "\u{1b}[201~")
         if submit {
             // Give the program a moment to take the paste before Enter.
+            // task: Enter 0.25 s after a paste so the program takes it first; weak self, writes to this session only
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.write("\r") }
         }
         focus()
@@ -575,9 +549,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     func pasteWhenReady(_ text: String, submit: Bool) {
         pendingPastes.append((text, submit, Date()))
         deliverPendingPastes()
-        guard !pendingPastes.isEmpty, pasteTimer == nil else { return }
-        pasteTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.deliverPendingPastes() }
+        guard !pendingPastes.isEmpty, !PollingScheduler.app.keys.contains(pasteKey) else { return }
+        let key = pasteKey
+        PollingScheduler.app.every(0.5, key: key, pausesWhenHidden: false) { [weak self] in
+            guard let self else { PollingScheduler.app.stop(key: key); return }
+            self.deliverPendingPastes()
         }
     }
 
@@ -588,7 +564,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// (a terminal that was never shown has no screen yet).
     func screenTail(lines: Int) async -> String? {
         guard pageReady else { return nil }
-        let value = try? await webView.evaluateJavaScript("window.mvTail ? window.mvTail(\(max(1, min(lines, 400)))) : ''")
+        guard let script = JS.call("window.mvTail", args: [max(1, min(lines, 400))], ifDefined: true) else { return nil }
+        let value = try? await webView.evaluateJavaScript(script)
         return value as? String
     }
 
@@ -609,16 +586,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
     private func deliverPendingPastes() {
         guard let first = pendingPastes.first else {
-            pasteTimer?.invalidate(); pasteTimer = nil
+            PollingScheduler.app.stop(key: pasteKey)
             return
         }
         guard readyForPaste || Date().timeIntervalSince(first.queued) > 45 else { return }
         let pastes = pendingPastes
         pendingPastes = []
-        pasteTimer?.invalidate(); pasteTimer = nil
-        for (index, item) in pastes.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.6) { [weak self] in
-                self?.paste(item.text, submit: item.submit)
+        PollingScheduler.app.stop(key: pasteKey)
+        // A batch goes out one prompt every 0.6 s, and a later batch waits for this one.
+        let previous = pasteDelivery
+        pasteDelivery = Task { [weak self] in
+            await previous?.value
+            for (index, item) in pastes.enumerated() {
+                if index > 0 { try? await Task.sleep(nanoseconds: 600_000_000) }
+                guard !Task.isCancelled, let self else { return }
+                self.paste(item.text, submit: item.submit)
             }
         }
     }
@@ -646,12 +628,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         if operationCommand != nil && pendingOutput.count > 16_000_000 {
             pendingOutput.removeFirst(pendingOutput.count - 8_000_000)
             outputDropped = true
-            if pageReady { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
+            if pageReady { callPage("window.mvDropped") }
         }
         lastOutputAt = Date()
         if !startupSent, let command = resumeCommand ?? startupCommand, !command.isEmpty {
             startupSent = true
             resumeCommand = nil
+            // task: types the startup command 0.4 s after the shell is up; weak self, writes to this session only
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 self?.write(command + "\r")
                 self?.startupSentAt = Date()
@@ -659,6 +642,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
         guard pageReady, !flushScheduled else { return }
         flushScheduled = true
+        // task: coalesces output into one flush per frame; flushScheduled keeps it to one pending hop
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in self?.flush() }
     }
 
@@ -671,8 +655,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         let count = min(pendingOutput.count, 32_768)
         let chunk = pendingOutput.prefix(count).base64EncodedString()
         pendingOutput.removeFirst(count)
+        guard let script = JS.call("window.mvWrite", args: [chunk]) else { return }
         outputEvaluationsInFlight += 1
-        webView.evaluateJavaScript("window.mvWrite('\(chunk)')") { [weak self] _, _ in
+        webView.evaluateJavaScript(script) { [weak self] _, _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.outputEvaluationsInFlight -= 1
@@ -681,6 +666,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
         if !pendingOutput.isEmpty {
             flushScheduled = true
+            // task: the next frame's flush; flushScheduled keeps it to one pending hop
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in self?.flush() }
         }
     }
@@ -689,15 +675,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         guard pageReady, pendingOutput.isEmpty, outputEvaluationsInFlight == 0,
               let code = exitMarkerPending else { return }
         exitMarkerPending = nil
-        webView.evaluateJavaScript("window.mvExited && window.mvExited(\(code))")
-    }
-}
-
-/// WKUserContentController retains its handlers; this keeps the session releasable.
-private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var target: WKScriptMessageHandler?
-    init(_ target: WKScriptMessageHandler) { self.target = target }
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        target?.userContentController(controller, didReceive: message)
+        callPage("window.mvExited", [Int(code)])
     }
 }

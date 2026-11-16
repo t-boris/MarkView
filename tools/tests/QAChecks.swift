@@ -308,6 +308,38 @@ do {
         QAStore.prepareLocalFolder(root)
         check("store: an edited ignore file is not overwritten", (try? String(contentsOf: QAStore.localFolder(root).appendingPathComponent(".gitignore"), encoding: .utf8)) == "# mine\n")
     } catch { check("store: runs saved (\(error))", false) }
+
+    // A run record is a schema-versioned store (AR-36). The legacy fixture is what the previous version wrote: the bare record, with
+    // the `schema` field it carried inside it.
+    do {
+        let legacyRoot = FileManager.default.temporaryDirectory.appendingPathComponent("qa-legacy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: legacyRoot) }
+        let legacyRun = QARunRecord(id: "20261108-090000-cccc", scenarioID: "checkout", targetID: "local", targetKind: .local, selected: [main], startedAt: now)
+        var bare = try JSONSerialization.jsonObject(with: QAStore.encoder.encode(legacyRun)) as? [String: Any] ?? [:]
+        bare["schema"] = 1
+        let file = QAStore.runURL(legacyRoot, runID: legacyRun.id)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: bare, options: [.prettyPrinted, .sortedKeys]).write(to: file)
+        check("store legacy: a run written before the envelope loads intact", QAStore.loadRun(legacyRoot, runID: legacyRun.id) == legacyRun)
+        check("store legacy: the list holds it and reading leaves it as written", QAStore.loadRuns(legacyRoot).map(\.id) == [legacyRun.id] && StoreFixture.envelope(file) == nil)
+        try QAStore.saveRun(legacyRun, root: legacyRoot)
+        check("store legacy: the next save writes the envelope and it reloads",
+              StoreFixture.envelope(file)?.schema == 1 && QAStore.loadRun(legacyRoot, runID: legacyRun.id) == legacyRun && StoreFixture.backups(of: file).isEmpty)
+
+        let junk = Data("{ \"id\": ".utf8)
+        try junk.write(to: file)
+        check("store damaged: the run is not listed and the file is left as it is",
+              QAStore.loadRun(legacyRoot, runID: legacyRun.id) == nil && QAStore.loadRuns(legacyRoot).isEmpty && StoreFixture.bytes(file) == junk)
+        try QAStore.saveRun(legacyRun, root: legacyRoot)
+        check("store damaged: a save keeps the old bytes in a dated backup",
+              StoreFixture.backups(of: file).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: file)[0]) == junk && QAStore.loadRun(legacyRoot, runID: legacyRun.id) == legacyRun)
+
+        let future = Data(StoreFixture.newerFile(payload: "{}").utf8)
+        try future.write(to: file)
+        var refused = false
+        do { try QAStore.saveRun(legacyRun, root: legacyRoot) } catch SchemaStoreError.newerSchemaVersion { refused = true }
+        check("store newer: a save is refused and the file is untouched", refused && StoreFixture.bytes(file) == future && QAStore.loadRun(legacyRoot, runID: legacyRun.id) == nil)
+    } catch { check("store legacy: checks ran (\(error))", false) }
 }
 
 // MARK: - Generation: what the AI wrote
@@ -698,17 +730,20 @@ final class FakeAssistant {
     var prompts: [String] = []
     var answers: [(structured: Any?, costUSD: Double?)]
     init(_ answers: [(structured: Any?, costUSD: Double?)]) { self.answers = answers }
-    func complete(_ prompt: String) async throws -> QAGenerator.Answer {
-        prompts.append(prompt)
+    func run(_ request: CLICompletion.Request, _ onDelta: (@Sendable (String) -> Void)?,
+             _ onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
+        prompts.append(request.prompt)
         let next = answers.isEmpty ? (structured: nil as Any?, costUSD: nil as Double?) : answers.removeFirst()
-        return QAGenerator.Answer(structured: next.structured, costUSD: next.costUSD)
+        onActivity?(.thinking)
+        return CLICompletion.Result(text: "", structured: next.structured, costUSD: next.costUSD)
     }
 }
 
 do {
     let request = QAGenerationRequest(goal: "g", appKind: .web, apps: [QAApp(id: "app", name: "App")], now: now)
     func run(_ assistant: FakeAssistant, attempts: Int = 3, seen: ((Int) -> Void)? = nil) -> Result<QAGenerator.Outcome, Error> {
-        runAsync { try await QAGenerator.generate(request, maxAttempts: attempts, onAttempt: seen, complete: assistant.complete) }
+        runAsync { try await QAGenerator.generate(request, maxAttempts: attempts, onAttempt: seen, prepare: { CLICompletion.Request(prompt: $0) },
+                                                  runner: assistant.run) }
     }
 
     let good = FakeAssistant([(answer(title: "First"), 0.1)])
@@ -727,6 +762,11 @@ do {
     let gaveUp = try? run(never).get()
     check("generator: after the last try the last scenario comes back with what is wrong", gaveUp?.attempts == 3 && never.prompts.count == 3 && gaveUp?.scenario.title == "Three" && gaveUp?.remaining.isEmpty == false)
     check("generator: no cost is reported when the assistant reports none", gaveUp?.costUSD == nil)
+    final class Labels: @unchecked Sendable { var seen: [String] = [] }
+    let labels = Labels()
+    _ = runAsync { try await QAGenerator.generate(request, prepare: { CLICompletion.Request(prompt: $0) },
+                                                  runner: { request, _, _ in labels.seen.append(request.label); return CLICompletion.Result(structured: answer(title: "Fine")) }) }
+    check("generator: every try is logged under the generator's name", labels.seen == ["qa-generate"])
 
     let silent = FakeAssistant([(nil, nil), (answer(title: "Later"), nil)])
     let afterSilence = try? run(silent).get()
@@ -739,13 +779,14 @@ do {
     check("generator: no tries at all still asks once", (try? run(none, attempts: 0).get())?.attempts == 1 && none.prompts.count == 1)
 
     struct Broken: Error {}
-    let failing = runAsync { try await QAGenerator.generate(request, complete: { _ in throw Broken() }) }
+    let failing = runAsync { try await QAGenerator.generate(request, prepare: { CLICompletion.Request(prompt: $0) }, runner: { _, _, _ in throw Broken() }) }
     check("generator: an error of the assistant is passed on", { if case .failure(let error) = failing { return error is Broken } else { return false } }())
 
     let stopped = runAsync { () async throws -> QAGenerator.Outcome in
         let task = Task { () async throws -> QAGenerator.Outcome in
             while !Task.isCancelled { await Task.yield() }   // runs only once it was stopped, so the stop reaches the loop itself
-            return try await QAGenerator.generate(request, complete: { _ in QAGenerator.Answer(structured: answer(title: "Never"), costUSD: nil) })
+            return try await QAGenerator.generate(request, prepare: { CLICompletion.Request(prompt: $0) },
+                                                  runner: { _, _, _ in CLICompletion.Result(structured: answer(title: "Never")) })
         }
         task.cancel()
         return try await task.value
@@ -1036,7 +1077,8 @@ enum RunTestError: Error, LocalizedError {
     var errorDescription: String? { "refused" }
 }
 
-final class FakeDriver: QAActorDriver {
+// unchecked Sendable: a test double; the run reads and writes it from one task at a time and the test reads it after the run.
+final class FakeDriver: QAActorDriver, @unchecked Sendable {
     let request: QADriverRequest
     var opened: [String] = []
     var performed: [QAAction] = []

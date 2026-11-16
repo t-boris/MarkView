@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The stored statuses of features and bugs as the lifecycle service reads and writes them: the `status` line of
 // docs/features/<slug>/overview.md and of docs/bugs/BUG-nnn-*.md (issue-lifecycle-management, plan I-2, DEC-014).
@@ -6,6 +9,7 @@ import Foundation
 // and nothing is written when another writer (another window, git, an editor) changed the status meanwhile.
 // Foundation only (with FrontMatter.swift), so it can be checked on its own.
 
+// unchecked Sendable: `root` is a `let`; `lock` orders the read-modify-write of a status and `namesLock` guards the name cache.
 final class MarkdownIssueStatusStore: LifecycleStatusStore, @unchecked Sendable {
     let root: URL
     private let lock = NSLock()
@@ -98,7 +102,7 @@ final class MarkdownIssueStatusStore: LifecycleStatusStore, @unchecked Sendable 
         let current = front.string("status").isEmpty ? (kind == .feature ? "idea" : "open") : front.string("status")
         guard LifecycleVocabulary.normalize(current) == LifecycleVocabulary.normalize(expected) else { return false }
         front.set("status", to)
-        try front.join(body: body).write(to: url, atomically: true, encoding: .utf8)
+        try AtomicFile.write(front.join(body: body), to: url)
         return true
     }
 }

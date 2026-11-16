@@ -5,11 +5,7 @@
         // ============================================================================
         (function installEarlyErrorCapture() {
             function postEarlyDiag(payload) {
-                try {
-                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
-                        window.webkit.messageHandlers.bridge.postMessage({ type: 'jsError', payload: payload });
-                    }
-                } catch (_) {}
+                try { window.mvBridge.send('jsError', payload, 'bridge'); } catch (_) {}
             }
             window.addEventListener('error', function(event) {
                 postEarlyDiag({

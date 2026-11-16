@@ -274,6 +274,7 @@ final class QANativeActor: QAActorDriver {
     /// A wait that goes on when the task was cancelled: closing has to run to the end.
     private static func pause(_ seconds: TimeInterval) async {
         await withCheckedContinuation { continuation in
+            // task: a wait the caller awaits in place and that must run to the end even when cancelled
             DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { continuation.resume() }
         }
     }

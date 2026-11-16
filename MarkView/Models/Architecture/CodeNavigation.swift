@@ -1,4 +1,6 @@
 import Foundation
+import os
+import MarkViewCore
 
 /// Code navigation across the project without a language server: where a symbol is
 /// defined and where it is used. One `git grep -w` pass finds every line with the
@@ -202,7 +204,7 @@ enum CodeNavigator {
         }
         // -I skips binaries; --untracked includes new files; exclude bundled and generated code.
         let excludes = ["node_modules", "build", "dist", "DerivedData", ".build", "Pods", ".next", "coverage",
-                        ".dde", ".markview-insight"]
+                        ProjectPaths.localFolderName, ProjectPaths.insightFolderName]
             .map { ":(exclude,glob)**/\($0)/**" } + [":(exclude,glob)**/*.min.js", ":(exclude,glob)**/*.map"]
         let arguments = ["git", "-C", root.path, "grep", "-n", "-I", "-w", "-F", "-z", "--untracked",
                          "--max-count", "400", "-e", name, "--", "."] + excludes
@@ -347,7 +349,7 @@ final class CodeNavigationStore {
         answers[id] = Task { [weak self] in
             let buffer = AnswerBuffer()
             do {
-                let result = try await CLICompletion.run(request, onDelta: { delta in
+                let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "code-question").execute(request, onDelta: { delta in
                     Task { @MainActor in
                         guard let self, !Task.isCancelled else { return }
                         if buffer.append(delta) { self.send(url: url, ["type": "answer", "id": id, "text": buffer.text, "done": false]) }
@@ -367,7 +369,7 @@ final class CodeNavigationStore {
                 })
                 result.record(in: db)
                 guard !Task.isCancelled else { return }
-                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
                 self?.send(url: url, ["type": "answer", "id": id, "text": text.isEmpty ? buffer.text : text, "done": true])
             } catch is CancellationError {
                 self?.send(url: url, ["type": "answer", "id": id, "text": buffer.text, "done": true, "stopped": true])
@@ -401,20 +403,23 @@ final class CodeNavigationStore {
 }
 
 /// Streamed answer text, forwarded at most every 150 ms.
-private final class AnswerBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = ""
-    private var lastSent = Date.distantPast
+private final class AnswerBuffer: Sendable {
+    private struct State: Sendable {
+        var value = ""
+        var lastSent = Date.distantPast
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
-    var text: String { lock.lock(); defer { lock.unlock() }; return value }
+    var text: String { state.withLock { $0.value } }
 
     /// Append `delta`; true when enough time passed to send the text again.
     func append(_ delta: String) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        value += delta
-        guard Date().timeIntervalSince(lastSent) > 0.15 else { return false }
-        lastSent = Date()
-        return true
+        state.withLock { state in
+            state.value += delta
+            guard Date().timeIntervalSince(state.lastSent) > 0.15 else { return false }
+            state.lastSent = Date()
+            return true
+        }
     }
 }
 

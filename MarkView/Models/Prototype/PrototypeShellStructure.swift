@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The page structure of a prototype made from code, owned by MarkView (BUG-060).
 ///
@@ -88,11 +91,11 @@ enum PrototypeShellStructure {
         let target = site.appendingPathComponent(href)
         if (try? String(contentsOf: target, encoding: .utf8)) != css {
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try css.write(to: target, atomically: true, encoding: .utf8)
+            try AtomicFile.write(css, to: target)
             changed = true
         }
         if withLink != html {
-            try withLink.write(to: index, atomically: true, encoding: .utf8)
+            try AtomicFile.write(withLink, to: index)
             changed = true
         }
         return changed ? .applied : .current

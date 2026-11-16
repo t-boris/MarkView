@@ -56,7 +56,7 @@ MarkView for macOS; the screenshot shows dark appearance. App version, macOS ver
 ## Suspected code
 
 - `MarkView/Views/WorkflowEditorSheet.swift` — Requests a fixed 760-point sheet width, fixes the scroll area height at 400 points, and uses fixed-width controls and fixed-size menus with a vertical ScrollView.
-- `MarkView/Views/DDESettingsView.swift` — Presents the workflow editor as a sheet from the Project workflow section.
+- `MarkView/Views/Workspace/DDESettingsView.swift` — Presents the workflow editor as a sheet from the Project workflow section.
 - `MarkView/App/MarkViewApp.swift` — Creates the settings window with an initial content width of at most 640 points, potentially constraining the presenting window.
 
 ## Likely causes

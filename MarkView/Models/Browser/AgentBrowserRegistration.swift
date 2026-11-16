@@ -1,12 +1,13 @@
 import AppKit
 import Foundation
+import MarkViewCore
 
 /// "Connect Agents to MarkView's Browser…" (Task 82): registers `MarkView --mcp-browser` — without
 /// arguments, so it finds the window through its parent processes — in each installed agent's own
 /// configuration. Agents then get the browser tools even when started by hand in any MarkView
-/// terminal; outside MarkView the server offers no tools. Claude Code and Codex are registered with
-/// their own `mcp add` commands, Copilot and Cline by adding one entry to their JSON settings
-/// (everything else in those files is kept).
+/// terminal; outside MarkView the server offers no tools. How each assistant takes a server (its own `mcp add`
+/// command, or one entry in a JSON settings file whose other content is kept) is described by its provider
+/// (`AssistantProvider.mcp`); this file only carries it out.
 enum AgentBrowserRegistration {
     struct Outcome {
         var agent: String
@@ -14,98 +15,72 @@ enum AgentBrowserRegistration {
         var detail: String
     }
 
-    static let copilotConfig = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".copilot/mcp-config.json")
-    static let clineConfig = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".cline/data/settings/cline_mcp_settings.json")
-
     /// The servers of this binary an agent can use: the browser tools and the project tools.
-    struct Server {
-        let name: String
-        let codexName: String
-        let flag: String
-        let label: String
-    }
-
     static let servers = [
-        Server(name: BrowserAgentTools.serverName, codexName: "markview_browser", flag: "--mcp-browser", label: "browser"),
-        Server(name: ProjectAgentTools.serverName, codexName: ProjectAgentTools.serverName, flag: "--mcp-project", label: "project"),
+        AgentMCPServer(name: BrowserAgentTools.serverName, tomlName: "markview_browser", flag: "--mcp-browser", label: "browser"),
+        AgentMCPServer(name: ProjectAgentTools.serverName, tomlName: ProjectAgentTools.serverName, flag: "--mcp-project", label: "project"),
     ]
 
     /// Register for every agent that is installed; off the main thread.
     static func registerAll(executable: String) async -> [Outcome] {
         var outcomes: [Outcome] = []
-        // An agent that is not found is reported, not skipped silently (BUG-026).
-        let missing = { (agent: String) in Outcome(agent: agent, ok: false, detail: "not found — set its path in Settings (⌘⇧,) and connect again") }
-        let claude = CLIToolLocator.resolve(.claude), codex = CLIToolLocator.resolve(.codex)
-        let copilot = CLIToolLocator.resolve(.copilot) != nil, cline = CLIToolLocator.resolve(.cline) != nil
-        let agy = CLIToolLocator.resolve(.antigravity)
         for server in servers {
             let suffix = " (\(server.label) tools)"
-            if let claude {
-                _ = await CLIToolLocator.run(claude, ["mcp", "remove", "--scope", "user", server.name], timeout: 30)
-                let result = await CLIToolLocator.run(claude, ["mcp", "add", "--scope", "user", server.name, "--", executable, server.flag], timeout: 30)
-                outcomes.append(Outcome(agent: "Claude Code" + suffix, ok: result.exitCode == 0,
-                                        detail: result.exitCode == 0 ? "user scope" : result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)))
-            } else if server.flag == "--mcp-browser" { outcomes.append(missing("Claude Code")) }
-            if let codex {
-                _ = await CLIToolLocator.run(codex, ["mcp", "remove", server.codexName], timeout: 30)
-                let result = await CLIToolLocator.run(codex, ["mcp", "add", server.codexName, "--", executable, server.flag], timeout: 30)
-                outcomes.append(Outcome(agent: "Codex" + suffix, ok: result.exitCode == 0,
-                                        detail: result.exitCode == 0 ? "~/.codex/config.toml" : result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)))
-            } else if server.flag == "--mcp-browser" { outcomes.append(missing("Codex")) }
-            if copilot {
-                let entry: [String: Any] = ["type": "local", "command": executable, "args": [server.flag], "tools": ["*"]]
-                outcomes.append(addServer(entry, to: copilotConfig, agent: "Copilot" + suffix, name: server.name))
-            } else if server.flag == "--mcp-browser" { outcomes.append(missing("Copilot")) }
-            if cline {
-                outcomes.append(addServer(clineEntry(executable: executable, flag: server.flag), to: clineConfig, agent: "Cline" + suffix, name: server.name))
-            } else if server.flag == "--mcp-browser" { outcomes.append(missing("Cline")) }
-            if let agy {
-                _ = await CLIToolLocator.run(agy, ["mcp", "remove", server.name], timeout: 30)
-                let result = await CLIToolLocator.run(agy, ["mcp", "add", server.name, "--", executable, server.flag], timeout: 30)
-                outcomes.append(Outcome(agent: "Antigravity" + suffix, ok: result.exitCode == 0,
-                                        detail: result.exitCode == 0 ? "agy mcp" : (result.stderr + result.stdout).trimmingCharacters(in: .whitespacesAndNewlines)))
-            } else if server.flag == "--mcp-browser" { outcomes.append(missing("Antigravity")) }
+            for tool in CLITool.allCases {
+                guard let registration = tool.provider.mcp else { continue }
+                // An agent that is not found is reported, not skipped silently (BUG-026).
+                guard let path = CLIToolLocator.resolve(tool) else {
+                    if server.flag == "--mcp-browser" {
+                        outcomes.append(Outcome(agent: tool.displayName, ok: false,
+                                                detail: "not found — set its path in Settings (⌘⇧,) and connect again"))
+                    }
+                    continue
+                }
+                switch registration {
+                case .commands(let commands):
+                    _ = await CLIToolLocator.run(path, commands.remove(server), timeout: 30)
+                    let result = await CLIToolLocator.run(path, commands.add(server, executable), timeout: 30)
+                    let failure = commands.reportsStdoutOnFailure ? result.stderr + result.stdout : result.stderr
+                    outcomes.append(Outcome(agent: tool.displayName + suffix, ok: result.exitCode == 0,
+                                            detail: result.exitCode == 0 ? commands.location : failure.trimmingCharacters(in: .whitespacesAndNewlines)))
+                case .jsonFile(let file):
+                    outcomes.append(addServer(file.entry(executable, server), to: file.file, agent: tool.displayName + suffix, name: server.name))
+                }
+            }
         }
         return outcomes
     }
 
-    /// Antigravity CLI: make sure `agy mcp list` shows the servers with this copy of MarkView
-    /// before it starts; off the main thread.
-    static func ensureAntigravity(executable: String) {
-        guard let agy = CLIToolLocator.resolve(.antigravity) else { return }
-        Task.detached(priority: .userInitiated) {
-            let listed = await CLIToolLocator.run(agy, ["mcp", "list"], timeout: 30)
-            let text = listed.stdout + listed.stderr
-            for server in servers where !(text.contains(server.name) && text.contains(executable)) {
-                _ = await CLIToolLocator.run(agy, ["mcp", "remove", server.name], timeout: 30)
-                let result = await CLIToolLocator.run(agy, ["mcp", "add", server.name, "--", executable, server.flag], timeout: 30)
-                NSLog("[MarkView] Antigravity \(server.label) tools: \(result.exitCode == 0 ? "registered" : "not registered")")
-            }
-        }
-    }
-
-    static func clineEntry(executable: String, flag: String = "--mcp-browser") -> [String: Any] {
-        ["transport": ["type": "stdio", "command": executable, "args": [flag]] as [String: Any],
-         "disabled": false, "autoApprove": [String](), "timeout": 120]
-    }
-
-    /// BUG-026: Cline has no per-session MCP option, so a Cline started from the AI panel had no
-    /// browser tools until "Connect Agents…" was run on that Mac. Before it starts, make sure its
-    /// settings list the server (outside MarkView terminals the server offers no tools). Writes only
-    /// when the entry is missing or points at another copy of MarkView; off the main thread.
-    static func ensureCline(executable: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let settings = (try? Data(contentsOf: clineConfig)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
-            for server in servers {
-                if let entry = (settings?["mcpServers"] as? [String: Any])?[server.name] as? [String: Any],
-                   let transport = entry["transport"] as? [String: Any], transport["command"] as? String == executable,
-                   entry["disabled"] as? Bool != true {
-                    continue
+    /// An assistant with no per-session MCP option (Cline, Antigravity): make sure its own settings list the servers with
+    /// this copy of MarkView before it starts (BUG-026). Only what is missing or points at another copy of MarkView is
+    /// written (outside MarkView terminals the servers offer no tools); off the main thread.
+    static func ensureRegistered(_ tool: CLITool, executable: String) {
+        switch tool.provider.mcp {
+        case .commands(let commands)?:
+            guard let list = commands.list, let path = CLIToolLocator.resolve(tool) else { return }
+            // task: one registration with an agent's CLI at launch; it holds nothing of a window
+            Task.detached(priority: .userInitiated) {
+                let listed = await CLIToolLocator.run(path, list, timeout: 30)
+                let text = listed.stdout + listed.stderr
+                for server in servers where !(text.contains(server.name) && text.contains(executable)) {
+                    _ = await CLIToolLocator.run(path, commands.remove(server), timeout: 30)
+                    let result = await CLIToolLocator.run(path, commands.add(server, executable), timeout: 30)
+                    AppLog.browser.notice("\(tool.displayName) \(server.label) tools: \(result.exitCode == 0 ? "registered" : "not registered")")
                 }
-                let outcome = addServer(clineEntry(executable: executable, flag: server.flag), to: clineConfig, agent: "Cline", name: server.name)
-                NSLog("[MarkView] Cline \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
             }
+        case .jsonFile(let file)? where file.checkedAtStart:
+            DispatchQueue.global(qos: .userInitiated).async {
+                let settings = (try? Data(contentsOf: file.file)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+                for server in servers {
+                    if let entry = (settings?["mcpServers"] as? [String: Any])?[server.name] as? [String: Any], file.isCurrent(entry, executable) {
+                        continue
+                    }
+                    let outcome = addServer(file.entry(executable, server), to: file.file, agent: tool.displayName, name: server.name)
+                    AppLog.browser.notice("\(tool.displayName) \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
+                }
+            }
+        default:
+            return
         }
     }
 
@@ -122,7 +97,7 @@ enum AgentBrowserRegistration {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-            try data.write(to: file, options: .atomic)
+            try AtomicFile.write(data, to: file)
             return Outcome(agent: agent, ok: true, detail: file.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
         } catch {
             return Outcome(agent: agent, ok: false, detail: error.localizedDescription)
@@ -134,16 +109,14 @@ enum AgentBrowserRegistration {
     static func installSkills(executable: String) -> [Outcome] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let text = ProjectAgentTools.skillText(executable: executable)
-        let targets: [(String, Bool, String)] = [
-            ("Claude Code", CLIToolLocator.resolve(.claude) != nil, ".claude/skills/markview/SKILL.md"),
-            ("Copilot", CLIToolLocator.resolve(.copilot) != nil, ".copilot/skills/markview/SKILL.md"),
-            ("Codex", CLIToolLocator.resolve(.codex) != nil, ".codex/skills/markview/SKILL.md"),
-        ]
+        let targets: [(String, Bool, String)] = CLITool.allCases.compactMap { tool in
+            tool.provider.skillPath.map { (tool.displayName, CLIToolLocator.resolve(tool) != nil, $0) }
+        }
         return targets.filter(\.1).map { agent, _, path in
             let file = home.appendingPathComponent(path)
             do {
                 try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data(text.utf8).write(to: file, options: .atomic)
+                try AtomicFile.write(Data(text.utf8), to: file)
                 return Outcome(agent: agent + " (skill)", ok: true, detail: "~/" + path)
             } catch {
                 return Outcome(agent: agent + " (skill)", ok: false, detail: error.localizedDescription)
@@ -174,6 +147,7 @@ enum AgentBrowserRegistration {
         ask.addButton(withTitle: "Connect")
         ask.addButton(withTitle: "Cancel")
         guard ask.runModal() == .alertFirstButtonReturn else { return }
+        // task: one registration the person asked for, which shows its own result
         Task {
             let outcomes = await registerAll(executable: executable) + installSkills(executable: executable)
             let report = NSAlert()

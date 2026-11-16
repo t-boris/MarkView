@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // What an AI session is told about the issue lifecycle (issue-lifecycle-management, plan I-5, REQ-003): the rules, the
 // context of one linked issue (status, outstanding work, what the next transition still needs), the block appended to the
@@ -73,6 +76,7 @@ struct SessionLinkRecord: Codable, Equatable, Sendable {
 
 /// The session links of a project: append-only JSON lines under `.dde/lifecycle/sessions.jsonl`, folded when read. A damaged
 /// line is skipped. A call by a session that never attached is not recorded: registration alone proves nothing (REQ-003).
+// unchecked Sendable: `url` and `now` are `let` (`now` is not declared @Sendable); `lock` serializes every read and append of the link file.
 final class SessionLinkStore: @unchecked Sendable {
     let url: URL
     private let now: () -> Date
@@ -88,7 +92,7 @@ final class SessionLinkStore: @unchecked Sendable {
     }
 
     convenience init(projectRoot: URL, now: @escaping () -> Date = Date.init) {
-        self.init(url: projectRoot.appendingPathComponent(".dde/lifecycle/sessions.jsonl"), now: now)
+        self.init(url: ProjectPaths.sessionsLog(projectRoot), now: now)
     }
 
     // MARK: Writing

@@ -10,6 +10,8 @@ private let tabDropZoneWidth: CGFloat = 40
 struct TabBarView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     /// What the ‹ › buttons need to know about this window's strip.
     @StateObject private var scroller = TabStripScroller(endInset: tabDropZoneWidth)
     /// The tab a drag is over (a blue line marks where the dragged tab lands).
@@ -22,18 +24,18 @@ struct TabBarView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
-                        ForEach(Array(workspaceManager.openTabs.enumerated()), id: \.element.id) { index, tab in
+                        ForEach(Array(tabs.openTabs.enumerated()), id: \.element.id) { index, tab in
                             tabItem(tab: tab, index: index).id(tab.id)
                         }
                         // Dropping after the last tab puts the dragged one at the end.
                         Color.clear.frame(width: tabDropZoneWidth, height: 24)
                             .onDrop(of: [UTType.plainText], isTargeted: nil) { providers in
-                                drop(providers, before: workspaceManager.openTabs.count)
+                                drop(providers, before: tabs.openTabs.count)
                             }
                     }
                 }
                 .background(TabStripScrollHook(scroller: scroller))
-                .onChange(of: workspaceManager.activeTabIndex) { _ in revealActiveTab(proxy, animated: true) }
+                .onChange(of: tabs.activeTabIndex) { _ in revealActiveTab(proxy, animated: true) }
                 // The buttons take room from the strip when they appear: keep the active tab in view.
                 .onChange(of: scroller.overflows) { _ in revealActiveTab(proxy, animated: false) }
                 .onAppear { revealActiveTab(proxy, animated: false) }
@@ -47,9 +49,9 @@ struct TabBarView: View {
     }
 
     private func revealActiveTab(_ proxy: ScrollViewProxy, animated: Bool) {
-        let index = workspaceManager.activeTabIndex
-        guard workspaceManager.openTabs.indices.contains(index) else { return }
-        let id = workspaceManager.openTabs[index].id
+        let index = tabs.activeTabIndex
+        guard tabs.openTabs.indices.contains(index) else { return }
+        let id = tabs.openTabs[index].id
         if animated { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) } } else { proxy.scrollTo(id) }
     }
 
@@ -75,11 +77,11 @@ struct TabBarView: View {
 
     /// The welcome screen stays pinned even when the other tabs scroll or close.
     private var homeTab: some View {
-        let selected = workspaceManager.activeTabIndex == -1
+        let selected = tabs.activeTabIndex == -1
         return Button {
-            workspaceManager.activeTabIndex = -1
+            tabs.activeTabIndex = -1
             workspaceManager.layout.workspaceArea = .files
-            workspaceManager.showCenter = true
+            workspaceManager.chrome.showCenter = true
         } label: {
             Image(systemName: selected ? "house.fill" : "house")
                 .uiFont(size: 11)
@@ -98,15 +100,15 @@ struct TabBarView: View {
     /// Every open tab, also those scrolled out of sight.
     private var tabsMenu: some View {
         Menu {
-            ForEach(Array(workspaceManager.openTabs.enumerated()), id: \.element.id) { index, tab in
-                Button(action: { workspaceManager.activeTabIndex = index }) {
-                    Label((index == workspaceManager.activeTabIndex ? "✓ " : "") + tab.displayName + (tab.isModified ? " •" : ""),
+            ForEach(Array(tabs.openTabs.enumerated()), id: \.element.id) { index, tab in
+                Button(action: { tabs.activeTabIndex = index }) {
+                    Label((index == tabs.activeTabIndex ? "✓ " : "") + tab.displayName + (tab.isModified ? " •" : ""),
                           systemImage: icon(for: tab))
                 }
             }
-            if workspaceManager.openTabs.count > 1 {
+            if tabs.openTabs.count > 1 {
                 Divider()
-                Button("Close All") { workspaceManager.closeAllTabs() }
+                Button("Close All") { tabs.closeAllTabs() }
             }
         } label: {
             Image(systemName: "chevron.down").uiFont(size: 9, weight: .semibold)
@@ -115,7 +117,7 @@ struct TabBarView: View {
         .padding(.horizontal, 8)
         .frame(height: 24)
         .overlay(Rectangle().frame(width: 1).foregroundColor(palette.border), alignment: .leading)
-        .help("All open tabs (\(workspaceManager.openTabs.count))")
+        .help("All open tabs (\(tabs.openTabs.count))")
     }
 
     private func icon(for tab: OpenTab) -> String {
@@ -126,16 +128,8 @@ struct TabBarView: View {
         case .image: return "photo"
         case .pdf: return "doc.richtext"
         case .archive: return "archivebox"
-        case .deployments: return "server.rack"
-        case .discussions: return "bubble.left.and.text.bubble.right"
-        case .workflow: return "arrow.triangle.branch"
-        case .git: return "arrow.triangle.branch"
-        case .changeReview: return "doc.text.magnifyingglass"
         case .browser: return "globe"
         case .prototype: return "rectangle.on.rectangle.angled"
-        case .uiStudio: return "macwindow.and.cursorarrow"
-        case .cockpit: return "airplane"
-        case .qa: return "checklist.checked"
         case .data:
             switch tab.fileType {
             case .log: return "list.bullet.rectangle"
@@ -147,11 +141,12 @@ struct TabBarView: View {
             if case .pullRequest = item { return "arrow.triangle.pull" }
             return "smallcircle.filled.circle"
         case .file: return tab.isMarkdown ? "doc.text" : "chevron.left.forwardslash.chevron.right"
+        case .tool, .uiStudio, .cockpit: return tab.kind.toolDescriptor?.icon ?? "wrench.and.screwdriver"
         }
     }
 
     private func tabItem(tab: OpenTab, index: Int) -> some View {
-        let isActive = index == workspaceManager.activeTabIndex
+        let isActive = index == tabs.activeTabIndex
 
         return HStack(spacing: 5) {
             Image(systemName: icon(for: tab))
@@ -172,7 +167,7 @@ struct TabBarView: View {
                 .foregroundColor(isActive ? palette.textBright : palette.textDim)
                 .lineLimit(1)
 
-            Button(action: { workspaceManager.closeTab(at: index) }) {
+            Button(action: { tabs.closeTab(at: index) }) {
                 Image(systemName: "xmark")
                     .uiFont(size: 8)
                     .foregroundColor(palette.textDim)
@@ -192,9 +187,9 @@ struct TabBarView: View {
         .overlay(Rectangle().frame(width: 1).foregroundColor(palette.border), alignment: .trailing)
         .overlay(Rectangle().frame(width: 2).foregroundColor(dropTarget == tab.id ? palette.blue : Color.clear), alignment: .leading)
         .contentShape(Rectangle())
-        .onTapGesture { workspaceManager.activeTabIndex = index }
+        .onTapGesture { tabs.activeTabIndex = index }
         .onDrag {
-            workspaceManager.activeTabIndex = index
+            tabs.activeTabIndex = index
             return NSItemProvider(object: "markview-tab:\(tab.id.uuidString)" as NSString)
         }
         .onDrop(of: [UTType.plainText], isTargeted: Binding(get: { dropTarget == tab.id },
@@ -208,25 +203,25 @@ struct TabBarView: View {
             }
             Divider()
             Button("Close") {
-                workspaceManager.closeTab(at: index)
+                tabs.closeTab(at: index)
             }
             Button("Close Others") {
-                workspaceManager.closeOtherTabs(except: index)
+                tabs.closeOtherTabs(except: index)
             }
             Button("Close Tabs to the Right") {
-                workspaceManager.closeTabsToRight(of: index)
+                tabs.closeTabsToRight(of: index)
             }
             // Every file tab goes; Git, Workflow, X-Ray, QA and the other tool tabs stay.
             Button("Close Documents") {
-                workspaceManager.closeDocuments()
+                tabs.closeDocuments()
             }
-            .disabled(!workspaceManager.openTabs.contains(where: \.isDocument))
+            .disabled(!tabs.openTabs.contains(where: \.isDocument))
             Button("Close All") {
-                workspaceManager.closeAllTabs()
+                tabs.closeAllTabs()
             }
             Divider()
             if tab.isFileBacked && FileType.isHTML(tab.url) {
-                Button("Open in Browser") { workspaceManager.openHTMLInBrowser(tab.url) }
+                Button("Open in Browser") { workspaceManager.browser.openHTML(tab.url) }
             }
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
@@ -245,13 +240,13 @@ struct TabBarView: View {
         _ = provider.loadObject(ofClass: NSString.self) { value, _ in
             guard let text = value as? String, text.hasPrefix("markview-tab:"),
                   let id = UUID(uuidString: String(text.dropFirst("markview-tab:".count))) else { return }
-            Task { @MainActor in workspaceManager.moveTab(id, to: index) }
+            Task { @MainActor in tabs.moveTab(id: id, to: index) }
         }
         return true
     }
 
     private func relativePath(for tab: OpenTab) -> String {
-        guard let root = workspaceManager.rootNode?.url else { return tab.url.path }
+        guard let root = fileTree.rootNode?.url else { return tab.url.path }
         let rootPath = root.path
         let filePath = tab.url.path
         if filePath.hasPrefix(rootPath) {
@@ -270,7 +265,9 @@ final class TabStripScroller: ObservableObject {
 
     @Published private(set) var canScrollLeft = false
     @Published private(set) var canScrollRight = false
+    // unchecked Sendable: main actor only; the one nonisolated reader is `deinit`, which runs when no other reference exists.
     private nonisolated(unsafe) weak var scrollView: NSScrollView?
+    // unchecked Sendable: same as `scrollView`: main actor only, plus `deinit`.
     private nonisolated(unsafe) var observers: [NSObjectProtocol] = []
     /// Empty room after the last tab that does not count as something more to see: the right end is reached when only it is hidden.
     private let endInset: CGFloat

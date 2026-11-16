@@ -489,6 +489,36 @@ do {
     try? "not json".write(to: url, atomically: true, encoding: .utf8)
     if case .unreadable(let message) = CycleSettingsFile.load(url) { check("settings file: a damaged file is reported", message.contains("cycle-time.json")) } else { check("settings file: a damaged file is reported", false) }
     check("settings file: and left as it was", (try? String(contentsOf: url, encoding: .utf8)) == "not json")
+    do {
+        try CycleSettingsFile.save(settings, to: url)
+        check("settings file: a save over a damaged file keeps its bytes in a dated backup",
+              StoreFixture.backups(of: url).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: url)[0]) == Data("not json".utf8)
+              && CycleSettingsFile.load(url) == .settings(settings))
+    } catch { check("settings file: saved over a damaged file (\(error))", false) }
+
+    // The file is a schema-versioned store (AR-36). The legacy fixture is the bare settings the previous version wrote (ISO 8601 dates).
+    let legacyURL = CycleSettingsFile.url(projectRoot: folder.appendingPathComponent("legacy", isDirectory: true))
+    StoreFixture.write("""
+    {
+      "excluded" : [ { "at" : "2026-10-01T10:00:00Z", "issue" : "BUG-1", "kind" : "bug", "reason" : "import" } ],
+      "since" : "2026-09-01T00:00:00Z"
+    }
+    """, to: legacyURL)
+    if case .settings(let upgraded) = CycleSettingsFile.load(legacyURL) {
+        check("settings legacy: the date and the exclusion survive", upgraded.since != nil && upgraded.isExcluded(.bug, "BUG-1") && upgraded.exclusion(.bug, "BUG-1")?.reason == "import")
+        check("settings legacy: reading leaves the file as written", StoreFixture.envelope(legacyURL) == nil)
+        do {
+            try CycleSettingsFile.save(upgraded, to: legacyURL)
+            check("settings legacy: the next save writes the envelope and it reloads",
+                  StoreFixture.envelope(legacyURL)?.schema == 1 && CycleSettingsFile.load(legacyURL) == .settings(upgraded) && StoreFixture.backups(of: legacyURL).isEmpty)
+        } catch { check("settings legacy: saved (\(error))", false) }
+    } else { check("settings legacy: the file loads", false) }
+    let futureBytes = Data(StoreFixture.newerFile(payload: "{}").utf8)
+    try? futureBytes.write(to: legacyURL)
+    if case .unreadable(let message) = CycleSettingsFile.load(legacyURL) { check("settings newer: it is reported as from a newer MarkView", message.contains("newer")) } else { check("settings newer: it is reported", false) }
+    var refusedNewer = false
+    do { try CycleSettingsFile.save(settings, to: legacyURL) } catch SchemaStoreError.newerSchemaVersion { refusedNewer = true } catch {}
+    check("settings newer: a save is refused and the file is untouched", refusedNewer && StoreFixture.bytes(legacyURL) == futureBytes)
 }
 
 finish("cycle time")

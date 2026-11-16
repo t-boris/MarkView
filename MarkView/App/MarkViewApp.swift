@@ -1,6 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import os
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - Custom UTType for Markdown
 extension UTType {
@@ -13,10 +16,8 @@ extension UTType {
 class MarkViewApplication: NSApplication {
     /// URLs received via Apple Events before any UI is ready
     static var launchURLs: [URL] = []
-    private static let appLogger = Logger(subsystem: "com.markview.app", category: "app")
-
     private static func debugLog(_ msg: String) {
-        appLogger.debug("[NSApp] \(msg, privacy: .public)")
+        AppLog.app.debug("[NSApp] \(msg)")
     }
 
     override init() {
@@ -68,44 +69,41 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { @MainActor in
-            do {
-                guard await ProjectOperationsStore.stopAllBeforeQuit() else {
-                    sender.reply(toApplicationShouldTerminate: false)
-                    return
-                }
-                await RemoteRelaySettings.finishBeforeQuit()
-                await RemoteConnectionsStore.shared.finishPendingChanges()
-                try await WindowSessionController.shared.saveBeforeTermination()
-                await CockpitAgentRegistry.cancelAllAndWait(reason: "MarkView is closing.")
-                sender.reply(toApplicationShouldTerminate: true)
-            } catch {
-                // Keep the windows and unsaved drafts open when the archive cannot be written.
-                sender.presentError(error)
+            guard await ProjectOperationsStore.stopAllBeforeQuit() else {
                 sender.reply(toApplicationShouldTerminate: false)
+                return
             }
+            await RemoteRelaySettings.finishBeforeQuit()
+            await RemoteConnectionsStore.shared.finishPendingChanges()
+            // The window session is saved on a best-effort basis: an unwritable file never cancels the quit.
+            await WindowSessionController.shared.saveBeforeTermination()
+            await CockpitAgentRegistry.cancelAllAndWait(reason: "MarkView is closing.")
+            sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
 
-    /// Quitting for real (not when a save error keeps the windows open): stop the assistants of headless runs
+    /// Quitting for real (not when the user keeps a running project operation): stop the assistants of headless runs
     /// so none keeps working, and spending tokens, for a window that is gone.
     func applicationWillTerminate(_ notification: Notification) {
-        BrowserControlServer.shutdown()
+        AgentToolServer.shutdown()
         RemoteConnectionsStore.shared.suspend()
         CockpitAgentRegistry.cancelAll(reason: "MarkView is closing.")
         AgentProcesses.terminateAll()
     }
 
-    private static let delegateLogger = Logger(subsystem: "com.markview.app", category: "app-delegate")
 
     func log(_ msg: String) {
-        Self.delegateLogger.debug("[AppDelegate] \(msg, privacy: .public)")
+        AppLog.appDelegate.debug("[AppDelegate] \(msg)")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("applicationDidFinishLaunching")
         // Listen for agents from the start, not when the first folder opens: an agent that drives the app opens it.
-        _ = BrowserControlServer.socketPath
+        _ = AgentToolServer.socketPath
+        // One app-wide poll for Finder Quick Action requests (`AR-19`): started with the app, so a request is taken with or without a
+        // window; `enqueueOpen` holds it until a window shows it.
+        FinderOpenRequests.shared.start { MarkViewApp.enqueueOpen($0) }
         ensureWindowExists()
     }
 
@@ -114,15 +112,12 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensureWindowExists() {
+        // task: one-shot check 0.3 s after launch that a window exists; touches only NSApp
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let visibleWindows = NSApp.windows.filter { ($0.isVisible || $0.isMiniaturized) && !$0.className.contains("Panel") }
             if visibleWindows.isEmpty {
                 self.log("No visible windows — creating one")
-                // Try SwiftUI's built-in new window action
-                if NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil) {
-                    return
-                }
-                // Fallback: use File > New Window menu item
+                // SwiftUI's built-in new window action
                 NSApp.sendAction(#selector(NSResponder.newWindowForTab(_:)), to: nil, from: nil)
             }
         }
@@ -170,8 +165,7 @@ enum DDEAppEntry {
 
 /// Headless structural-index runner for the `--dde-index` child process.
 /// Opens the workspace database, runs `StructuralIndexer.indexAll()`, and exits.
-/// `dispatchMain()` services the main queue so the indexer's `MainActor.run`
-/// DB-write hops execute (blocking the main thread with a semaphore would deadlock).
+/// `dispatchMain()` keeps the process alive while the indexing task runs.
 enum DDEIndexerRunner {
     private static func err(_ msg: String) {
         FileHandle.standardError.write(Data("[mvindexer] \(msg)\n".utf8))
@@ -180,16 +174,15 @@ enum DDEIndexerRunner {
     static func run(folderPath: String) -> Never {
         let url = URL(fileURLWithPath: folderPath)
         err("start \(folderPath)")
-        // SemanticDatabase is @MainActor-isolated; run the whole job on the main
-        // actor. dispatchMain() below services the main queue so this executes.
-        Task { @MainActor in
+        Task {
             do {
-                let db = try SemanticDatabase(workspacePath: url)
-                try db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
+                let db = try await SemanticDatabase.open(workspacePath: url)
+                // A file the app must leave alone (newer schema, failed migration) gives an in-memory index: nothing to write.
+                guard db.dbPath != nil else { err("the index file is left untouched; nothing to index"); exit(1) }
+                try await db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
                 let linked = LinkedFolders.load(project: url)
                 if !linked.isEmpty { err("linked folders: " + linked.map(\.name).joined(separator: ", ")) }
-                let indexer = StructuralIndexer(db: db, rootURL: url, linkedFolders: linked)
-                indexer.progress = { msg in err(msg) }
+                let indexer = StructuralIndexer(db: db, rootURL: url, linkedFolders: linked, progress: { msg in err(msg) })
                 await indexer.indexAll()
                 err("done")
                 exit(0)
@@ -198,7 +191,7 @@ enum DDEIndexerRunner {
                 exit(1)
             }
         }
-        dispatchMain()  // never returns; main queue keeps servicing MainActor hops
+        dispatchMain()  // never returns; the indexing task above runs while the main queue idles
     }
 }
 
@@ -206,6 +199,8 @@ struct MarkViewApp: App {
     @NSApplicationDelegateAdaptor(MarkViewAppDelegate.self) private var appDelegate
     @FocusedValue(\.workspaceManager) private var activeWorkspace
     @FocusedValue(\.workspaceHasFolder) private var activeWorkspaceHasFolder
+    /// The layout presets of View > Layout (`AR-33`).
+    @ObservedObject private var layouts = LayoutCatalog.shared
 
     /// Marketing version from Info.plist, shown in each workspace window's title (ContentView).
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -228,9 +223,7 @@ struct MarkViewApp: App {
                         Self.enqueueOpen(urls)
                     }
 
-                    appDelegate.log("ContentView onAppear: handler set, ensuring poll timer")
-                    // Poll for Finder Quick Action requests via a single app-wide timer (`AR-19`)
-                    Self.ensureFinderOpenPollTimer()
+                    appDelegate.log("ContentView onAppear: handler set")
                 }
         } defaultValue: {
             UUID()
@@ -251,7 +244,7 @@ struct MarkViewApp: App {
                 Button("New Project…") {
                     // A window without a folder takes it; otherwise a new window does.
                     if let workspace = activeWorkspace, activeWorkspaceHasFolder != true {
-                        workspace.newProject = NewProjectRequest()
+                        workspace.requests.newProject = NewProjectRequest()
                     } else {
                         Self.pendingNewProject = true
                         newWindow()
@@ -259,7 +252,7 @@ struct MarkViewApp: App {
                 }
 
                 Button("Publish to GitHub…") {
-                    activeWorkspace?.gitHubPublishRequested = true
+                    activeWorkspace?.requests.gitHubPublishRequested = true
                 }
                 .disabled(activeWorkspaceHasFolder != true)
 
@@ -271,7 +264,7 @@ struct MarkViewApp: App {
                 Divider()
 
                 Button("Link Folder…") {
-                    activeWorkspace?.chooseFoldersToLink()
+                    activeWorkspace?.project.chooseFoldersToLink()
                 }
                 .disabled(activeWorkspaceHasFolder != true)
 
@@ -290,7 +283,7 @@ struct MarkViewApp: App {
 
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
-                    activeWorkspace?.saveActiveFile()
+                    activeWorkspace?.tabs.saveActiveFile()
                 }
                 .keyboardShortcut("s", modifiers: .command)
             }
@@ -310,7 +303,7 @@ struct MarkViewApp: App {
                 Divider()
 
                 Button("Search Project…") {
-                    activeWorkspace?.showGlobalSearch = true
+                    activeWorkspace?.chrome.showGlobalSearch = true
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
 
@@ -320,12 +313,12 @@ struct MarkViewApp: App {
                 .keyboardShortcut("t", modifiers: [.command, .shift])
 
                 Button("Toggle File Tree") {
-                    activeWorkspace?.toggleNavigation()
+                    activeWorkspace?.chrome.toggleNavigation()
                 }
                 .keyboardShortcut("1", modifiers: [.command])
 
                 Button("Toggle Right Panel") {
-                    activeWorkspace?.toggleRightPanel()
+                    activeWorkspace?.chrome.toggleRightPanel()
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 
@@ -334,44 +327,33 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 
-                Button("Build & Deployment") {
-                    activeWorkspace?.openDeployments()
-                }
-                .keyboardShortcut("d", modifiers: [.command, .control])
-
-                Button("Discussions") {
-                    activeWorkspace?.openDiscussions()
-                }
-                .keyboardShortcut("i", modifiers: [.command, .control])
+                toolMenuItems(.afterAgents)
 
                 Button("X-Ray") {
-                    activeWorkspace?.openArchitecture()
+                    activeWorkspace?.codeXRay.openArchitecture()
                 }
                 .keyboardShortcut("4", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)
 
                 Button("Browser") {
-                    activeWorkspace?.openBrowser(nil)
+                    activeWorkspace?.browser.open(nil)
                 }
                 .keyboardShortcut("5", modifiers: [.command])
 
                 Button("Preview Web App") {
-                    activeWorkspace?.previewWebApp()
+                    activeWorkspace?.browser.previewWebApp()
                 }
                 .keyboardShortcut("6", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)
 
-                Button("UI Studio") {
-                    activeWorkspace?.openUIStudio()
-                }
-                .keyboardShortcut("7", modifiers: [.command])
-                .disabled(activeWorkspaceHasFolder != true)
+                toolMenuItems(.afterWebPreview)
 
-                Button("End-to-End QA") {
-                    activeWorkspace?.openQA()
+                Divider()
+
+                Menu("Layout") {
+                    LayoutMenuItems(library: layouts.library, enabled: activeWorkspaceHasFolder == true,
+                                    apply: { activeWorkspace?.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
                 }
-                .keyboardShortcut("8", modifiers: [.command])
-                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(after: .appSettings) {
@@ -383,53 +365,23 @@ struct MarkViewApp: App {
         }
     }
 
-    // MARK: - File Actions
+    /// The View menu items of the tools registered for `slot` (`ToolRegistry`), in the registry's order.
+    @ViewBuilder
+    private func toolMenuItems(_ slot: ToolMenuSlot) -> some View {
+        ForEach(ToolRegistry.shared.menuTools(slot)) { tool in
+            Button(tool.title) {
+                activeWorkspace?.openTool(tool.id)
+            }
+            .keyboardShortcut(tool.shortcut?.keyboardShortcut)
+            .disabled(tool.menu?.requiresFolder == true && activeWorkspaceHasFolder != true)
+        }
+    }
 
-    private static let finderLogger = Logger(subsystem: "com.markview.app", category: "finder")
+    // MARK: - File Actions
 
     /// Check if Finder Quick Action wrote a path for us to open
     private static func debugLogStatic(_ msg: String) {
-        finderLogger.debug("[Static] \(msg, privacy: .public)")
-    }
-
-    private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {
-        // Check both the per-user temporary directory and `/tmp` with O_NOFOLLOW + fstat to reject symlinks or foreign-owned files (AR-12, FU-09).
-        let fm = FileManager.default
-        let candidates = [
-            fm.temporaryDirectory.appendingPathComponent("markview_open_path.txt").path,
-            "/tmp/markview_open_path.txt"
-        ]
-        for path in candidates {
-            let fd = open(path, O_RDONLY | O_NOFOLLOW)
-            guard fd >= 0 else { continue }
-            var st = stat()
-            guard fstat(fd, &st) == 0,
-                  (st.st_mode & S_IFMT) == S_IFREG,
-                  st.st_uid == getuid() else {
-                close(fd)
-                continue
-            }
-            var data = Data()
-            var buf = [UInt8](repeating: 0, count: 4096)
-            while data.count < 65536 {
-                let n = Darwin.read(fd, &buf, buf.count)
-                if n > 0 { data.append(buf, count: n) }
-                else { break }
-            }
-            close(fd)
-            // Delete immediately so we don't re-process.
-            try? fm.removeItem(atPath: path)
-
-            guard let content = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !content.isEmpty else { continue }
-
-            let url = URL(fileURLWithPath: content)
-            debugLogStatic("checkFinderOpenRequest: found \(url.lastPathComponent), calling handler")
-            handler([url])
-            debugLogStatic("checkFinderOpenRequest: handler called, notification posted")
-            return
-        }
+        AppLog.finder.debug("[Static] \(msg)")
     }
 
     private func openFile() {
@@ -443,23 +395,6 @@ struct MarkViewApp: App {
                 activeWorkspace?.openFile(url)
             }
         }
-    }
-
-    /// Single shared timer polling for Finder Quick Action requests so opening additional windows does not stack timers (`AR-19`).
-    private static var finderOpenPollTimer: Timer?
-
-    static func ensureFinderOpenPollTimer() {
-        guard finderOpenPollTimer == nil else { return }
-        finderOpenPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Self.checkFinderOpenRequest { urls in
-                Self.enqueueOpen(urls)
-            }
-        }
-    }
-
-    static func stopFinderOpenPollTimer() {
-        finderOpenPollTimer?.invalidate()
-        finderOpenPollTimer = nil
     }
 
     /// Pending folder URL for new window to pick up
@@ -497,12 +432,13 @@ struct MarkViewApp: App {
 
         let handler: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
-            let currentIsEmpty = ws?.rootNode == nil && ws?.openTabs.isEmpty != false
+            let currentIsEmpty = ws?.rootNode == nil && ws?.tabs.openTabs.isEmpty != false
             if currentIsEmpty, let ws = ws {
                 ws.openFolder(url)
             } else {
                 Self.pendingFolderURL = url
                 self.newWindow()
+                // task: one-shot 1 s fallback of the Finder open hand-off; it only reads and clears a static, and the window is not its owner
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     if Self.pendingFolderURL != nil {
                         Self.pendingFolderURL = nil
@@ -574,6 +510,7 @@ enum DDESettingsWindow {
             rootView: DDESettingsView()
                 .environmentObject(workspace)
                 .environmentObject(workspace.windowUI)
+                .observingParts(of: workspace)
                 .appFontScaled()
                 .windowThemed(workspace.theme)
         )
@@ -603,6 +540,19 @@ extension Notification {
     /// True when this notification was posted for `workspace`'s window. One posted for no window is for none.
     func isFor(_ workspace: WorkspaceManager) -> Bool {
         (userInfo?[Self.workspaceKey] as? ObjectIdentifier) == ObjectIdentifier(workspace)
+    }
+}
+
+// MARK: - Tool shortcuts
+extension ToolShortcut {
+    /// The SwiftUI shortcut of the registry's plain-data shortcut.
+    var keyboardShortcut: KeyboardShortcut {
+        var flags: EventModifiers = []
+        if modifiers.contains(.command) { flags.insert(.command) }
+        if modifiers.contains(.control) { flags.insert(.control) }
+        if modifiers.contains(.option) { flags.insert(.option) }
+        if modifiers.contains(.shift) { flags.insert(.shift) }
+        return KeyboardShortcut(KeyEquivalent(key), modifiers: flags)
     }
 }
 

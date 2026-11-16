@@ -1,5 +1,8 @@
 import AppKit
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Web addresses that programs in MarkView's terminals open (Claude Code, Codex, `vite --open`,
 /// `gh browse`, Python's webbrowser, …) go to the browser tab of the terminal's window instead
@@ -14,11 +17,7 @@ import Foundation
 @MainActor
 enum TerminalBrowserBridge {
     /// Setting: open terminal web links in MarkView (default on).
-    static let enabledKey = "browser.openTerminalLinksInApp"
-
-    static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
-    }
+    static var isEnabled: Bool { Settings.standard.value(Setting.openTerminalLinksInApp) }
 
     private static var sessions: [UUID: WeakTerminal] = [:]
     private static var watcher: DispatchSourceFileSystemObject?
@@ -89,7 +88,7 @@ enum TerminalBrowserBridge {
                 try write(text, to: support.zsh.appendingPathComponent(name), executable: false)
             }
         } catch {
-            NSLog("[MarkView] terminal browser bridge unavailable: \(error.localizedDescription)")
+            AppLog.browser.error("terminal browser bridge unavailable: \(error.localizedDescription)")
             return nil
         }
         watch(support.spool)
@@ -99,8 +98,9 @@ enum TerminalBrowserBridge {
 
     private static func write(_ text: String, to url: URL, executable: Bool) throws {
         if (try? String(contentsOf: url, encoding: .utf8)) != text {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try AtomicFile.write(text, to: url, permissions: executable ? 0o700 : 0o600)
         }
+        // The content may be unchanged while the mode is not.
         try FileManager.default.setAttributes([.posixPermissions: executable ? 0o700 : 0o600], ofItemAtPath: url.path)
     }
 
@@ -173,20 +173,18 @@ enum TerminalBrowserBridge {
 
     private static func route(_ url: URL, from terminal: UUID?) {
         // The terminal's own window, or — the terminal has closed meanwhile — any window of this app.
-        let session = terminal.flatMap { sessions[$0]?.session }.flatMap { $0.openInAppBrowser != nil ? $0 : nil }
-            ?? sessions.values.compactMap(\.session).first { $0.openInAppBrowser != nil }
-        guard let session else {
+        let window = terminal.flatMap { sessions[$0]?.session?.links } ?? sessions.values.compactMap { $0.session?.links }.first
+        guard let window else {
             NSWorkspace.shared.open(url)
             return
         }
         guard url.isFileURL else {
-            session.openInAppBrowser?(url)
+            window.openInAppBrowser(url)
             return
         }
         switch destination(of: url) {
-        case .browserTab: session.openInAppBrowser?(url)
-        case .editor:
-            if let openFile = session.openFile { openFile(url, nil) } else { NSWorkspace.shared.open(url) }
+        case .browserTab: window.openInAppBrowser(url)
+        case .editor: window.openFile(url, line: nil, endLine: nil)
         case .system: NSWorkspace.shared.open(url)
         }
     }

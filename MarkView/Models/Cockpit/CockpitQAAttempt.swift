@@ -1,16 +1,23 @@
 import Foundation
 
+/// What a cockpit-run QA scenario needs of the window: the QA model and the QA tab.
+@MainActor
+protocol CockpitQAWindow: AnyObject {
+    var qa: QAModel { get }
+    func openTool(_ id: ToolID)
+}
+
 /// Runs only the exact QA scenario and target approved with this cockpit plan.
 @MainActor
 final class CockpitQAAttempt {
-    private weak var workspace: WorkspaceManager?
+    private weak var workspace: (any CockpitQAWindow)?
     private let root: URL
     private let plan: CockpitPlan
     private let productionConfirmed: Bool
     private let onProgress: (String, [String], [String]) async throws -> Void
     private var activeQAID: String?
 
-    init(workspace: WorkspaceManager, root: URL, plan: CockpitPlan, productionConfirmed: Bool,
+    init(workspace: any CockpitQAWindow, root: URL, plan: CockpitPlan, productionConfirmed: Bool,
          onProgress: @escaping (String, [String], [String]) async throws -> Void = { _, _, _ in }) {
         self.workspace = workspace; self.root = root; self.plan = plan; self.productionConfirmed = productionConfirmed
         self.onProgress = onProgress
@@ -56,7 +63,7 @@ final class CockpitQAAttempt {
             qa.startRun(cockpitToken: reservation)
             guard qa.run.isRunning else { return failure("QA could not start; check the scenario and application permissions.") }
             activeQAID = qa.run.activeRunID
-            workspace.openQA()
+            workspace.openTool(.qa)
             return try await withTaskCancellationHandler {
                 var previousActivity = "", previousCoverage: [String] = [], previousBlockers: [String] = []
                 var finalProgress = previous.result.progress ?? CockpitProgress(passNumber: 1, activity: "", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)

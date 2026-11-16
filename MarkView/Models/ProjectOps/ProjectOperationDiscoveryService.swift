@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import MarkViewCore
 
 struct ProjectOperationUnknown: Codable {
     var label: String
@@ -63,18 +64,18 @@ enum ProjectOperationDiscoveryService {
         phase(inputs.grantedFolders.isEmpty ? "project files" : "external folders")
         let localRequest = request(root: root, inputs: inputs, existing: existing, nodes: deploymentNodes,
                                    unknowns: [], web: false)
-        let local = try parse(await CLICompletion.run(localRequest))
+        let local = try await ask(localRequest, name: "project-operations")
         try Task.checkCancellation()
         var candidates = local.operations.map { ($0, false) }
         var unknowns = local.notDetermined
         let tool = AIAssistantPreferences.backend(project: root)
-        let canSearchWeb = tool == .claude || tool == .codex
+        let canSearchWeb = tool.provider.canSearchWeb
         var webSearched = false
         if canSearchWeb && !unknowns.isEmpty {
             phase("web")
             let webRequest = request(root: root, inputs: inputs, existing: existing, nodes: deploymentNodes,
                                      unknowns: unknowns, web: true)
-            let web = try parse(await CLICompletion.run(webRequest))
+            let web = try await ask(webRequest, name: "project-operations:web")
             try Task.checkCancellation()
             webSearched = true
             candidates += web.operations.map { ($0, true) }
@@ -112,8 +113,8 @@ enum ProjectOperationDiscoveryService {
                 continue
             }
             let canonicalRoot = ProjectOperationDiscovery.canonical(root)
-            let outside = !cwdURL.path.hasPrefix(canonicalRoot.path + "/") && cwdURL != canonicalRoot
-            let permittedOutside = inputs.grantedFolders.contains { cwdURL.path == $0 || cwdURL.path.hasPrefix($0 + "/") }
+            let outside = !ProjectPaths.contains(cwdURL, root: canonicalRoot)
+            let permittedOutside = inputs.grantedFolders.contains { ProjectPaths.contains(cwdURL, root: URL(fileURLWithPath: $0)) }
             if outside && !permittedOutside {
                 invalid.append(ProjectOperationUnknown(label: candidate.label, kind: candidate.kind,
                     environment: candidate.environment.isEmpty ? nil : candidate.environment,
@@ -177,6 +178,12 @@ enum ProjectOperationDiscoveryService {
             return (path, digest)
         })
         return Result(operations: operations, report: report, sourceFingerprints: fingerprints)
+    }
+
+    /// One discovery round: the answer must be the operations JSON; a round that does not return it is not repeated, the person
+    /// re-discovers.
+    private static func ask(_ request: CLICompletion.Request, name: String) async throws -> Answer {
+        try await AIOperation<CLICompletion.Request, Answer>(name: name, parse: { try parse($0) }).execute(request).output
     }
 
     private static func parse(_ result: CLICompletion.Result) throws -> Answer {

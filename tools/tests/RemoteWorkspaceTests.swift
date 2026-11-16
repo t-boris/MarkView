@@ -12,6 +12,23 @@ enum RemoteWorkspaceTests {
         let text = text(result)
         return text.components(separatedBy: "session_id: ").dropFirst().first?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+    /// What the bridge at `path` answers to one raw request line; nil when it closes the connection without a reply.
+    static func rawBridgeReply(_ path: String, line: Data) -> Data? {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0, var address = PrivateSocket.address(path) else { return nil }
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 3, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let connected = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+        guard connected == 0, RemoteUnixRPC.write(fd, line + Data([10])) else { return nil }
+        return RemoteUnixRPC.readLine(fd)
+    }
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func increment() { lock.lock(); value += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
     static func expectFailure(_ message: String, _ body: () throws -> Void) {
         do { try body(); check(false, message) } catch { checks += 1 }
     }
@@ -23,7 +40,7 @@ enum RemoteWorkspaceTests {
             let args = CommandLine.arguments
             let directory = URL(fileURLWithPath: args[index + 4])
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            print(try RemoteProviderConfiguration.command(provider: .init(rawValue: args[index + 1])!, executable: args[index + 2],
+            print(try RemoteProviderConfiguration.command(tool: RemoteProviderConfiguration.tool(named: args[index + 1])!, executable: args[index + 2],
                 app: args[index + 3], socket: directory.appendingPathComponent("test.sock").path,
                 context: .object(["cwd": .string("/test/work"), "hostname": .string("test-work")]), directory: directory, model: nil, resume: false))
             return
@@ -194,13 +211,13 @@ enum RemoteWorkspaceTests {
               "Workspace info must identify the work computer and report its actual writable root.")
         check(context["file_tools"]["write_operations"].array == [.string("write_file"), .string("edit_file")],
               "The work endpoint must advertise its file-edit capabilities independently of the home sandbox.")
-        for provider in RemoteProviderConfiguration.Provider.allCases {
-            let command = try RemoteProviderConfiguration.command(provider: provider, executable: "/test/agent", app: "/test/MarkView's App",
+        for provider in RemoteProviderConfiguration.tools {
+            let command = try RemoteProviderConfiguration.command(tool: provider, executable: "/test/agent", app: "/test/MarkView's App",
                 socket: fixture.appendingPathComponent("bridge.sock").path, context: context, directory: fixture, model: "model; touch /unwanted", resume: false)
-            check(command.contains("--remote-workspace-guard") || provider == .claude, "Codex must configure the native-tool guard.")
+            check(command.contains("--remote-workspace-guard") || provider.rawValue == "claude", "Codex must configure the native-tool guard.")
             check(!command.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex native execution must retain its sandbox.")
             check(command.contains("'model; touch /unwanted'"), "Model values must remain one quoted argument.")
-            if provider == .codex {
+            if provider.rawValue == "codex" {
                 check(command.contains("'--sandbox' 'read-only'") && command.contains("'--cd' " + RemoteProviderConfiguration.quote(fixture.path)),
                       "Codex must retain native read-only access in the transport directory.")
                 let server = "mcp_servers." + RemoteWorkspaceTools.serverName
@@ -229,6 +246,32 @@ enum RemoteWorkspaceTests {
             }.value
             check(text(viaBrowserBridge).contains("browser_snapshot T2"), "The real Unix bridge must accept browser tool names.")
             check(text(viaBridge).contains("WORK ONLY"), "The real per-session Unix bridge must reach the selected workspace.")
+            // AR-40: the bridge serves only a caller that holds its token; every other request is closed unanswered.
+            let served = Counter()
+            let guarded = try RemoteToolBridge { _, name, _ in served.increment(); return .textResult("served " + name) }
+            defer { guarded.stop() }
+            let guardedPath = guarded.path
+            let call = RemoteMessage("toolCall", .object(["name": .string("read_file"), "arguments": .object(["path": .string("identity.txt")])]))
+            let token = PrivateSocket.readToken(forSocket: guardedPath) ?? ""
+            let tokenMode = (try? FileManager.default.attributesOfItem(atPath: PrivateSocket.tokenPath(forSocket: guardedPath))[.posixPermissions] as? NSNumber)?.intValue
+            let socketMode = (try? FileManager.default.attributesOfItem(atPath: guardedPath)[.posixPermissions] as? NSNumber)?.intValue
+            check(token.count == 64 && tokenMode == 0o600 && socketMode == 0o600, "The bridge socket and its 256-bit token file are private to this user.")
+            let withoutToken = try JSONEncoder().encode(call)
+            let wrongToken = try JSONEncoder().encode(RemoteBridgeRequest(token: "wrong", message: call))
+            let emptyToken = try JSONEncoder().encode(RemoteBridgeRequest(token: "", message: call))
+            let rightToken = try JSONEncoder().encode(RemoteBridgeRequest(token: token, message: call))
+            let replies = await Task.detached { [withoutToken, wrongToken, emptyToken, rightToken] in
+                (rawBridgeReply(guardedPath, line: withoutToken), rawBridgeReply(guardedPath, line: wrongToken),
+                 rawBridgeReply(guardedPath, line: emptyToken), served.count, rawBridgeReply(guardedPath, line: rightToken))
+            }.value
+            check(replies.0 == nil && replies.1 == nil && replies.2 == nil && replies.3 == 0,
+                  "A bridge request without the token, with a wrong one or an empty one is closed unanswered and never reaches the handler.")
+            check(replies.4.flatMap { try? JSONDecoder().decode(RemoteJSON.self, from: $0) }.map(text)?.contains("served read_file") == true && served.count == 1,
+                  "A bridge request with the token is served.")
+            let tokenFile = PrivateSocket.tokenPath(forSocket: guardedPath)
+            guarded.stop()
+            check(!FileManager.default.fileExists(atPath: guardedPath) && !FileManager.default.fileExists(atPath: tokenFile),
+                  "Stopping the bridge removes its socket and token file.")
         } else { print("Unix bridge integration not run (--core-only).") }
         await workspace.close()
         let closed = await call("exec_command", ["cmd": .string("touch must-not-run")])

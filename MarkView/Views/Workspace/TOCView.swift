@@ -4,6 +4,7 @@ import SwiftUI
 struct TOCView: View {
     @Environment(\.palette) private var palette
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var tabs: TabsController
     /// This window's panel tabs (BUG-004: not @AppStorage, which every window observes).
     @ObservedObject var layout: PanelLayout
     var showTabs = true
@@ -13,7 +14,7 @@ struct TOCView: View {
     var body: some View {
         Group {
             if showTabs {
-                TOCTabs(store: workspaceManager.features, selectedTab: $layout.navigatorTab) {
+                TOCTabs(store: workspaceManager.flow.features, selectedTab: $layout.navigatorTab) {
                     tabContent
                 }
             } else {
@@ -24,25 +25,25 @@ struct TOCView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-            switch layout.navigatorTab == .feature && !workspaceManager.features.hasIssues ? .contents : layout.navigatorTab {
+            switch layout.navigatorTab == .feature && !workspaceManager.flow.features.hasIssues ? .contents : layout.navigatorTab {
             case .contents: contentsList
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
             case .terminal: contentsList
             case .feature:
                 VStack(spacing: 0) {
-                    if let tab = workspaceManager.activeTab,
-                       let feature = workspaceManager.features.locate(tab.url)?.feature {
+                    if let tab = tabs.activeTab,
+                       let feature = workspaceManager.flow.features.locate(tab.url)?.feature {
                         HandoffPanelView(feature: feature).environmentObject(workspaceManager)
                     }
-                    FeaturePanelView(store: workspaceManager.features, layout: layout)
+                    FeaturePanelView(store: workspaceManager.flow.features, layout: layout)
                 }
             }
     }
 
     private var contentsList: some View {
         Group {
-            if let tab = workspaceManager.activeTab {
+            if let tab = tabs.activeTab {
                 ContentsPanelView(tab: tab) { headingsList(tab) }
             } else {
                 emptyState("No File Open")
@@ -52,8 +53,8 @@ struct TOCView: View {
 
     /// The headings of a Markdown document; a click scrolls to one.
     private func headingsList(_ tab: OpenTab) -> some View {
-        TOCHeadingsListView(tab: tab, scrollState: workspaceManager.scrollState) { headingID in
-            workspaceManager.updateActiveHeading(headingID)
+        TOCHeadingsListView(tab: tab, scrollState: tabs.scroll) { headingID in
+            tabs.updateActiveHeading(headingID)
             NotificationCenter.default.post(.scrollToHeading, for: workspaceManager, object: headingID)
         }
     }
@@ -79,7 +80,7 @@ private struct TOCHeadingsListView: View {
     let onSelectHeading: (String) -> Void
 
     var body: some View {
-        let activeID = scrollState.activeHeading(for: tab.id, fallback: tab.activeHeadingId)
+        let activeID = scrollState.activeHeading(for: tab.id)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(tab.headings) { heading in
@@ -181,34 +182,37 @@ struct DocumentSearchView: View {
 
     private func performSearch() {
         guard let db = workspaceManager.semanticDatabase, !searchQuery.isEmpty else { return }
-        searchResults = db.search(query: searchQuery)
-    }
-
-    private func openSearchResult(_ result: SemanticDatabase.SearchResult) {
-        guard let root = workspaceManager.rootNode,
-              let url = workspaceManager.fileURL(forDocumentId: result.documentId) ?? findFile(result.documentId, in: root.url) else { return }
-        workspaceManager.openFile(url)
-        // Extract search term from snippet for scroll
-        let searchTerm = searchQuery.prefix(40).replacingOccurrences(of: "'", with: "\\'")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: String(searchTerm))
+        let query = searchQuery
+        // The query runs on the database actor; an answer to an older query never replaces a newer one.
+        Task {
+            let found = await db.search(query: query)
+            guard query == searchQuery else { return }
+            searchResults = found
         }
     }
 
-    private func findFile(_ name: String, in dir: URL) -> URL? {
-        // docIds are now workspace-relative paths → resolve directly first
-        // (also handles a bare filename, which is a 1-component relative path).
-        let direct = dir.appendingPathComponent(name)
-        if FileManager.default.fileExists(atPath: direct.path) { return direct }
-        // Fallback by-name search: headings/entity names, or legacy filename docIds.
-        let fm = FileManager.default
-        guard let en = fm.enumerator(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return nil }
-        while let url = en.nextObject() as? URL { if url.lastPathComponent == name { return url } }
-        return nil
+    private func openSearchResult(_ result: SemanticDatabase.SearchResult) {
+        guard let root = workspaceManager.rootNode else { return }
+        let term = searchQuery
+        Task {
+            // docIds are workspace-relative paths (or `@linked/...`): resolved directly, which is one file check.
+            var url = workspaceManager.project.fileURL(forDocumentId: result.documentId)
+            if url == nil {
+                // Fallback by-name search: headings/entity names, or legacy filename docIds. A tree walk, so off the main thread.
+                let name = result.documentId, folder = root.url
+                url = await Task.detached(priority: .userInitiated) { BackgroundFileScans.firstFile(named: name, in: folder) }.value
+            }
+            guard let url else { return }
+            workspaceManager.openFile(url)
+            // Extract search term from snippet for scroll
+            let searchTerm = term.prefix(40).replacingOccurrences(of: "'", with: "\\'")
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: String(searchTerm))
+        }
     }
 }
 
 #Preview {
     let workspaceManager = WorkspaceManager()
-    return TOCView(layout: workspaceManager.layout).environmentObject(workspaceManager)
+    return TOCView(layout: workspaceManager.layout).environmentObject(workspaceManager).observingParts(of: workspaceManager)
 }

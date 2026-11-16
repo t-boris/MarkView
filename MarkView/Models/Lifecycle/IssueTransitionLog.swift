@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // The durable side of the lifecycle (issue-lifecycle-management, plan I-2): the transition history and operation journal
 // of a project (DEC-014) and the one service that applies a decided transition around the stored status. Foundation only
@@ -168,7 +171,7 @@ final class FileTransitionStorage: TransitionStorage {
     init(url: URL) { self.url = url }
 
     convenience init(projectRoot: URL) {
-        self.init(url: projectRoot.appendingPathComponent(".dde/lifecycle/transitions.jsonl"))
+        self.init(url: ProjectPaths.transitionsLog(projectRoot))
     }
 
     /// Times are kept to the millisecond, so what is read back orders against an observation made a moment before it.
@@ -315,7 +318,7 @@ struct IssueHistory: Equatable, Sendable {
     /// (REQ-004). The note is the start evidence only for a variant that accepts it.
     var pendingStartNote: TransitionRecord? {
         let lastChange = records.lastIndex { $0.setsStatus && $0.phase != .baseline } ?? -1
-        return records.enumerated().last { $0.offset > lastChange && $0.element.phase == .evidence && $0.element.humanEvidence == .start }?.element
+        return records[(lastChange + 1)...].last { $0.phase == .evidence && $0.humanEvidence == .start }
     }
 
     /// A confirmation of `event` in the current round of work: after the last reopening, or ever when it was not reopened. A person's
@@ -324,11 +327,11 @@ struct IssueHistory: Equatable, Sendable {
     func deliveryConfirmation(event: String, confirmer: DeliveryConfirmer = .person) -> TransitionRecord? {
         let wanted = Self.normalizeEvent(event)
         let round = records.lastIndex { ($0.phase == .applied || $0.phase == .recovered) && $0.transitionKind == .reopen } ?? -1
-        return records.enumerated().last {
-            $0.offset > round && $0.element.phase == .evidence && $0.element.humanEvidence == .delivery
-                && Self.normalizeEvent($0.element.target ?? "") == wanted
-                && ($0.element.actor.kind == .human || ($0.element.actor.kind == .ai && confirmer == .personOrAI))
-        }?.element
+        return records[(round + 1)...].last {
+            $0.phase == .evidence && $0.humanEvidence == .delivery
+                && Self.normalizeEvent($0.target ?? "") == wanted
+                && ($0.actor.kind == .human || ($0.actor.kind == .ai && confirmer == .personOrAI))
+        }
     }
 
     static func normalizeEvent(_ event: String) -> String {
@@ -381,6 +384,7 @@ enum ApplyResult: Equatable, Sendable {
 
 /// Serial: one transition at a time per project in this process. Another process or window is guarded by the
 /// compare-and-set on the stored status.
+// unchecked Sendable: every stored property is a `let` (the store protocols and the clock are not declared Sendable); `lock` serializes each transition.
 final class IssueTransitionService: @unchecked Sendable {
     private let storage: TransitionStorage
     private let statuses: LifecycleStatusStore

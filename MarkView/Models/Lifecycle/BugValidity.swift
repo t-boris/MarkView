@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The validity check that runs before every analysis of an existing bug report (feature "Bug Validity Check Before Analysis",
 /// REQ-001 … REQ-005, DEC-001 … DEC-004).
@@ -168,24 +171,11 @@ enum BugValidity {
         return Export(tree: tree, container: container)
     }
 
-    /// `tar -x` on a background queue (never the main thread); its output goes nowhere, so no pipe can fill up.
+    /// `tar -x` through `Subprocess` (never the main thread); its output goes nowhere, so no pipe can fill up.
     private static func extract(tar: URL, into folder: URL) async -> Bool {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-                process.arguments = ["-xf", tar.path, "-C", folder.path]
-                process.standardInput = FileHandle.nullDevice
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = FileHandle.nullDevice
-                do { try process.run() } catch { continuation.resume(returning: false); return }
-                let timer = DispatchWorkItem { if process.isRunning { process.terminate() } }
-                DispatchQueue.global().asyncAfter(deadline: .now() + 240, execute: timer)
-                process.waitUntilExit()
-                timer.cancel()
-                continuation.resume(returning: process.terminationStatus == 0)
-            }
-        }
+        await Subprocess.run(SubprocessSpec(
+            executable: "/usr/bin/tar", arguments: ["-xf", tar.path, "-C", folder.path], timeout: 240,
+            stdoutRouting: .discard, stderrRouting: .discard)).succeeded
     }
 
     // MARK: - The verification request

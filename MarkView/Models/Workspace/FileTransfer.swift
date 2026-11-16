@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Moving and copying files into a folder, as the file tree's drag and drop does.
 /// Never overwrites: a taken name becomes "name 2", "name 3"… A folder is never moved
@@ -17,7 +20,7 @@ enum FileTransfer {
         for raw in sources {
             let source = raw.standardizedFileURL
             let name = source.lastPathComponent
-            if target.path == source.path || target.path.hasPrefix(source.path + "/") {
+            if ProjectPaths.contains(target, root: source) {
                 result.errors.append("“\(name)” can't be \(copy ? "copied" : "moved") into itself.")
                 continue
             }
@@ -40,7 +43,7 @@ enum FileTransfer {
         let source = source.standardizedFileURL
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         var result = Result()
-        guard !trimmed.isEmpty, !trimmed.contains("/"), !trimmed.contains(":"), trimmed != ".", trimmed != ".." else {
+        guard isValidName(trimmed) else {
             result.errors.append("“\(trimmed)” is not a valid name.")
             return result
         }
@@ -64,6 +67,11 @@ enum FileTransfer {
             result.errors.append("Couldn't rename “\(source.lastPathComponent)”: \(error.localizedDescription)")
         }
         return result
+    }
+
+    /// One path component: not empty, no slashes or colons, not "." or "..".
+    static func isValidName(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && !name.contains(":") && name != "." && name != ".."
     }
 
     /// `name` in `folder`, or "name 2", "name 3"… when it is taken.

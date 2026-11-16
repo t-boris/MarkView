@@ -131,11 +131,11 @@ MarkView macOS app (Darwin 27.0.0). New Bug intake sheet opened from the Feature
 
 ## Suspected code
 
-- `MarkView/Models/DictationController.swift` — toggle() in `.starting` cancels silently, and recordingChanged(false) resets to idle with no message. Either path matches the symptom: idle at once, no spinner.
-- `MarkView/Models/WhisperClient.swift` — A recorder that fails or stops right after start may not report an error to the controller. Its shared-microphone interruption logic may also stop the intake recording.
-- `MarkView/Views/DictationViews.swift` — `.starting` and `.recording` both show a red mic. No message is shown after a cancel or failure, so the user cannot see which one happened.
-- `MarkView/Views/FeatureNavigatorView.swift` — IntakeSheet owns the dictation. `.onDisappear` and `onChange(openAIKey.isEmpty)` cancel it. It is the only shared code with kind-dependent branches (line ~476, the bug-only toggle); check whether anything differs for `.bug` in the navigator path.
-- `MarkView/Views/ContentView.swift` — `.sheet(item: $workspaceManager.intake)`: any reassignment of `intake` while the sheet is open re-creates it and resets the @StateObject. Less likely now that the path has no loadIssue.
+- `MarkView/Models/Dictation/DictationController.swift` — toggle() in `.starting` cancels silently, and recordingChanged(false) resets to idle with no message. Either path matches the symptom: idle at once, no spinner.
+- `MarkView/Models/Dictation/WhisperClient.swift` — A recorder that fails or stops right after start may not report an error to the controller. Its shared-microphone interruption logic may also stop the intake recording.
+- `MarkView/Views/Dictation/DictationViews.swift` — `.starting` and `.recording` both show a red mic. No message is shown after a cancel or failure, so the user cannot see which one happened.
+- `MarkView/Views/Lifecycle/FeatureNavigatorView.swift` — IntakeSheet owns the dictation. `.onDisappear` and `onChange(openAIKey.isEmpty)` cancel it. It is the only shared code with kind-dependent branches (line ~476, the bug-only toggle); check whether anything differs for `.bug` in the navigator path.
+- `MarkView/Views/Workspace/ContentView.swift` — `.sheet(item: $workspaceManager.intake)`: any reassignment of `intake` while the sheet is open re-creates it and resets the @StateObject. Less likely now that the path has no loadIssue.
 
 ## Likely causes
 
@@ -193,7 +193,7 @@ about it is specific to New Bug.
 text) back to the same `@State`, which erased the insertion. No error was raised, so the UI showed
 nothing.
 
-**Fix** (`MarkView/Views/DictationViews.swift`). The transcript is always written to `text`. The
+**Fix** (`MarkView/Views/Dictation/DictationViews.swift`). The transcript is always written to `text`. The
 text view is only used to read the cursor or selection (UTF-16 `NSRange` → `Range<String.Index>`).
 When the field is not focused, or the view's string no longer matches `text`, the transcript is
 appended. Spacing rules are unchanged.
