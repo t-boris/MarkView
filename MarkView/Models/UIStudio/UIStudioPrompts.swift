@@ -42,7 +42,7 @@ enum StudioPrompts {
         main lists and their detail pages, its settings), never an error state. Every other screen has `main` false.
         """ + "\n" + dataNotInstructions
 
-    static let screensSchema: [String: Any] = [
+    static var screensSchema: [String: Any] { [
         "type": "object", "properties": [
             "screens": ["type": "array", "items": ["type": "object", "properties": [
                 "name": ["type": "string"], "route": ["type": "string"], "selector": ["type": "string"],
@@ -50,7 +50,7 @@ enum StudioPrompts {
                 "main": ["type": "boolean"]],
                 "required": ["name", "route", "selector", "description", "instructions", "source", "main"]]],
             "notes": ["type": "string"]],
-        "required": ["screens", "notes"]]
+        "required": ["screens", "notes"]] }
 
     static func screens(from structured: Any?) -> [StudioScreen] {
         guard let object = structured as? [String: Any], let rows = object["screens"] as? [[String: Any]] else { return [] }
@@ -212,7 +212,7 @@ enum StudioPrompts {
         return lines.joined(separator: "\n\n")
     }
 
-    static let preparationSchema: [String: Any] = {
+    static var preparationSchema: [String: Any] {
         let evidence: [String: Any] = ["type": "array", "items": ["type": "object", "properties": [
             "kind": ["type": "string", "enum": ["contract", "type", "test", "example", "observation", "assumption"]],
             "detail": ["type": "string"]], "required": ["kind", "detail"]]]
@@ -250,7 +250,7 @@ enum StudioPrompts {
                 "failure": ["type": "string", "description": "JSON text of a failed answer with {{status}} and {{message}}, or empty"]],
                 "required": ["prefix", "resultKey"]]]],
                 "required": ["unsupported", "reason", "assumptions", "entities", "records", "rules"]]
-    }()
+    }
 
     /// The proposal in an answer of `preparationSchema` (records and fixed bodies arrive as JSON text, so the schema stays
     /// strict for every assistant).
@@ -420,7 +420,7 @@ enum StudioPrompts {
 
     /// The answer schema of a request (DEC-010). Records, the user and bodies are JSON text: a strict structured-output
     /// schema (Codex) cannot hold free-form objects, and lists every property as required.
-    static let editSchema: [String: Any] = {
+    static var editSchema: [String: Any] {
         let override: [String: Any] = ["type": "object", "properties": [
             "ruleId": ["type": "string"], "method": ["type": "string"], "path": ["type": "string"],
             "status": ["type": "integer", "description": "0 for none"],
@@ -464,7 +464,7 @@ enum StudioPrompts {
                 "required": ["path", "search", "replace"]]],
             "context": context,
         ], "required": ["kind", "changeKind", "changeReason", "answer", "scope", "scopeNote", "needsClarification", "question", "options", "summary", "edits", "context"]]
-    }()
+    }
 
     static func editPlan(from structured: Any?) -> StudioEditPlan? {
         guard let object = structured as? [String: Any] else { return nil }
