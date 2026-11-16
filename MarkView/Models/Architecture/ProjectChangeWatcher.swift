@@ -14,13 +14,13 @@ final class ProjectChangeWatcher {
     static let latency: TimeInterval = 3
 
     let root: URL
-    private let onChange: @MainActor () -> Void
+    private let onChange: @MainActor @Sendable () -> Void
     private let queue = DispatchQueue(label: "com.markview.project-change-watcher", qos: .utility)
     private var stream: FSEventStreamRef?
     /// The root as FSEvents reports it (symlinks resolved) and as given, for prefix matching.
     private let rootPaths: [String]
 
-    init(root: URL, onChange: @escaping @MainActor () -> Void) {
+    init(root: URL, onChange: @escaping @MainActor @Sendable () -> Void) {
         self.root = root
         self.onChange = onChange
         let given = root.standardizedFileURL.path
