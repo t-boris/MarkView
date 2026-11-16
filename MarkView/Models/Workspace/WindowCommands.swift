@@ -22,6 +22,20 @@ protocol WindowCommands: AnyObject {
     func openFolder(_ url: URL)
     /// Open a terminal in `folder` as a tab of this window.
     func openTerminal(in folder: URL)
+    /// Close the current project when its work permits it.
+    @discardableResult func closeFolder() -> Bool
+    /// Present the graph creator for a folder.
+    func presentGraphCreator(for type: String, in folder: URL?)
+    /// Present PDF-book export for the selected files or folders.
+    func presentPDFBook(_ urls: [URL]?)
+    /// File actions belonging to this window.
+    var fileOperations: FileOperationsController { get }
+    /// Open a local HTML file in this window’s browser.
+    func openHTML(_ url: URL)
+    /// Start Insight at a file or folder.
+    func startInsight(at url: URL)
+    /// Discuss a file or folder in this window.
+    func discuss(about url: URL)
     /// Show the settings window for this window's project.
     func showSettings()
     /// Delete this folder's metadata after confirmation; with `recreate`, index the folder again.
@@ -30,6 +44,7 @@ protocol WindowCommands: AnyObject {
 
 extension WindowCommands {
     func openFile(_ url: URL, line: Int?) { openFile(url, line: line, endLine: nil) }
+    func presentGraphCreator(in folder: URL?) { presentGraphCreator(for: "architecture", in: folder) }
 }
 
 private struct WindowCommandsKey: EnvironmentKey {

@@ -106,7 +106,8 @@ Workspace`) and an "open a window" function the app passes in; the tools take th
 replace the closure by a protocol the owner conforms to, or by an event on an existing part, and delete the closure property.
 Acceptance: `architecture-lint.sh` `window-wiring (hooks)` 31 -> a lower stated number and `(back-references)` 4 -> 0, each by `--tighten`.
 
-**C3. 2 views on the manager.** `EditorView` and `FileTreeView` read `WorkspaceManager` for window commands (`tools/lint/workspace-manager-views.txt`).
+**C3. 2 views on the manager.**
+- Status 2026-11-16: `FileTreeView` uses `ProjectContext`, its existing scoped coordinators, and `WindowCommands` instead of observing `WorkspaceManager`; the ratchet fell from 2 views to 1 (`EditorView`). Debug build succeeded with no warnings, and file-browser, file-operations and window-composition suites passed (3/3); architecture lint passed after tightening. A hidden scratch-app probe opened the project, but the simulated Show Files click did not switch views, so opening a file was not verified; no new crash report appeared. `EditorView` remains open.
 Move the commands to `WindowCommands` (`@Environment(\.windowCommands)`), as the other views did. Acceptance: `workspace-manager` rule 2 -> 0.
 
 **C4. The 16-domain strongly connected group of `Models/`.** After C1-C3 re-run `domain-dependencies.py`; the tool counts named types only.
@@ -190,3 +191,5 @@ is the open part. Two accepted limits are not tasks: 59 tolerant `try? decode` s
 ## CI duration investigation (2026-11-16)
 
 On [push run 43871770311](https://github.com/t-boris/MarkView/actions/runs/43871770311), the pure regression step took 12m46s of the 13m15s workflow; the parallel build job took 4m46s. The previous push run 43856849658 spent 15m37s in that step. The suite runner compiles many standalone Swift test binaries; it already runs up to six suites per machine. CI now distributes the same manifest-selected pure suites over three independent macOS jobs; the former phase2 core checks were moved into the package suite, removing a redundant package build and test run. Its standalone suite took 94.7 seconds in run 43871770311. The current manifest has 149 pure suites after moving two scripts into the package. On [push run 43880643640](https://github.com/t-boris/MarkView/actions/runs/43880643640), all three shards and the build passed: the slowest pure step took 4m17s, and the full CI run took 6m32s, compared with 12m46s and 13m15s respectively on run 43871770311. The app build was the critical path; the runs also differ in source changes and cache state.
+
+A later [push run 43887926164](https://github.com/t-boris/MarkView/actions/runs/43887926164) passed in 7m45s. Its last pure job started about two minutes after the other jobs, and GitHub reported macOS ARM runner capacity constraints; queue time is separate from test execution.

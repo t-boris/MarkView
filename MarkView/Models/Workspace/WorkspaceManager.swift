@@ -594,6 +594,9 @@ extension WorkspaceManager: FileOperationsHost {}
 
 /// The commands a view of this window asks of the window as a whole (`AR-14`): the window puts itself in its views' environment.
 extension WorkspaceManager: WindowCommands {
+    func openHTML(_ url: URL) { browser.openHTML(url) }
+    func startInsight(at url: URL) { insight.start(at: url) }
+    func discuss(about url: URL) { toolTabs.discussions.discuss(about: url) }
     func openFolder(_ url: URL) { openFolder(url, completion: nil) }
 
     func openTerminal(in folder: URL) { openTerminal(in: folder, startupCommand: nil, title: nil, activate: true) }

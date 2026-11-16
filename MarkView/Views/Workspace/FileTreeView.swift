@@ -6,7 +6,10 @@ import MarkViewCore
 /// (open, create, rename, move, trash, drag and drop, Git, archives).
 struct FileTreeView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
+    @EnvironmentObject private var projectContext: ProjectContext
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var codeXRay: CodeAndXRayCoordinator
     @EnvironmentObject private var tabs: TabsController
     @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     @EnvironmentObject private var git: GitClient
@@ -69,7 +72,7 @@ struct FileTreeView: View {
     private var mode: FileBrowserViewMode { preferences.mode }
     private var projectRootURL: URL? { fileTree.rootNode?.url }
     /// What the window is working on in the background: a document being translated, else the folder being opened or indexed.
-    private var backgroundProgress: String? { translator.progress ?? workspaceManager.project.indexingProgress }
+    private var backgroundProgress: String? { translator.progress ?? projectContext.indexingProgress }
 
     // MARK: Model glue
 
@@ -77,7 +80,7 @@ struct FileTreeView: View {
     private var roots: [FileBrowserRoot] {
         guard let project = projectRootURL else { return [] }
         return [FileBrowserRoot(url: project, name: project.lastPathComponent, linkedID: nil)]
-            + workspaceManager.project.linkedFolders.map { FileBrowserRoot(url: $0.url, name: $0.name, linkedID: $0.id) }
+            + projectContext.linkedFolders.map { FileBrowserRoot(url: $0.url, name: $0.name, linkedID: $0.id) }
     }
 
     private var filter: FileBrowserFilter {
@@ -87,7 +90,7 @@ struct FileTreeView: View {
 
     private var source: FileBrowserSource {
         let repository = git.isGitRepo ? git.workingDirectory : nil
-        let linkedPaths = workspaceManager.project.linkedFolders.map { $0.url.standardizedFileURL.path }
+        let linkedPaths = projectContext.linkedFolders.map { $0.url.standardizedFileURL.path }
         return FileBrowserSource(roots: roots, filter: filter, sort: fileTree.sortOrder, hasViewer: { FileType.hasViewer($0) },
                                  isIgnored: Self.ignoredLookup(root: repository, status: git.repoStatus, linkedPaths: linkedPaths))
     }
@@ -162,7 +165,7 @@ struct FileTreeView: View {
     }
 
     private var listingMonitorKey: String {
-        [workspaceManager.project.searchRootsKey, currentDirectory?.path ?? "", String(atWorkspace), mode.rawValue,
+        [projectContext.searchRootsKey, currentDirectory?.path ?? "", String(atWorkspace), mode.rawValue,
          String(isTreeSearch), expanded.sorted().joined(separator: "|")].joined(separator: "#")
     }
 
@@ -225,7 +228,7 @@ struct FileTreeView: View {
 
     private func linkedFolder(of entry: FileBrowserEntry) -> LinkedFolder? {
         guard let id = entry.root?.linkedID else { return nil }
-        return workspaceManager.project.linkedFolders.first { $0.id == id }
+        return projectContext.linkedFolders.first { $0.id == id }
     }
 
     /// The path shown in the breadcrumb strip: where Icon and List views are; in Tree view the folder that
@@ -246,7 +249,7 @@ struct FileTreeView: View {
     /// Everything that restarts the walk of the disk behind a Tree search.
     private var searchKey: String {
         [String(isTreeSearch), searchText, String(preferences.showHidden), String(preferences.hideIgnored),
-         preferences.category.rawValue, workspaceManager.project.searchRootsKey, String(listVersion),
+         preferences.category.rawValue, projectContext.searchRootsKey, String(listVersion),
          String(preferences.hideIgnored ? git.repoStatus.entries.hashValue : 0)].joined(separator: "|")
     }
 
@@ -357,10 +360,10 @@ struct FileTreeView: View {
             searchText = ""
             revealedURL = nil
         }
-        .onChange(of: workspaceManager.project.linkedFolders) { _ in
+        .onChange(of: projectContext.linkedFolders) { _ in
             // An unlinked folder cannot stay browsed or open.
-            if let current = currentDirectory, workspaceManager.project.containerRoot(for: current) == nil { currentDirectory = nil }
-            if let anchor = treeAnchor, workspaceManager.project.containerRoot(for: anchor) == nil { treeAnchor = nil }
+            if let current = currentDirectory, projectContext.containerRoot(for: current) == nil { currentDirectory = nil }
+            if let anchor = treeAnchor, projectContext.containerRoot(for: anchor) == nil { treeAnchor = nil }
             expanded = expanded.filter { key in roots.contains { key == $0.key || key.hasPrefix($0.key + "/") } }
         }
         .task(id: listingMonitorKey) { installListingMonitors() }
@@ -381,8 +384,8 @@ struct FileTreeView: View {
         if git.isGitRepo {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(palette.blue)
-                GitBranchMenu(git: git, flow: workspaceManager.flow, codeXRay: workspaceManager.codeXRay,
-                              openFolder: { workspaceManager.openFolder($0) }, fontSize: 10)
+                GitBranchMenu(git: git, flow: flow, codeXRay: codeXRay,
+                              openFolder: { window?.openFolder($0) }, fontSize: 10)
                 Spacer()
                 if let activity = git.activity {
                     ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
@@ -430,7 +433,7 @@ struct FileTreeView: View {
         .padding(.vertical, 4)
         .overlay(alignment: .trailing) {
             HStack(spacing: 0) {
-            Button(action: { workspaceManager.codeXRay.openArchitecture() }) {
+            Button(action: { codeXRay.openArchitecture() }) {
                 Image(systemName: "viewfinder")
                     .uiFont(size: 9, weight: .semibold)
                     .foregroundColor(palette.textDim)
@@ -440,7 +443,7 @@ struct FileTreeView: View {
             }
             .buttonStyle(.plain)
             .help("Open X-Ray (⌘4)")
-            Button(action: { workspaceManager.closeFolder() }) {
+            Button(action: { _ = window?.closeFolder() }) {
                 Image(systemName: "xmark")
                     .uiFont(size: 9, weight: .semibold)
                     .foregroundColor(palette.textDim)
@@ -482,14 +485,14 @@ struct FileTreeView: View {
                 }
                 .buttonStyle(.plain)
                 .help("New folder in \(here.lastPathComponent)")
-                Button { workspaceManager.presentGraphCreator(in: here) } label: {
+                Button { window?.presentGraphCreator(in: here) } label: {
                     Image(systemName: "point.3.connected.trianglepath.dotted").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
                 .buttonStyle(.plain)
                 .help("New graph diagram in \(here.lastPathComponent) (AI)")
             } else if projectRootURL != nil {
                 // The Workspace level has no folder to create in: it is where folders are linked (DEC-009).
-                Button { workspaceManager.project.chooseFoldersToLink() } label: {
+                Button { projectContext.chooseFoldersToLink() } label: {
                     Image(systemName: "link.badge.plus").uiFont(size: 11).foregroundColor(palette.textDim)
                 }
                 .buttonStyle(.plain)
@@ -529,12 +532,12 @@ struct FileTreeView: View {
                     Button("New File...") { createNewFile(in: here) }
                     if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: here, ignored: true) } }
                     Button("New Folder...") { createNewFolder(in: here) }
-                    Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
+                    Button("New Graph Diagram...") { window?.presentGraphCreator(in: here) }
                     Divider()
                 }
-                Button("Link Folder…") { workspaceManager.project.chooseFoldersToLink() }
+                Button("Link Folder…") { projectContext.chooseFoldersToLink() }
                 if let here = destination {
-                    Button { workspaceManager.presentPDFBook([here]) } label: { Label("Export This Folder as PDF Book…", systemImage: "book.closed") }
+                    Button { window?.presentPDFBook([here]) } label: { Label("Export This Folder as PDF Book…", systemImage: "book.closed") }
                 }
             }
             .background(palette.bgSidebar)
@@ -641,7 +644,7 @@ struct FileTreeView: View {
         requests.fileTreeRevealRequest = nil
         var target = request.standardizedFileURL
         // The project, or the linked folder, the item is in (Task 59).
-        guard let root = workspaceManager.project.containerRoot(for: target)?.standardizedFileURL else { return }
+        guard let root = projectContext.containerRoot(for: target)?.standardizedFileURL else { return }
         while target.path != root.path, !FileManager.default.fileExists(atPath: target.path) {
             target = target.deletingLastPathComponent()
         }
@@ -683,7 +686,7 @@ struct FileTreeView: View {
         panel.allowsMultipleSelection = false
         panel.message = "Choose a folder to open in MarkView"
         if panel.runModal() == .OK, let url = panel.url {
-            workspaceManager.openFolder(url)
+            window?.openFolder(url)
         }
     }
 
@@ -747,7 +750,7 @@ struct FileTreeView: View {
     private func folderRow(_ entry: FileBrowserEntry, tree: FileBrowserRow? = nil) -> some View {
         let url = entry.url
         let linked = linkedFolder(of: entry)
-        let inProject = linked == nil && workspaceManager.project.linkedFolder(containing: url) == nil
+        let inProject = linked == nil && projectContext.linkedFolder(containing: url) == nil
         let deco = inProject ? gitDecoration(url, isDirectory: true) : GitDecoration()
         return HStack(spacing: 6) {
             if let tree { disclosure(tree) }
@@ -786,7 +789,7 @@ struct FileTreeView: View {
         .modifier(PlaceAwareDrag(isPlace: entry.root != nil, item: { dragItem(url) }))
         .background(rowBackground(url, isFolder: true))
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
-        .opacity(workspaceManager.project.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : (tree?.isMatch == false ? 0.6 : 1.0))
+        .opacity(projectContext.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : (tree?.isMatch == false ? 0.6 : 1.0))
         .contextMenu { folderMenu(entry) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Folder \(entry.name)")
@@ -796,7 +799,7 @@ struct FileTreeView: View {
 
     private func fileRow(_ entry: FileBrowserEntry, tree: FileBrowserRow? = nil) -> some View {
         let url = entry.url
-        let inProject = workspaceManager.project.linkedFolder(containing: url) == nil
+        let inProject = projectContext.linkedFolder(containing: url) == nil
         let gitStatus = inProject ? fileGitStatus(url) : nil
         let deco = inProject ? gitDecoration(url, isDirectory: false) : GitDecoration()
         let (icon, color) = fileIcon(for: entry)
@@ -835,7 +838,7 @@ struct FileTreeView: View {
     private func iconCell(_ entry: FileBrowserEntry) -> some View {
         let url = entry.url
         let linked = linkedFolder(of: entry)
-        let inProject = linked == nil && workspaceManager.project.linkedFolder(containing: url) == nil
+        let inProject = linked == nil && projectContext.linkedFolder(containing: url) == nil
         let deco = inProject ? gitDecoration(url, isDirectory: entry.isDirectory) : GitDecoration()
         let (icon, color): (String, Color) = entry.isDirectory
             ? (linked == nil ? "folder.fill" : "folder.fill.badge.gearshape",
@@ -854,7 +857,7 @@ struct FileTreeView: View {
         .frame(maxWidth: .infinity)
         .background(RoundedRectangle(cornerRadius: 6).fill(rowBackground(url, isFolder: entry.isDirectory)))
         .contentShape(Rectangle())
-        .opacity(workspaceManager.project.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : entry.isUnsupported ? 0.7 : 1)
+        .opacity(projectContext.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : entry.isUnsupported ? 0.7 : 1)
         .help(linked.map { "Linked folder: \($0.path)" } ?? (entry.isUnsupported ? "\(entry.name) — no viewer in MarkView" : entry.name))
         .onTapGesture { click(entry) }
         .modifier(PlaceAwareDrag(isPlace: entry.root != nil, item: { dragItem(url) }))
@@ -873,40 +876,40 @@ struct FileTreeView: View {
     @ViewBuilder private func folderMenu(_ entry: FileBrowserEntry) -> some View {
         let url = entry.url
         let linked = linkedFolder(of: entry)
-        let inProject = linked == nil && workspaceManager.project.linkedFolder(containing: url) == nil
+        let inProject = linked == nil && projectContext.linkedFolder(containing: url) == nil
         // The project folder and the linked folders are places: they are not renamed, moved or excluded from here.
         let isPlace = entry.root != nil
         if isPartOfSelection(url) {
             selectionMenu
         } else {
             if let linked {
-                Button("Unlink Folder") { workspaceManager.project.unlinkFolder(linked.id) }
+                Button("Unlink Folder") { projectContext.unlinkFolder(linked.id) }
                 Divider()
             } else if inProject {
                 if !isPlace {
-                    if workspaceManager.project.isExcluded(url) {
+                    if projectContext.isExcluded(url) {
                         Button("Include Folder") {
                             if let root = fileTree.rootNode?.url {
                                 let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
-                                workspaceManager.project.includeFolder(rel)
+                                projectContext.includeFolder(rel)
                             }
                         }
                     } else {
-                        Button("Exclude Folder") { workspaceManager.project.excludeFolder(url) }
+                        Button("Exclude Folder") { projectContext.excludeFolder(url) }
                     }
                     Divider()
                 }
-                Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
-                Button { workspaceManager.insight.start(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
-                Button { workspaceManager.toolTabs.discussions.discuss(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
-                Button { workspaceManager.flow.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
+                Button { codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+                Button { window?.startInsight(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
+                Button { window?.discuss(about: url) } label: { Label("Discuss…", systemImage: "bubble.left.and.text.bubble.right") }
+                Button { flow.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
                 Divider()
             }
             Button("New File...") { createNewFile(in: url) }
-            Button { workspaceManager.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
+            Button { window?.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
             if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: url, ignored: true) } }
             Button("New Folder...") { createNewFolder(in: url) }
-            Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: url) }
+            Button("New Graph Diagram...") { window?.presentGraphCreator(in: url) }
             if git.isGitRepo && inProject && !isPlace {
                 Divider()
                 Button("Stage All in Folder") { stageAllInFolder(url) }
@@ -915,7 +918,7 @@ struct FileTreeView: View {
             Divider()
             Button("Compress to .zip") { compress([url]) }
             Divider()
-            Button { workspaceManager.openTerminal(in: url) } label: { Label("Open Terminal Here", systemImage: "terminal") }
+            Button { window?.openTerminal(in: url) } label: { Label("Open Terminal Here", systemImage: "terminal") }
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
             Button("Open in Terminal.app") { openTerminal(at: url) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
@@ -948,21 +951,21 @@ struct FileTreeView: View {
             if entry.isUnsupported {
                 Button { NSWorkspace.shared.open(url) } label: { Label("Open with Default App", systemImage: "arrow.up.forward.app") }
             } else {
-                if inProject { Button { workspaceManager.codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
+                if inProject { Button { codeXRay.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
                 if FileType.isHTML(url) {
-                    Button { workspaceManager.browser.openHTML(url) } label: { Label("Open in Browser", systemImage: "safari") }
+                    Button { window?.openHTML(url) } label: { Label("Open in Browser", systemImage: "safari") }
                 }
-                Button { workspaceManager.toolTabs.discussions.discuss(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
+                Button { window?.discuss(about: url) } label: { Label("Discuss This File…", systemImage: "bubble.left.and.text.bubble.right") }
                 if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
-                    Button { workspaceManager.insight.start(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
+                    Button { window?.startInsight(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
                 }
                 Menu("New from This Document") {
                     ForEach(IntakeKind.allCases) { kind in
-                        Button(kind.title + "…") { workspaceManager.flow.startIntake(kind, fromDocument: url) }
+                        Button(kind.title + "…") { flow.startIntake(kind, fromDocument: url) }
                     }
                 }
-                Button { workspaceManager.flow.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
-                Button { workspaceManager.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
+                Button { flow.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
+                Button { window?.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
             }
             Divider()
             if Archive.isArchive(url) {
@@ -971,7 +974,7 @@ struct FileTreeView: View {
             }
             Button("Compress to .zip") { compress([url]) }
             Divider()
-            Button { workspaceManager.openTerminal(in: url.deletingLastPathComponent()) } label: {
+            Button { window?.openTerminal(in: url.deletingLastPathComponent()) } label: {
                 Label("Open Terminal Here", systemImage: "terminal")
             }
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
@@ -1034,7 +1037,7 @@ struct FileTreeView: View {
     }
 
     private func openFile(_ entry: FileBrowserEntry) {
-        if entry.hasViewer { workspaceManager.openFile(entry.url) }
+        if entry.hasViewer { window?.openFile(entry.url) }
     }
 
     /// Bottom bar while several rows are selected.
@@ -1042,7 +1045,7 @@ struct FileTreeView: View {
         HStack(spacing: 8) {
             Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(palette.text)
             Spacer()
-            Button { workspaceManager.presentPDFBook(withoutNested(selection.ordered(selectableURLs))) } label: { Image(systemName: "book.closed").uiFont(size: 11) }
+            Button { window?.presentPDFBook(withoutNested(selection.ordered(selectableURLs))) } label: { Image(systemName: "book.closed").uiFont(size: 11) }
                 .buttonStyle(.plain).foregroundColor(palette.textDim).help("Export selected files and folders as a PDF book")
             Button { moveAsking(selectedItems) } label: { Image(systemName: "folder").uiFont(size: 11) }
                 .buttonStyle(.plain).foregroundColor(palette.textDim).help("Move to…").disabled(selectedItems.isEmpty)
@@ -1061,7 +1064,7 @@ struct FileTreeView: View {
     @ViewBuilder private var selectionMenu: some View {
         let items = selectedItems
         let changed = items.compactMap { fileGitStatus($0) }
-        Button { workspaceManager.presentPDFBook(withoutNested(selection.ordered(selectableURLs))) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
+        Button { window?.presentPDFBook(withoutNested(selection.ordered(selectableURLs))) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
         if !items.isEmpty { Button("Move \(items.count) Items to…") { moveAsking(items) } }
         if !changed.isEmpty {
             Divider()
@@ -1089,6 +1092,7 @@ struct FileTreeView: View {
     /// Move files and folders to the macOS Trash after one confirmation; their open tabs close
     /// without saving, and the tree refreshes. Recoverable from the Trash, unlike a plain delete.
     private func trash(_ urls: [URL]) {
+        guard let fileOperations = window?.fileOperations else { return }
         guard !urls.isEmpty else { return }
         let alert = NSAlert()
         if urls.count == 1, let url = urls.first {
@@ -1107,7 +1111,7 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let errors = workspaceManager.fileOperations.trash(urls)
+        let errors = fileOperations.trash(urls)
         selection.clear()
         listVersion += 1
         if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
@@ -1115,6 +1119,7 @@ struct FileTreeView: View {
 
     /// Choose a folder and move the items there; open tabs follow them.
     private func moveAsking(_ urls: [URL]) {
+        guard let fileOperations = window?.fileOperations else { return }
         guard !urls.isEmpty else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -1125,13 +1130,14 @@ struct FileTreeView: View {
         panel.prompt = "Move Here"
         panel.message = urls.count == 1 ? "Move “\(urls[0].lastPathComponent)” to:" : "Move \(urls.count) items to:"
         guard panel.runModal() == .OK, let folder = panel.url else { return }
-        let errors = workspaceManager.fileOperations.transfer(urls, into: folder, copy: false)
+        let errors = fileOperations.transfer(urls, into: folder, copy: false)
         selection.clear()
         listVersion += 1
         if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
     }
 
     private func rename(_ url: URL) {
+        guard let fileOperations = window?.fileOperations else { return }
         let alert = NSAlert()
         alert.messageText = "Rename “\(url.lastPathComponent)”"
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
@@ -1141,7 +1147,7 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = input
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        if let error = workspaceManager.fileOperations.rename(url, to: input.stringValue) { return showError(error) }
+        if let error = fileOperations.rename(url, to: input.stringValue) { return showError(error) }
         selection.clear()
         listVersion += 1
     }
@@ -1237,6 +1243,7 @@ struct FileTreeView: View {
     }
 
     private func createNewFile(in folderURL: URL, ignored: Bool = false) {
+        guard let fileOperations = window?.fileOperations else { return }
         let alert = NSAlert()
         alert.messageText = "New File"
         alert.informativeText = "Enter filename:"
@@ -1247,13 +1254,13 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
             let fileURL: URL
-            do { fileURL = try workspaceManager.fileOperations.createFile(named: input.stringValue, in: folderURL) } catch {
+            do { fileURL = try fileOperations.createFile(named: input.stringValue, in: folderURL) } catch {
                 return showError((error as? FileOperationError)?.message ?? error.localizedDescription)
             }
             if ignored { addToGitignore(fileURL, isDirectory: false) }
             if mode == .tree { expanded.insert(FileBrowser.key(folderURL)) }
             listVersion += 1
-            workspaceManager.openFile(fileURL)
+            window?.openFile(fileURL)
         }
     }
 
@@ -1274,6 +1281,7 @@ struct FileTreeView: View {
     /// Files dropped on a folder: moved when they come from this project (⌥ Option copies,
     /// as in Finder), copied when they come from elsewhere (e.g. Finder).
     private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
+        guard let fileOperations = window?.fileOperations else { return false }
         let copyRequested = NSEvent.modifierFlags.contains(.option)
         var urls: [URL] = []
         let group = DispatchGroup()
@@ -1288,7 +1296,7 @@ struct FileTreeView: View {
         }
         group.notify(queue: .main) {
             guard !urls.isEmpty else { return }
-            let errors = workspaceManager.fileOperations.drop(urls, into: folder, copyRequested: copyRequested)
+            let errors = fileOperations.drop(urls, into: folder, copyRequested: copyRequested)
             listVersion += 1
             dropTarget = nil
             if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
@@ -1301,6 +1309,7 @@ struct FileTreeView: View {
 
     /// Unpack into a new folder next to the archive, or inside a folder the person picks.
     private func extractArchive(_ url: URL, askFolder: Bool) {
+        guard let fileOperations = window?.fileOperations else { return }
         var parent: URL?
         if askFolder {
             let panel = NSOpenPanel()
@@ -1315,7 +1324,7 @@ struct FileTreeView: View {
         }
         guard archiveBusy == nil else { return }
         archiveBusy = "Extracting \(url.lastPathComponent)…"
-        workspaceManager.fileOperations.startExtract(url, into: parent) { result in
+        fileOperations.startExtract(url, into: parent) { result in
             archiveBusy = nil
             switch result {
             case .success(let folder): NSWorkspace.shared.activateFileViewerSelecting([folder])
@@ -1327,9 +1336,10 @@ struct FileTreeView: View {
 
     /// Zip files and folders into a new .zip next to them.
     private func compress(_ urls: [URL]) {
+        guard let fileOperations = window?.fileOperations else { return }
         guard archiveBusy == nil, !urls.isEmpty else { return }
         archiveBusy = "Compressing \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")…"
-        workspaceManager.fileOperations.startCompress(urls) { result in
+        fileOperations.startCompress(urls) { result in
             archiveBusy = nil
             switch result {
             case .success(let zip): NSWorkspace.shared.activateFileViewerSelecting([zip])
@@ -1347,6 +1357,7 @@ struct FileTreeView: View {
     }
 
     private func createNewFolder(in parentURL: URL) {
+        guard let fileOperations = window?.fileOperations else { return }
         let alert = NSAlert()
         alert.messageText = "New Folder"
         alert.informativeText = "Enter folder name:"
@@ -1356,7 +1367,7 @@ struct FileTreeView: View {
         alert.addButton(withTitle: "Create")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
-            do { guard try workspaceManager.fileOperations.createFolder(named: input.stringValue, in: parentURL) != nil else { return } } catch {
+            do { guard try fileOperations.createFolder(named: input.stringValue, in: parentURL) != nil else { return } } catch {
                 return showError((error as? FileOperationError)?.message ?? error.localizedDescription)
             }
             if mode == .tree { expanded.insert(FileBrowser.key(parentURL)) }
@@ -1367,7 +1378,7 @@ struct FileTreeView: View {
 
 #Preview {
     let workspace = WorkspaceManager(prompts: AlertPrompts())
-    FileTreeView().environmentObject(workspace).observingParts(of: workspace)
+    FileTreeView().observingParts(of: workspace)
 }
 
 
