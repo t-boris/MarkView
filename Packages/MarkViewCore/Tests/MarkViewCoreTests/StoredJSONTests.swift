@@ -76,4 +76,44 @@ final class StoredJSONTests: XCTestCase {
         XCTAssertEqual(early, "a.json.corrupt-20231114221320-x")
         XCTAssertTrue(early < late)
     }
+
+    private struct Versioned: Codable, Equatable { var version = 1; var name = "" }
+
+    /// A plain file that cannot be read is copied before a save replaces it; one that a newer build wrote is never replaced.
+    func testPlainJSONFileCopiesWhatItCannotReadAndRefusesANewerFile() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("plain-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("x.json")
+        let field = PlainJSONFile.VersionField("version", supported: 1)
+        func backups() -> [URL] {
+            ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.lastPathComponent.hasPrefix("x.json.corrupt-") }
+        }
+        func write(_ value: Versioned) throws {
+            try PlainJSONFile.write(try JSONEncoder().encode(value), replacing: Versioned.self, at: file, version: field, owner: "test")
+        }
+
+        guard case .missing = PlainJSONFile.read(Versioned.self, from: file, version: field, owner: "test") else { return XCTFail("missing") }
+        try write(Versioned(name: "a"))
+        XCTAssertEqual(PlainJSONFile.read(Versioned.self, from: file, version: field, owner: "test").value, Versioned(name: "a"))
+        try write(Versioned(name: "b"))
+        XCTAssertTrue(backups().isEmpty, "a file that reads is replaced without a backup")
+
+        let cut = Data(#"{"version":1,"na"#.utf8)
+        try cut.write(to: file)
+        guard case .unreadable = PlainJSONFile.read(Versioned.self, from: file, version: field, owner: "test") else { return XCTFail("unreadable") }
+        XCTAssertEqual(try Data(contentsOf: file), cut, "reading leaves the file as it is")
+        try write(Versioned(name: "c"))
+        XCTAssertEqual(backups().count, 1)
+        XCTAssertEqual(try Data(contentsOf: backups()[0]), cut)
+        XCTAssertEqual(PlainJSONFile.read(Versioned.self, from: file, version: field, owner: "test").value, Versioned(name: "c"))
+
+        let future = Data(#"{"version":2,"name":"d","extra":true}"#.utf8)
+        try future.write(to: file)
+        guard case .newer(2) = PlainJSONFile.read(Versioned.self, from: file, version: field, owner: "test") else { return XCTFail("newer") }
+        XCTAssertThrowsError(try write(Versioned(name: "e"))) { XCTAssertTrue($0 is PlainJSONFile.NewerVersion) }
+        XCTAssertEqual(try Data(contentsOf: file), future, "a newer file is not replaced")
+        XCTAssertEqual(backups().count, 1, "and not copied either")
+    }
 }

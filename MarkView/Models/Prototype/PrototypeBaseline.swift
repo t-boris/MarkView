@@ -341,9 +341,9 @@ enum PrototypeBaseline {
         folder.appendingPathComponent("baselines/v\(version).json")
     }
 
+    /// The baseline of a version; nil when there is none or it cannot be read (logged; the next save copies it to a backup first).
     static func load(folder: URL, version: Int) -> Record? {
-        guard let data = try? Data(contentsOf: url(of: folder, version: version)) else { return nil }
-        return try? JSONDecoder().decode(Record.self, from: data)
+        PlainJSONFile.read(Record.self, from: url(of: folder, version: version), owner: "prototype baseline").value
     }
 
     static func save(_ record: Record, folder: URL, version: Int) throws {
@@ -351,7 +351,7 @@ enum PrototypeBaseline {
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try AtomicFile.write(encoder.encode(record), to: target)
+        try PlainJSONFile.write(encoder.encode(record), replacing: Record.self, at: target, owner: "prototype baseline")
     }
 
     /// A review edit makes a new version with the same sources: its baseline is the earlier one, unchanged (REQ-009).

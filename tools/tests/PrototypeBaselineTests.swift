@@ -190,6 +190,27 @@ do {
     check(text.contains("src/Orders.tsx") && !text.contains("export default"), "paths and fingerprints are stored")
     PrototypeBaseline.carryForward(folder: folder, from: 8, to: 9)
     check(PrototypeBaseline.load(folder: folder, version: 9) == nil, "nothing to carry from a version without a baseline")
+
+    // A baseline that cannot be read is not "none" (AR-36): it stays on disk, and a save copies it before it replaces it.
+    let file = PrototypeBaseline.url(of: folder, version: 3)
+    func backups() -> [URL] {
+        ((try? fm.contentsOfDirectory(at: file.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix("v3.json.corrupt-") }
+    }
+    check(backups().isEmpty, "a baseline that reads leaves no backup")
+    try PrototypeBaseline.save(record, folder: folder, version: 3)
+    check(backups().isEmpty, "saving over a baseline that reads leaves no backup")
+    let damaged = Data("{ \"syncedVersion\": ".utf8)
+    try damaged.write(to: file)
+    check(PrototypeBaseline.load(folder: folder, version: 3) == nil, "a damaged baseline reads as none")
+    check((try? Data(contentsOf: file)) == damaged, "reading a damaged baseline leaves it as it is")
+    PrototypeBaseline.carryForward(folder: folder, from: 3, to: 5)
+    check(PrototypeBaseline.load(folder: folder, version: 5) == nil, "a damaged baseline is not carried forward")
+    try PrototypeBaseline.save(record, folder: folder, version: 3)
+    check(backups().count == 1 && (try? Data(contentsOf: backups()[0])) == damaged, "a save copies the damaged baseline to a dated backup first")
+    check(PrototypeBaseline.load(folder: folder, version: 3) == record, "and then replaces it")
+    try PrototypeBaseline.save(record, folder: folder, version: 3)
+    check(backups().count == 1, "the next save makes no second backup")
 }
 
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")

@@ -98,8 +98,7 @@ actor SpecificationHandoffStore {
         }
 
         let directory = try handoffDirectory(project: project, slug: slug)
-        let history = try revisions(project: project, slug: slug)
-        let number = (history.last?.number ?? 0) + 1
+        let number = try nextRevisionNumber(project: project, slug: slug)
         let name = String(format: "%06d", number)
         let target = directory.appendingPathComponent("revisions/" + name, isDirectory: true)
         let staging = directory.appendingPathComponent(".staging-" + UUID().uuidString, isDirectory: true)
@@ -200,11 +199,23 @@ actor SpecificationHandoffStore {
 
     private func revisions(project: URL, slug: String) throws -> [HandoffRevision] {
         let directory = try handoffDirectory(project: project, slug: slug).appendingPathComponent("revisions", isDirectory: true)
-        let paths = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return paths.compactMap { url in
-            guard let data = try? Data(contentsOf: url.appendingPathComponent("record.json")) else { return nil }
-            return try? JSONDecoder().decode(HandoffRevision.self, from: data)
+        return try revisionFolders(in: directory).compactMap { url in
+            PlainJSONFile.read(HandoffRevision.self, from: url.appendingPathComponent("record.json"), owner: "handoff revision").value
         }.sorted { $0.number < $1.number }
+    }
+
+    private func revisionFolders(in directory: URL) throws -> [URL] {
+        guard fm.fileExists(atPath: directory.path) else { return [] }
+        return try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+    }
+
+    /// The number the next revision takes: after the highest revision folder, so a revision whose record cannot be read (logged, and
+    /// left in place) is never collided with or replaced.
+    private func nextRevisionNumber(project: URL, slug: String) throws -> Int {
+        let directory = try handoffDirectory(project: project, slug: slug).appendingPathComponent("revisions", isDirectory: true)
+        let named = try revisionFolders(in: directory).compactMap { Int($0.lastPathComponent) }
+        let readable = try revisions(project: project, slug: slug).map(\.number)
+        return (named + readable).max().map { $0 + 1 } ?? 1
     }
 
     private func hashes(in folder: URL) throws -> [String: String] {

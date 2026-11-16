@@ -2246,7 +2246,9 @@
         "MarkView/Models/Prototype/PrototypeStyles.swift",
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeBaselineTests.swift"
+        "tools/tests/PrototypeBaselineTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2345,7 +2347,9 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeHandoffDraftTests.swift",
-        "tools/tests/prototype-handoff-draft-tests.sh"
+        "tools/tests/prototype-handoff-draft-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2536,7 +2540,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeReference.swift",
         "tools/tests/PrototypeReferenceTests.swift",
-        "tools/tests/prototype-reference-tests.sh"
+        "tools/tests/prototype-reference-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2658,7 +2664,9 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeTailwindRenderTests.swift",
-        "tools/tests/prototype-tailwind-render-tests.sh"
+        "tools/tests/prototype-tailwind-render-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2731,7 +2739,9 @@
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeThemesTests.swift"
+        "tools/tests/PrototypeThemesTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {

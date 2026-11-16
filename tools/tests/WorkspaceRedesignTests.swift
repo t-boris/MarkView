@@ -95,6 +95,17 @@ import SQLite3
         try FileManager.default.removeItem(at: project.appendingPathComponent(".dde"))
         check((try await handoff.state(project: project, slug: "demo")).history.count == 2,
               "metadata removal leaves handoff history intact")
+        // A revision whose record cannot be read is skipped by the history, left as it is, and never collided with (AR-36).
+        let secondRecord = project.appendingPathComponent("docs/handoffs/demo/revisions/000002/record.json")
+        let cutRecord = Data("{ \"number\": 2, ".utf8)
+        try cutRecord.write(to: secondRecord)
+        let withDamaged = try await handoff.state(project: project, slug: "demo")
+        check(withDamaged.history.map(\.number) == [1] && (try? Data(contentsOf: secondRecord)) == cutRecord,
+              "a damaged revision record is left out of the history and left as it is")
+        let third = try await handoff.markReady(project: project, slug: "demo", actor: "Developer", commitStatus: { _ in true })
+        check(third.number == 3 && (try? Data(contentsOf: secondRecord)) == cutRecord,
+              "the next revision is numbered after the damaged one and does not replace it")
+        check((try await handoff.state(project: project, slug: "demo")).history.map(\.number) == [1, 3], "the readable revisions stay in the history")
         do {
             try await handoff.setLinkedFiles(["../outside.md"], project: project, slug: "demo")
             check(false, "a link cannot escape the project")

@@ -136,3 +136,93 @@ public enum PreferenceRecord {
         }
     }
 }
+
+/// A JSON file that the app writes and people also read, edit and commit with the project (a prototype's manifest, a Studio
+/// scenario, a handoff record): the plain-file counterpart of `SchemaVersionedStore` (`AR-36`). It has no envelope, so that a
+/// teammate's older MarkView and a text editor still read it; a file that carries a version field of its own can name it.
+///
+/// A file that is there but cannot be used is not "none": the read says so, and a write copies it to a dated backup before it
+/// replaces it, or refuses when a newer MarkView wrote it. The copies and the refusal follow `SchemaVersionedStore`.
+public enum PlainJSONFile {
+    /// The version field some of these files carry (`version`, `schemaVersion`) and the newest value this build writes.
+    public struct VersionField: Sendable {
+        public let key: String
+        public let supported: Int
+        public init(_ key: String, supported: Int) {
+            self.key = key
+            self.supported = supported
+        }
+    }
+
+    public enum Read<T> {
+        case loaded(T)
+        case missing
+        /// The file is there and cannot be decoded; the reason names the key or the type, never any content.
+        case unreadable(String)
+        /// The file's version field is newer than this build writes.
+        case newer(Int)
+
+        public var value: T? {
+            if case .loaded(let value) = self { return value }
+            return nil
+        }
+    }
+
+    public struct NewerVersion: LocalizedError, Equatable {
+        public let url: URL
+        public let found: Int
+        public let supported: Int
+        public var errorDescription: String? {
+            "\(url.lastPathComponent) was written by a newer MarkView (version \(found), this one writes \(supported)); it is left untouched."
+        }
+    }
+
+    /// The file at `url` as a `T`. A file that cannot be used is logged once per call, tagged with `owner`.
+    public static func read<T: Decodable>(_ type: T.Type, from url: URL, using decoder: JSONDecoder = JSONDecoder(),
+                                          version: VersionField? = nil, owner: String) -> Read<T> {
+        let result = inspect(type, at: url, using: decoder, version: version)
+        switch result {
+        case .unreadable(let reason):
+            AppLog.store.error("\(owner): \(url.lastPathComponent) cannot be read (\(reason)); it is kept as it is and copied to a backup before anything replaces it")
+        case .newer(let found):
+            AppLog.store.error("\(owner): \(url.lastPathComponent) was written by a newer MarkView (version \(found)); it is left untouched")
+        case .loaded, .missing:
+            break
+        }
+        return result
+    }
+
+    /// Writes `data` (the encoded value) to `url`. A file already there that was written by a newer MarkView is not touched
+    /// (`NewerVersion`); one that cannot be decoded as a `T` is copied to a dated backup first, and nothing is replaced when the
+    /// copy cannot be made.
+    public static func write<T: Decodable>(_ data: Data, replacing type: T.Type, at url: URL, using decoder: JSONDecoder = JSONDecoder(),
+                                           version: VersionField? = nil, owner: String) throws {
+        if FileManager.default.fileExists(atPath: url.path) {
+            switch inspect(type, at: url, using: decoder, version: version) {
+            case .newer(let found):
+                AppLog.store.error("\(owner): \(url.lastPathComponent) was written by a newer MarkView (version \(found)); it is not replaced")
+                throw NewerVersion(url: url, found: found, supported: version?.supported ?? 0)
+            case .unreadable(let reason):
+                let copy = UnreadableCopy.url(of: url)
+                try FileManager.default.copyItem(at: url, to: copy)
+                AppLog.store.error("\(owner): \(url.lastPathComponent) could not be read (\(reason)); it is copied to \(copy.lastPathComponent) before it is replaced")
+            case .loaded, .missing:
+                break
+            }
+        }
+        try AtomicFile.write(data, to: url)
+    }
+
+    private static func inspect<T: Decodable>(_ type: T.Type, at url: URL, using decoder: JSONDecoder, version: VersionField?) -> Read<T> {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch { return .unreadable(error.localizedDescription) }
+        if let version, let found = storedVersion(in: data, key: version.key), found > version.supported { return .newer(found) }
+        do { return .loaded(try decoder.decode(type, from: data)) } catch { return .unreadable(StoredJSON.describe(error)) }
+    }
+
+    /// The integer under `key` at the top level of the document, nil when there is none (or the document is not an object).
+    private static func storedVersion(in data: Data, key: String) -> Int? {
+        ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?[key] as? Int
+    }
+}

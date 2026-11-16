@@ -7,6 +7,6 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/PrototypeTailwindRenderTests.swift "$out/main.swift"
-swiftc -O -o "$out/prototype-tailwind-render-tests" MarkView/Models/Prototype/PrototypeFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Prototype/PrototypeStyles.swift MarkView/Models/Prototype/PrototypeTailwind.swift MarkView/Models/Prototype/PrototypeThemes.swift \
+swiftc -O -o "$out/prototype-tailwind-render-tests" MarkView/Models/Prototype/PrototypeFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift MarkView/Models/Prototype/PrototypeStyles.swift MarkView/Models/Prototype/PrototypeTailwind.swift MarkView/Models/Prototype/PrototypeThemes.swift \
     MarkView/Bridge/PrototypeSchemeHandler.swift "$out/main.swift"
 "$out/prototype-tailwind-render-tests"

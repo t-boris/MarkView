@@ -225,6 +225,35 @@ do {
     check(PrototypeFiles.loadConversation(dir) == nil, "no conversation file yet")
     PrototypeFiles.saveConversation(saved, in: dir)
     check(PrototypeFiles.loadConversation(dir) == saved, "conversation round-trips")
+
+    // A conversation or a manifest that cannot be read is not "none" (AR-36): it stays, and a save copies it first.
+    func backups(_ name: String) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix(name + ".corrupt-") }
+    }
+    let cut = Data("[{\"role\": \"user\", ".utf8)
+    try cut.write(to: PrototypeFiles.conversationURL(of: dir))
+    check(PrototypeFiles.loadConversation(dir) == nil, "a damaged conversation reads as none")
+    check((try? Data(contentsOf: PrototypeFiles.conversationURL(of: dir))) == cut, "reading a damaged conversation leaves it as it is")
+    PrototypeFiles.saveConversation(saved, in: dir)
+    check(backups("conversation.json").count == 1 && (try? Data(contentsOf: backups("conversation.json")[0])) == cut,
+          "saving copies the damaged conversation to a dated backup first")
+    check(PrototypeFiles.loadConversation(dir) == saved, "and then replaces it")
+    PrototypeFiles.saveConversation(saved, in: dir)
+    check(backups("conversation.json").count == 1, "a conversation that reads makes no further backup")
+
+    var kept = PrototypeFiles.Manifest(title: "Kept", slug: "kept", brief: "b", sources: [])
+    kept.history.append(.init(version: 1, instruction: "first", summary: "s", date: Date(timeIntervalSince1970: 1_700_000_000)))
+    try PrototypeFiles.saveManifest(kept, in: dir)
+    check(backups("prototype.json").isEmpty && PrototypeFiles.loadManifest(dir) == kept, "a manifest that reads leaves no backup")
+    let half = Data("{ \"title\": \"Kept\", ".utf8)
+    try half.write(to: PrototypeFiles.manifestURL(of: dir))
+    check(PrototypeFiles.loadManifest(dir) == nil, "a damaged manifest reads as none")
+    check((try? Data(contentsOf: PrototypeFiles.manifestURL(of: dir))) == half, "reading a damaged manifest leaves it as it is")
+    try PrototypeFiles.saveManifest(kept, in: dir)
+    check(backups("prototype.json").count == 1 && (try? Data(contentsOf: backups("prototype.json")[0])) == half,
+          "saving copies the damaged manifest to a dated backup first")
+    check(PrototypeFiles.loadManifest(dir) == kept, "and then replaces it")
 }
 
 // MARK: - Previews from Existing Code (code mode)

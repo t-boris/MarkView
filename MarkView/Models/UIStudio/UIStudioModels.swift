@@ -121,7 +121,8 @@ struct StudioRule: Codable, Hashable, Identifiable, Sendable {
 
 /// Everything a session simulates for the project, reusable across sessions (EnvironmentSpec, §10.1).
 struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
-    var schemaVersion = 1
+    static let currentSchemaVersion = 1
+    var schemaVersion = StudioEnvironmentSpec.currentSchemaVersion
     var entities: [StudioEntity] = []
     var rules: [StudioRule] = []
     /// The records every scenario starts from unless it brings its own.
