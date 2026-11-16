@@ -211,6 +211,8 @@ Status (2026-11-15): partial. Done: Features, Issues and Workflow are one `Lifec
 - Models reach into `Bridge/` for rendering services (`PrototypeScreenshots`, `BookPDFRenderer`) and for a log helper (`InsightSession.swift:1121`).
 - Views do file work: 31 `FileManager` uses in 16 view files, with create and trash in `FileTreeView.swift:1098, 1250, 1384`, and a network call in `DDESettingsView.swift:518`. Four view models are declared inside view files.
 
+Status (2026-11-15): partial. `TOCView.Tab` in `Models/` 0 (replaced by `NavigatorTab` before 6.26.2). `NSAlert` references in `Models/` 31 in 6 files -> 25 in 11 files (fewer references, more files: the dialogs moved between files and did not leave `Models/`). `FileManager` in `Views/` 31 uses in 16 files -> 25 in 15 files; directory walks (`enumerator`, `contentsOfDirectory`, `subpathsOfDirectory`) in `Views/` 2 -> 0. `import SwiftUI` in `Models/` 11 files, unchanged; the view types named in the finding (`AIToolRuns`, `AppFontScale`, `QAWebWindow`) were not re-audited.
+
 ### AR-23 Names do not signal role (medium, M, incremental)
 
 "Model" names both observable view models (`QAModel`, `QARunModel`) and plain value bags (`ArchitectureModel`, `FeatureModels`). Observable classes use 13 `Store`, 11 `Model`, 6 `Session`, 4 `Controller` and about 20 with no suffix. "Client" is an observable class, a struct and an enum namespace in three places. Grab-bag files hold 21-27 types each (`UIStudioModels`, `SemanticModels`, `GitHubClient`, `QAScenario`, `ProjectWorkflow`).
