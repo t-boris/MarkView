@@ -8,7 +8,7 @@ import WebKit
 // Run through tools/tests/js-call-web-tests.sh (argument 1: terminal.html, argument 2: a folder for the fixture files).
 
 // The terminal's unrelated dictation dependency is not exercised here.
-final class WhisperClient {}
+final class WhisperClient { func stopRecording() async -> String? { nil } }
 
 setvbuf(stdout, nil, _IONBF, 0)
 var failures = 0

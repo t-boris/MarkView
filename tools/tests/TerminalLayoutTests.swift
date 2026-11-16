@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 // Unrelated assistant/dictation dependencies are not exercised by this harness.
-final class WhisperClient {}
+final class WhisperClient { func stopRecording() async -> String? { nil } }
 
 @MainActor final class TerminalLayoutTests: NSObject, WKScriptMessageHandler {
     var session: TerminalSession!
