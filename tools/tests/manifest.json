@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 221,
+  "suiteCount": 220,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -3114,7 +3114,9 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "MarkViewHostedTests/TerminalLayoutHostTests.swift"
+        "MarkViewHostedTests/TerminalLayoutHostTests.swift",
+        "MarkView/Resources/Editor/index.html",
+        "MarkViewHostedTests/TerminalLinkHostTests.swift"
       ]
     },
     {
@@ -3671,58 +3673,6 @@
       "sources": [
         "MarkView/Models/Terminal/TerminalChildProcess.swift",
         "tools/tests/TerminalChildProcessTests.swift"
-      ]
-    },
-    {
-      "name": "terminal-link-tests",
-      "script": "tools/tests/terminal-link-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Appearance/AppFontScale.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Terminal/PTYWriter.swift",
-        "MarkView/Models/Terminal/RemoteConnectionState.swift",
-        "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Terminal/TerminalChildProcess.swift",
-        "MarkView/Models/Terminal/TerminalLink.swift",
-        "MarkView/Models/Terminal/TerminalSession.swift",
-        "MarkView/Resources/Editor/index.html",
-        "MarkView/Resources/Editor/terminal.html",
-        "MarkView/Resources/Editor/js/markview-terminal.js",
-        "MarkView/Views/Appearance/AppFontScaleView.swift",
-        "tools/tests/EditorLineLinkTests.swift",
-        "tools/tests/TerminalLinkTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Bridge/PageMessages.swift",
-        "MarkView/Models/Terminal/TerminalProfile.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
       ]
     },
     {

@@ -396,7 +396,7 @@ server dispatches the control tools before it resolves a window.
 | `Resources/Editor/terminal.html` | xterm.js page and JS side of the bridge |
 | `Resources/Editor/vendor/js/xterm.bundle.js`, `vendor/css/xterm.css` | Bundled `@xterm/xterm` 6.0.0 + fit 0.11.0 + web-links 0.12.0 (`tools/web-vendor/package.json`, `tools/web-vendor/build.sh`) |
 | `Models/Workspace/WorkspaceManager.swift` | Terminal lifecycle, startup commands, titles, open-file watcher |
-| `tools/tests/terminal-link-tests.sh` | GUI test: real WKWebView + shipping bundle + live PTY cwd |
+| `MarkViewHostedTests/TerminalLinkHostTests.swift` | App-hosted GUI test: real WKWebView + shipping bundle + live PTY cwd |
 
 ### B.3 Key types
 

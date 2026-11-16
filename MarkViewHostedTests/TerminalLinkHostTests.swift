@@ -1,18 +1,18 @@
 import AppKit
 import WebKit
-
-// The terminal's unrelated assistant/dictation dependencies are not exercised here.
-final class WhisperClient { func stopRecording() async -> String? { nil } }
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
 /// What the window does with the files and web addresses a terminal hands it; the test decides what each does.
-@MainActor final class LinkWindow: TerminalLinkTarget {
+@MainActor private final class LinkWindow: TerminalLinkTarget {
     var onFile: (URL, Int?) -> Void = { _, _ in }
     var onWeb: (URL) -> Void = { _ in }
     func openFile(_ url: URL, line: Int?, endLine: Int?) { onFile(url, line) }
     func openInAppBrowser(_ url: URL) { onWeb(url) }
 }
 
-@MainActor final class TerminalLinkTests: NSObject, WKScriptMessageHandler {
+@MainActor private final class TerminalLinkChecks: NSObject, WKScriptMessageHandler {
     var session: TerminalSession!
     var window: NSWindow!
     var messages: [[String: Any]] = []
@@ -24,8 +24,11 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
     let linkWindow = LinkWindow()
     var checks = 0
     var failures = 0
+    var finish: ((String?) -> Void)?
+    private var runningTask: Task<Void, Never>?
     var launched = false
-    let root = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+    let root: URL
+    init(root: URL) { self.root = root }
 
     func check(_ passed: Bool, _ name: String) {
         checks += 1
@@ -40,7 +43,7 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
         if body["type"] as? String != "input" { session.messages.userContentController(c, didReceive: m) }
         if body["type"] as? String == "ready", !launched {
             launched = true
-            Task { await run() }
+            runningTask = Task { await run() }
         }
     }
     func pureChecks() {
@@ -189,7 +192,7 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
             await pause(400)
             try await display("child.swift:7\r\n"); try await hover(); try await click()
             check(opened.count == 1 && opened.first?.0 == root.appendingPathComponent("sub/child.swift") && opened.first?.1 == 7, "relative click follows live shell cd")
-            if CommandLine.arguments.contains("--open-browser") {
+            if ProcessInfo.processInfo.environment["MARKVIEW_TERMINAL_LINK_OPEN_BROWSER"] == "1" {
                 dispatchExternal = true
                 linkWindow.onWeb = { [weak self] url in self?.didDispatchExternal = NSWorkspace.shared.open(url) }
                 try await display(osc); try await hover(); try await click()
@@ -197,12 +200,11 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
                 print("Default browser: \(NSWorkspace.shared.urlForApplication(toOpen: github)?.lastPathComponent ?? "unknown")")
             }
             print("Terminal link checks: \(checks), failures: \(failures)")
-            session.terminate()
-            exit(failures == 0 ? 0 : 1)
-        } catch { print("ERROR: \(error)"); session.terminate(); exit(1) }
+            finish?(nil)
+        } catch { finish?(error.localizedDescription) }
     }
-    func start() {
-        TerminalSession.pageURL = URL(fileURLWithPath: CommandLine.arguments[1])
+    func start(entry: URL) {
+        TerminalSession.pageURL = entry
         BridgeContract.bundledURL = TerminalSession.pageURL!.deletingLastPathComponent().appendingPathComponent("js/bridge-contract.json")
         linkWindow.onFile = { [weak self] url, line in self?.opened.append((url, line)) }
         linkWindow.onWeb = { [weak self] url in self?.external.append(url) }
@@ -226,15 +228,131 @@ final class WhisperClient { func stopRecording() async -> String? { nil } }
         """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         web.frame = NSRect(x: 0, y: 0, width: 800, height: 480)
         window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.title = "MarkView terminal link tests"
         window.contentView = web
         window.orderBack(nil)
         // Reload to guarantee test instrumentation is installed before terminal construction.
         web.loadFileURL(TerminalSession.pageURL!, allowingReadAccessTo: TerminalSession.pageURL!.deletingLastPathComponent())
-        Task { await pause(90_000); print("TIMEOUT"); session.terminate(); exit(2) }
+    }
+    func stop() {
+        finish = nil
+        runningTask?.cancel()
+        session?.webView.configuration.userContentController.removeScriptMessageHandler(forName: "terminal")
+        session?.terminate()
+        window?.close()
+    }
+
+}
+@MainActor private final class EditorLineLinkChecks: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    var web: WKWebView!
+    var window: NSWindow!
+    var launched = false
+    var checks = 0
+    var failures = 0
+    var finish: ((String?) -> Void)?
+    private var runningTask: Task<Void, Never>?
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let b = m.body as? [String: Any], b["type"] as? String == "ready", !launched else { return }
+        launched = true
+        runningTask = Task { await run() }
+    }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard !launched else { return }
+        launched = true
+        runningTask = Task { await run() }
+    }
+    func js(_ source: String) async throws -> Any? { try await web.evaluateJavaScript(source) }
+    func check(_ passed: Bool, _ name: String) {
+        checks += 1
+        if !passed { failures += 1; print("FAIL: \(name)") }
+    }
+    func pause() async { try? await Task.sleep(nanoseconds: 300_000_000) }
+    func run() async {
+        do {
+            _ = try await js("""
+            setContent('---\\ntitle: Fixture\\n---\\n\\n' + Array.from({length: 180}, (_, i) => 'Paragraph ' + (i+1)).join('\\n\\n'));
+            documentGotoLine(245);
+            """)
+            await pause()
+            check(try await js("document.querySelector('[data-line=\"245\"]').textContent") as? String == "Paragraph 121", "markdown line maps include front matter")
+            let previewScrolls = try await js("document.getElementById('editor-rendered').scrollTop > 0") as? Bool == true
+            if !previewScrolls { print("Editor preview diagnostic: \(try await js("(() => { const e=document.getElementById('editor-rendered'); return [innerHeight,e.clientHeight,e.scrollHeight,e.scrollTop]; })()") ?? "unknown")") }
+            check(previewScrolls, "markdown preview scrolls")
+            check(try await js("(() => {const el = document.querySelector('[data-line=\"245\"]'), r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom < innerHeight;})()") as? Bool == true, "requested markdown line visible")
+            check(try await js("getComputedStyle(document.getElementById('preview-pane')).display !== 'none'") as? Bool == true, "markdown stays formatted")
+            _ = try await js("toggleSourceMode(); documentGotoLine(245)")
+            check(try await js("(() => {const e = document.getElementById('editor-input'); return e.value.slice(e.selectionStart, e.selectionEnd);})()") as? String == "Paragraph 121", "markdown source line selected")
+            _ = try await js("setStructuredContent('{\\n' + Array.from({length: 150}, (_,i) => '  \"key' + i + '\": ' + i).join(',\\n') + '\\n}', 'json'); documentGotoLine(102)")
+            check(try await js("getComputedStyle(document.getElementById('editor-pane')).display !== 'none'") as? Bool == true, "structured link reveals source")
+            check(try await js("(() => {const e = document.getElementById('editor-input'); return e.value.slice(e.selectionStart, e.selectionEnd);})()") as? String == "  \"key100\": 100,", "structured requested line selected")
+            check(try await js("document.getElementById('editor-input').scrollTop > 0") as? Bool == true, "structured source scrolls")
+            _ = try await js("setCodeContent(Array.from({length:180}, (_,i) => 'let line' + (i+1) + ' = ' + (i+1)).join('\\n'), 'swift', 'fixture.swift'); codeGotoLine(121,121)")
+            for _ in 0..<30 {
+                if try await js("!!document.querySelector('.cm-scroller') && document.querySelector('.cm-scroller').scrollTop > 0") as? Bool == true { break }
+                await pause()
+            }
+            let codeScrolls = try await js("!!document.querySelector('.cm-scroller') && document.querySelector('.cm-scroller').scrollTop > 0") as? Bool == true
+            if !codeScrolls { print("Editor code diagnostic: \(try await js("(() => { const e=document.querySelector('.cm-scroller'); return e && [innerHeight,e.clientHeight,e.scrollHeight,e.scrollTop]; })()") ?? "unknown")") }
+            check(codeScrolls, "code line queued across viewer load")
+            print("Editor line checks: \(checks), failures: \(failures)")
+            finish?(nil)
+        } catch { finish?(error.localizedDescription) }
+    }
+    func start(page: URL) {
+        let config = WKWebViewConfiguration()
+        config.userContentController.add(self, name: "bridge")
+        let editorFolder = page.deletingLastPathComponent()
+        config.userContentController.addUserScript(try! BridgeContract(contentsOf: editorFolder.appendingPathComponent("js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
+        web = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 480), configuration: config)
+        window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.title = "MarkView editor line link tests"
+        web.navigationDelegate = self
+        window.contentView = web
+        window.orderBack(nil)
+        web.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
+    }
+    func stop() {
+        finish = nil
+        runningTask?.cancel()
+        web?.configuration.userContentController.removeScriptMessageHandler(forName: "bridge")
+        web?.stopLoading()
+        window?.close()
+    }
+
+}
+final class TerminalLinkHostTests: XCTestCase {
+    @MainActor func testTerminalLinks() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-terminal-links-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["sample.swift", "spaced file.md", "README.md", "LICENSE", "literal%20.md", "colon:42", "archive.iso", "sub/child.swift"] {
+            try "test fixture\n".write(to: root.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        let oldPage = TerminalSession.pageURL, oldContract = BridgeContract.bundledURL
+        defer { TerminalSession.pageURL = oldPage; BridgeContract.bundledURL = oldContract }
+        let entry = try XCTUnwrap(Bundle.main.url(forResource: "terminal", withExtension: "html", subdirectory: "Editor"))
+        let checks = TerminalLinkChecks(root: root)
+        defer { checks.stop() }
+        let done = expectation(description: "terminal link checks completed")
+        checks.finish = { error in if let error { XCTFail(error) }; done.fulfill() }
+        checks.start(entry: entry)
+        await fulfillment(of: [done], timeout: 120)
+        XCTAssertEqual(checks.failures, 0)
+        XCTAssertGreaterThanOrEqual(checks.checks, 84)
+    }
+    @MainActor func testEditorLineLinks() async throws {
+        let entry = try XCTUnwrap(Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor"))
+        let stylesheet = entry.deletingLastPathComponent().appendingPathComponent("css/editor.css")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stylesheet.path), "The built editor must include its stylesheet")
+        let checks = EditorLineLinkChecks()
+        defer { checks.stop() }
+        let done = expectation(description: "editor line checks completed")
+        checks.finish = { error in if let error { XCTFail(error) }; done.fulfill() }
+        checks.start(page: entry)
+        await fulfillment(of: [done], timeout: 90)
+        XCTAssertEqual(checks.failures, 0)
+        XCTAssertEqual(checks.checks, 9)
     }
 }
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-let tests = MainActor.assumeIsolated { let t = TerminalLinkTests(); t.start(); return t }
-app.run()
