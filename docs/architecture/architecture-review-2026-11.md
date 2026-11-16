@@ -453,6 +453,8 @@ Status (2026-11-15): partial. The browser control, Cockpit and Remote sockets al
 
 Sandbox off (by design). Hardened runtime is applied only by `release.sh`, not in `project.yml`. App Transport Security allows arbitrary loads (`Info.plist:212`); scope it to web content. Approved deployment and remote commands run as one string through a shell (`DeploymentExecutor.swift:153`, `RemoteCommand.swift:28`): this is the documented exception, and its safety rests on the approval UI and on regex blocklists that cannot be complete. Full-permission flags are passed to all five agents (`AIAssistants.swift:72-76`; S4). Other editor settings: `img-src` allows any `https:` image (remote tracking), and navigation policy allows every `.other` navigation.
 
+Status (2026-11-15): partial. `NSAllowsArbitraryLoads` is `false` in `Info.plist` (done; `NSAllowsArbitraryLoadsInWebContent` remains). Not done: the hardened runtime is still applied only by `release.sh` (`codesign --options runtime`), and `ENABLE_HARDENED_RUNTIME` appears 0 times in `project.pbxproj`. Not re-checked: the shell-string deployment and remote commands (`DeploymentExecutor`, `RemoteCommand`, the documented exception), the navigation policy, and `img-src` (the editor CSP allows `https:` images).
+
 ## 10. Concurrency and performance
 
 ### AR-42 Main-thread blocking reachable from views (high, M)
