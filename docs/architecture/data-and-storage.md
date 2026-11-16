@@ -12,7 +12,7 @@ overwritten as if it were empty.
 
 | Path | Format | Owner | Notes |
 |---|---|---|---|
-| `.dde/state.db` (+ `-wal`, `-shm`) | SQLite 3, WAL, FTS5, `PRAGMA user_version` = number of the last migration (2 in this build) | `SemanticDatabase` (actor), schema in `SemanticSchema.migrations` | Documents, blocks, symbols, relations, FTS, token usage, `arch_*` X-Ray tables. Some tables have no writer (see [semantic §10](./modules/semantic-index-and-insight.md)). Schema: [semantic §6](./modules/semantic-index-and-insight.md), [X-Ray §6.1](./modules/architecture-and-xray.md#61-project-x-ray-sqlite-ddestatedb) |
+| `.dde/state.db` (+ `-wal`, `-shm`) | SQLite 3, WAL, FTS5, `PRAGMA user_version` = number of the last migration (4 in this build) | `SemanticDatabase` (actor), schema in `SemanticSchema.migrations` | Documents, symbols, relations, FTS, token usage, `arch_*` X-Ray tables. Nonempty legacy tables may remain (see [semantic §10](./modules/semantic-index-and-insight.md)). Schema: [semantic §6](./modules/semantic-index-and-insight.md), [X-Ray §6.1](./modules/architecture-and-xray.md#61-project-x-ray-sqlite-ddestatedb) |
 | `.dde/file_<name>.db` | SQLite | `SemanticDatabase` | Single-file workspace, in the file's parent folder |
 | `.dde/cache/{provider_responses,embeddings,indexes}`, `.dde/overlays` | directories | `ProjectContext` (`openDatabase`) | Created on open, but nothing writes to them |
 | `.dde/cache/xray/<sha>.json` | JSON | `ArchitectureStore` (`ProjectPaths.xrayCacheFolder`) | AI answer cache |

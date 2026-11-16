@@ -58,37 +58,6 @@ actor SemanticDatabase {
         return OpenedFile(handle: opened.handle, path: persistent ? path : nil)
     }
 
-    /// Tables with no production SQL readers or writers, measured before a future removal (AR-38).
-    static let unusedTables = [
-        "entities", "entity_relations", "temporal_contexts", "transitions", "diagnostics", "ai_jobs",
-        "compile_profiles", "compile_jobs", "compile_artifacts", "document_templates", "completeness_evaluations",
-        "recompute_nodes", "recompute_edges", "artifacts", "chunks", "quality_tags", "citations", "change_plans", "communities",
-    ]
-
-    /// A missing or unreadable table is omitted, never reported as empty. The names are fixed in code, not user input.
-    static func unusedTableRowCounts(_ db: OpaquePointer) -> [String: Int64] {
-        var counts: [String: Int64] = [:]
-        for table in unusedTables {
-            var statement: OpaquePointer?
-            defer { sqlite3_finalize(statement) }
-            guard sqlite3_prepare_v2(db, "SELECT count(*) FROM \(table)", -1, &statement, nil) == SQLITE_OK,
-                  sqlite3_step(statement) == SQLITE_ROW else { continue }
-            counts[table] = sqlite3_column_int64(statement, 0)
-        }
-        return counts
-    }
-
-    private static func logUnusedTableCounts(_ db: OpaquePointer) {
-        let counts = unusedTableRowCounts(db)
-        for table in unusedTables {
-            if let count = counts[table] {
-                AppLog.index.notice("Unused semantic table \(table): \(count) rows")
-            } else {
-                AppLog.index.error("Could not count unused semantic table \(table)")
-            }
-        }
-    }
-
     /// Open `path` and bring it to the current schema (`AR-38`). A file that must stay as it is (written by a newer
     /// release, or a migration step failed and was rolled back) is not touched: this session gets an empty in-memory
     /// index and the log says so. An unreadable file is moved aside to a dated backup and rebuilt; the index is derived
@@ -98,7 +67,6 @@ actor SemanticDatabase {
             let opened = try SQLiteSchema.open(path: path, migrations: SemanticSchema.migrations,
                                                pragmas: SemanticSchema.pragmas,
                                                busyTimeoutMilliseconds: SemanticSchema.busyTimeoutMilliseconds)
-            logUnusedTableCounts(opened.handle)
             if let backup = opened.backup {
                 AppLog.index.error("\(path) was unreadable; moved aside to \(backup.path) and rebuilt (derived index data)")
             }

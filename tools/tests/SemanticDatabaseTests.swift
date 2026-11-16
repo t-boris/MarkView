@@ -18,7 +18,7 @@ try fm.createDirectory(at: sandbox, withIntermediateDirectories: true)
 defer { try? fm.removeItem(at: sandbox) }
 let release626 = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
 /// The version the last step of `SemanticSchema.migrations` stamps.
-let latest: Int64 = 3
+let latest: Int64 = 4
 
 // MARK: - Raw access (a connection of the test's own, never the app's)
 
@@ -103,29 +103,14 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let tables = names(path, "SELECT name FROM sqlite_master WHERE type = 'table'")
         check(blockTables(path).isEmpty, "a new file has none of the block tables (step 2 creates them, step 3 drops them)")
         check(["projects", "documents", "symbols", "modules", "fts_documents", "arch_nodes", "arch_edges", "arch_meta",
-               "arch_reviews", "usage_stats", "chunks", "citations"].allSatisfy(tables.contains), "every table of the index exists")
+               "arch_reviews", "usage_stats"].allSatisfy(tables.contains), "every table used by the index exists")
+        check(Set(SemanticSchema.unusedTables).isDisjoint(with: tables), "the 19 empty unused tables are dropped from a new database")
+        check(tables.count == 18, "the new database has 13 logical tables and five FTS shadow tables")
         check(!tables.contains("applied_migrations"), "the unused applied_migrations table is not created")
         check(["line", "end_line", "anchor", "signature", "tags_json"].allSatisfy(
             names(path, "SELECT name FROM pragma_table_info('arch_nodes')").contains), "arch_nodes has the Book and X-Ray columns")
         check(scalar(path, "SELECT count(*) FROM usage_stats WHERE id = 1") == 1, "the single usage row is seeded")
         check(names(path, "PRAGMA journal_mode") == ["wal"], "the journal mode is WAL")
-        raw(path, "INSERT INTO temporal_contexts (temporal_context_id, label, kind) VALUES ('t', 'test', 'test')")
-        var inspection: OpaquePointer?
-        if sqlite3_open_v2(path, &inspection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let inspection {
-            let counts = SemanticDatabase.unusedTableRowCounts(inspection)
-            check(counts.count == 19 && counts["temporal_contexts"] == 1 && counts["entities"] == 0,
-                  "the unused-table inspection reports all 19 counts, distinguishing rows from empty tables")
-            sqlite3_close(inspection)
-        } else { check(false, "open the database for unused-table inspection") }
-        var incomplete: OpaquePointer?
-        if sqlite3_open(":memory:", &incomplete) == SQLITE_OK, let incomplete {
-            sqlite3_exec(incomplete, "CREATE TABLE entities (id TEXT)", nil, nil, nil)
-            let counts = SemanticDatabase.unusedTableRowCounts(incomplete)
-            check(counts.count == 1 && counts["entities"] == 0 && counts["temporal_contexts"] == nil,
-                  "missing tables are omitted instead of being counted as empty")
-            sqlite3_close(incomplete)
-        } else { check(false, "open an incomplete database for unused-table inspection") }
-
 
         try await db.ensureProject(id: "fresh", name: "fresh", rootPath: root.path)
         await db.upsertModule(id: "mod_a", name: "a", path: root.path, parentId: nil, level: 0, fileCount: 1)
@@ -189,7 +174,7 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let before = inode(path)
         let db = try await SemanticDatabase.open(workspacePath: root)
         check(db.dbPath == path && inode(path) == before, "the file is migrated in place")
-        check(scalar(path, "PRAGMA user_version") == latest, "step 3 stamps the file with the latest version")
+        check(scalar(path, "PRAGMA user_version") == latest, "the file reaches the latest version")
         check(blockTables(path).isEmpty, "blocks and its two child tables are gone")
         check(scalar(path, "SELECT count(*) FROM sqlite_master WHERE sql LIKE '%REFERENCES blocks%'") == 0,
               "no table is left with a foreign key to the dropped table")
@@ -212,6 +197,36 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         var deleted = true
         do { try await db.execute("DELETE FROM documents WHERE document_id = ?", params: [.text("docs/alpha.md")]) } catch { deleted = false }
         check(deleted && scalar(path, "SELECT count(*) FROM documents") == 0, "a document can be deleted: its cascades have no block table left to reach")
+    }
+
+    // MARK: - A file written by release 6.27.3 (version 3), with data and an inconsistent legacy reference
+
+    do {
+        let legacy = release626.replacingOccurrences(of: "REFERENCES compile_profiles", with: "REFERENCES COMPILE_PROFILES") + usedRows + """
+        PRAGMA foreign_keys = OFF;
+        DROP TABLE claims;
+        DROP TABLE block_compilation_cache;
+        DROP TABLE blocks;
+        DROP TABLE IF EXISTS applied_migrations;
+        INSERT INTO temporal_contexts (temporal_context_id, label, kind) VALUES ('t', 'kept', 'test');
+        INSERT INTO compile_jobs (compile_job_id, profile_id, created_at) VALUES ('j', 'missing-profile', 1);
+        PRAGMA user_version = 3;
+        """
+        let (root, path) = project("release-6273", sql: legacy)
+        let before = names(path, "SELECT name FROM sqlite_master WHERE type = 'table'")
+        check(before.count == 37 && scalar(path, "PRAGMA user_version") == 3, "the 6.27.3 fixture has 37 physical tables and schema version 3")
+        let database = try await SemanticDatabase.open(workspacePath: root)
+        let after = names(path, "SELECT name FROM sqlite_master WHERE type = 'table'")
+        check(database.dbPath == path && scalar(path, "PRAGMA user_version") == 4, "migration 4 opens the previous release database in place")
+        check(scalar(path, "SELECT count(*) FROM temporal_contexts") == 1 && scalar(path, "SELECT count(*) FROM compile_jobs") == 1,
+              "nonempty unused tables and their rows are retained")
+        check(after.contains("compile_profiles") && scalar(path, "SELECT count(*) FROM compile_profiles") == 0,
+              "an empty parent of a retained child is kept, even with an inconsistent, differently cased reference")
+        check(!after.contains("entities") && !after.contains("recompute_nodes") && !after.contains("chunks"),
+              "empty candidates with no retained dependants are removed")
+        check(before.count - after.count == 16 && after.count == 21, "16 empty tables were dropped; three candidates remain with or supporting data")
+        let found = await database.search(query: "zebra").map(\.documentId)
+        check(found == ["docs/alpha.md"], "the previous release's search index remains usable")
     }
 
     // MARK: - A file of an older release (fewer tables and columns, same version stamp)

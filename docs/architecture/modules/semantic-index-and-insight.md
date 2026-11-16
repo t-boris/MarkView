@@ -23,7 +23,7 @@ What this subsystem owns:
 
 - **Workspace database engine.** `SemanticDatabase` is an `actor` over the system `SQLite3` C API (`AR-37`): the connection
   belongs to the actor, so no statement runs on the main thread. It opens `.dde/state.db` through `SQLiteSchema` and
-  `SemanticSchema.migrations` (`AR-38`), which leave 32 tables, and gives typed helpers to the rest of the app
+  `SemanticSchema.migrations` (`AR-38`), which leave 13 logical tables in a new database (plus five FTS shadow tables), and gives typed helpers to the rest of the app
   (`MarkView/Models/Shared/SemanticDatabase.swift`, `SemanticSchema.swift`; the architecture snapshot helpers are in
   `MarkView/Models/Architecture/SemanticDatabase+Architecture.swift`).
 - **Structural (no-LLM) indexing.** `StructuralIndexer` walks the folder once. It records directories as `modules`, each `.md`
@@ -67,7 +67,7 @@ What it does **not** own:
 | Path | Role |
 |---|---|
 | `MarkView/Models/Shared/SemanticDatabase.swift` | The `actor`: open, typed helpers for documents, blocks, modules, symbols, relations, FTS, usage stats |
-| `MarkView/Models/Shared/SemanticSchema.swift` | The ordered `SemanticSchema.migrations` (version 1 = docId scheme, version 2 = the 6.26 table set, version 3 = drop the never-read block tables), the pragmas and the busy timeout |
+| `MarkView/Models/Shared/SemanticSchema.swift` | The ordered `SemanticSchema.migrations` (version 1 = docId scheme, version 2 = the 6.26 table set, version 3 = drop the never-read block tables, version 4 = drop empty unused tables when no retained table depends on them), the pragmas and the busy timeout |
 | `Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift` | `SQLiteMigration`, `SQLiteSchema.open`: version check, migration steps in one transaction each, backup of an unreadable file |
 | `MarkView/Models/Architecture/SemanticDatabase+Architecture.swift` | `saveArchitecture` / `loadArchitecture` and the review cache over the `arch_*` tables |
 | `MarkView/Models/Insight/SemanticUsage.swift` | `CLICompletion.Result.record(in:)`: queues `addUsage` on the database actor |
@@ -463,13 +463,14 @@ action and session):
   - Step 3 "drop the never-read block tables" drops `block_compilation_cache`, `claims` and `blocks` (children first). With
     foreign keys on, dropping `blocks` alone would delete the rows of the two children and leave their foreign keys naming a
     table that is gone. `claims` had no writer, `block_compilation_cache` never had one, and no code read any of the three.
+  - Step 4 removes empty candidates after release 6.29.0 logged row counts. It removes children first and keeps a table if it has rows or a retained table has a foreign key to it.
   - A file with a newer version, or a step that fails (and rolls back), is left untouched: the session uses an in-memory index
     (`dbPath == nil`). An unreadable file is moved to a dated backup and rebuilt.
 
 ### 6.2 Tables
 
 Timestamps are Unix seconds (`INTEGER`). "Used" means some code outside
-`SemanticDatabase.swift` reads or writes the table at runtime. The 32 tables are the ones that remain after `SemanticSchema` step 3 (step 2 creates 35; step 3 drops `blocks`, `claims` and `block_compilation_cache`).
+`SemanticDatabase.swift` reads or writes the table at runtime. The following table describes the 32 logical tables after step 3. Step 4 removes 19 unused tables when empty and unreferenced; nonempty candidates and parents needed by retained tables remain in older databases.
 
 | Table | Columns (PK first) | Indexes / FKs | Used? |
 |---|---|---|---|

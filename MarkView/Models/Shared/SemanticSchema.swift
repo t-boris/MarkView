@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -28,6 +29,7 @@ enum SemanticSchema {
         SQLiteMigration(version: 1, name: "docId scheme") { try clearRowsKeyedByTheOldDocumentIds($0) },
         SQLiteMigration(version: 2, name: "table set of release 6.26") { try createCurrentTables($0) },
         SQLiteMigration(version: 3, name: "drop the never-read block tables") { try dropBlockTables($0) },
+        SQLiteMigration(version: 4, name: "drop empty unused tables") { try dropEmptyUnusedTables($0) },
     ]
 
     /// A file with a `documents` table and no version predates the docId scheme (path relative to the root): its document,
@@ -48,6 +50,73 @@ enum SemanticSchema {
     private static func dropBlockTables(_ db: OpaquePointer) throws {
         for table in ["block_compilation_cache", "claims", "blocks"] {
             try SQLiteSchema.execute(db, "DROP TABLE IF EXISTS \(table)")
+        }
+    }
+
+    /// Candidates observed by release 6.29.0. A nonempty table, or a parent of a retained table, stays intact.
+    static let unusedTables = [
+        "entities", "entity_relations", "temporal_contexts", "transitions", "diagnostics", "ai_jobs",
+        "compile_profiles", "compile_jobs", "compile_artifacts", "document_templates", "completeness_evaluations",
+        "recompute_nodes", "recompute_edges", "artifacts", "chunks", "quality_tags", "citations", "change_plans", "communities",
+    ]
+
+    /// Read names or fail the migration. Identifiers read from the database are quoted before use in PRAGMA.
+    private static func stringColumn(_ db: OpaquePointer, sql: String, column: Int32) throws -> [String] {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw SQLiteSchemaError.statementFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        var values: [String] = []
+        while true {
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE { return values }
+            guard result == SQLITE_ROW else { throw SQLiteSchemaError.statementFailed(String(cString: sqlite3_errmsg(db))) }
+            guard let value = sqlite3_column_text(statement, column) else {
+                throw SQLiteSchemaError.statementFailed("A schema identifier was null")
+            }
+            values.append(String(cString: value))
+        }
+    }
+
+    private static func quotedIdentifier(_ name: String) -> String {
+        "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
+    private static func hasRows(_ db: OpaquePointer, table: String) throws -> Bool {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM \(quotedIdentifier(table)) LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
+            throw SQLiteSchemaError.statementFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW: return true
+        case SQLITE_DONE: return false
+        default: throw SQLiteSchemaError.statementFailed(String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
+    /// Remove only empty candidates. A retained table may depend on an empty parent (including an older inconsistent file),
+    /// so inspect every foreign key and remove children first. The enclosing migration transaction makes the change atomic.
+    private static func dropEmptyUnusedTables(_ db: OpaquePointer) throws {
+        var present = Set(try stringColumn(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'", column: 0))
+        var parentsByChild: [String: Set<String>] = [:]
+        for child in present {
+            let pragma = "PRAGMA foreign_key_list(\(quotedIdentifier(child)))"
+            parentsByChild[child] = Set(try stringColumn(db, sql: pragma, column: 2).map { $0.lowercased() })
+        }
+        var changed = true
+        while changed {
+            changed = false
+            for table in unusedTables where present.contains(table) {
+                let referenced = present.contains { child in
+                    child != table && (parentsByChild[child]?.contains(table.lowercased()) ?? false)
+                }
+                guard !referenced, try !hasRows(db, table: table) else { continue }
+                try SQLiteSchema.execute(db, "DROP TABLE \(quotedIdentifier(table))")
+                present.remove(table)
+                changed = true
+            }
         }
     }
 
