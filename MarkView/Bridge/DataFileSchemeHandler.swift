@@ -9,6 +9,7 @@ final class DataFileSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "markview-data"
 
     var isAllowed: (URL) -> Bool = { _ in false }
+    private var open: [ObjectIdentifier: WKURLSchemeTask] = [:]
 
     static func address(of url: URL) -> String {
         var components = URLComponents()
@@ -22,15 +23,20 @@ final class DataFileSchemeHandler: NSObject, WKURLSchemeHandler {
         guard let requestURL = task.request.url else { return task.didFailWithError(URLError(.badURL)) }
         let file = URL(fileURLWithPath: requestURL.path)
         guard isAllowed(file) else { return respond(task, url: requestURL, status: 403, data: Data()) }
+        let id = ObjectIdentifier(task as AnyObject)
+        open[id] = task
         DispatchQueue.global(qos: .userInitiated).async {
             let data = try? Data(contentsOf: file, options: .mappedIfSafe)
             DispatchQueue.main.async {
+                guard let task = self.open.removeValue(forKey: id) else { return }
                 self.respond(task, url: requestURL, status: data == nil ? 404 : 200, data: data ?? Data())
             }
         }
     }
 
-    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
+        open.removeValue(forKey: ObjectIdentifier(task as AnyObject))
+    }
 
     private func respond(_ task: WKURLSchemeTask, url: URL, status: Int, data: Data) {
         let headers = ["Content-Type": "application/octet-stream", "Content-Length": String(data.count),

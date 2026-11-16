@@ -152,7 +152,7 @@ extension QAWebFaultTests {
 }
 
 @MainActor
-private final class PrototypeSchemeProbe: NSObject, WKURLSchemeTask {
+private final class SchemeTaskProbe: NSObject, WKURLSchemeTask {
     let request: URLRequest
     private(set) var callbacks = 0
     var finished: (() -> Void)?
@@ -175,15 +175,42 @@ extension QAWebFaultTests {
         let webView = WKWebView()
         let url = try XCTUnwrap(PrototypeSchemeHandler.address(of: "index.html"))
         let completed = expectation(description: "a live task is answered")
-        let live = PrototypeSchemeProbe(url: url)
+        let live = SchemeTaskProbe(url: url)
         live.finished = { completed.fulfill() }
         handler.webView(webView, start: live)
         await fulfillment(of: [completed], timeout: 5)
         XCTAssertGreaterThan(live.callbacks, 0)
-        let stopped = PrototypeSchemeProbe(url: url)
+        let stopped = SchemeTaskProbe(url: url)
         handler.webView(webView, start: stopped)
         handler.webView(webView, stop: stopped)
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(stopped.callbacks, 0, "WebKit must never be answered after it stops a task")
+    }
+}
+
+
+extension QAWebFaultTests {
+    @MainActor
+    func testStoppedDataSchemeTaskIsNotAnswered() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-data-cancel-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("data.csv")
+        try "a,b\n1,2\n".write(to: file, atomically: true, encoding: .utf8)
+        let handler = DataFileSchemeHandler()
+        handler.isAllowed = { $0 == file }
+        let webView = WKWebView()
+        let url = try XCTUnwrap(URL(string: DataFileSchemeHandler.address(of: file)))
+        let completed = expectation(description: "a live data task is answered")
+        let live = SchemeTaskProbe(url: url)
+        live.finished = { completed.fulfill() }
+        handler.webView(webView, start: live)
+        await fulfillment(of: [completed], timeout: 5)
+        XCTAssertGreaterThan(live.callbacks, 0)
+        let stopped = SchemeTaskProbe(url: url)
+        handler.webView(webView, start: stopped)
+        handler.webView(webView, stop: stopped)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(stopped.callbacks, 0, "WebKit must not be answered after it stops a data task")
     }
 }
