@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 219,
+  "suiteCount": 218,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -3129,7 +3129,10 @@
         "MarkView/Models/Workspace/WebClip.swift",
         "MarkView/Views/Browser/BrowserPopup.swift",
         "MarkViewHostedTests/WebPreviewHostTests.swift",
-        "tools/tests/ScriptedPrompts.swift"
+        "tools/tests/ScriptedPrompts.swift",
+        "MarkView/Models/Research/ResearchMapDocument.swift",
+        "MarkView/Models/Research/ResearchMapTranslation.swift",
+        "MarkViewHostedTests/ResearchMapTranslationHostTests.swift"
       ]
     },
     {
@@ -3522,21 +3525,6 @@
         "MarkView/Models/Research/ResearchMapRun.swift",
         "tools/tests/ResearchMapRunTests.swift",
         "tools/tests/research-map-run-tests.sh"
-      ]
-    },
-    {
-      "name": "research-map-translation-tests",
-      "script": "tools/tests/research-map-translation-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Research/ResearchDocument.swift",
-        "MarkView/Models/Research/ResearchMapDocument.swift",
-        "MarkView/Models/Research/ResearchMapTranslation.swift",
-        "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/AIOperationStub.swift",
-        "tools/tests/ResearchMapTranslationTests.swift",
-        "tools/tests/research-map-translation-tests.sh"
       ]
     },
     {

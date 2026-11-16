@@ -592,6 +592,7 @@
 		5C53CF7160F54D2990F02F4C /* TerminalLinkHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B17A8D76684B4F9592BD54 /* TerminalLinkHostTests.swift */; };
 		15E69A3439704D159483786A /* WebPreviewHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 089D02CC77D14928969DB172 /* WebPreviewHostTests.swift */; };
 		F3B533C46B3340638A87E67A /* ScriptedPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19E67C3453746FB95A47661 /* ScriptedPrompts.swift */; };
+		444B578687BC43F18C276F58 /* ResearchMapTranslationHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6928EB50FE474AEB9F159D3B /* ResearchMapTranslationHostTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1299,6 +1300,7 @@
 		75B17A8D76684B4F9592BD54 /* TerminalLinkHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkHostTests.swift; sourceTree = "<group>"; };
 		089D02CC77D14928969DB172 /* WebPreviewHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPreviewHostTests.swift; sourceTree = "<group>"; };
 		B19E67C3453746FB95A47661 /* ScriptedPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScriptedPrompts.swift; path = ../tools/tests/ScriptedPrompts.swift; sourceTree = "<group>"; };
+		6928EB50FE474AEB9F159D3B /* ResearchMapTranslationHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapTranslationHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2519,6 +2521,7 @@
 				75B17A8D76684B4F9592BD54 /* TerminalLinkHostTests.swift */,
 				089D02CC77D14928969DB172 /* WebPreviewHostTests.swift */,
 				B19E67C3453746FB95A47661 /* ScriptedPrompts.swift */,
+				6928EB50FE474AEB9F159D3B /* ResearchMapTranslationHostTests.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3371,6 +3374,7 @@
 				5C53CF7160F54D2990F02F4C /* TerminalLinkHostTests.swift in Sources */,
 				15E69A3439704D159483786A /* WebPreviewHostTests.swift in Sources */,
 				F3B533C46B3340638A87E67A /* ScriptedPrompts.swift in Sources */,
+				444B578687BC43F18C276F58 /* ResearchMapTranslationHostTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

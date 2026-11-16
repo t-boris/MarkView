@@ -1,9 +1,15 @@
-// Checks the pure part of translating a research map (MarkView/Models/Research/ResearchMapTranslation.swift) against REQ-014 and DEC-015.
 import Foundation
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
+final class ResearchMapTranslationHostTests: XCTestCase {
+    func testTranslation() {
 var failures = 0
+var checks = 0
 func check(_ name: String, _ condition: Bool) {
-    if condition { print("ok  \(name)") } else { failures += 1; print("FAIL \(name)") }
+    checks += 1
+    if !condition { failures += 1; print("FAIL \(name)") }
 }
 typealias M = ResearchMap
 typealias T = ResearchMapTranslation
@@ -182,7 +188,7 @@ check("the answer's order does not matter", { var m = hand; var a = handAnswer; 
 // MARK: The real map
 
 // A copy of a large real map, given by the environment (RESEARCH_MAP_REAL) or found in the project; the checks are skipped without one.
-let realPath = ProcessInfo.processInfo.environment["RESEARCH_MAP_REAL"] ?? "docs/research/2026-11-05-issues-management.md"
+let realPath = ProcessInfo.processInfo.environment["RESEARCH_MAP_REAL"] ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("docs/research/2026-11-05-issues-management.md").path
 if let text = try? String(contentsOfFile: realPath, encoding: .utf8), let real = parsed(text) {
     let (done, applied) = translateAll(real)
     check("the real map is translated batch by batch: every node counted once (\(real.nodes.count) nodes)", applied.map(\.translatedCount).reduce(0, +) == real.nodes.count && applied.allSatisfy { $0.keptOriginal.isEmpty })
@@ -368,5 +374,8 @@ check("the language code comes from its name", T.languageCode(for: "English") ==
 check("an unknown language becomes a short slug and nothing becomes translated", T.languageCode(for: "Klingon") == "klingon" && T.languageCode(for: "Ελληνικά") == "translated" && T.languageCode(for: "") == "translated")
 check("the app offers English, Russian, German, Spanish and French with their codes", T.languages.map(\.name) == ["English", "Russian", "German", "Spanish", "French"] && T.languages.allSatisfy { T.languageCode(for: $0.name) == $0.code })
 
-if failures > 0 { print("\(failures) FAILED"); exit(1) }
-print("all ok")
+
+        print("Research map translation hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
+}
