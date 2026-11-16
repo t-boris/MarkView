@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import XCTest
 @testable import MarkViewCore
 
@@ -8,19 +9,21 @@ import XCTest
 /// the input pipe and how the child ended.
 final class SubprocessStartTests: XCTestCase {
     /// What the callbacks of one child delivered, in order. `events` holds "out", "err" and "exit" markers.
-    // unchecked Sendable: `lock` guards every field.
-    private final class Recorder: @unchecked Sendable {
-        private let lock = NSLock()
-        private var out = Data(), err = Data()
-        private var marks: [String] = []
-        private var ended: SubprocessExit?
-        func stdout(_ data: Data) { lock.lock(); out.append(data); marks.append("out"); lock.unlock() }
-        func stderr(_ data: Data) { lock.lock(); err.append(data); marks.append("err"); lock.unlock() }
-        func exit(_ result: SubprocessExit) { lock.lock(); ended = result; marks.append("exit"); lock.unlock() }
-        var stdoutText: String { lock.lock(); defer { lock.unlock() }; return String(decoding: out, as: UTF8.self) }
-        var stderrText: String { lock.lock(); defer { lock.unlock() }; return String(decoding: err, as: UTF8.self) }
-        var events: [String] { lock.lock(); defer { lock.unlock() }; return marks }
-        var result: SubprocessExit? { lock.lock(); defer { lock.unlock() }; return ended }
+    private final class Recorder: Sendable {
+        private struct State: Sendable {
+            var out = Data()
+            var err = Data()
+            var marks: [String] = []
+            var ended: SubprocessExit?
+        }
+        private let state = OSAllocatedUnfairLock(initialState: State())
+        func stdout(_ data: Data) { state.withLock { $0.out.append(data); $0.marks.append("out") } }
+        func stderr(_ data: Data) { state.withLock { $0.err.append(data); $0.marks.append("err") } }
+        func exit(_ result: SubprocessExit) { state.withLock { $0.ended = result; $0.marks.append("exit") } }
+        var stdoutText: String { state.withLock { String(decoding: $0.out, as: UTF8.self) } }
+        var stderrText: String { state.withLock { String(decoding: $0.err, as: UTF8.self) } }
+        var events: [String] { state.withLock { $0.marks } }
+        var result: SubprocessExit? { state.withLock { $0.ended } }
     }
 
     private func start(_ spec: SubprocessSpec, _ recorder: Recorder) throws -> SubprocessChild {
