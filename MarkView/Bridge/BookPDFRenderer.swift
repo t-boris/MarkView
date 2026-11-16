@@ -7,6 +7,12 @@ import PDFKit
 import ImageIO
 import UniformTypeIdentifiers
 
+/// WebKit returns values on the main actor; the continuation and its consumer remain on that actor.
+// unchecked Sendable: the wrapped WebKit value is never accessed outside the main actor.
+private struct BookPDFWebValue: @unchecked Sendable {
+    let value: Any
+}
+
 /// Owns one isolated renderer per export, including its navigation lifetime. JavaScript
 /// typesets real pages; PDFKit assembles them and adds portable links and a bookmark tree.
 @MainActor
@@ -159,10 +165,12 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
     private func call(_ script: String, _ arguments: [String: Any] = [:]) async throws -> Any? {
         try Task.checkCancellation()
         do {
-            let value: Any = try await perform { completion in
-                webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page, completionHandler: completion)
+            let value: BookPDFWebValue = try await perform { completion in
+                webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page) { result in
+                    completion(result.map { BookPDFWebValue(value: $0) })
+                }
             }
-            return value
+            return value.value
         } catch {
             let failure = error as NSError
             if failure.domain == WKError.errorDomain,
@@ -176,17 +184,15 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
 
     /// WebKit does not reliably resume its async-JavaScript completion when navigation destroys
     /// a pending Promise. Own each continuation and retire it exactly once on cancellation.
-    private func perform<T>(_ start: (@escaping @Sendable (Swift.Result<T, Error>) -> Void) -> Void) async throws -> T {
+    private func perform<T: Sendable>(_ start: (@escaping @MainActor @Sendable (Swift.Result<T, Error>) -> Void) -> Void) async throws -> T {
         let id = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
                 operations[id] = { continuation.resume(throwing: CancellationError()) }
                 start { [weak self] result in
-                    Task { @MainActor in
-                        guard self?.operations.removeValue(forKey: id) != nil else { return }
-                        continuation.resume(with: result)
-                    }
+                    guard self?.operations.removeValue(forKey: id) != nil else { return }
+                    continuation.resume(with: result)
                 }
             }
         } onCancel: { Task { @MainActor [weak self] in self?.operations.removeValue(forKey: id)?() } }
