@@ -520,12 +520,6 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
     }
 
 
-    /// Show the file tree at `url`'s folder with `url` highlighted.
-    func revealInFileTree(url: URL) {
-        chrome.showFileTree = true
-        requests.fileTreeRevealRequest = url.standardizedFileURL
-    }
-
     // MARK: - File tree and graph tools
 
     /// Reload the file tree from disk. Kept for the regions of this file that other decompositions still move out (`AR-14` steps 2-7).
@@ -604,6 +598,9 @@ class WorkspaceManager: ObservableObject, TabsProviding, FeatureFlowTabs, Window
 
 /// What the terminals read of the window: the browser agents drive, and the editor (`AITerminalsController`).
 extension WorkspaceManager: FileOperationsHost {}
+
+/// The commands a view of this window asks of the window as a whole (`AR-14`): the window puts itself in its views' environment.
+extension WorkspaceManager: WindowCommands {}
 
 extension WorkspaceManager: AITerminalsHost {
     var browserControlID: UUID { browser.controlID }

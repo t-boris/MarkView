@@ -1,5 +1,8 @@
 import AppKit
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What an archive tab shows: its entries as a tree, searchable; a click opens a file from it in a
 /// viewer (a temporary copy), and the archive can be unpacked next to itself or elsewhere.
@@ -29,6 +32,8 @@ final class ArchiveModel: ObservableObject {
     @Published var notice: String?
     @Published var error: String?
     private(set) var extractedTo: URL?
+    /// The unpacking this archive started: it ends with the tab (the model is released), and a new one replaces its own kind (`AR-19`).
+    private let tasks = TaskBag()
 
     init(url: URL) { self.url = url }
 
@@ -117,14 +122,15 @@ final class ArchiveModel: ObservableObject {
         opening = entry.path
         error = nil
         let url = url
-        Task {
+        tasks.store(Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { Result { try Archive.extractEntry(entry, from: url) } }.value
+            guard let self, !Task.isCancelled else { return }
             opening = nil
             switch result {
             case .success(let copy): open(copy)
             case .failure(let failure): error = failure.localizedDescription
             }
-        }
+        }, for: "open")
     }
 
     /// Unpack everything into a new folder; `parent` nil = next to the archive.
@@ -134,11 +140,12 @@ final class ArchiveModel: ObservableObject {
         error = nil
         notice = nil
         let url = url, list = entries
-        Task {
+        tasks.store(Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
                 let folder = Archive.uniqueFolder(for: url, in: parent)
                 return Result { try Archive.extractAll(url, to: folder, entries: list); return folder }
             }.value
+            guard let self, !Task.isCancelled else { return }
             busy = nil
             switch result {
             case .success(let folder):
@@ -147,7 +154,7 @@ final class ArchiveModel: ObservableObject {
                 done(folder)
             case .failure(let failure): error = failure.localizedDescription
             }
-        }
+        }, for: "extract")
     }
 
     func showExtracted() {
@@ -157,7 +164,7 @@ final class ArchiveModel: ObservableObject {
 
 struct ArchiveTabView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
     @StateObject private var model: ArchiveModel
 
     init(url: URL) { _model = StateObject(wrappedValue: ArchiveModel(url: url)) }
@@ -251,7 +258,7 @@ struct ArchiveTabView: View {
     private var list: some View { ArchiveEntriesList(model: model) }
 
     private func extract(into parent: URL?) {
-        model.extract(into: parent) { _ in workspaceManager.refreshFileTree() }
+        model.extract(into: parent) { _ in fileTree.refresh() }
     }
 
     private func chooseAndExtract() {
@@ -274,7 +281,7 @@ struct ArchiveTabView: View {
 /// (the Contents panel is narrow).
 struct ArchiveEntriesList: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
     @ObservedObject var model: ArchiveModel
     var compact = false
 
@@ -317,7 +324,7 @@ struct ArchiveEntriesList: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if row.isDirectory { model.toggle(entry.path) }
-            else if !entry.isSymlink { model.open(entry) { workspaceManager.openFile($0) } }
+            else if !entry.isSymlink { model.open(entry) { window?.openFile($0) } }
         }
         .help(entry.isSafe ? entry.path : "\(entry.path) — leaves the folder, never read or written")
     }

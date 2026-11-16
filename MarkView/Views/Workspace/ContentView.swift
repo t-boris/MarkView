@@ -196,16 +196,19 @@ struct ContentView: View {
 }
 
 extension View {
-    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
-    /// the translation in progress): `@EnvironmentObject` for each.
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, the project, its
+    /// folder tree, Git, the translation in progress): `@EnvironmentObject` for each. And the window's own commands, which a view reads
+    /// as `@Environment(\.windowCommands)` (`WindowCommands`).
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
             .environmentObject(workspace.chrome)
             .environmentObject(workspace.requests)
+            .environmentObject(workspace.project)
             .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
             .environmentObject(workspace.translator)
+            .environment(\.windowCommands, workspace)
     }
 }
 
@@ -701,7 +704,7 @@ private struct WorkspaceWindow: View {
 
     private var workspaceCenter: some View {
         VStack(spacing: 0) {
-            TabBarView().environmentObject(workspaceManager)
+            TabBarView(browser: workspaceManager.browser)
             filesCenter
         }
         .background(palette.bg)
@@ -735,7 +738,6 @@ private struct WorkspaceWindow: View {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .pdf(let reader) = activeTab.kind {
                         PDFReaderView(url: activeTab.url, reader: reader)
@@ -745,7 +747,6 @@ private struct WorkspaceWindow: View {
                             .id(activeTab.id)
                     } else if case .archive = activeTab.kind {
                         ArchiveTabView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .browser(let session) = activeTab.kind {
                         BrowserTabView(session: session)

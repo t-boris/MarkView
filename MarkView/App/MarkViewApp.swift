@@ -507,7 +507,7 @@ enum DDESettingsWindow {
         shownWorkspace = workspace
         let size = window.contentLayoutRect.size
         let hosting = NSHostingView(
-            rootView: DDESettingsView()
+            rootView: DDESettingsView(terminals: workspace.terminals)
                 .environmentObject(workspace)
                 .environmentObject(workspace.windowUI)
                 .observingParts(of: workspace)
