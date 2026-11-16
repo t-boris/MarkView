@@ -9,6 +9,8 @@ struct WorkflowTemplatesSettings: View {
     @ObservedObject var library: WorkflowTemplateLibrary
     @State private var deleting: WorkflowTemplate?
     @State private var message: String?
+    /// Counts the clicks on "Open the templates folder"; the folder is made and shown by the task of the view.
+    @State private var folderOpens = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -29,19 +31,23 @@ struct WorkflowTemplatesSettings: View {
             }
             if let message { Text(message).uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true) }
             HStack(spacing: 8) {
-                Button("Open the templates folder") { Task { let folder = await library.ensureFolder(); NSWorkspace.shared.open(folder) } }
+                Button("Open the templates folder") { folderOpens += 1 }
                     .controlSize(.small)
                 Text(library.store.folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                     .uiFont(size: 10, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle)
             }
         }
         .task { await library.reload() }
+        .task(id: folderOpens) {
+            guard folderOpens > 0 else { return }
+            NSWorkspace.shared.open(await library.ensureFolder())
+        }
         .confirmationDialog("Delete the template “\(deleting?.name ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 guard let target = deleting else { return }
                 deleting = nil
-                Task { message = await library.delete(target.id) }
+                library.startDelete(target.id) { message = $0 }
             }
             Button("Cancel", role: .cancel) { deleting = nil }
         } message: {
@@ -60,7 +66,7 @@ struct WorkflowTemplatesSettings: View {
                     Text("It asks for a pull request, checks or a release, which need GitHub connected in Settings → GitHub.")
                         .uiFont(size: 10).foregroundColor(palette.orange).fixedSize(horizontal: false, vertical: true)
                 }
-                Button("Use the built-in default instead") { Task { message = await library.setDefault(nil) } }.controlSize(.small)
+                Button("Use the built-in default instead") { library.startSetDefault(nil) { message = $0 } }.controlSize(.small)
             } else {
                 if let missing = library.listing.defaultID {
                     Text("The template chosen for new projects (“\(missing)”) is gone or cannot be used, so the built-in default applies.")
@@ -97,9 +103,9 @@ struct WorkflowTemplatesSettings: View {
             }
             HStack(spacing: 8) {
                 if isDefault {
-                    Button("Stop using for new projects") { Task { message = await library.setDefault(nil) } }.controlSize(.small)
+                    Button("Stop using for new projects") { library.startSetDefault(nil) { message = $0 } }.controlSize(.small)
                 } else {
-                    Button("Use for new projects") { Task { message = await library.setDefault(template.id) } }.controlSize(.small)
+                    Button("Use for new projects") { library.startSetDefault(template.id) { message = $0 } }.controlSize(.small)
                 }
                 Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([library.store.url(of: template.id)]) }.controlSize(.small)
                 Button("Delete…", role: .destructive) { deleting = template }.controlSize(.small)

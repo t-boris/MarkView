@@ -748,6 +748,8 @@ final class FeatureStore: ObservableObject {
         guard let project = lifecycleProject else { return }
         let actor = lifecycleActor, started = Date()
         let fallback = AIAssistantPreferences.model(for: tool, project: root) ?? AIAssistantPreferences.configuredModel(for: tool)
+        // The start is recorded once, from values copied above, even when the folder or the window closes right after the click (BUG-008).
+        // task: writes one journal record from copied values and touches no store; it must not be dropped by closing the folder
         Task.detached(priority: .userInitiated) {
             let model = Self.answeredModel(tool, directory: directory, since: runningSince) ?? fallback ?? tool.displayName
             await MainActor.run {

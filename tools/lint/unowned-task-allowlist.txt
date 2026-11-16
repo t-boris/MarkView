@@ -14,11 +14,6 @@
 2 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
 6 MarkView/Models/Cockpit/CockpitExecution.swift
 4 MarkView/Models/Git/GitClient.swift
-1 MarkView/Models/Lifecycle/CycleTimeModel.swift
-1 MarkView/Models/Lifecycle/FeatureStore+Lifecycle.swift
-1 MarkView/Models/Lifecycle/FeatureStore.swift
-1 MarkView/Models/Lifecycle/IssueSyncRun.swift
-1 MarkView/Models/Lifecycle/WorkflowEditorModel.swift
 8 MarkView/Models/ProjectOps/ProjectOperationsStore.swift
 1 MarkView/Models/Prototype/PrototypeHandoffRun.swift
 3 MarkView/Models/Prototype/PrototypeSession.swift
@@ -42,8 +37,6 @@
 8 MarkView/Views/Deployments/DeploymentsView.swift
 11 MarkView/Views/Git/GitHubViews.swift
 18 MarkView/Views/Git/GitView.swift
-1 MarkView/Views/Lifecycle/WorkflowFlowPicker.swift
-5 MarkView/Views/Lifecycle/WorkflowTemplatesSettings.swift
 1 MarkView/Views/Prototype/PrototypeHandoffDraftView.swift
 2 MarkView/Views/Prototype/PrototypeStudioView.swift
 2 MarkView/Views/QA/QARunReportViews.swift

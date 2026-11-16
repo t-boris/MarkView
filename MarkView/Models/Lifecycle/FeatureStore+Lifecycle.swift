@@ -624,6 +624,9 @@ final class IssueLifecycleCoordinator {
         let revision = workflow.revision
         let loaded = store.hasLoaded
         preloading = true
+        // The pass over the journal ends by itself and must reach `preloading = false` and the end of `recoveringProjects`; cancelling it
+        // would not stop the background read, and it holds the coordinator weakly.
+        // task: ends by itself, clears `preloading` and the recovering mark of the project; holds the coordinator weakly
         Task { [weak self] in
             let (outcome, records) = await Task.detached(priority: .utility) {
                 _ = parts.service.records()
