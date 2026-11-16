@@ -23,7 +23,7 @@ struct RemoteConnectionsView: View {
                 Text("Remote Assistants").uiFont(.title2, weight: .semibold)
                 Spacer()
                 Button("Done") {
-                    Task { await relaySettings.finishPendingChanges(); await connections.finishPendingChanges(); dismiss() }
+                    connections.startSaving(relaySettings: relaySettings) { dismiss() }
                 }.keyboardShortcut(.cancelAction)
             }
             Picker("Connection direction", selection: $connectionMode) {
@@ -75,17 +75,11 @@ struct RemoteConnectionsView: View {
                         }
                         if state.phase == .offline, !entry.revoking {
                             Button("Reconnect") {
-                                Task {
-                                    do { try await connections.reconnect(entry, host: terminals) }
-                                    catch { self.error = error.localizedDescription }
-                                }
+                                connections.startReconnect(entry, host: terminals) { show($0) }
                             }
                         }
                         Button(entry.revoking ? "Revoking…" : "Disconnect Access") {
-                            Task {
-                                do { try await connections.disconnect(entry) }
-                                catch { self.error = error.localizedDescription }
-                            }
+                            connections.startDisconnect(entry) { show($0) }
                         }.disabled(entry.revoking)
                     }
                     Text(state.detail).uiFont(.caption).foregroundColor(palette.textDim).textSelection(.enabled)
@@ -99,6 +93,12 @@ struct RemoteConnectionsView: View {
             }
             if !connections.entries.isEmpty { Divider() }
         }
+    }
+
+    /// A failed request of the store is shown; one that was replaced or cancelled is not a failure.
+    private func show(_ failure: Error?) {
+        guard let failure, !(failure is CancellationError) else { return }
+        error = failure.localizedDescription
     }
 
     private var work: some View {
@@ -123,13 +123,10 @@ struct RemoteConnectionsView: View {
                 Spacer()
                 Button(connecting ? "Connecting…" : "Connect") {
                     connecting = true; error = nil
-                    Task {
-                        defer { connecting = false }
-                        do {
-                            try await connections.connect(name: connectionName, code: connectionCode, provider: provider,
-                                model: model.isEmpty ? nil : model, resume: resume, host: terminals)
-                            connectionCode = ""; connectionName = ""
-                        } catch { self.error = error.localizedDescription }
+                    connections.startConnect(name: connectionName, code: connectionCode, provider: provider,
+                                             model: model.isEmpty ? nil : model, resume: resume, host: terminals) { failure in
+                        connecting = false
+                        if failure == nil { connectionCode = ""; connectionName = "" } else { show(failure) }
                     }
                 }
                 .disabled(connections.isLoading || connecting || connectionCode.isEmpty || terminals.root == nil)
@@ -156,12 +153,9 @@ struct RemoteConnectionsView: View {
             TextField("Connection name (for example, Work Mac)", text: $connectionName).textFieldStyle(.roundedBorder)
             Button(connecting ? "Saving…" : "Add Connection") {
                 connecting = true; error = nil
-                Task {
-                    defer { connecting = false }
-                    do {
-                        try await connections.allow(name: connectionName, relay: relaySettings.relayURL)
-                        connectionName = ""
-                    } catch { self.error = error.localizedDescription }
+                connections.startAllow(name: connectionName, relay: relaySettings.relayURL) { failure in
+                    connecting = false
+                    if failure == nil { connectionName = "" } else { show(failure) }
                 }
             }
             .disabled(connections.isLoading || connecting || relaySettings.isLoading)

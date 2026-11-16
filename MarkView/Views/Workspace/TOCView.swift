@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Document Contents panel. Legacy tabs remain for saved layouts and secondary routes.
 struct TOCView: View {
@@ -27,7 +30,7 @@ struct TOCView: View {
     private var tabContent: some View {
             switch layout.navigatorTab == .feature && !workspaceManager.flow.features.hasIssues ? .contents : layout.navigatorTab {
             case .contents: contentsList
-            case .search: WorkspaceSearchView().environmentObject(workspaceManager)
+            case .search: WorkspaceSearchView()
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
             case .terminal: contentsList
             case .feature:
@@ -44,7 +47,7 @@ struct TOCView: View {
     private var contentsList: some View {
         Group {
             if let tab = tabs.activeTab {
-                ContentsPanelView(tab: tab) { headingsList(tab) }
+                ContentsPanelView(tab: tab, terminals: workspaceManager.terminals) { headingsList(tab) }
             } else {
                 emptyState("No File Open")
             }
@@ -140,9 +143,12 @@ private struct TOCTabs<Content: View>: View {
 /// The meaning search of the project's Markdown documents (the semantic index): the Documents mode of the Search tab.
 struct DocumentSearchView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var project: ProjectContext
+    @Environment(\.windowCommands) private var window
     @State private var searchQuery = ""
     @State private var searchResults: [SemanticDatabase.SearchResult] = []
+    /// The search and the opening of a result this panel started: they end with the panel, and a new one replaces its own kind (`AR-19`).
+    @State private var tasks = TaskBag()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -181,34 +187,35 @@ struct DocumentSearchView: View {
     }
 
     private func performSearch() {
-        guard let db = workspaceManager.semanticDatabase, !searchQuery.isEmpty else { return }
+        guard let db = project.database, !searchQuery.isEmpty else { return }
         let query = searchQuery
         // The query runs on the database actor; an answer to an older query never replaces a newer one.
-        Task {
+        tasks.store(Task {
             let found = await db.search(query: query)
-            guard query == searchQuery else { return }
+            guard query == searchQuery, !Task.isCancelled else { return }
             searchResults = found
-        }
+        }, for: "search")
     }
 
     private func openSearchResult(_ result: SemanticDatabase.SearchResult) {
-        guard let root = workspaceManager.rootNode else { return }
+        guard let root = project.rootNode, let window else { return }
         let term = searchQuery
-        Task {
+        tasks.store(Task {
             // docIds are workspace-relative paths (or `@linked/...`): resolved directly, which is one file check.
-            var url = workspaceManager.project.fileURL(forDocumentId: result.documentId)
+            var url = project.fileURL(forDocumentId: result.documentId)
             if url == nil {
                 // Fallback by-name search: headings/entity names, or legacy filename docIds. A tree walk, so off the main thread.
                 let name = result.documentId, folder = root.url
                 url = await Task.detached(priority: .userInitiated) { BackgroundFileScans.firstFile(named: name, in: folder) }.value
             }
-            guard let url else { return }
-            workspaceManager.openFile(url)
+            guard let url, !Task.isCancelled else { return }
+            window.openFile(url)
             // Extract search term from snippet for scroll
             let searchTerm = term.prefix(40).replacingOccurrences(of: "'", with: "\\'")
             try? await Task.sleep(nanoseconds: 500_000_000)
-            NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: String(searchTerm))
-        }
+            guard !Task.isCancelled else { return }
+            NotificationCenter.default.post(.scrollToText, for: window, object: String(searchTerm))
+        }, for: "open")
     }
 }
 

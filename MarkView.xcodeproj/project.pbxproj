@@ -20,6 +20,7 @@
 		01833EC335A594FF5C294559 /* UIStudioTrackingLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */; };
 		02044E5B00D534734886BB62 /* IssueGitHubSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */; };
 		026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */; };
+		9EF2792990CDBF023DF8BF5A /* ArchiveModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 118950A2E23855D420E6F93E /* ArchiveModel.swift */; };
 		03CC33F577463F4CDCCA922A /* QARunAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */; };
 		03D87B6042D0A0AEFBCB5C2C /* CockpitRunList.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF341DD17D4509302202B99E /* CockpitRunList.swift */; };
 		04DF637E19889A6C91B6A0D4 /* UIStudioReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 677FA91946060D4B98EF58AE /* UIStudioReview.swift */; };
@@ -36,6 +37,7 @@
 		4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */; };
 		C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */; };
 		C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */; };
+		B5A49B91F2C5A5EF94791EAF /* WindowCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */; };
 		D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371B8D63C2F7DBE224FF185A /* WindowChrome.swift */; };
 		B27D1E2F3A4B5C6D7E8F9A01 /* WindowComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */; };
 		12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */; };
@@ -925,6 +927,7 @@
 		96429CBA553AACC7995D6F5E /* DeploymentAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentAgentTools.swift; sourceTree = "<group>"; };
 		96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppPreview.swift; sourceTree = "<group>"; };
 		9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveSupport.swift; sourceTree = "<group>"; };
+		118950A2E23855D420E6F93E /* ArchiveModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveModel.swift; sourceTree = "<group>"; };
 		97EBFDF3C6E387DF3E3B4B1E /* CockpitRunTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRunTimeline.swift; sourceTree = "<group>"; };
 		9845BC21274AB0C15237A10A /* DeploymentDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentDiscovery.swift; sourceTree = "<group>"; };
 		988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSearchView.swift; sourceTree = "<group>"; };
@@ -973,6 +976,7 @@
 		6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderOpenRequests.swift; sourceTree = "<group>"; };
 		6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotter.swift; sourceTree = "<group>"; };
 		2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRequests.swift; sourceTree = "<group>"; };
+		E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCommands.swift; sourceTree = "<group>"; };
 		371B8D63C2F7DBE224FF185A /* WindowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChrome.swift; sourceTree = "<group>"; };
 		A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowComposition.swift; sourceTree = "<group>"; };
 		BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileTreeStore.swift; sourceTree = "<group>"; };
@@ -1772,6 +1776,7 @@
 			isa = PBXGroup;
 			children = (
 				9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */,
+				118950A2E23855D420E6F93E /* ArchiveModel.swift */,
 				659CD2D529EC42B2A426EAAC /* DocumentFiles.swift */,
 				A6E0167483A13431C669BD04 /* DocumentScrollSideTable.swift */,
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
@@ -1811,6 +1816,7 @@
 				6124EAB34D9F63D89EDE83B2 /* FinderOpenRequests.swift */,
 				6931AECB3CE139417F325562 /* WindowSessionSnapshotter.swift */,
 				2E4B2E5DEA64DB99464AD48B /* WindowRequests.swift */,
+				E5F67DCD2653716CDAC32B5F /* WindowCommands.swift */,
 				371B8D63C2F7DBE224FF185A /* WindowChrome.swift */,
 				A17C0D1E2F3A4B5C6D7E8F90 /* WindowComposition.swift */,
 				BACADA901C56AC58E0B3B0CE /* WorkspaceFileTreeStore.swift */,
@@ -2528,6 +2534,7 @@
 				4618C98597316124EAB34D9F /* FinderOpenRequests.swift in Sources */,
 				C041BCC7EAEF6931AECB3CE1 /* WindowSessionSnapshotter.swift in Sources */,
 				C8154BE60D692E4B2E5DEA64 /* WindowRequests.swift in Sources */,
+				B5A49B91F2C5A5EF94791EAF /* WindowCommands.swift in Sources */,
 				D1B5AF536376371B8D63C2F7 /* WindowChrome.swift in Sources */,
 				B27D1E2F3A4B5C6D7E8F9A01 /* WindowComposition.swift in Sources */,
 				12372A07C54BD6115EFB9D95 /* WorkspaceFileTreeStore.swift in Sources */,
@@ -2567,6 +2574,7 @@
 				3F05808A1EC2557CCFC1A3A0 /* XRayCommand.swift in Sources */,
 				19D506E600C91FF4D84FFA92 /* CodeAndXRayCoordinator.swift in Sources */,
 				026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */,
+				9EF2792990CDBF023DF8BF5A /* ArchiveModel.swift in Sources */,
 				776B4CCD3D7E382170DA54D9 /* ArchiveTabView.swift in Sources */,
 				633818C4C0B55262B8E03D5D /* AutoAnalysisScheduler.swift in Sources */,
 				B18E28636FC66D02115209D4 /* BackdropLayerBuilders.swift in Sources */,

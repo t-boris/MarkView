@@ -196,17 +196,20 @@ struct ContentView: View {
 }
 
 extension View {
-    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, folder tree, Git,
-    /// the translation in progress, the feature flow): `@EnvironmentObject` for each.
+    /// Gives the views below the parts of `workspace` they redraw with (tabs, panel selection, panels shown, requests, the project, its
+    /// folder tree, Git, the translation in progress, the feature flow): `@EnvironmentObject` for each. And the window's own commands, which a view reads
+    /// as `@Environment(\.windowCommands)` (`WindowCommands`).
     func observingParts(of workspace: WorkspaceManager) -> some View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
             .environmentObject(workspace.chrome)
             .environmentObject(workspace.requests)
+            .environmentObject(workspace.project)
             .environmentObject(workspace.project.fileTree)
             .environmentObject(workspace.gitClient)
             .environmentObject(workspace.translator)
             .environmentObject(workspace.flow)
+            .environment(\.windowCommands, workspace)
     }
 }
 
@@ -606,7 +609,7 @@ private struct WorkspaceWindow: View {
     private var layoutMenu: some View {
         Menu {
             LayoutMenuItems(library: layouts.library, enabled: workspaceManager.rootNode != nil,
-                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+                            apply: { workspaceManager.applyLayoutPreset($0) }, reload: { layouts.startReload() })
         } label: {
             toolbarIcon("rectangle.3.group", width: toolbarIconWidth)
         }
@@ -702,7 +705,7 @@ private struct WorkspaceWindow: View {
 
     private var workspaceCenter: some View {
         VStack(spacing: 0) {
-            TabBarView().environmentObject(workspaceManager)
+            TabBarView(browser: workspaceManager.browser)
             filesCenter
         }
         .background(palette.bg)
@@ -736,7 +739,6 @@ private struct WorkspaceWindow: View {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .pdf(let reader) = activeTab.kind {
                         PDFReaderView(url: activeTab.url, reader: reader)
@@ -746,10 +748,9 @@ private struct WorkspaceWindow: View {
                             .id(activeTab.id)
                     } else if case .archive = activeTab.kind {
                         ArchiveTabView(url: activeTab.url)
-                            .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .browser(let session) = activeTab.kind {
-                        BrowserTabView(session: session)
+                        BrowserTabView(session: session, browser: workspaceManager.browser)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .prototype(let session) = activeTab.kind {
@@ -763,7 +764,7 @@ private struct WorkspaceWindow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                DiagnosticsBarView().environmentObject(workspaceManager)
+                DiagnosticsBarView()
             } else {
                 welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
@@ -818,13 +819,13 @@ private struct WorkspaceWindow: View {
     private func attachWindowSession() {
         guard let window = hostWindow, !sessionAttached else { return }
         sessionAttached = true
-        Task { @MainActor in
+        workspaceManager.taskBag.store(Task { @MainActor in
             await WindowSessionController.shared.attach(id: windowSessionID, window: window, workspace: workspaceManager) { id in
                 openWindow(id: WindowSessionController.sceneID, value: id)
             }
             restorationComplete = true
             drainPendingOpens(trigger: "restorationComplete")
-        }
+        }, for: "attach-session")
     }
 
     /// True when this view's window should receive "open in active window"
@@ -1058,6 +1059,8 @@ struct AIToolbarMenu: View {
     /// The models each tool offers, as loaded (Codex's list is read from disk, so off the main thread).
     @State private var catalog: [CLITool: [AIModelOption]] = [:]
     @State private var availability: [CLITool: Bool] = [:]
+    /// The look for a tool's CLI that "Check Again" starts: a second tap replaces the first, and it ends with the menu (`AR-19`).
+    @State private var checks = TaskBag()
     /// Bumped when any choice changes, so the menu shows the stored values.
     @State private var refresh = 0
     @State private var seenSnapshot = ""
@@ -1099,7 +1102,7 @@ struct AIToolbarMenu: View {
                 Button("Open AI Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
                 Button("Check Again") {
                     let selected = tool
-                    Task { availability[selected] = await CLIToolLocator.resolveThorough(selected) != nil }
+                    checks.store(Task { availability[selected] = await CLIToolLocator.resolveThorough(selected) != nil }, for: "check-" + selected.rawValue)
                 }
                 Divider()
             }
@@ -1250,8 +1253,7 @@ private struct FloatingAgentsView: View {
         let height = maximized ? available.height : (minimized ? min(headerHeight, available.height) : normalHeight)
         let x = maximized ? 0 : min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
         let y = maximized ? 0 : min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
-        return ModuleExplorerView()
-            .environmentObject(workspaceManager)
+        return ModuleExplorerView(terminals: workspaceManager.terminals)
             .accessibilityHidden(minimized)
             .allowsHitTesting(!minimized)
             .opacity(minimized ? 0 : 1)

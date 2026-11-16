@@ -21,6 +21,47 @@ enum RemoteProviderConfiguration {
 }
 
 @main enum SavedRemoteConnectionsTests {
+    /// Waits for the one answer a `start...` request gives.
+    @MainActor static func answer(_ start: (@escaping (Error?) -> Void) -> Void) async -> Error? {
+        await withCheckedContinuation { continuation in start { continuation.resume(returning: $0) } }
+    }
+
+    /// The requests of the Remote Assistants window run in the store: they start, a second one for the same connection replaces the
+    /// first, a failure is reported, and quitting cancels what is left.
+    @MainActor static func requestsOfTheWindow(_ store: RemoteConnectionsStore, keychain: RemoteRelayKeychain, workspace: StubHost) async throws {
+        let before = store.entries.count
+        let allowed = await answer { store.startAllow(name: "Started", relay: "http://127.0.0.1:16394", finished: $0) }
+        precondition(allowed == nil && store.entries.count == before + 1 && store.entries.last?.name == "Started", "startAllow adds the connection and reports success")
+        let failed = await answer { store.startAllow(name: "No relay", relay: "", finished: $0) }
+        precondition(failed != nil && store.entries.count == before + 1, "a failing request reports its reason and changes nothing")
+
+        // Reconnect: a second request for the same connection replaces the first, which is told it was cancelled and does not run.
+        let work = store.entries.first { $0.role == .work }!
+        let opens = workspace.opens
+        var answers: [Error?] = []
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            for _ in 0..<2 {
+                store.startReconnect(work, host: workspace) { answers.append($0); if answers.count == 2 { done.resume() } }
+            }
+        }
+        precondition(answers.count == 2 && answers[0] is CancellationError && answers[1] == nil, "the replaced reconnect is cancelled, the second one runs: \(answers)")
+        precondition(workspace.opens == opens + 1, "two reconnects at once open the assistant once: \(workspace.opens - opens)")
+
+        // The window's Done button waits for the Keychain writes, then calls back; quitting cancels one that is still waiting.
+        let defaults = UserDefaults(suiteName: "saved-remote-tests-" + UUID().uuidString)!
+        let relay = RemoteRelaySettings(defaults: defaults, keychain: RemoteRelayKeychain(service: "MarkView saved connection tests relay " + UUID().uuidString))
+        let saved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            store.startSaving(relaySettings: relay) { continuation.resume(returning: true) }
+        }
+        precondition(saved, "startSaving calls back when everything is written")
+        var called = false
+        store.startSaving(relaySettings: relay) { called = true }
+        store.suspend()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        precondition(!called, "quitting cancels a Done that is waiting")
+        print("PASS: The window's requests run in the store: start, replace, failure and quit")
+    }
+
     @MainActor static func main() async throws {
         let args = CommandLine.arguments
         let service = args.count > 2 ? args[2] : "MarkView saved connection tests " + UUID().uuidString
@@ -70,6 +111,7 @@ enum RemoteProviderConfiguration {
         precondition(wrong.opens == 0)
         reopened.suspend()
         print("PASS: Session close pauses; app restart reconnects only to the saved project")
+        try await requestsOfTheWindow(store, keychain: keychain, workspace: workspace)
         try await store.disconnect(store.entries[0])
         let pending = try JSONDecoder().decode([SavedRemoteConnection].self, from: Data(try await keychain.read(account: "saved-connections-v1").utf8))
         precondition(pending.first?.revoking == true, "Offline revocation intent must persist before transport stops")

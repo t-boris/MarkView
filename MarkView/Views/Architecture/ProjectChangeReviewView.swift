@@ -1,10 +1,15 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The strip under the project's content: how many files changed on disk since the project opened, and the way into their review.
 struct ProjectChangeReviewBar: View {
     @Environment(\.palette) private var palette
     @ObservedObject var review: ProjectChangeReview
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
+    /// The refresh the button starts: a second tap replaces it, and it ends with the strip (`AR-19`).
+    @State private var tasks = TaskBag()
 
     var body: some View {
         HStack(spacing: 8) {
@@ -17,12 +22,12 @@ struct ProjectChangeReviewBar: View {
             }
             Spacer(minLength: 0)
             if review.isScanning { ProgressView().controlSize(.mini) }
-            Button { Task { await review.refresh() } } label: { Image(systemName: "arrow.clockwise") }
+            Button { tasks.store(Task { await review.refresh() }, for: "refresh") } label: { Image(systemName: "arrow.clockwise") }
                 .help("Refresh observed file changes")
                 .accessibilityLabel("Refresh observed file changes")
             if !review.changes.isEmpty {
                 // The review is a tab, not a sheet: a sheet could not be enlarged (BUG-109), a tab has the whole centre area.
-                Button("Review") { workspaceManager.openTool(.changeReview) }
+                Button("Review") { window?.openTool(.changeReview) }
             }
         }
         .uiFont(size: 10)
@@ -37,7 +42,10 @@ struct ProjectChangeReviewBar: View {
 struct ProjectChangeReviewTab: View {
     @Environment(\.palette) private var palette
     @ObservedObject var review: ProjectChangeReview
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var fileTree: WorkspaceFileTreeStore
+    @Environment(\.windowCommands) private var window
+    /// The refresh and the "Mark reviewed" the buttons start: a new one of a kind replaces the one before it, and they end with the tab (`AR-19`).
+    @State private var tasks = TaskBag()
     @State private var selectedPath: String?
     @State private var hunks: [DiffHunk] = []
     @State private var computing = false
@@ -62,8 +70,8 @@ struct ProjectChangeReviewTab: View {
                 Text("Observed file changes").uiFont(.title3, weight: .semibold)
                 Spacer()
                 if review.isScanning { ProgressView().controlSize(.small) }
-                Button { Task { await review.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                Button("Mark reviewed") { Task { await review.acknowledge() } }
+                Button { tasks.store(Task { await review.refresh() }, for: "refresh") } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                Button("Mark reviewed") { tasks.store(Task { await review.acknowledge() }, for: "acknowledge") }
                     .disabled(review.changes.isEmpty)
                     .help("Take the files as they are now as the new starting point. Nothing is applied or reverted.")
             }.padding(12)
@@ -158,8 +166,8 @@ struct ProjectChangeReviewTab: View {
                 Text(change.path).uiFont(size: 12, weight: .semibold).lineLimit(1).truncationMode(.middle)
                     .textSelection(.enabled).help(change.path)
                 Spacer(minLength: 8)
-                if change.kind != .deleted, let root = workspaceManager.rootNode?.url {
-                    Button("Open in Files") { workspaceManager.openFile(root.appendingPathComponent(change.path)) }
+                if change.kind != .deleted, let root = fileTree.rootNode?.url {
+                    Button("Open in Files") { window?.openFile(root.appendingPathComponent(change.path)) }
                 }
             }
             // The counts and the buttons share a row when there is room, and take two when the tab is narrow.

@@ -13,4 +13,3 @@ struct BrowserSession {
 struct PrototypeSession { let slug: String }
 struct StudioSession { func close() async {} }
 struct CockpitSession { func cancel() {} }
-enum Archive { static func isArchive(_ url: URL) -> Bool { false } }
