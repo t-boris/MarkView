@@ -29,30 +29,30 @@ enum ControlAgentTools {
 
     // MARK: - Tools
 
-    private static let window: [String: Any] = [
+    private static var window: [String: Any] { [
         "type": "string",
         "description": "Which MarkView window: its id (markview_windows), a part of its title, or its project folder. Optional while only one window is open.",
-    ]
-    private static let terminal: [String: Any] = [
+    ] }
+    private static var terminal: [String: Any] { [
         "type": "string",
         "description": "Which agent terminal of the window: its id (markview_agents), its tool (claude, codex…) or a part of its title. Optional when the window has one agent terminal.",
-    ]
-    private static let feature: [String: Any] = ["type": "string", "description": "Feature slug, as markview_flow_status lists it"]
-    private static let wait: [String: Any] = [
+    ] }
+    private static var feature: [String: Any] { ["type": "string", "description": "Feature slug, as markview_flow_status lists it"] }
+    private static var wait: [String: Any] { [
         "type": "integer",
         "description": "Wait up to this many seconds (0–\(maxWait), default \(defaultWait)) for the step to finish. A step that takes longer keeps running; ask again with markview_flow_status.",
-    ]
-    private static let byUser: [String: Any] = [
+    ] }
+    private static var byUser: [String: Any] { [
         "type": "boolean",
         "description": "true only when the person told you to do this in the conversation.",
-    ]
+    ] }
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: [String: Any]] = [:],
                              required: [String] = []) -> BrowserAgentTools.Tool {
         BrowserAgentTools.Tool(name: name, description: description, properties: properties, required: required, addsFolder: false)
     }
 
-    static let answerItem: [String: Any] = [
+    static var answerItem: [String: Any] { [
         "type": "object",
         "description": "One answer: the question id and exactly one of option, text, recommended, delegate.",
         "properties": [
@@ -63,9 +63,9 @@ enum ControlAgentTools {
             "delegate": ["type": "boolean", "description": "Let the AI decide this one (kept as a proposed decision)"],
         ] as [String: Any],
         "required": ["question"],
-    ]
+    ] }
 
-    static let tools: [BrowserAgentTools.Tool] = [
+    static var tools: [BrowserAgentTools.Tool] { [
         tool("markview_control_guide", "How to run MarkView through these tools: windows, agents, the feature flow, what needs the person's word.",
              ["topic": ["type": "string", "enum": guideTopics, "description": "Default: overview"]]),
         // Windows and projects
@@ -123,12 +123,12 @@ enum ControlAgentTools {
               "terminal": terminal, "by_user": byUser],
              required: ["bug", "by_user"]),
         tool("markview_flow_stop", "Stop the AI steps running for a feature (or all in the window).", ["window": window, "feature": feature]),
-    ]
+    ] }
 
     static let names: Set<String> = Set(tools.map(\.name))
 
-    static let profile = BrowserAgentTools.MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
-                                                      tools: tools, probeTool: "markview_windows", rechecksApp: true, alwaysListsTools: true)
+    static var profile: BrowserAgentTools.MCPProfile { BrowserAgentTools.MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
+                                                      tools: tools, probeTool: "markview_windows", rechecksApp: true, alwaysListsTools: true) }
 
     static var agentTools: [String] { CLITool.allCases.map(\.rawValue) }
 

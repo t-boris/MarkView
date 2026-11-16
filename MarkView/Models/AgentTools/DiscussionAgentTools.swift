@@ -9,9 +9,9 @@ enum DiscussionAgentTools {
         BrowserAgentTools.Tool(name: name, description: description, properties: properties, required: required)
     }
 
-    private static let slug: [String: Any] = ["type": "string", "description": "The discussion's slug, from markview_discussions"]
+    private static var slug: [String: Any] { ["type": "string", "description": "The discussion's slug, from markview_discussions"] }
 
-    static let tools: [BrowserAgentTools.Tool] = [
+    static var tools: [BrowserAgentTools.Tool] { [
         tool("markview_discussions", "The discussions of this project (conversations about an idea, a file, a folder or the whole project): slug, title, scope, number of questions, decided and open points."),
         tool("markview_get_discussion", "One discussion: what it is about, what was decided, what is open, what was rejected (with ids), and the questions asked with their answers. With `turn`, the full answer of that question.",
              ["discussion": slug, "turn": ["type": "integer"]], required: ["discussion"]),
@@ -24,7 +24,7 @@ enum DiscussionAgentTools {
               "id": ["type": "string", "description": "edit, move, remove: the item id, from markview_get_discussion"],
               "text": ["type": "string", "description": "add, edit"]],
              required: ["discussion", "action"]),
-    ]
+    ] }
 
     static let names: Set<String> = Set(tools.map(\.name))
 }

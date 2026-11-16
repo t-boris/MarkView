@@ -29,7 +29,7 @@ enum ProjectAgentTools {
 
     // MARK: - Tools
 
-    private static let feature: [String: Any] = ["type": "string", "description": "Feature slug, as markview_list_features shows it"]
+    private static var feature: [String: Any] { ["type": "string", "description": "Feature slug, as markview_list_features shows it"] }
 
     private static func strings(_ description: String) -> [String: Any] {
         ["type": "array", "items": ["type": "string"], "description": description]
@@ -40,7 +40,7 @@ enum ProjectAgentTools {
         BrowserAgentTools.Tool(name: name, description: description, properties: properties, required: required)
     }
 
-    static let tools: [BrowserAgentTools.Tool] = [
+    static var tools: [BrowserAgentTools.Tool] { [
         tool("markview_cockpit_report_progress", "Report live progress for the Cockpit step identified by its ticket. Do not invent coverage, fixes or evidence.",
              ["ticket": ["type": "string", "description": "Ticket supplied with the assignment"],
               "passNumber": ["type": "integer", "description": "Current pass number, starting at 1"],
@@ -193,12 +193,12 @@ enum ProjectAgentTools {
              required: ["target", "issues"]),
         tool("markview_open_questions", "Every open question of every feature (or of one): id, text, options, recommended answer, whether it blocks. Read-only."  ,
              ["feature": feature]),
-    ] + DiscussionAgentTools.tools + DeploymentAgentTools.tools
+    ] + DiscussionAgentTools.tools + DeploymentAgentTools.tools }
 
     static let toolNames: Set<String> = Set(tools.map(\.name))
 
-    static let profile = BrowserAgentTools.MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
-                                    tools: tools, probeTool: "markview_project", rechecksApp: true)
+    static var profile: BrowserAgentTools.MCPProfile { BrowserAgentTools.MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
+                                    tools: tools, probeTool: "markview_project", rechecksApp: true) }
 
     // MARK: - Guide
 

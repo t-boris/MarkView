@@ -107,24 +107,24 @@ enum BrowserAgentTools {
         var alwaysListsTools = false
     }
 
-    static let browserProfile = MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
-                                           tools: tools, probeTool: "browser_tabs")
+    static var browserProfile: MCPProfile { MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
+                                           tools: tools, probeTool: "browser_tabs") }
 
-    private static let tab: [String: [String: Any]] = [
+    private static var tab: [String: [String: Any]] { [
         "tab": ["type": "string", "description": "Which browser tab: its name (T2, Jira…), number, or part of its title or address. Default: the active browser tab."],
-    ]
+    ] }
 
-    private static let target: [String: [String: Any]] = tab.merging([
+    private static var target: [String: [String: Any]] { tab.merging([
         "ref": ["type": "string", "description": "Element ref from browser_snapshot, e.g. e12"],
         "selector": ["type": "string", "description": "CSS selector (when there is no ref)"],
         "text": ["type": "string", "description": "Visible text of the element (when there is no ref or selector)"],
-    ]) { $1 }
+    ]) { $1 } }
 
     private static func with(_ extra: [String: [String: Any]]) -> [String: [String: Any]] {
         tab.merging(extra) { $1 }
     }
 
-    static let tools: [Tool] = [
+    static var tools: [Tool] { [
         Tool(name: "browser_tabs", description: "The browser tabs of the MarkView window: name, title, address, which is active, and which the user stopped.",
              properties: [:], required: []),
         Tool(name: "browser_open_tab", description: "Open a new browser tab (optionally at a URL) with a name to refer to it later.",
@@ -154,7 +154,7 @@ enum BrowserAgentTools {
              required: []),
         Tool(name: "browser_back", description: "Go back one page.", properties: tab, required: []),
         Tool(name: "browser_reload", description: "Reload the page and wait until it has loaded.", properties: tab, required: []),
-    ]
+    ] }
 
     // MARK: - Replies (app → MCP server)
 

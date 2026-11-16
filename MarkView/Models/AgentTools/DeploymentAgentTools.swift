@@ -10,14 +10,14 @@ enum DeploymentAgentTools {
         BrowserAgentTools.Tool(name: name, description: description, properties: properties, required: required)
     }
 
-    private static let environment: [String: Any] = ["type": "string", "description": "The environment id, from markview_deployments"]
+    private static var environment: [String: Any] { ["type": "string", "description": "The environment id, from markview_deployments"] }
 
     private static func objects(_ description: String, _ fields: [String: String]) -> [String: Any] {
         ["type": "array", "description": description,
          "items": ["type": "object", "properties": fields.mapValues { ["type": "string", "description": $0] }]]
     }
 
-    static let tools: [BrowserAgentTools.Tool] = [
+    static var tools: [BrowserAgentTools.Tool] { [
         tool("markview_deployments", "The places this project runs (servers over SSH, this Mac, cloud services) and what MarkView last saw of each: health, CPU load, memory, disks, containers, failed services and the result of every check."),
         tool("markview_deployments_propose", "Propose a place the project runs. It appears in the Deployments tab under \"Found in the project\" and the person decides whether to add it; nothing connects until they do. Give where you found it as evidence, and say in `notes` what you could not find out (host, user, how to log in). Never put a password, token or key into any field.",
              ["name": ["type": "string", "description": "e.g. Production"],
@@ -50,7 +50,7 @@ enum DeploymentAgentTools {
               "sql": ["type": "string", "description": "query: one statement"],
               "purpose": ["type": "string", "description": "query: why, in a sentence; the person reads it if asked to approve"]],
              required: ["environment", "action"]),
-    ]
+    ] }
 
     static let names: Set<String> = Set(tools.map(\.name))
 }
