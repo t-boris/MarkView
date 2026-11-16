@@ -3,7 +3,7 @@ import Foundation
 // End-to-End QA (feature end-to-end-qa, REQ-001..REQ-003): a branching scenario as a persistent project asset. Foundation only, so the
 // rules are compiled and checked on their own (tools/tests/qa-tests.sh).
 
-enum QAAppKind: String, Codable, CaseIterable {
+enum QAAppKind: String, Codable, CaseIterable, Sendable {
     case web
     case nativeMacOS
     case api

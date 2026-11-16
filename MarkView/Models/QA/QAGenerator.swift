@@ -22,8 +22,8 @@ enum QAGenerator {
     /// Asks up to `maxAttempts` times. A try that comes back with problems is repeated with the earlier answer and the problems in the
     /// prompt; the last scenario is returned either way, so the person can fix what is left in the editor. `prepare` makes the request
     /// of a prompt (the assistant, folder, images and schema belong to the caller).
-    static func generate(_ request: QAGenerationRequest, maxAttempts: Int = 3, onAttempt: ((Int) -> Void)? = nil,
-                         prepare: @escaping (_ prompt: String) -> CLICompletion.Request,
+    static func generate(_ request: QAGenerationRequest, maxAttempts: Int = 3, onAttempt: (@Sendable (Int) -> Void)? = nil,
+                         prepare: @escaping @Sendable (_ prompt: String) -> CLICompletion.Request,
                          onActivity: (@Sendable (CLICompletion.Activity) -> Void)? = nil,
                          runner: @escaping AIOperation<String, QAGenerationResult>.Runner = AIAssistantRunner.run) async throws -> Outcome {
         let base = QAGeneration.prompt(request)

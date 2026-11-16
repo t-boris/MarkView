@@ -15,7 +15,7 @@ import MarkViewCore
 enum CLICompletion {
 
     /// A window's assistant captured when an operation starts, including the CLI default model (nil).
-    struct Assistant {
+    struct Assistant: Sendable {
         let tool: CLITool
         let model: String?
 

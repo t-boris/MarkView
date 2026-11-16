@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+QA generation callbacks and their immutable captured values are Sendable. All 18 changed-file pure and two gui suites passed; the QA suite was rerun after its attempt recorder was made lock-owned. Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `QAModel.swift` (two before).
+
 An app-hosted test ran real project bootstrap in a temporary folder: specification copying, README, local Git initialization and all three draft checkpoints passed. All 15 hosted tests passed.
 
 Project bootstrap draft values and persistence callbacks are Sendable. The new-project and close suites (23 close checks), Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `NewProjectFlow.swift` (one before). The close-suite manifest now includes the bootstrap and draft files it compiles; these suites do not exercise a full project creation.

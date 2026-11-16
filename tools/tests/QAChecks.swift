@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Checks for MarkView/Models/QA/QAScenario.swift, QARun.swift and QAStore.swift (feature end-to-end-qa), run by tools/tests/qa-tests.sh.
 // Fixtures are scenarios and events; nothing touches a file but the store checks in a temp folder.
@@ -741,7 +742,7 @@ final class FakeAssistant {
 
 do {
     let request = QAGenerationRequest(goal: "g", appKind: .web, apps: [QAApp(id: "app", name: "App")], now: now)
-    func run(_ assistant: FakeAssistant, attempts: Int = 3, seen: ((Int) -> Void)? = nil) -> Result<QAGenerator.Outcome, Error> {
+    func run(_ assistant: FakeAssistant, attempts: Int = 3, seen: (@Sendable (Int) -> Void)? = nil) -> Result<QAGenerator.Outcome, Error> {
         runAsync { try await QAGenerator.generate(request, maxAttempts: attempts, onAttempt: seen, prepare: { CLICompletion.Request(prompt: $0) },
                                                   runner: assistant.run) }
     }
@@ -752,9 +753,9 @@ do {
     check("generator: the first prompt is the one made for the request", good.prompts.first == QAGeneration.prompt(request))
 
     let fixed = FakeAssistant([(answer(title: "Bad", actor: "ghost"), 0.1), (answer(title: "Good"), 0.2)])
-    var seen: [Int] = []
-    let second = try? run(fixed, seen: { seen.append($0) }).get()
-    check("generator: an unsound answer is asked for again", second?.attempts == 2 && second?.scenario.title == "Good" && second?.remaining.isEmpty == true && seen == [1, 2])
+    let seen = OSAllocatedUnfairLock(initialState: [Int]())
+    let second = try? run(fixed, seen: { attempt in seen.withLock { $0.append(attempt) } }).get()
+    check("generator: an unsound answer is asked for again", second?.attempts == 2 && second?.scenario.title == "Good" && second?.remaining.isEmpty == true && seen.withLock { $0 } == [1, 2])
     check("generator: the retry carries the problems and the earlier answer", fixed.prompts.count == 2 && fixed.prompts[1].contains("ghost") && fixed.prompts[1].contains("\"title\":\"Bad\"") && fixed.prompts[1].hasPrefix(QAGeneration.prompt(request)))
     check("generator: what the tries cost is added up", abs((second?.costUSD ?? 0) - 0.3) < 0.000_001)
 

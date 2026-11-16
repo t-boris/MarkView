@@ -412,12 +412,13 @@ final class QAModel: ObservableObject {
                     request.attachmentPaths = staged.paths
                 }
                 let images = staged.images
+                let appKind = request.appKind
                 let outcome = try await QAGenerator.generate(
                     request,
                     onAttempt: { attempt in Task { @MainActor in self?.setAttempt(attempt) } },
                     prepare: { prompt in
-                        CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(request.appKind),
-                                              jsonSchema: QAGeneration.schema(for: request.appKind), readableFolder: root, timeout: nil, assistantOverride: assistant,
+                        CLICompletion.Request(project: root, prompt: prompt, systemPrompt: QAGeneration.systemPrompt(appKind),
+                                              jsonSchema: QAGeneration.schema(for: appKind), readableFolder: root, timeout: nil, assistantOverride: assistant,
                                               images: images, label: "qa-generate")
                     },
                     onActivity: { activity in Task { @MainActor in self?.setActivity(activity) } })
