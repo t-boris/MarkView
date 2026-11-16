@@ -10,7 +10,7 @@ import MarkViewCore
 @MainActor
 protocol BrowserHostWindow: AnyObject {
     /// The window's workspace, for the control tools (`ControlToolRunner`); the control server lists windows by it.
-    var controlWorkspace: WorkspaceManager { get }
+    var controlWorkspace: any AgentControlWindow { get }
     /// The project's feature workspaces, deployments and discussions that the control tools read and write.
     var controlFeatures: FeatureStore { get }
     var controlDeployments: DeploymentStore { get }

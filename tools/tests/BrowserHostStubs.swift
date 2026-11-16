@@ -88,7 +88,8 @@ enum BrowserAgentExecutor {
 }
 
 // What the control tools reach of the window.
-@MainActor final class WorkspaceManager {}
+@MainActor protocol AgentControlWindow: AnyObject {}
+@MainActor final class WorkspaceManager: AgentControlWindow {}
 final class FeatureStore {}
 final class DeploymentStore {}
 final class DiscussionStore {}

@@ -4,9 +4,29 @@ import Foundation
 import MarkViewCore
 #endif
 
+/// The control tools use only the capabilities of their window, never its composition.
+@MainActor
+protocol AgentControlWindow: AnyObject {
+    var hostWindow: NSWindow? { get }
+    var projectFolder: URL? { get }
+    var isBlank: Bool { get }
+    var controlFeatures: FeatureStore { get }
+    var controlTerminalSessions: [TerminalSession] { get }
+    var controlTerminalRoot: URL? { get }
+    var controlShownTerminalID: UUID? { get }
+    func controlActivity(for session: TerminalSession) -> AgentActivity?
+    func openControlTerminal(_ profile: TerminalProfile, resuming: Bool) -> TerminalSession?
+    func showAIConsole()
+    func openFolder(_ url: URL)
+    func openControlWindow(folder: URL) -> Bool
+    func controlIntakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome)
+    func controlStartImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession)
+    func controlFixBug(_ url: URL, in terminal: TerminalSession)
+}
+
 /// The app side of `ControlAgentTools`: an outside agent runs this MarkView. It lists the windows, opens a project in
 /// one, starts and prompts agents in the AI panel, and takes a feature through the Feature flow — each by calling what
-/// the interface calls when a person clicks (`WorkspaceManager`, `FeatureAssistant`, `TerminalSession`).
+/// the interface calls when a person clicks (`any AgentControlWindow`, `FeatureAssistant`, `TerminalSession`).
 ///
 /// Windows are chosen by the `window` argument (`ControlAgentTools.pickWindow`). Nothing here blocks the main thread:
 /// a step that takes minutes is a `Task` that outlives the socket request, and the request waits for it in short sleeps.
@@ -25,7 +45,7 @@ enum ControlToolRunner {
     /// One window: its id, and the workspace that shows it.
     struct Target {
         let id: UUID
-        let workspace: WorkspaceManager
+        let workspace: any AgentControlWindow
         var shortID: String { ControlAgentTools.shortID(id.uuidString) }
     }
 
@@ -65,9 +85,9 @@ enum ControlToolRunner {
 
     // MARK: - Choosing a window
 
-    private static func windowInfos(_ live: [(id: UUID, window: AgentToolWindow, workspace: WorkspaceManager)])
+    private static func windowInfos(_ live: [(id: UUID, window: AgentToolWindow, workspace: any AgentControlWindow)])
         -> [(id: String, title: String, project: String?)] {
-        live.map { (id: $0.id.uuidString, title: $0.workspace.hostWindow?.title ?? "", project: $0.workspace.project.projectFolder?.path) }
+        live.map { (id: $0.id.uuidString, title: $0.workspace.hostWindow?.title ?? "", project: $0.workspace.projectFolder?.path) }
     }
 
     static func window(_ args: [String: Any], caller: Caller) throws -> Target {
@@ -90,10 +110,10 @@ enum ControlToolRunner {
         }
     }
 
-    private static func windowLines(_ live: [(id: UUID, window: AgentToolWindow, workspace: WorkspaceManager)]) -> String {
+    private static func windowLines(_ live: [(id: UUID, window: AgentToolWindow, workspace: any AgentControlWindow)]) -> String {
         live.map { entry -> String in
             let title = entry.workspace.hostWindow?.title ?? ""
-            let project = entry.workspace.project.projectFolder?.path ?? "no project open"
+            let project = entry.workspace.projectFolder?.path ?? "no project open"
             return "\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)"
         }.joined(separator: "\n")
     }
@@ -116,12 +136,12 @@ enum ControlToolRunner {
             let workspace = entry.workspace
             let front = workspace.hostWindow.map { $0 === frontmost } ?? false
             let title = workspace.hostWindow?.title ?? ""
-            let project = workspace.project.projectFolder?.path ?? "no project open"
+            let project = workspace.projectFolder?.path ?? "no project open"
             let marker = front ? " · in front" : ""
             out += "\n\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)\(marker)\n"
-            let described = workspace.terminals.sessions.map { "\($0.title) (\(state(of: $0, in: workspace)))" }
+            let described = workspace.controlTerminalSessions.map { "\($0.title) (\(state(of: $0, in: workspace)))" }
             out += "    agents: \(described.isEmpty ? "none" : described.joined(separator: ", "))\n"
-            let running = runningSteps(workspace.flow.features.assistant)
+            let running = runningSteps(workspace.controlFeatures.assistant)
             if !running.isEmpty { out += "    running: \(running.joined(separator: ", "))\n" }
         }
         return out
@@ -141,7 +161,7 @@ enum ControlToolRunner {
 
     private static func recentProjects() -> String {
         let paths = Settings.standard.value(Setting.recentProjects)  // shared by all windows
-        let open = Set(AgentToolServer.liveWindows().compactMap { $0.workspace.project.projectFolder?.path })
+        let open = Set(AgentToolServer.liveWindows().compactMap { $0.workspace.projectFolder?.path })
         let lines = paths.filter { FileManager.default.fileExists(atPath: $0) }.map { $0 + (open.contains($0) ? "  (open)" : "") }
         return lines.isEmpty ? "No recent projects." : lines.joined(separator: "\n")
     }
@@ -160,7 +180,7 @@ enum ControlToolRunner {
         }
         let url = URL(fileURLWithPath: path, isDirectory: true)
         let live = AgentToolServer.liveWindows()
-        if let open = live.first(where: { $0.workspace.project.projectFolder.map { standardized($0.path) } == path }) {
+        if let open = live.first(where: { $0.workspace.projectFolder.map { standardized($0.path) } == path }) {
             let target = Target(id: open.id, workspace: open.workspace)
             return .init(text: "\(path) is already open in window \(target.shortID). \(projectLine(target.workspace))")
         }
@@ -169,7 +189,7 @@ enum ControlToolRunner {
         if !named.isEmpty {
             let target = try window(args, caller: caller)
             guard target.workspace.isBlank else {
-                throw Invalid(message: "Window \(target.shortID) has \(target.workspace.project.projectFolder?.path ?? "tabs") open and is not replaced. Leave `window` out to open \(path) in a new window.")
+                throw Invalid(message: "Window \(target.shortID) has \(target.workspace.projectFolder?.path ?? "tabs") open and is not replaced. Leave `window` out to open \(path) in a new window.")
             }
             reuse = target
         } else if args["new_window"] as? Bool == true {
@@ -184,7 +204,7 @@ enum ControlToolRunner {
             }
             return .init(text: "Opened \(path) in window \(reuse.shortID). \(projectLine(reuse.workspace))\nNext: markview_agent_start { window: \"\(reuse.shortID)\" } or markview_flow_new.")
         }
-        guard WindowSessionController.shared.openWorkspaceWindow(folder: url) else {
+        guard live.first?.workspace.openControlWindow(folder: url) == true else {
             throw Invalid(message: "MarkView cannot open another window yet (it has none to open it from, or it is quitting). Open one in MarkView and call again.")
         }
         var opened: Target?
@@ -199,12 +219,12 @@ enum ControlToolRunner {
     }
 
     /// The folder is the window's project and its features are loaded.
-    private static func isOpen(_ workspace: WorkspaceManager, _ path: String) -> Bool {
-        workspace.project.projectFolder.map { standardized($0.path) } == path && workspace.flow.features.root != nil
+    private static func isOpen(_ workspace: any AgentControlWindow, _ path: String) -> Bool {
+        workspace.projectFolder.map { standardized($0.path) } == path && workspace.controlFeatures.root != nil
     }
 
-    private static func projectLine(_ workspace: WorkspaceManager) -> String {
-        let store = workspace.flow.features
+    private static func projectLine(_ workspace: any AgentControlWindow) -> String {
+        let store = workspace.controlFeatures
         return "Features: \(store.features.count), bugs: \(store.bugs.count)."
     }
 

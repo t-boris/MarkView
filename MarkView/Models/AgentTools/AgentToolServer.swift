@@ -36,7 +36,7 @@ enum AgentToolServer {
 
     /// The windows that exist now, for the control tools: each with the workspace that shows it. A window whose
     /// workspace is gone (closed) leaves the table here; one that has no host window yet (still being set up) is not listed.
-    static func liveWindows() -> [(id: UUID, window: AgentToolWindow, workspace: WorkspaceManager)] {
+    static func liveWindows() -> [(id: UUID, window: AgentToolWindow, workspace: any AgentControlWindow)] {
         for (id, window) in windows where window.workspace() == nil { windows[id] = nil }
         return windows.compactMap { id, window in
             guard let workspace = window.workspace(), workspace.hostWindow != nil else { return nil }
@@ -162,7 +162,7 @@ enum AgentToolServer {
             return .error("Browser tools for this assistant are turned off in the globe menu.")
         }
         guard let window = windows[id], let workspace = window.workspace(),
-              workspace.terminals.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else {
+              workspace.controlTerminalRoot?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else {
             return .error("The connected project window was closed or changed. Reconnect before using its browser.")
         }
         return await perform(tool, args, window: id, pids: [], cwd: root.path)

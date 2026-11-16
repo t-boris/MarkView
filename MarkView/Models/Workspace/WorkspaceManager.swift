@@ -610,7 +610,7 @@ extension WorkspaceManager: AITerminalsHost {
 
 /// What the window's browser asks of the window (`BrowserHost`).
 extension WorkspaceManager: BrowserHostWindow {
-    var controlWorkspace: WorkspaceManager { self }
+    var controlWorkspace: any AgentControlWindow { self }
     var controlFeatures: FeatureStore { flow.features }
     var controlDeployments: DeploymentStore { toolTabs.deployments.store }
     var controlDiscussions: DiscussionStore { toolTabs.discussions.store }
@@ -726,4 +726,23 @@ extension WorkspaceManager: CodeXRayHost {
         layout.workspaceArea = .projectMap
         tabs.showArchitectureTab(scope: scope, root: root)
     }
+}
+
+
+extension WorkspaceManager: AgentControlWindow {
+    var controlTerminalSessions: [TerminalSession] { terminals.sessions }
+    var controlTerminalRoot: URL? { terminals.root }
+    var controlShownTerminalID: UUID? { terminals.shownID }
+    func controlActivity(for session: TerminalSession) -> AgentActivity? {
+        terminals.activity.entries.first { $0.id == session.id }?.activity
+    }
+    func openControlTerminal(_ profile: TerminalProfile, resuming: Bool) -> TerminalSession? {
+        terminals.openAITerminal(profile, resuming: resuming)
+    }
+    func openControlWindow(folder: URL) -> Bool { WindowSessionController.shared.openWorkspaceWindow(folder: folder) }
+    func controlIntakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) { flow.intakeFinished(kind, outcome: outcome) }
+    func controlStartImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession) {
+        flow.startImplementation(url, done: done, in: terminal)
+    }
+    func controlFixBug(_ url: URL, in terminal: TerminalSession) { flow.fixBugWithAI(url, in: terminal) }
 }

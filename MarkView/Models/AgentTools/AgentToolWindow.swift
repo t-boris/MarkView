@@ -5,7 +5,7 @@ import Foundation
 /// window may not have (yet): nil, or an error reply.
 struct AgentToolWindow {
     /// The window's workspace, for the control tools (`ControlToolRunner`); nil once the window is gone.
-    var workspace: () -> WorkspaceManager? = { nil }
+    var workspace: () -> (any AgentControlWindow)? = { nil }
     /// The window's project folder (agents outside its terminals are matched by their folder).
     var root: () -> URL?
     /// The window's features and bugs, for the project tools (`ProjectToolRunner`).

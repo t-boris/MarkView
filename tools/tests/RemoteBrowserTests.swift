@@ -4,9 +4,14 @@ import WebKit
 // Minimal app dependencies; the production controller, executor, schemas and workspace run unchanged.
 enum CLITool: String { case claude, codex }   // AgentToolsSetting.swift adds agentToolsKey and agentToolsEnabled
 @MainActor final class Terminals { var root: URL? }
-@MainActor final class WorkspaceManager {
+@MainActor protocol AgentControlWindow: AnyObject {
+    var hostWindow: NSWindow? { get }
+    var controlTerminalRoot: URL? { get }
+}
+@MainActor final class WorkspaceManager: AgentControlWindow {
     var hostWindow: NSWindow?
     let terminals = Terminals()
+    var controlTerminalRoot: URL? { terminals.root }
 }
 // The Cockpit gate in AgentToolServer asks the project's workflow which bug statuses mean "fixing" and the deployments for names.
 struct ProjectWorkflow {

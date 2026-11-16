@@ -103,7 +103,7 @@ final class StubWindow: BrowserHostWindow {
     let discussions = DiscussionStore()
     var tabs: TabsController!
     var terminals: [TerminalSession] = []
-    var controlWorkspace: WorkspaceManager { workspace }
+    var controlWorkspace: any AgentControlWindow { workspace }
     var controlFeatures: FeatureStore { features }
     var controlDeployments: DeploymentStore { deployments }
     var controlDiscussions: DiscussionStore { discussions }

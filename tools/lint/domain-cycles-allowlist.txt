@@ -5,4 +5,3 @@
 # (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them). A ratchet that only falls: remove the dependency
 # (a protocol in the lower domain, or move the type) and run --tighten; the goal is an empty list. A new back-edge is written here
 # by a person, with the reason it stays.
-2 Models/AgentTools -> Models/Workspace  # the MCP control tools (ControlToolRunner, AgentToolServer, AgentToolWindow) drive a whole window through WorkspaceManager (its feature store, terminals, flow, project folder, host window: about 15 members) and open windows through WindowSessionController; Workspace names AgentTools back (BrowserHost builds the browser tools), so the pair is a real two-way coupling. Narrowing it takes a window protocol declared in AgentTools plus a way to open a window, which is its own finding

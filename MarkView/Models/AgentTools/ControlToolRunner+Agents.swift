@@ -11,12 +11,12 @@ extension ControlToolRunner {
 
     // MARK: - Terminals
 
-    static func activity(of session: TerminalSession, in workspace: WorkspaceManager) -> AgentActivity? {
-        workspace.terminals.activity.entries.first { $0.id == session.id }?.activity
+    static func activity(of session: TerminalSession, in workspace: any AgentControlWindow) -> AgentActivity? {
+        workspace.controlActivity(for: session)
     }
 
     /// What the terminal is doing, in a few words.
-    static func state(of session: TerminalSession, in workspace: WorkspaceManager) -> String {
+    static func state(of session: TerminalSession, in workspace: any AgentControlWindow) -> String {
         guard session.isRunning else { return session.exitCode.map { "exited, code \($0)" } ?? "starting" }
         if let activity = activity(of: session, in: workspace) {
             switch activity.state {
@@ -30,7 +30,7 @@ extension ControlToolRunner {
 
     /// Working now: its log says so, or it has run a while and is printing. A terminal that has just started prints
     /// while it comes up; that is not work, and a prompt sent to it waits for it (`pasteWhenReady`).
-    static func isWorking(_ session: TerminalSession, in workspace: WorkspaceManager) -> Bool {
+    static func isWorking(_ session: TerminalSession, in workspace: any AgentControlWindow) -> Bool {
         guard session.isRunning else { return false }
         if activity(of: session, in: workspace)?.state == .working { return true }
         let up = session.runningSince.map { Date().timeIntervalSince($0) } ?? 0
@@ -39,7 +39,7 @@ extension ControlToolRunner {
 
     /// The agent terminal the arguments name. `forInput`: it is going to be written to, so never the caller's own.
     static func terminal(_ target: Target, _ args: [String: Any], caller: Caller?, forInput: Bool) throws -> TerminalSession {
-        let sessions = target.workspace.terminals.sessions.filter { $0.profile != .shell }
+        let sessions = target.workspace.controlTerminalSessions.filter { $0.profile != .shell }
         guard !sessions.isEmpty else {
             throw Invalid(message: "Window \(target.shortID) has no agent terminal. markview_agent_start opens one.")
         }
@@ -49,7 +49,7 @@ extension ControlToolRunner {
             list.map { "\(ControlAgentTools.shortID($0.id.uuidString)) · \($0.profile.rawValue) · \"\($0.title)\"" }.joined(separator: "\n")
         }
         let session: TerminalSession
-        switch ControlAgentTools.pickTerminal(query, among: infos, shown: target.workspace.terminals.shownID?.uuidString) {
+        switch ControlAgentTools.pickTerminal(query, among: infos, shown: target.workspace.controlShownTerminalID?.uuidString) {
         case .one(let index): session = sessions[index]
         case .none: throw Invalid(message: "No agent terminal matches “\(query)”. Terminals:\n" + lines(sessions))
         case .many(let indices):
@@ -67,7 +67,7 @@ extension ControlToolRunner {
     /// A new terminal with `tool` in the window's AI panel, once its agent process runs.
     static func startTerminal(_ target: Target, tool: CLITool, resume: Bool) async throws -> TerminalSession {
         let workspace = target.workspace
-        guard workspace.project.projectFolder != nil else {
+        guard workspace.projectFolder != nil else {
             throw Invalid(message: "Window \(target.shortID) has no project open. markview_open_project first.")
         }
         guard CLIToolLocator.resolve(tool) != nil else {
@@ -75,16 +75,16 @@ extension ControlToolRunner {
         }
         // The terminal starts when its page has loaded, which needs the panel on screen.
         workspace.showAIConsole()
-        guard let session = workspace.terminals.openAITerminal(TerminalProfile(tool), resuming: resume) else {
+        guard let session = workspace.openControlTerminal(TerminalProfile(tool), resuming: resume) else {
             throw Invalid(message: "The terminal could not be opened.")
         }
         _ = await waitUntil(15) { session.isRunning }
         return session
     }
 
-    private static func tool(named value: Any?, in workspace: WorkspaceManager) throws -> CLITool {
+    private static func tool(named value: Any?, in workspace: any AgentControlWindow) throws -> CLITool {
         guard let name = (value as? String)?.trimmingCharacters(in: .whitespaces).lowercased(), !name.isEmpty else {
-            return AIAssistantPreferences.backend(project: workspace.project.aiProject)
+            return AIAssistantPreferences.backend(project: workspace.projectFolder)
         }
         guard let tool = CLITool(rawValue: name) else {
             throw Invalid(message: "`tool` must be one of: \(ControlAgentTools.agentTools.joined(separator: ", ")).")
@@ -93,7 +93,7 @@ extension ControlToolRunner {
     }
 
     /// The tool for a flow tool: the one named, else the project's.
-    static func chosenTool(_ args: [String: Any], in workspace: WorkspaceManager) throws -> CLITool {
+    static func chosenTool(_ args: [String: Any], in workspace: any AgentControlWindow) throws -> CLITool {
         try tool(named: args["tool"], in: workspace)
     }
 
@@ -101,24 +101,24 @@ extension ControlToolRunner {
 
     static func agents(_ target: Target) -> Reply {
         let workspace = target.workspace
-        let chosen = AIAssistantPreferences.backend(project: workspace.project.aiProject)
-        var out = "Window \(target.shortID) — \(workspace.project.projectFolder?.path ?? "no project open")\n\nAssistants:\n"
+        let chosen = AIAssistantPreferences.backend(project: workspace.projectFolder)
+        var out = "Window \(target.shortID) — \(workspace.projectFolder?.path ?? "no project open")\n\nAssistants:\n"
         for tool in CLITool.allCases {
             let location = CLIToolLocator.resolve(tool) ?? "not installed"
             var line = "  \(tool.rawValue) — \(tool.displayName): \(location)"
             if tool == chosen {
-                let model = AIAssistantPreferences.model(for: tool, project: workspace.project.aiProject) ?? ""
+                let model = AIAssistantPreferences.model(for: tool, project: workspace.projectFolder) ?? ""
                 line += model.isEmpty ? "  [the project's assistant]" : "  [the project's assistant, model \(model)]"
             }
             out += line + "\n"
         }
         out += "\nTerminals:\n"
-        let terminals = workspace.terminals.sessions
+        let terminals = workspace.controlTerminalSessions
         if terminals.isEmpty {
             out += "  none (markview_agent_start opens one)\n"
         } else {
             for session in terminals {
-                let shown = session.id == workspace.terminals.shownID ? " · shown" : ""
+                let shown = session.id == workspace.controlShownTerminalID ? " · shown" : ""
                 let id = ControlAgentTools.shortID(session.id.uuidString)
                 out += "  \(id) · \(session.profile.rawValue) · \"\(session.title)\" · \(state(of: session, in: workspace))\(shown)\n"
                 if let task = activity(of: session, in: workspace)?.task, !task.isEmpty { out += "      asked: \(task.prefix(160))\n" }
@@ -173,7 +173,7 @@ extension ControlToolRunner {
     }
 
     /// The terminal's header (name, state, last request) and its last lines.
-    private static func screen(of session: TerminalSession, in workspace: WorkspaceManager, lines: Int) async -> String {
+    private static func screen(of session: TerminalSession, in workspace: any AgentControlWindow, lines: Int) async -> String {
         var out = "“\(session.title)” [\(ControlAgentTools.shortID(session.id.uuidString))] — \(state(of: session, in: workspace))\n"
         if let task = activity(of: session, in: workspace)?.task, !task.isEmpty { out += "Asked: \(task.prefix(200))\n" }
         guard let screen = await session.screenTail(lines: lines * 4) else {  // a screen is mostly blank rows
