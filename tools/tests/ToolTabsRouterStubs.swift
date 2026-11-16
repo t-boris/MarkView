@@ -40,6 +40,8 @@ enum PrototypeAI {
     struct CodeScope: Sendable, Equatable { var apps: [String] = [] }
 }
 
+@MainActor protocol StudioFeatureExportDelegate: AnyObject { func studioDidExportFeature(_ slug: String) }
+
 @MainActor
 final class StudioSession {
     let id = UUID()
@@ -48,7 +50,7 @@ final class StudioSession {
     var recordUsage: (Int, Int, Double) -> Void = { _, _, _ in }
     var openFile: (URL) -> Void = { _ in }
     var featureStore: () -> FeatureStore? = { nil }
-    var onFeatureExported: (String) -> Void = { _ in }
+    weak var featureExportDelegate: (any StudioFeatureExportDelegate)?
     private(set) var started = false
     init(root: URL) { self.root = root }
     func start() { started = true }

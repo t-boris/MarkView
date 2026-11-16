@@ -57,7 +57,7 @@ final class StudioPackages: ObservableObject {
                 try StudioStore.savePackage(package, root: root)
                 self.packages = StudioStore.loadPackages(root)
                 session.notice = "Exported feature \(created)."
-                session.onFeatureExported(created)
+                session.featureExportDelegate?.studioDidExportFeature(created)
             } catch {
                 session.notice = error.localizedDescription
             }

@@ -7,7 +7,7 @@ import MarkViewCore
 /// asks of the window (the unsaved editor text, the usage counter, files, the feature panel). The sessions live in their tabs; what the
 /// host starts itself is owned by a `TaskBag` and ends with the window (`AR-19`).
 @MainActor
-final class UIStudioHost {
+final class UIStudioHost: StudioFeatureExportDelegate {
     private let project: any ProjectProviding
     private let tabs: TabsController
     private let features: FeatureStore
@@ -46,11 +46,13 @@ final class UIStudioHost {
         session.recordUsage = { [weak self] input, output, cost in self?.recordUsage(input, output, cost) }
         session.openFile = { [weak self] url in self?.window?.openFile(url) }
         session.featureStore = { [weak self] in self?.features }
-        session.onFeatureExported = { [weak self] slug in self?.window?.showFeatureContext(slug) }
+        session.featureExportDelegate = self
         var tab = OpenTab(url: tool.sentinelURL(in: root, suffix: session.id.uuidString), content: "", originalContent: "")
         tab.kind = .uiStudio(session)
         return tab
     }
+
+    func studioDidExportFeature(_ slug: String) { window?.showFeatureContext(slug) }
 
     /// Adds a session's tokens and cost to the project's usage counter; one task per record, owned until it is written.
     private func recordUsage(_ input: Int, _ output: Int, _ cost: Double) {

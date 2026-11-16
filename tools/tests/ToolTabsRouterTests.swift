@@ -215,7 +215,7 @@ enum ToolTabsRouterChecks {
 
         session.openFile(note)
         check(rig.window.openedFiles == [note], "a file the session shows opens in the window")
-        session.onFeatureExported("feature-one")
+        session.featureExportDelegate?.studioDidExportFeature("feature-one")
         check(rig.window.shownFeatures == ["feature-one"], "an exported feature is shown beside the document")
         check(session.featureStore() === rig.features, "the session reads the window's features")
     }

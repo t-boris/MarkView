@@ -6,6 +6,11 @@ import WebKit
 import MarkViewCore
 #endif
 
+@MainActor
+protocol StudioFeatureExportDelegate: AnyObject {
+    func studioDidExportFeature(_ slug: String)
+}
+
 /// One UI Studio session (feature "MarkView UI Studio"): the project's real web interface running from its development
 /// server in a managed browser, its requests answered by the simulated environment, with element selection, questions and
 /// source changes by the project assistant, reproducible scenarios and revision-linked captures.
@@ -146,7 +151,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     var recordUsage: @MainActor @Sendable (Int, Int, Double) -> Void = { _, _, _ in }
     var openFile: (URL) -> Void = { _ in }
     var featureStore: () -> FeatureStore? = { nil }
-    var onFeatureExported: (String) -> Void = { _ in }
+    weak var featureExportDelegate: (any StudioFeatureExportDelegate)?
 
     var simulator: StudioSimulator
     var server: StudioDevServer?
