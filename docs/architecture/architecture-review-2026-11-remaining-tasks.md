@@ -38,7 +38,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 ## Group A: cleanup (D1, D2, D3). Size S-M, low risk
 
 **A1. AR-48 dead files in git.**
-- Status 2026-11-16: removed 11 tracked `TestFiles/` files and both presentation files. `git ls-files TestFiles` and `git ls-files "*.pdf"` each report 0 after staging. `EmbeddingClient` remains in 2 files (its definition and `DDESettingsView` calls to the key helpers). DEC-013 replaces the all-tier run with automated pure and gui tiers. The pure tier passed 149 suites with 0 failures, and the repeated gui tier passed 73 suites with 0 failures before the subsequent operations-window change; repeat them on the final code.
+- Status 2026-11-16: removed 11 tracked `TestFiles/` files and both presentation files. `git ls-files TestFiles` and `git ls-files "*.pdf"` each report 0 after staging. `EmbeddingClient` remains in 2 files (its definition and `DDESettingsView` calls to the key helpers). DEC-013 replaces the all-tier run with automated pure and gui tiers. The pure tier passed 149 suites with 0 failures, and the repeated gui tier passed 73 suites with 0 failures before the subsequent operations-window and app-hosted test changes; repeat them on the final code.
 - Now: `TestFiles/` 11 tracked files (measured), `MarkView-Presentation.pdf` 3,653,172 bytes and `MarkView-Presentation.html` 54,317 bytes
   (measured). `EmbeddingClient` is still constructed; two files use its key helpers, `DDESettingsView` among them *(recorded 2026-11-15)*.
 - Do: remove the tracked test files and the presentation after checking that no test or script reads them (`git grep -n TestFiles
@@ -115,7 +115,7 @@ Move the commands to `WindowCommands` (`@Environment(\.windowCommands)`), as the
 Acceptance: the stated number of domains in the largest cycle, or a written decision that the remainder is accepted.
 
 **C5. AR-44 step 4: an app-hosted test target (D7).**
-- Status 2026-11-16: `MarkViewHostedTests` hosts the migrated QA WebKit fault suite with the shipping `BrowserSession` and `BrowserAgentExecutor`; their two stand-in definitions and the old standalone suite were removed. `xcodebuild -list`, `xcodebuild test`, the manifest runner and architecture lint passed. The dedicated `HostedTests` build uses a separate bundle ID and compile-time startup isolation; the test bundle has no app `NSPrincipalClass`. The first experimental host crashed because it inherited that class; the installed app remained running, and the corrected host ran without another crash. A parallel CI job is added and awaits verification. Further stub migrations and app-hosted `EditorView` and control-runner coverage remain open.
+- Status 2026-11-16: `MarkViewHostedTests` hosts the migrated QA WebKit fault suite with the shipping `BrowserSession` and `BrowserAgentExecutor`; their two stand-in definitions and the old standalone suite were removed. `xcodebuild -list`, `xcodebuild test`, the manifest runner and architecture lint passed. The dedicated `HostedTests` build uses a separate bundle ID and compile-time startup isolation; the test bundle has no app `NSPrincipalClass`. The first experimental host crashed because it inherited that class; the installed app remained running, and the corrected host ran without another crash. The parallel hosted CI job passed in [run 43902583991](https://github.com/t-boris/MarkView/actions/runs/43902583991); the hosted job took 5m15s and the full workflow 5m20s, with one pure shard queued for about 1m49s. Further stub migrations and app-hosted `EditorView` and control-runner coverage remain open.
  Add a second product type to `MarkView.xcodeproj` that hosts the GUI and WebKit suites
 in the app process; live-assistant scripts stay manual. Acceptance: `xcodebuild -list` shows the test target and `xcodebuild test` runs
 the gui tier suites that today compile stand-ins of shipping types (the stub definitions are removed in the same pull request).
@@ -133,6 +133,7 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 - Risk: agents that relied on a declared folder from a shared daemon may stop routing until launched in the project or by the app.
 
 **D2. AR-42 main-thread blocking, by measurement.**
+- Status 2026-11-16: a hidden 6.30.16 probe opened an APFS copy of `vivaa-internals`. Two samples and Time Profiler recordings were taken; the timed sample was mostly main-run-loop waiting, and Instruments reported 0 `potential-hangs` and 0 `hang-risks`. The capture did not establish an attributable before/after stall or three worst stalls, so the acceptance remains open. Raw traces were removed because Instruments included environment variables. The installed app remained running and no new crash report appeared during the probes.
 - Now: only by reading; nothing was profiled. Done: all SQL off the main thread, `hasMarkdownFiles` a stored flag, directory walks in
   `Views/` 0, `waitUntilExit` 0, the 2 s open-files poll is a `PollingScheduler` job. Not re-checked: how much of that poll still runs on
   the main thread; the `ForEach` enumeration in `GraphCreatorSheet` and the lookup fallback in `TOCView`.
