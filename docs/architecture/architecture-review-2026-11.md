@@ -489,6 +489,8 @@ Path that keeps everything running meanwhile:
 3. Port each script's main to a test case in its package and delete the script. One `TestSupport` target with one fake per protocol replaces the stubs.
 4. An app-hosted test target for the GUI and WebKit suites. Live assistant scripts stay manual.
 
+Status (2026-11-15): partial. Step 1 done: `tools/tests/manifest.json` lists 211 suites (136 `pure`, 70 `gui`, 5 `live`) and `tools/tests/run.sh` has `--tier`, `--changed`, `--all` and `--list`, with per-suite time limits and group kill (FU-27); CI runs `--tier pure`. Step 2 started: `Packages/MarkViewCore` has 1 test target (7 files, 83 test functions) and 12 source files. Not done: steps 3 and 4 (no app-hosted test target: the project has 1 product type, the application), and the stubs, the per-file `check(...)` helpers and the coverage gap were not re-counted. FU-28: the 500-line `tasks/todo.md` check and the 21 + 19 folder-name pins are no longer in `Phase7WebCITests.swift` and `Phase1CleanupTests.swift` (0 matches).
+
 ### AR-45 CI repeats cold builds and never cancels (high, M)
 
 Three suite workflows trigger on any `MarkView/**` change; six end with their own uncached Debug build; only `build-release.yml` uses a cache and it does not run on pull requests. One commit triggered up to 10 workflows. No workflow has a concurrency group (0 of 14), so superseded pushes keep running. Suites are duplicated between workflows (`window-session-tests`, `bug-validity-tests`).
