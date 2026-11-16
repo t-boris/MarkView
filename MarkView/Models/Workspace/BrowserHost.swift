@@ -45,10 +45,13 @@ final class BrowserHost: BrowserSessionHost {
     private let project: any ProjectProviding
     private let terminals: any DevServerTerminals
     private weak var window: (any BrowserHostWindow)?
+    /// What the window's pages ask the person with (`alert`, `confirm`), given to each browser tab (`AR-22`).
+    private let prompts: any UserPrompts
     private let tasks = TaskBag()
 
     init(tabs: TabsController, layout: PanelLayout, chrome: WindowChrome, project: any ProjectProviding, terminals: any DevServerTerminals,
-         window: any BrowserHostWindow) {
+         window: any BrowserHostWindow, prompts: any UserPrompts) {
+        self.prompts = prompts
         self.tabs = tabs
         self.layout = layout
         self.chrome = chrome
@@ -76,7 +79,7 @@ final class BrowserHost: BrowserSessionHost {
             },
             show: { [weak self] session in self?.show(session) },
             open: { [weak self] url, name in
-                guard let self else { return BrowserSession(url: url) }
+                guard let self else { return BrowserSession(url: url, prompts: NoPrompts()) }
                 let session = self.open(url)
                 if let name { session.agentName = name }
                 return session
@@ -108,7 +111,7 @@ final class BrowserHost: BrowserSessionHost {
     /// Open a browser tab (an empty one for nil), next to the files.
     @discardableResult
     func open(_ url: URL?, activate: Bool = true) -> BrowserSession {
-        let session = BrowserSession(url: url, host: self)
+        let session = BrowserSession(url: url, host: self, prompts: prompts)
         session.agentName = BrowserAgentTools.nextTabName(taken: sessions.map(\.agentName))
         let base = project.root ?? FileManager.default.temporaryDirectory
         var tab = OpenTab(url: base.appendingPathComponent(ProjectPaths.placeholderName("browser-" + session.id.uuidString)),

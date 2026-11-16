@@ -36,7 +36,8 @@ final class BrowserSession: NSObject, ObservableObject {
     var loaded: [URL] = []
     var previews: [URL] = []
     var electronStandIn = false
-    init(url: URL?, host: (any BrowserSessionHost)? = nil) { self.url = url; self.host = host }
+    init(url: URL?, host: (any BrowserSessionHost)? = nil, prompts: any UserPrompts) { self.url = url; self.host = host; self.prompts = prompts }
+    let prompts: any UserPrompts
     func load(_ url: URL) { self.url = url; loaded.append(url) }
     func showPreview(_ url: URL) { previews.append(url); preview = nil; self.url = url }
     func standInForElectron() { electronStandIn = true }

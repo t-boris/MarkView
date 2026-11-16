@@ -86,7 +86,8 @@ func run() async {
     project.aiProject = folder
     let tasks = TaskBag()
     let polling = PollingScheduler()
-    let terminals = AITerminalsController(host: host, project: project, tasks: tasks, polling: polling)
+    let prompts = ScriptedPrompts()
+    let terminals = AITerminalsController(host: host, project: project, tasks: tasks, polling: polling, prompts: prompts)
     check(terminals.activity.provider === terminals, "the activity monitor reads the terminals through AssistantProviding, with no closure wired by the window")
     check(polling.keys.count == 1 && polling.runningCount == 1, "the monitor's poll is a job of the window's scheduler")
     polling.setWindowVisible(false)
@@ -135,6 +136,31 @@ func run() async {
     check(withLinks?.onOutput == nil, "an assistant whose organisation policy cannot block the MCP servers is not watched for it")
     let copilot = terminals.openAITerminal(TerminalProfile(CLITool(rawValue: "copilot")!))
     check(copilot?.onOutput != nil, "Copilot's output is watched for the policy block of the browser tools (BUG-025)")
+
+    // AR-22: the question about a blocked assistant goes through the window's prompter. Keeping the assistant running ("Later") restarts
+    // nothing, restarting it replaces its command (continuing its session), and a window that cannot answer leaves it running.
+    let blockedOutput = Data("MCP server was blocked by policy: \"markview-browser\"\n".utf8)
+    let copilotName = CLITool(rawValue: "copilot")!.displayName
+    func policyBlocked(_ answer: ScriptedPrompts.Answer) async -> Bool {
+        let before = prompts.asked.count
+        prompts.script = [answer]
+        copilot?.onOutput?(blockedOutput)
+        return await waitUntil { prompts.asked.count == before + 1 }
+    }
+    check(await policyBlocked(.press("Later")), "a blocked assistant asks the person")
+    check(prompts.asked.last == UserPrompt(
+            title: "\(copilotName)'s policy blocks MarkView's browser tools",
+            detail: "Your organisation allows \(copilotName) only the MCP servers it lists, so it refused \"markview-browser\". MarkView no longer gives \(copilotName) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(copilotName) itself keeps working.",
+            buttons: ["Restart \(copilotName) Without Them", "Later"]),
+          "with the title, the text and the two buttons it always had, the safe one last")
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    check(copilot?.restarts.isEmpty == true, "Later leaves the assistant running")
+    check(await policyBlocked(.dismiss), "a window that is gone is asked too")
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    check(copilot?.restarts.isEmpty == true, "and nobody answering restarts nothing and waits for nothing")
+    check(await policyBlocked(.press("Restart \(copilotName) Without Them")), "the question comes again")
+    check(await waitUntil { copilot?.restarts.count == 1 }, "Restart replaces the assistant's command")
+    check(copilot?.restarts.first?.profile == copilot?.profile, "with the same assistant")
     terminals.closeAITerminal(withLinks!.id)
     terminals.closeAITerminal(copilot!.id)
 
@@ -186,7 +212,7 @@ func run() async {
     check(claude?.terminated == true && second?.terminated == true && shell?.terminated == true, "each terminal's shell is ended")
     check(defaults.dictionary(forKey: savedKey(folder))?["profiles"] as? [String] == before, "closing the folder keeps the saved set, so the next launch brings the terminals back")
 
-    let relaunched = AITerminalsController(host: host, project: project, tasks: tasks, polling: PollingScheduler())
+    let relaunched = AITerminalsController(host: host, project: project, tasks: tasks, polling: PollingScheduler(), prompts: ScriptedPrompts())
     relaunched.workspaceRoot = folder
     check(relaunched.sessions.map(\.profile.rawValue) == ["claude", "claude", "shell"], "a new window on the folder reopens the terminals it had (\(relaunched.sessions.map(\.profile.rawValue)))")
     check(relaunched.shown === relaunched.sessions[1], "with the same terminal shown")

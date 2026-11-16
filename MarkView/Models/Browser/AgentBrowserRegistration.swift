@@ -126,11 +126,9 @@ enum AgentBrowserRegistration {
 
     /// The menu command: explain, confirm, register, report.
     @MainActor
-    static func connectInteractively() {
+    static func connectInteractively(prompts: any UserPrompts) {
         guard let executable = Bundle.main.executablePath else { return }
-        let ask = NSAlert()
-        ask.messageText = "Connect agents to MarkView?"
-        ask.informativeText = """
+        let connect = UserPrompt(title: "Connect agents to MarkView?", detail: """
         Claude Code, Codex, Copilot, Cline and Antigravity (those installed) get two tool sets in their own settings: \
         "markview-browser" (drive this window's browser tabs) and "markview" (read and extend the project's \
         features, bugs and prototypes, written by MarkView in its own format, only in the window's project). \
@@ -143,19 +141,15 @@ enum AgentBrowserRegistration {
         Claude Code: user-scope MCP server · Codex: ~/.codex/config.toml · Copilot: ~/.copilot/mcp-config.json · \
         Cline: its MCP settings · Antigravity: agy mcp. Remove the servers later with each agent's "mcp remove" and delete the \
         markview skill folders.
-        """
-        ask.addButton(withTitle: "Connect")
-        ask.addButton(withTitle: "Cancel")
-        guard ask.runModal() == .alertFirstButtonReturn else { return }
+        """, buttons: ["Connect", "Cancel"])
+        guard prompts.confirm(connect, proceedingWith: 0) else { return }
         // task: one registration the person asked for, which shows its own result
         Task {
             let outcomes = await registerAll(executable: executable) + installSkills(executable: executable)
-            let report = NSAlert()
-            report.messageText = outcomes.contains(where: \.ok) ? "Agents connected to MarkView" : "No agent was connected"
-            report.informativeText = outcomes.map { "\($0.ok ? "✓" : "✗") \($0.agent) — \($0.detail)" }.joined(separator: "\n")
+            prompts.inform(outcomes.contains(where: \.ok) ? "Agents connected to MarkView" : "No agent was connected",
+                           outcomes.map { "\($0.ok ? "✓" : "✗") \($0.agent) — \($0.detail)" }.joined(separator: "\n")
                 + "\n\nAgents already running pick it up when restarted. In a MarkView terminal, "
-                + "`/Applications/MarkView.app/Contents/MacOS/MarkView --mcp-browser --diagnose` checks the connection."
-            report.runModal()
+                + "`/Applications/MarkView.app/Contents/MacOS/MarkView --mcp-browser --diagnose` checks the connection.")
         }
     }
 }

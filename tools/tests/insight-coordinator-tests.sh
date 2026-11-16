@@ -25,7 +25,7 @@ mkdir -p "$out/Editor"
 ln -s "$PWD/MarkView/Resources/Editor/vendor" "$out/Editor/vendor"
 swiftc -o "$out/insight-coordinator-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Insight/InsightCoordinator.swift MarkView/Models/Shared/ProjectProviding.swift MarkView/Models/Insight/InsightArchiveExport.swift \
+    MarkView/Models/Insight/InsightCoordinator.swift MarkView/Models/Shared/UserPrompts.swift tools/tests/ScriptedPrompts.swift MarkView/Models/Shared/ProjectProviding.swift MarkView/Models/Insight/InsightArchiveExport.swift \
     MarkView/Models/Insight/InsightArchiveExporter.swift MarkView/Models/Insight/InsightCache.swift \
     MarkView/Models/Insight/InsightModels.swift MarkView/Models/Insight/InsightSession.swift MarkView/Models/Insight/InsightHTMLTemplate.swift MarkView/Models/Insight/InsightTreeSnapshot.swift \
     MarkView/Models/Insight/GraphRAG.swift MarkView/Models/Insight/EmbeddingClient.swift \

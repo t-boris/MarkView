@@ -12,5 +12,5 @@ swiftc -parse-as-library -o "$out/qa-web-fault" \
   "$M/QA/QAEffort.swift" "$M/QA/QATriage.swift" "$M/QA/QAInputMark.swift" "$M/QA/QAActions.swift" "$M/QA/QARunner.swift" \
   "$M/QA/QALanguage.swift" "$M/QA/QAPageEvidence.swift" "$M/QA/QACredentials.swift" \
   "$M/QA/QAScenarioEdit.swift" "$M/QA/QAAttachments.swift" "$M/QA/QAGraphLayout.swift" \
-  tools/tests/IssueChecksSupport.swift tools/tests/QANativeKeychainStub.swift tools/tests/QAWebFaultChecks.swift
+  MarkView/Models/Shared/UserPrompts.swift tools/tests/IssueChecksSupport.swift tools/tests/QANativeKeychainStub.swift tools/tests/QAWebFaultChecks.swift
 "$out/qa-web-fault"

@@ -6,7 +6,7 @@ import Network
 // the production QAWebActor in real, independent WKWebViews against a loopback server.
 @MainActor final class BrowserSession {
     let webView: WKWebView
-    init(url: URL?, dataStore: WKWebsiteDataStore, extraHandlers: [WebHost.Handler] = []) {
+    init(url: URL?, dataStore: WKWebsiteDataStore, extraHandlers: [WebHost.Handler] = [], prompts: any UserPrompts) {
         let config = WebHost.makeConfiguration(dataStore: .store(dataStore), handlers: extraHandlers)
         webView = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
     }

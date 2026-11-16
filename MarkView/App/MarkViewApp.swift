@@ -70,7 +70,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // task: the quit itself: it answers `.terminateLater` and replies when the stores have saved; nothing may cancel it
         Task { @MainActor in
-            guard await ProjectOperationsStore.stopAllBeforeQuit() else {
+            guard await ProjectOperationsStore.stopAllBeforeQuit(prompts: AlertPrompts()) else {
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }
@@ -479,7 +479,7 @@ enum DDESettingsWindow {
             bind(window, to: workspace)
         } else if shownWorkspace == nil {
             // No window has focus (the menu with only the Settings window open): no project.
-            bind(window, to: WorkspaceManager())
+            bind(window, to: WorkspaceManager(prompts: AlertPrompts()))
         }
         window.title = shownWorkspace?.projectFolder.map { "DDE Settings — \($0.lastPathComponent)" } ?? "DDE Settings"
         window.makeKeyAndOrderFront(nil)

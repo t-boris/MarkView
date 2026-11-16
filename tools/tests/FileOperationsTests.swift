@@ -58,7 +58,7 @@ enum FileOperationsChecks {
     struct Window {
         let root: URL
         let host = Host()
-        let tabs = TabsController()
+        let tabs = TabsController(prompts: NoPrompts())
         /// The window's background tasks, which the controller's unpackings run in.
         let tasks = TaskBag()
         let project: FakeProject

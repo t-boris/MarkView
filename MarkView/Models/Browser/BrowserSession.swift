@@ -123,9 +123,13 @@ final class BrowserSession: NSObject, ObservableObject {
     private let dataStore: WKWebsiteDataStore?
     /// Page channels the owner of the session adds to the tab's own (the QA player's fault counter).
     private let extraHandlers: [WebHost.Handler]
+    /// How a page's own `alert` and `confirm` reach the person (`AR-22`). A session nobody can be asked from (a QA player) has `NoPrompts`.
+    private let prompts: any UserPrompts
 
-    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = [], host: (any BrowserSessionHost)? = nil) {
+    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = [], host: (any BrowserSessionHost)? = nil,
+         prompts: any UserPrompts) {
         self.host = host
+        self.prompts = prompts
         self.url = url
         self.dataStore = dataStore
         self.extraHandlers = extraHandlers
@@ -517,10 +521,7 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
             completionHandler()
             return
         }
-        let alert = NSAlert()
-        alert.messageText = frame.request.url?.host ?? "Page"
-        alert.informativeText = message
-        alert.runModal()
+        prompts.inform(frame.request.url?.host ?? "Page", message)
         completionHandler()
     }
 
@@ -531,12 +532,8 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
             completionHandler(true)
             return
         }
-        let alert = NSAlert()
-        alert.messageText = frame.request.url?.host ?? "Page"
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        completionHandler(alert.runModal() == .alertFirstButtonReturn)
+        let question = UserPrompt(title: frame.request.url?.host ?? "Page", detail: message, buttons: ["OK", "Cancel"])
+        completionHandler(prompts.confirm(question, proceedingWith: 0))
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,

@@ -187,7 +187,7 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
 /// folder tree or Git state observes that part itself, so typing in the editor redraws what shows the tabs and nothing else (`AR-15`).
 struct ContentView: View {
     var windowSessionID = UUID()
-    @StateObject private var workspaceManager = WorkspaceManager()
+    @StateObject private var workspaceManager = WorkspaceManager(prompts: AlertPrompts())
 
     var body: some View {
         WorkspaceWindow(windowSessionID: windowSessionID, workspaceManager: workspaceManager)
@@ -650,7 +650,7 @@ private struct WorkspaceWindow: View {
                 ForEach(CLITool.allCases.filter { $0.provider.mcp != nil }) { BrowserToolsToggle(tool: $0) }
                 Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
             }
-            Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
+            Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively(prompts: workspaceManager.prompts) }
                 .help("Let Claude Code, Codex, Copilot, Cline and Antigravity drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
             toolbarIcon("globe", width: toolbarIconWidth, selected: selected)
