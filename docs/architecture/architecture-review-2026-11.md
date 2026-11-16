@@ -379,6 +379,8 @@ Status (2026-11-15): partial. Places to edit for a new tool: about 7 at 6.26.2 -
 
 `isDark` is computed from the background's luminance. For user themes `web` could be optional with tokens derived from `native`; that derivation is a proposal and has not been compared with the hand-tuned values. Risks: first-paint flash, three test files to rewrite, persisted ids must not change.
 
+Status (2026-11-15): done. 11 JSON themes in `Resources/Themes/` (keys `schema`, `id`, `name`, `summary`, `order`, `picker`, `native`, `web`) are read by `ThemeCatalog`, which also reads a person's own themes from `~/Library/Application Support/MarkView/themes/`; `ThemePickerView` is the picker; a new built-in theme is 1 file. Not checked: the web-token derivation for a user theme that gives only native colours (`DEC-003`).
+
 **3. Layout presets (AR-33, M, after the registry).**
 
 ```swift
