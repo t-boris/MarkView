@@ -13,6 +13,10 @@ import MarkViewCore
 enum AgentToolServer {
     private static var windows: [UUID: AgentToolWindow] = [:]
     private static var listening: String?
+    private static var windowOpener: ((URL) -> Bool)?
+
+    static func setWindowOpener(_ opener: @escaping (URL) -> Bool) { windowOpener = opener }
+    static func openWindow(folder: URL) -> Bool { windowOpener?(folder) ?? false }
     /// The open control socket and its per-instance token (`AR-40`, `DEC-009`, `PrivateSocket`).
     private static var listener: PrivateSocket.Listener?
 

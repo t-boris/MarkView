@@ -739,7 +739,6 @@ extension WorkspaceManager: AgentControlWindow {
     func openControlTerminal(_ profile: TerminalProfile, resuming: Bool) -> TerminalSession? {
         terminals.openAITerminal(profile, resuming: resuming)
     }
-    func openControlWindow(folder: URL) -> Bool { WindowSessionController.shared.openWorkspaceWindow(folder: folder) }
     func controlIntakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) { flow.intakeFinished(kind, outcome: outcome) }
     func controlStartImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession) {
         flow.startImplementation(url, done: done, in: terminal)

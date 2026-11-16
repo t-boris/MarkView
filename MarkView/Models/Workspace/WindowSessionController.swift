@@ -88,6 +88,9 @@ final class WindowSessionController {
 
     func attach(id: UUID, window: NSWindow, workspace: any WindowSessionWindow, openWindow: @escaping (UUID) -> Void) async {
         openSceneWindow = openWindow
+        AgentToolServer.setWindowOpener { [weak self] folder in
+            self?.openWorkspaceWindow(folder: folder) ?? false
+        }
         var closedBeforeLoad = false
         let closeObserver = NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .filter { ($0.object as? NSWindow) === window }

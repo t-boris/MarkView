@@ -18,7 +18,6 @@ protocol AgentControlWindow: AnyObject {
     func openControlTerminal(_ profile: TerminalProfile, resuming: Bool) -> TerminalSession?
     func showAIConsole()
     func openFolder(_ url: URL)
-    func openControlWindow(folder: URL) -> Bool
     func controlIntakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome)
     func controlStartImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession)
     func controlFixBug(_ url: URL, in terminal: TerminalSession)
@@ -204,7 +203,7 @@ enum ControlToolRunner {
             }
             return .init(text: "Opened \(path) in window \(reuse.shortID). \(projectLine(reuse.workspace))\nNext: markview_agent_start { window: \"\(reuse.shortID)\" } or markview_flow_new.")
         }
-        guard live.first?.workspace.openControlWindow(folder: url) == true else {
+        guard AgentToolServer.openWindow(folder: url) else {
             throw Invalid(message: "MarkView cannot open another window yet (it has none to open it from, or it is quitting). Open one in MarkView and call again.")
         }
         var opened: Target?

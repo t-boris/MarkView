@@ -95,6 +95,10 @@ private func rawControlReply(_ path: String, _ request: [String: Any]) -> Browse
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-browser-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        var requestedWindow: URL?
+        AgentToolServer.setWindowOpener { folder in requestedWindow = folder; return true }
+        precondition(AgentToolServer.openWindow(folder: root) && requestedWindow == root,
+                     "the injected window opener works before any window is registered")
         let workspace = WorkspaceManager(), other = WorkspaceManager()
         workspace.terminals.root = root; other.terminals.root = root
         let session = BrowserSession(), unrelated = BrowserSession()
