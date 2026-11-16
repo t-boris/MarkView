@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 import WebKit
 import XCTest
@@ -61,4 +62,18 @@ final class EditorHostTests: XCTestCase {
         }
         XCTAssertEqual(heading, "right-window", "The window's own notification reaches its editor")
     }
+    @MainActor
+    func testEditorObserverLifetimeRemovesRegistrations() {
+        let center = NotificationCenter()
+        let name = Notification.Name("EditorObserverLifetime-" + UUID().uuidString)
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        var observers: EditorNotificationObservers? = EditorNotificationObservers()
+        observers?.observe(name, center: center) { _ in calls.withLock { $0 += 1 } }
+        center.post(name: name, object: nil)
+        XCTAssertEqual(calls.withLock { $0 }, 1)
+        observers = nil
+        center.post(name: name, object: nil)
+        XCTAssertEqual(calls.withLock { $0 }, 1, "Released editor observers must not receive future notifications")
+    }
+
 }

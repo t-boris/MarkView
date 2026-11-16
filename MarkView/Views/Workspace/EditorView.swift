@@ -5,6 +5,24 @@ import Combine
 import MarkViewCore
 #endif
 
+// unchecked Sendable: the lock protects registrations; NotificationCenter supports removal from any thread.
+final class EditorNotificationObservers: @unchecked Sendable {
+    private let lock = NSLock()
+    private var registrations: [(NotificationCenter, NSObjectProtocol)] = []
+
+    func observe(_ name: Notification.Name, center: NotificationCenter = .default,
+                 handler: @escaping @Sendable (Notification) -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main, using: handler)
+        lock.lock()
+        registrations.append((center, token))
+        lock.unlock()
+    }
+
+    deinit {
+        for (center, token) in registrations { center.removeObserver(token) }
+    }
+}
+
 /// NSViewRepresentable wrapper for WKWebView markdown editor
 struct EditorView: NSViewRepresentable {
     @Environment(\.windowCommands) private var window
@@ -114,8 +132,7 @@ struct EditorView: NSViewRepresentable {
         /// `webView(_:didFinish:)` (the second `loadContentIfNeeded` call site) so it
         /// can route by `tab.kind` instead of falling back to the file-only path.
         var pendingTab: OpenTab?
-        private var pdfExportObserver: Any?
-        private var scrollToHeadingObserver: Any?
+        private let notificationObservers = EditorNotificationObservers()
 
         // MARK: Insight subscription state (Recursive Insight v2, Task 7)
 
@@ -157,9 +174,7 @@ struct EditorView: NSViewRepresentable {
 
             // NotificationCenter delivers these callbacks on the main queue. Extract value data before
             // entering the main actor; no Notification or mutable userInfo crosses the boundary.
-            pdfExportObserver = NotificationCenter.default.addObserver(
-                forName: .performPDFExport, object: nil, queue: .main
-            ) { [weak self] notification in
+            notificationObservers.observe(.performPDFExport) { [weak self] notification in
                 let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
                 let fileName = notification.object as? String ?? "document.pdf"
                 MainActor.assumeIsolated {
@@ -168,9 +183,7 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
-            scrollToHeadingObserver = NotificationCenter.default.addObserver(
-                forName: .scrollToHeading, object: nil, queue: .main
-            ) { [weak self] notification in
+            notificationObservers.observe(.scrollToHeading) { [weak self] notification in
                 let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
                 let headingID = notification.object as? String
                 MainActor.assumeIsolated {
@@ -180,7 +193,7 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
-            NotificationCenter.default.addObserver(forName: .revealCodeLine, object: nil, queue: .main) { [weak self] notification in
+            notificationObservers.observe(.revealCodeLine) { [weak self] notification in
                 let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
                 let url = notification.userInfo?["url"] as? URL
                 let line = notification.userInfo?["line"] as? Int
@@ -193,7 +206,7 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
-            NotificationCenter.default.addObserver(forName: .revealStructure, object: nil, queue: .main) { [weak self] notification in
+            notificationObservers.observe(.revealStructure) { [weak self] notification in
                 let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
                 let url = (notification.userInfo?["url"] as? URL)?.standardizedFileURL
                 let path = notification.userInfo?["path"] as? String
@@ -206,7 +219,7 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
-            NotificationCenter.default.addObserver(forName: .codeNavEvent, object: nil, queue: .main) { [weak self] notification in
+            notificationObservers.observe(.codeNavEvent) { [weak self] notification in
                 let source = notification.object.map { ObjectIdentifier($0 as AnyObject) }
                 let url = notification.userInfo?["url"] as? URL
                 let json = notification.userInfo?["json"] as? String
@@ -218,7 +231,7 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
-            NotificationCenter.default.addObserver(forName: .scrollToText, object: nil, queue: .main) { [weak self] notification in
+            notificationObservers.observe(.scrollToText) { [weak self] notification in
                 let scope = notification.userInfo?[Notification.workspaceKey] as? ObjectIdentifier
                 let text = notification.object as? String
                 let heading = notification.userInfo?["heading"] as? Bool ?? false
@@ -229,15 +242,6 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
-        }
-
-        deinit {
-            if let observer = pdfExportObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = scrollToHeadingObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
         }
 
         // MARK: - Page Loading
