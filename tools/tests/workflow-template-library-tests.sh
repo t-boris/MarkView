@@ -11,7 +11,7 @@ M=MarkView/Models
 swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/library-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     "$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" \
-    "$M/Lifecycle/DefinitionOfDone.swift" "$M/Workspace/SchemaVersionedStore.swift" "$M/Lifecycle/WorkflowDone.swift" \
+    "$M/Lifecycle/DefinitionOfDone.swift" "$M/Shared/SchemaVersionedStore.swift" "$M/Lifecycle/WorkflowDone.swift" \
     "$M/Lifecycle/WorkflowDiagramLayout.swift" "$M/Lifecycle/WorkflowTransitionStory.swift" "$M/Lifecycle/WorkflowFlow.swift" \
     "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/WorkflowTemplateLibrary.swift" tools/tests/WorkflowTemplateLibraryChecks.swift
 "$out/library-tests"

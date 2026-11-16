@@ -51,6 +51,7 @@ actor Sink: QABugSink {
 
     let archive = QARunArchive()
     archive.root = root
+    archive.runLinks = CockpitRunLinks()
     archive.bugFiler = QABugFiler(sink: Sink(slow: false))
     archive.reload(scenarioID: "checkout")
     check(await waitFor { archive.runs.count == 3 }, "the archive reads the runs of the scenario")
@@ -81,6 +82,7 @@ actor Sink: QABugSink {
     // End: the work still under way stops and nothing it would have said comes after.
     let slow = QARunArchive()
     slow.root = root
+    slow.runLinks = CockpitRunLinks()
     slow.bugFiler = QABugFiler(sink: Sink(slow: true))
     slow.reload(scenarioID: "checkout")
     check(await waitFor { slow.runs.count == 1 }, "a second archive reads the run")
