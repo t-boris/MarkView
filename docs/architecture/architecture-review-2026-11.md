@@ -73,6 +73,7 @@ Status of AR-01 to AR-13 on 2026-11-15 (the table above is the review as written
 - AR-04 Status (2026-11-15): partial. The defect class is closed by the lint `js-interpolation` (no `evaluateJavaScript` or `callAsyncJavaScript` takes a script built by string interpolation; 0 violations). `JS.call`/`JS.sequence` 6 -> 39 sites; `evaluateJavaScript` 57 -> 27 sites in 7 files (6.26.2 -> now); the rest are constant scripts or `JS.call` that the lint accepts, not rewritten to `JS.call`.
 - AR-05 Status (2026-11-15): done. `markview-init.js` defines `init` and calls it (`init();` at line 137; `ready` is sent from line 68); `markview-d3-mermaid.js` no longer calls it (one comment is left).
 - AR-06 Status (2026-11-15): done by reading. `ArchitectureStore` no longer runs `git show`: `ChangeReviewStore.prFileURL` is a synchronous cache lookup, and `ChangeSource.materialize` runs `git show` through `Subprocess.run` off the calling actor with a 15 s timeout and a 2 MiB cap.
+- AR-07 Status (2026-11-15): done by reading. `InsightArchiveExporter` runs `zip -r -q` through `Subprocess`, which drains stdout and stderr concurrently.
 
 ## 3. Application shell and state
 
