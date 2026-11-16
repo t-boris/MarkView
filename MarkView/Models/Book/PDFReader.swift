@@ -87,7 +87,7 @@ enum PDFReaderLoading {
 }
 
 @MainActor
-final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDFDocumentDelegate, @preconcurrency PDFViewDelegate {
+final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDFDocumentDelegate, @preconcurrency PDFViewDelegate, PDFReaderFindDelegate {
     @Published private(set) var document: PDFDocument?
     @Published private(set) var outline: [PDFReaderOutline] = []
     @Published private(set) var loading = false
@@ -158,13 +158,15 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
         loading = false
     }
 
+    func requestPDFFind() { findRequest += 1 }
+
     func attach(_ view: PDFReaderPDFView) {
         if self.view === view { return }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
         self.view = view
         view.delegate = self
-        view.onFind = { [weak self] in self?.findRequest += 1 }
+        view.findDelegate = self
         view.fitMode = fitMode
         if let page = document?.page(at: pageNumber - 1) { view.go(to: page) }
         for name in [Notification.Name.PDFViewPageChanged, .PDFViewScaleChanged] {
@@ -273,11 +275,17 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
     }
 }
 
+/// Handles the reader’s Find command.
+@MainActor
+protocol PDFReaderFindDelegate: AnyObject {
+    func requestPDFFind()
+}
+
 /// PDFKit provides rendering and text selection, but not a route to edit or execute PDF actions.
 final class PDFReaderPDFView: PDFView {
     enum FitMode { case page, width, manual }
     var fitMode: FitMode = .page
-    var onFind: (() -> Void)?
+    weak var findDelegate: (any PDFReaderFindDelegate)?
     var openExternal: (URL) -> Void = { NSWorkspace.shared.open($0) }
     private var fittedSize = CGSize.zero
 
@@ -328,7 +336,7 @@ final class PDFReaderPDFView: PDFView {
                 super.perform(action)
             case .zoomIn: scaleFactor *= 1.25; fitMode = .manual
             case .zoomOut: scaleFactor /= 1.25; fitMode = .manual
-            case .find: onFind?()
+            case .find: findDelegate?.requestPDFFind()
             default: break
             }
         }
@@ -345,7 +353,7 @@ final class PDFReaderPDFView: PDFView {
 
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "f" {
-            onFind?()
+            findDelegate?.requestPDFFind()
             return
         }
         super.keyDown(with: event)

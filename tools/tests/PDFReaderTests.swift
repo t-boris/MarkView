@@ -132,6 +132,9 @@ enum PDFReaderTests {
         window.isReleasedWhenClosed = false
         window.contentView!.addSubview(view)
         reader.attach(view)
+        let requestsBeforeFind = reader.findRequest
+        view.perform(PDFActionNamed(name: .find))
+        check(reader.findRequest == requestsBeforeFind + 1, "PDF Find action reaches the attached reader")
         view.layoutSubtreeIfNeeded()
         reader.setFit(.page)
         let pageScale = view.scaleFactor
