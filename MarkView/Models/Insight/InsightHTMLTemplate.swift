@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -7,29 +8,17 @@ import MarkViewCore
 /// (`InsightSession.writeFinalHTMLToCache`) and the ZIP export (`InsightCoordinator.exportInsightArchive`).
 /// Pure: no state, no clock, no random ids, so equal input gives byte-identical output.
 enum InsightHTMLTemplate {
-    /// Lib reference mode for the rebuilt HTML.
-    /// - `runtimeBlobs(libBlobURLs:)` — passes blob: URLs from parent (T7's lazy materialisation).
-    /// - `exportRelative` — references `../_assets/<lib>` for ZIP export portability (T8).
-    /// Currently `writeFinalHTMLToCache` always uses `exportRelative` because cache also
-    /// serves as the ZIP-export source (Decision 4: `_assets/` lives inside session dir).
-    enum LibRefMode {
-        case runtimeBlobs(libBlobURLs: [String: String])
-        case exportRelative
-    }
-
     /// Deterministic HTML composition. Reproducible: identical (skeleton, sectionStates,
     /// breadcrumbs) input → byte-identical output. NO Date interpolation, NO new UUIDs —
     /// only known-good fields from the in-memory tree.
     ///
-    /// `cache` is optional and only consulted in `.exportRelative` mode to resolve
-    /// vendored lib filenames dynamically from `_assets/` (Wave 6 audit T9 #1 fix).
-    /// In `.runtimeBlobs(...)` mode the caller supplies the blob URLs directly so no
-    /// disk lookup is required.
+    /// Library references point at `../_assets/<lib>`: the cache keeps `_assets/` inside the session
+    /// folder, so the ZIP export is portable (Decision 4). `cache` resolves the vendored lib filenames
+    /// dynamically from `_assets/` (Wave 6 audit T9 #1 fix).
     static func html(
         skeleton: InsightSkeleton,
         sectionStates: [String: SectionState],
         breadcrumbs: [(nodeId: String, title: String)],
-        libRefMode: LibRefMode,
         cache: InsightCache? = nil
     ) -> String {
         let escapedTitle = escape(skeleton.title)
@@ -83,58 +72,36 @@ enum InsightHTMLTemplate {
 
         // Lib references (Decision 5).
         var libRefs = ""
-        switch libRefMode {
-        case .runtimeBlobs(let blobs):
-            // Each lib blob: <script src="blob:...">. Iframe sandbox null-origin can load these.
-            for (name, blobURL) in blobs.sorted(by: { $0.key < $1.key }) {
-                let safe = escape(blobURL)
-                if name.hasSuffix(".css") {
-                    libRefs += "<link rel=\"stylesheet\" href=\"\(safe)\">\n"
-                } else {
-                    libRefs += "<script src=\"\(safe)\"></script>\n"
-                }
-            }
-        case .exportRelative:
-            // Export-friendly relative refs to `_assets/`. Filenames are resolved
-            // dynamically from the cache's `_assets/` directory so version bumps in
-            // `Resources/Editor/vendor/` (e.g. `chart-4.4.9.min.js` →
-            // `chart-5.x.min.js`) do not desync with a hard-coded list (Wave 6
-            // audit T9 #1 fix). Each entry is a (prefix, extension) pair; the
-            // shortest-name match wins for determinism. Output order is sorted by
-            // resolved filename so the byte-for-byte reproducibility contract holds.
-            let prefixes: [(prefix: String, ext: String)] = [
-                ("prism", "css"),
-                ("prism", "js"),
-                ("mermaid", "js"),
-                ("chart", "js"),
-                ("katex", "css"),
-                ("katex", "js"),
-                ("auto-render", "js"),
-                ("markdown-it", "js")
-            ]
-            var resolved: [(filename: String, kind: String)] = []
-            for entry in prefixes {
-                if let url = cache?.vendoredLibURL(matching: entry.prefix, extension: entry.ext) {
-                    resolved.append((filename: url.lastPathComponent, kind: entry.ext))
-                }
-            }
-            for entry in resolved.sorted(by: { $0.filename < $1.filename }) {
-                if entry.kind == "css" {
-                    libRefs += "<link rel=\"stylesheet\" href=\"../_assets/\(entry.filename)\">\n"
-                } else {
-                    libRefs += "<script src=\"../_assets/\(entry.filename)\"></script>\n"
-                }
+        // Export-friendly relative refs to `_assets/`. Filenames are resolved
+        // dynamically from the cache's `_assets/` directory so version bumps in
+        // `Resources/Editor/vendor/` (e.g. `chart-4.4.9.min.js` →
+        // `chart-5.x.min.js`) do not desync with a hard-coded list (Wave 6
+        // audit T9 #1 fix). Each entry is a (prefix, extension) pair; the
+        // shortest-name match wins for determinism. Output order is sorted by
+        // resolved filename so the byte-for-byte reproducibility contract holds.
+        let prefixes: [(prefix: String, ext: String)] = [
+            ("prism", "css"),
+            ("prism", "js"),
+            ("mermaid", "js"),
+            ("chart", "js"),
+            ("katex", "css"),
+            ("katex", "js"),
+            ("auto-render", "js"),
+            ("markdown-it", "js")
+        ]
+        var resolved: [(filename: String, kind: String)] = []
+        for entry in prefixes {
+            if let url = cache?.vendoredLibURL(matching: entry.prefix, extension: entry.ext) {
+                resolved.append((filename: url.lastPathComponent, kind: entry.ext))
             }
         }
-
-        // CSP for the cached HTML (Wave 6 audit T9 #3 fix). Aligned with the iframe
-        // srcdoc CSP (Decision 10 §3 / index.html:2827) but adapted for the cached /
-        // exported context: scripts and styles load from `'self'` (the cache root or
-        // the unzipped export) instead of `blob:`. Webfonts and images come from
-        // `'self'` + `data:` only — no wildcard CDNs. Matches the iframe's
-        // defense-in-depth posture (`default-src 'none'`, `connect-src 'none'`,
-        // `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`).
-        let csp = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        for entry in resolved.sorted(by: { $0.filename < $1.filename }) {
+            if entry.kind == "css" {
+                libRefs += "<link rel=\"stylesheet\" href=\"../_assets/\(entry.filename)\">\n"
+            } else {
+                libRefs += "<script src=\"../_assets/\(entry.filename)\"></script>\n"
+            }
+        }
 
         // Mirror the iframe srcdoc's section/hero/table/callout/timeline/
         // cards-grid/mermaid/chart styling so the exported standalone site
@@ -230,9 +197,59 @@ enum InsightHTMLTemplate {
         }
         """
 
-        // Bootstrap script — initialises mermaid + chart, wires lightbox click-to-zoom.
-        let bootstrap = """
-        <script>
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="\(Self.policy)">
+        <title>\(escapedTitle)</title>
+        <style>\(inlineCSS)</style>
+        \(libRefs)
+        </head>
+        <body>
+        <header class="insight-chrome insight-breadcrumbs">\(breadcrumbHTML)</header>
+        <main class="insight-content">
+        \(sectionsHTML)
+        </main>
+        <footer class="insight-chrome insight-status"></footer>
+        \(Self.bootstrapElement)
+        </body>
+        </html>
+        """
+    }
+
+    // MARK: - Content Security Policy (FU-25)
+
+    /// The page's one inline script, as the element's text between `<script>` and `</script>`: it initialises Mermaid and
+    /// Chart.js from the markup the assistant was asked to write (`<pre><code class="language-mermaid">`,
+    /// `<canvas data-chart='…'>`) and wires the lightbox. It attaches every listener with `addEventListener` or a property,
+    /// so the page has no inline handler attribute.
+    private static let bootstrapText = "\n" + bootstrapSource + "\n"
+
+    /// The element as it stands in the page. The policy allows exactly these bytes (`bootstrapHash`).
+    static let bootstrapElement = "<script>" + bootstrapText + "</script>"
+
+    /// CSP source for the bootstrap: the SHA-256 of the element's text. A page is built from fixed text, so a hash (not a
+    /// per-document nonce) keeps the output byte-identical for equal input; a script that arrives in a section the assistant
+    /// wrote, or in any title, has other bytes and does not run.
+    static let bootstrapHash = "'sha256-" + Data(SHA256.hash(data: Data(bootstrapText.utf8))).base64EncodedString() + "'"
+
+    /// The policy of a cached or exported page (Wave 6 audit T9 #3, FU-25). Scripts: the bundled libraries from `'self'`
+    /// (`_assets/` next to the page) and the bootstrap by hash; no `'unsafe-inline'`, so an inline script or handler in a
+    /// section the assistant wrote does not run. Styles keep `'unsafe-inline'`: Mermaid puts a `<style>` element and style
+    /// attributes into every SVG it draws and the sections carry style attributes, so a page without it loses its diagrams.
+    /// A style cannot run script, and the rest of the policy closes the ways to send anything out (`connect-src`, `img-src`,
+    /// `font-src` and `default-src`), `object-src`, `base-uri` and `frame-ancestors`.
+    static let policy = "default-src 'none'; script-src 'self' \(bootstrapHash); style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+
+    /// Names the policy the pages of a cache were written under. `InsightCache` keeps it in the manifest and drops the pages
+    /// of any other key, so a page written under an older policy is never served again (the key follows the policy text, which
+    /// carries the bootstrap's hash, so changing either one changes the key and nobody has to remember to bump a number).
+    static let policyKey = Data(SHA256.hash(data: Data(policy.utf8))).prefix(8).map { String(format: "%02x", $0) }.joined()
+
+    /// The bootstrap's source, indented as the literal needs it.
+    private static let bootstrapSource = """
         (function() {
             try {
                 if (typeof mermaid !== 'undefined') {
@@ -345,30 +362,7 @@ enum InsightHTMLTemplate {
                 }, false);
             } catch (e) {}
         })();
-        </script>
         """
-
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta http-equiv="Content-Security-Policy" content="\(csp)">
-        <title>\(escapedTitle)</title>
-        <style>\(inlineCSS)</style>
-        \(libRefs)
-        </head>
-        <body>
-        <header class="insight-chrome insight-breadcrumbs">\(breadcrumbHTML)</header>
-        <main class="insight-content">
-        \(sectionsHTML)
-        </main>
-        <footer class="insight-chrome insight-status"></footer>
-        \(bootstrap)
-        </body>
-        </html>
-        """
-    }
 
     /// HTML-escape utility (Decision 10). Applied to ALL LLM-controlled strings BEFORE
     /// interpolation into the rebuilt HTML. The five canonical replacements + single-quote

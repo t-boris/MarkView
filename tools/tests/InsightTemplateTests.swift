@@ -1,7 +1,10 @@
+import CryptoKit
 import Foundation
 
 // The Insight page template and the saved node tree, over real values: no window, session or assistant.
-//   InsightHTMLTemplate: model-controlled text is escaped, section text is kept as written, equal input gives equal bytes.
+//   InsightHTMLTemplate: model-controlled text is escaped, section text is kept as written, equal input gives equal bytes, and the
+//   policy the page carries admits the page's own inline script by hash and no other inline script (FU-25; the page itself runs in
+//   real WebKit in insight-page-web-tests).
 //   InsightTreeSnapshot: what is saved comes back as the same tree (also from an older root-only snapshot).
 
 var passed = 0
@@ -37,7 +40,7 @@ print("=== Insight page template ===")
 let hostile = skeleton(title: "<script>alert(1)</script> & \"co\"", topics: [(label: "A'b <i>", hint: "\"hint\" <x>")])
 let states = ["s1": SectionState(buffer: "<p class=\"keep\">body & <b>text</b></p>", status: .ready)]
 let crumbs: [(nodeId: String, title: String)] = [("ROOT-ID", "Root <1>"), ("CHILD-ID", "Child")]
-let page = InsightHTMLTemplate.html(skeleton: hostile, sectionStates: states, breadcrumbs: crumbs, libRefMode: .exportRelative)
+let page = InsightHTMLTemplate.html(skeleton: hostile, sectionStates: states, breadcrumbs: crumbs)
 check(!page.contains("<script>alert(1)</script>") && page.contains("&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;co&quot;"),
       "the title is escaped in the page title and nowhere appears as markup")
 check(page.contains("<h2>Overview &lt;b&gt;</h2>"), "a section title is escaped")
@@ -46,12 +49,47 @@ check(page.contains("data-topic-index=\"0\" title=\"&quot;hint&quot; &lt;x&gt;\"
       "a deep-dive button carries its escaped label and hint")
 check(page.contains("<a class=\"crumb\" href=\"#ROOT-ID\">Root &lt;1&gt;</a>") && page.contains("<span class=\"crumb crumb-active\">Child</span>"),
       "breadcrumbs link every ancestor and mark the last one active, escaped")
-check(page == InsightHTMLTemplate.html(skeleton: hostile, sectionStates: states, breadcrumbs: crumbs, libRefMode: .exportRelative),
+check(page == InsightHTMLTemplate.html(skeleton: hostile, sectionStates: states, breadcrumbs: crumbs),
       "equal input gives byte-identical output")
-let blobPage = InsightHTMLTemplate.html(skeleton: hostile, sectionStates: states, breadcrumbs: crumbs,
-    libRefMode: .runtimeBlobs(libBlobURLs: ["b.js": "blob:x/2", "a.css": "blob:x/1\"y"]))
-let cssAt = blobPage.range(of: "<link rel=\"stylesheet\" href=\"blob:x/1&quot;y\">"), jsAt = blobPage.range(of: "<script src=\"blob:x/2\"></script>")
-check(cssAt != nil && jsAt != nil && cssAt!.lowerBound < jsAt!.lowerBound, "runtime blobs are referenced in name order, a stylesheet as a link, the URL escaped")
+
+// FU-25: the policy of the page. The page's one inline script is allowed by the hash of its own bytes; nothing else inline is.
+func metaPolicy(of html: String) -> String? {
+    guard let open = html.range(of: "<meta http-equiv=\"Content-Security-Policy\" content=\""),
+          let close = html.range(of: "\">", range: open.upperBound..<html.endIndex) else { return nil }
+    return String(html[open.upperBound..<close.lowerBound])
+}
+func directive(_ name: String, in policy: String) -> [String] {
+    for part in policy.split(separator: ";") {
+        let words = part.split(separator: " ").map(String.init)
+        if words.first == name { return Array(words.dropFirst()) }
+    }
+    return []
+}
+func inlineScripts(of html: String) -> [String] {
+    var found: [String] = []
+    var rest = html[...]
+    while let open = rest.range(of: "<script>"), let close = rest.range(of: "</script>", range: open.upperBound..<rest.endIndex) {
+        found.append(String(rest[open.upperBound..<close.lowerBound]))
+        rest = rest[close.upperBound...]
+    }
+    return found
+}
+guard let carried = metaPolicy(of: page) else { check(false, "the page carries a policy"); exit(1) }
+let scriptSources = directive("script-src", in: carried)
+check(carried == InsightHTMLTemplate.policy, "the page carries the policy the template declares")
+check(!scriptSources.contains("'unsafe-inline'") && !scriptSources.contains("'unsafe-eval'") && !scriptSources.contains("blob:") && !scriptSources.contains("data:"),
+      "script-src has no 'unsafe-inline', no 'unsafe-eval' and no blob: or data: source")
+check(scriptSources.first == "'self'" && scriptSources.count == 2 && scriptSources[1].hasPrefix("'sha256-"), "script-src is 'self' (the bundled libraries) and one hash")
+let scripts = inlineScripts(of: page)
+check(scripts.count == 1, "the page has exactly one inline script (\(scripts.count))")
+let hashOfScript = scripts.first.map { "'sha256-" + Data(SHA256.hash(data: Data($0.utf8))).base64EncodedString() + "'" }
+check(hashOfScript != nil && scriptSources.contains(hashOfScript!), "the hash in script-src is the hash of the bytes between <script> and </script> in the page")
+check(inlineScripts(of: InsightHTMLTemplate.html(skeleton: skeleton(title: "other"), sectionStates: [:], breadcrumbs: [])) == scripts,
+      "every page carries the same inline script, so one hash fits them all")
+check(directive("connect-src", in: carried) == ["'none'"] && directive("default-src", in: carried) == ["'none'"] && directive("object-src", in: carried) == ["'none'"]
+      && directive("img-src", in: carried) == ["'self'", "data:"], "nothing can be sent out: default, connect and object are 'none', images are 'self' and data:")
+check(InsightHTMLTemplate.policyKey.count == 16 && InsightHTMLTemplate.policyKey.allSatisfy { "0123456789abcdef".contains($0) },
+      "the policy key is 16 hex digits")
 check(InsightHTMLTemplate.escape("&<>\"'") == "&amp;&lt;&gt;&quot;&#39;", "the escape covers text and attribute contexts")
 
 print("\n=== Insight tree snapshot ===")

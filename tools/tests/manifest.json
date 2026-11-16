@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 219,
+  "suiteCount": 220,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4776,6 +4776,26 @@
         "tools/tests/DiagramCLIStub.swift",
         "tools/tests/LogicalViewTests.swift",
         "tools/tests/logical-view-tests.sh"
+      ]
+    },
+    {
+      "name": "insight-page-web-tests",
+      "script": "tools/tests/insight-page-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/Insight/InsightCache.swift",
+        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/InsightPageWebTests.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/insight-page-web-tests.sh"
       ]
     },
     {
