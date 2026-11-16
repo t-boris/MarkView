@@ -202,6 +202,8 @@ Measured by type-name references across domain files (generic names may inflate 
 
 Cleanly separable today: Dictation, Theme/Backdrop, the git client, and the value-type cores of cycle time, QA scenario/run, UI Studio GraphQL/simulation and the Remote protocol. Large but low fan-in leaves: UI Studio, QA, Prototype.
 
+Status (2026-11-15): partial. Done: Features, Issues and Workflow are one `Lifecycle` folder; the tool runners live in `AgentToolServer` (`Models/AgentTools/`); `AI` depends on 1 domain (1 type) while 18 domains use it (the review: it depended upward on four types). Remaining cycles, measured by the same script as in followup section 12 (28 mutual pairs at 6.26.2): 22 pairs now, led by Lifecycle -> Workspace (10 types back), UIStudio -> Workspace (12), Prototype -> Workspace (10), Browser -> Workspace (9), Cockpit -> Workspace (9). Features still reach `Workspace` types directly, not through protocols.
+
 ### AR-22 Layer leaks (medium, S-M)
 
 - View code in Models: `AIToolRuns.swift:71` (a `View`), `AppFontScale.swift:77, 88` (view modifiers), `QAWebWindow.swift:7` (a window subclass). Models depend on a view type: `PanelLayout.swift:47` and `WorkspaceManager.swift:1257` use `TOCView.Tab`.
