@@ -141,27 +141,27 @@ func textView(_ string: String) -> NSTextView {
 }
 let middle = textView("Hello world")
 middle.setSelectedRange(NSRange(location: 5, length: 0))
-ImageAttachments.insertAtCaret(", dear", in: middle)
+MainActor.assumeIsolated { ImageAttachments.insertAtCaret(", dear", in: middle) }
 check(middle.string == "Hello, dear world", "text is inserted at the caret, not at the end", middle.string)
 check(middle.selectedRange() == NSRange(location: 11, length: 0), "the caret ends after the inserted text", "\(middle.selectedRange())")
 check(listener.changes == 1, "the text view's delegate is told, so a binding follows", "\(listener.changes)")
 let replaced = textView("Hello world")
 replaced.setSelectedRange(NSRange(location: 6, length: 5))
-ImageAttachments.insertAtCaret("there", in: replaced)
+MainActor.assumeIsolated { ImageAttachments.insertAtCaret("there", in: replaced) }
 check(replaced.string == "Hello there", "the selection is replaced", replaced.string)
 let start = textView("world")
 start.setSelectedRange(NSRange(location: 0, length: 0))
-ImageAttachments.insertAtCaret("Hello ", in: start)
+MainActor.assumeIsolated { ImageAttachments.insertAtCaret("Hello ", in: start) }
 check(start.string == "Hello world", "a paste at the start goes before the text", start.string)
 
 // Without a focused text view the text is appended to the draft; an empty clipboard pastes nothing.
 var appended: [String] = []
 board.clearContents()
 board.setString("tail", forType: .string)
-ImageAttachments.pasteText(from: board) { appended.append($0) }
+MainActor.assumeIsolated { ImageAttachments.pasteText(from: board) { appended.append($0) } }
 check(appended == ["tail"], "with no text view in focus the text is appended", "\(appended)")
 board.clearContents()
-ImageAttachments.pasteText(from: board) { appended.append($0) }
+MainActor.assumeIsolated { ImageAttachments.pasteText(from: board) { appended.append($0) } }
 check(appended == ["tail"], "an empty clipboard pastes nothing", "\(appended)")
 
 // Dropped items: a file of the Finder, a picture dragged from an app, other files, and text.

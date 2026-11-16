@@ -164,6 +164,7 @@ enum ImageAttachments {
 
     /// Puts `text` into `textView` at the caret, in place of the selection, as typing would: the text view tells its
     /// delegate, so a SwiftUI binding on it follows, and the edit can be undone.
+    @MainActor
     static func insertAtCaret(_ text: String, in textView: NSTextView) {
         textView.insertText(text, replacementRange: textView.selectedRange())
     }
@@ -171,6 +172,7 @@ enum ImageAttachments {
     /// A paste of text into a request box (the box takes the paste command itself, to take images): inserted at the
     /// caret of the focused text view. Only when no text view has the focus, `append` gets the text, to add it to the draft.
     /// Call it on the main thread, as a paste command is.
+    @MainActor
     static func pasteText(from pasteboard: NSPasteboard = .general, append: (String) -> Void) {
         guard let text = pasteboard.string(forType: .string), !text.isEmpty else { return }
         if let textView = NSApp?.keyWindow?.firstResponder as? NSTextView, textView.isEditable {
