@@ -22,7 +22,7 @@ struct ProjectAIChoice: Codable, Equatable {
     static func load(_ project: URL?) -> ProjectAIChoice? {
         guard let project,
               let data = Settings.standard.value(Setting.projectAI)[key(project)] as? Data else { return nil }
-        return try? JSONDecoder().decode(ProjectAIChoice.self, from: data)
+        return PreferenceRecord.decode(ProjectAIChoice.self, from: data, name: "project-ai-choice")
     }
 
     /// Applies `change` to `project`'s choice (starting from none) and tells every window.

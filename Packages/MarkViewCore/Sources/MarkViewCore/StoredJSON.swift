@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -71,5 +72,67 @@ public enum JSONLinesFile {
             AppLog.store.warning("\(owner): \(skipped) line(s) of the log cannot be read and are skipped (\(firstProblem ?? "unknown")); they stay in the file")
         }
         return (records, skipped)
+    }
+}
+
+/// The dated copy that a store keeps of a file or a record it could not read, before anything replaces it (`AR-36`).
+public enum UnreadableCopy {
+    private static let stampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyyMMddHHmmss"
+        return f
+    }()
+
+    /// `<name>.corrupt-<yyyyMMddHHmmss>-<suffix>`: sorts by time, and the suffix keeps two copies of the same second apart.
+    public static func name(of name: String, at date: Date = Date(), suffix: String) -> String {
+        "\(name).corrupt-\(stampFormatter.string(from: date))-\(suffix)"
+    }
+
+    /// The copy of the file at `url`, next to it.
+    public static func url(of url: URL, suffix: String = UUID().uuidString.prefix(8).lowercased()) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent(name(of: url.lastPathComponent, suffix: suffix))
+    }
+}
+
+/// A JSON record kept in the preferences (a setting whose value is `Data`, or an entry of a dictionary setting): the preferences'
+/// counterpart of `SchemaVersionedStore` (`AR-36`). A record that is there but cannot be read is not "none": it is logged and a copy
+/// of its bytes is written to `folder` (once per distinct content) before the next save replaces it, so a corrupted value, or one
+/// written by another version of the app, can be recovered by hand.
+public enum PreferenceRecord {
+    /// Where the copies go: `Application Support/MarkView/Unreadable`.
+    public static var defaultFolder: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MarkView", isDirectory: true).appendingPathComponent("Unreadable", isDirectory: true)
+    }
+
+    /// `data` as a `T`, or nil with a log line and a kept copy when it cannot be decoded. `name` says which record it is (a file name
+    /// part: letters, digits and dashes).
+    public static func decode<T: Decodable>(_ type: T.Type, from data: Data, name: String, using decoder: JSONDecoder = JSONDecoder(),
+                                            keepIn folder: URL = defaultFolder) -> T? {
+        do {
+            return try decoder.decode(type, from: data)
+        } catch {
+            AppLog.store.error("\(name): the stored record cannot be read (\(StoredJSON.describe(error))); a copy is kept before it is replaced")
+            keepCopy(of: data, name: name, in: folder)
+            return nil
+        }
+    }
+
+    /// The copies kept for `name` in `folder`, oldest first.
+    public static func copies(named name: String, in folder: URL = defaultFolder) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix(name + ".corrupt-") }.sorted()
+            .map { folder.appendingPathComponent($0) }
+    }
+
+    private static func keepCopy(of data: Data, name: String, in folder: URL) {
+        let fingerprint = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
+        guard !copies(named: name, in: folder).contains(where: { $0.lastPathComponent.hasSuffix("-" + fingerprint) }) else { return }
+        do {
+            try AtomicFile.write(data, to: folder.appendingPathComponent(UnreadableCopy.name(of: name, suffix: fingerprint)))
+        } catch {
+            AppLog.store.error("\(name): a copy of the unreadable record could not be kept: \(error.localizedDescription)")
+        }
     }
 }

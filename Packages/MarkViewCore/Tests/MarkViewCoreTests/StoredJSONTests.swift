@@ -51,4 +51,29 @@ final class StoredJSONTests: XCTestCase {
         XCTAssertEqual(skipped, 1)
         XCTAssertTrue(text.contains(#"{"id":2,"na"#), "the cut line stays in the file")
     }
+
+    /// A record in the preferences that cannot be read reads as absent, and its bytes are kept once, however often it is read.
+    func testPreferenceRecordKeepsACopyOfWhatItCannotRead() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("prefs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let good = Data(#"{"id":1,"name":"a"}"#.utf8)
+        let bad = Data(#"{"id":"x"}"#.utf8)
+        XCTAssertEqual(PreferenceRecord.decode(Entry.self, from: good, name: "entry", keepIn: folder), Entry(id: 1, name: "a"))
+        XCTAssertTrue(PreferenceRecord.copies(named: "entry", in: folder).isEmpty, "a readable record leaves no copy")
+        XCTAssertNil(PreferenceRecord.decode(Entry.self, from: bad, name: "entry", keepIn: folder))
+        XCTAssertNil(PreferenceRecord.decode(Entry.self, from: bad, name: "entry", keepIn: folder))
+        let copies = PreferenceRecord.copies(named: "entry", in: folder)
+        XCTAssertEqual(copies.count, 1)
+        XCTAssertEqual(try Data(contentsOf: copies[0]), bad)
+        let other = Data("not json".utf8)
+        XCTAssertNil(PreferenceRecord.decode(Entry.self, from: other, name: "entry", keepIn: folder))
+        XCTAssertEqual(PreferenceRecord.copies(named: "entry", in: folder).count, 2, "another unreadable value is another copy")
+    }
+
+    func testUnreadableCopyNameSortsByTimeAndKeepsTheFileName() {
+        let early = UnreadableCopy.name(of: "a.json", at: Date(timeIntervalSince1970: 1_700_000_000), suffix: "x")
+        let late = UnreadableCopy.name(of: "a.json", at: Date(timeIntervalSince1970: 1_800_000_000), suffix: "x")
+        XCTAssertEqual(early, "a.json.corrupt-20231114221320-x")
+        XCTAssertTrue(early < late)
+    }
 }

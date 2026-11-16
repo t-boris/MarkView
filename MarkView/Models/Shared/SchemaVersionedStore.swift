@@ -98,14 +98,6 @@ private struct EnvelopeProbe: Decodable {
     var hasEnvelopeShape: Bool { schema != nil && data != nil }
 }
 
-private let schemaBackupTimestampFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.timeZone = TimeZone(secondsFromGMT: 0)
-    f.dateFormat = "yyyyMMddHHmmss"
-    return f
-}()
-
 /// Atomic, schema-versioned JSON store (`AR-36`, `AR-39`, `FU-04`): the one way the app keeps a whole document of user or project
 /// data in a file under `.dde/` or Application Support.
 ///
@@ -197,9 +189,7 @@ struct SchemaVersionedStore<T: Codable> {
                     supported: currentSchemaVersion
                 )
             case .corrupted:
-                let stamp = schemaBackupTimestampFormatter.string(from: Date())
-                let uniqueSuffix = UUID().uuidString.prefix(8).lowercased()
-                try fm.copyItem(at: url, to: url.appendingPathExtension("corrupt-\(stamp)-\(uniqueSuffix)"))
+                try fm.copyItem(at: url, to: UnreadableCopy.url(of: url))
             case .loaded, .missing:
                 break
             }
