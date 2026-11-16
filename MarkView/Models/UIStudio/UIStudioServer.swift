@@ -20,12 +20,15 @@ final class StudioDevServer: @unchecked Sendable {
     private var exitWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Called on a background queue with every piece of output and once when the process ends.
-    var onOutput: (@Sendable (String) -> Void)?
-    var onExit: (@Sendable (Int32) -> Void)?
+    private let onOutput: (@Sendable (String) -> Void)?
+    private let onExit: (@Sendable (StudioDevServer, Int32) -> Void)?
 
-    init(command: String, folder: URL) {
+    init(command: String, folder: URL, onOutput: (@Sendable (String) -> Void)? = nil,
+         onExit: (@Sendable (StudioDevServer, Int32) -> Void)? = nil) {
         self.command = command
         self.folder = folder
+        self.onOutput = onOutput
+        self.onExit = onExit
     }
 
     var processID: pid_t { lock.withLock { pid } }
@@ -116,7 +119,7 @@ final class StudioDevServer: @unchecked Sendable {
                 return list
             }
             waiters.forEach { $0.resume() }
-            self.onExit?(status)
+            self.onExit?(self, status)
         }
     }
 

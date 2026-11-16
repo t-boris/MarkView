@@ -4,4 +4,3 @@
 6 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
 3 MarkView/Models/Remote/RemoteTerminalConnection.swift
 5 MarkView/Models/Terminal/TerminalSession.swift
-2 MarkView/Models/UIStudio/UIStudioServer.swift

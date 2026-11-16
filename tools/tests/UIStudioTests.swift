@@ -4,6 +4,7 @@
 import CoreGraphics
 import Combine
 import Foundation
+import os
 
 var failures = 0
 func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
@@ -1310,9 +1311,21 @@ func processChecks() async {
     check("AC-18 stopping the session's server ends what it started", child > 0 && kill(child, 0) != 0)
 
     // A server that exits on its own reports its status and leaves nothing behind.
-    let failing = StudioDevServer(command: "echo broken >&2; exit 3", folder: tmp)
+    let events = OSAllocatedUnfairLock(initialState: (output: "", exits: [Int32](), servers: [ObjectIdentifier]()))
+    let failing = StudioDevServer(command: "echo broken >&2; exit 3", folder: tmp, onOutput: { text in
+        events.withLock { $0.output += text }
+    }, onExit: { server, status in
+        events.withLock { $0.exits.append(status); $0.servers.append(ObjectIdentifier(server)) }
+    })
     try? failing.start(environment: ["PATH": "/usr/bin:/bin"])
     let ended = await failing.waitForExit(timeout: 5)
+    for _ in 0..<50 {
+        if events.withLock({ !$0.exits.isEmpty && $0.output.contains("broken") }) { break }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+    }
+    let callbacks = events.withLock { $0 }
+    check("server callbacks deliver output and the exiting server exactly once",
+          callbacks.output.contains("broken") && callbacks.exits == [3] && callbacks.servers == [ObjectIdentifier(failing)])
     check("a server that fails reports its exit status and output", ended && failing.exitStatus == 3 && failing.output.contains("broken"),
           "\(failing.exitStatus ?? -1) \(failing.output)")
 

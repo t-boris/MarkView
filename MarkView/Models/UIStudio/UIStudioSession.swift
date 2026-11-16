@@ -477,10 +477,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             set(.starting, "Installing the application's dependencies (`\(install.command)`)")
             let environment = await StudioLaunchEnvironment.make()
             guard !closed, !Task.isCancelled else { return nil }
-            let installer = StudioDevServer(command: install.command, folder: install.folder)
-            installer.onOutput = { [weak self] text in
+            let installer = StudioDevServer(command: install.command, folder: install.folder, onOutput: { [weak self] text in
                 Task { @MainActor in self?.refreshServerLog(); self?.logServerOutput(text) }
-            }
+            })
             do { try installer.start(environment: environment.environment) }
             catch { set(.failed, "Could not install dependencies: \(error.localizedDescription)"); return nil }
             server = installer
@@ -509,21 +508,19 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let overrides = await prepareServerConnections(target)
         let launch = await StudioLaunchEnvironment.make(overrides: overrides, nodePreload: Self.nodePreloadURL?.path)
         removedEnvironment = launch.removed
-        let server = StudioDevServer(command: target.command, folder: target.folder)
         serverLines = StudioLogLines()
-        server.onOutput = { [weak self] text in
+        let server = StudioDevServer(command: target.command, folder: target.folder, onOutput: { [weak self] text in
             Task { @MainActor in
                 self?.refreshServerLog()
                 self?.logServerOutput(text)
             }
-        }
-        // Only the session's current server reports its end: one it stopped or replaced on purpose does not.
-        server.onExit = { [weak self, weak server] code in
-            Task { @MainActor in
+        }, onExit: { [weak self] server, code in
+            // Only the session's current server reports its end: one it stopped or replaced on purpose does not.
+            Task { @MainActor [weak self, weak server] in
                 guard let self, let server, self.server === server else { return }
                 self.serverEnded(code)
             }
-        }
+        })
         do {
             try server.start(environment: launch.environment)
         } catch {
