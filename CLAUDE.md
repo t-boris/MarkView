@@ -13,17 +13,34 @@ implementation.
 
 ## Repository Map
 
-- `MarkView/App/`: application entry point, window scenes, Finder open handoff (`MarkViewApp.swift`)
-- `Packages/MarkViewCore/`: local Swift package linked into `MarkView` (`Subprocess`, `AtomicFile`, `ProjectPaths`, `WeakScriptMessageHandler`) with `swift test` target (`MarkViewCoreTests`)
-- `MarkView/Views/`: SwiftUI views and `WKWebView` coordination organized into 19 domain subfolders (`Workspace/`, `Lifecycle/`, `Cockpit/`, `QA/`, `UIStudio/`, `Appearance/`, etc.; `EditorView`, `ContentView`, etc.)
-- `MarkView/Models/`: domain-organized across 21 domain subfolders (`AI/`, `AgentTools/`, `Appearance/`, `Architecture/`, `Book/`, `Browser/`, `Cockpit/`, `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Insight/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`, `Remote/`, `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`) with single-responsibility files (`DocumentScrollSideTable`, `TaskBag`, `MarkdownDocumentChunker`, `AIOperation`, `AssistantProviderRegistry`, `SchemaVersionedStore`, `WorkspaceManager`, `ToolRegistry`, `SemanticDatabase`, `AgentToolServer`)
-- `MarkView/Bridge/`: Swift-to-JavaScript bridge (`WebViewBridge`) and PDF export
-- `MarkView/Resources/Editor/`: bundled HTML (`index.html`, `terminal.html`, `discussion.html`, `book.html`), first-party JavaScript under `js/` (`mv-kit.js`, `markview-*.js`), and third-party vendor bundles under `vendor/` (`dompurify.min.js`, `turndown.js`, etc.)
-- `Tests/Fixtures/` and `TestFiles/`: manual and fixture data, plus `tools/tests/` automated test suites (`tools/tests/run.sh` and `tools/tests/manifest.json`)
+- `MarkView/App/`: application entry point and window scenes (`MarkViewApp.swift`); the Finder open handoff is
+  `Models/Workspace/FinderOpenRequests.swift`
+- `Packages/MarkViewCore/`: local Swift package linked into `MarkView` and tested with `swift test` (`MarkViewCoreTests`). It holds the
+  infrastructure the app shares: `Subprocess`, `AtomicFile` and `ProjectPaths` (`CoreFiles.swift`), `AppLog`, `JS.call`, `WebHost`
+  (with `WeakScriptMessageHandler`), `PrivateSocket`, `SQLiteSchema`, and `Settings`/`SettingsKey`/`Setting`/`SettingsObserver`
+- `MarkView/Views/`: SwiftUI views and `WKWebView` coordination in 19 domain subfolders (`AI/`, `Appearance/`, `Architecture/`, `Book/`,
+  `Browser/`, `Cockpit/`, `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`,
+  `Remote/`, `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`). `ContentView`, `EditorView` and `ToolTabViews` are in `Workspace/`
+- `MarkView/Models/`: 21 domain subfolders (`AI/`, `AgentTools/`, `Appearance/`, `Architecture/`, `Book/`, `Browser/`, `Cockpit/`,
+  `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Insight/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`, `Remote/`,
+  `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`). No Swift file lives directly in `Models/` or `Views/` (`no-loose-swift` lint).
+  A window is built by `WindowComposition` (`Workspace/`): its parts (`TabsController`, `ProjectContext`, `PanelLayout`, `WindowTheme`,
+  `TaskBag`, and the lazy coordinators) take what they need at construction, and `WorkspaceManager` is the thin facade that conforms to
+  their narrow host protocols
+- Registries (one entry per thing, no other list to edit): `ToolRegistry` and `ToolTabsRouter` (tools), `AssistantProviders.list`
+  (`Models/AI/Providers/`), `Setting` (settings keys), `BackdropRegistry`, `ThemeCatalog` and `LayoutCatalog` (JSON in `Resources/`),
+  `SemanticSchema.migrations` (SQLite), `SchemaVersionedStore` (JSON stores), `AIOperation` (every assistant call)
+- `MarkView/Bridge/`: Swift-to-JavaScript bridge: `WebViewBridge`, `TypedWebBridge` (validates every page message against
+  `Resources/Editor/js/bridge-contract.json`), `PageMessages.swift` (the payload types), the scheme handlers and PDF export
+- `MarkView/Resources/Editor/`: bundled HTML (`index.html`, `terminal.html`, `discussion.html`, `book.html`), first-party JavaScript under `js/` (`mv-kit.js`, `markview-*.js`), and third-party vendor bundles under `vendor/` (`dompurify.min.js`, `turndown.min.js`, etc.). `MarkView/Resources/Themes/` and `Layouts/` hold the theme and layout-preset JSON
+- `Tests/Fixtures/` and `TestFiles/`: manual and fixture data. `tools/tests/` holds the automated suites (`run.sh`, `manifest.json`);
+  `tools/lint/architecture-lint.sh` holds the structural rules and their allow-lists, and `tools/lint/domain-dependencies.py` measures
+  the dependencies between domain folders (`--why A B` names the types of an edge)
 - `MarkView.xcodeproj`: canonical Xcode project (XcodeGen and `project.yml` have been retired)
 - `tools/web-vendor/`: builds the bundled CodeMirror, Cytoscape, ELK, xterm.js, DOMPurify, and Turndown files in
   `Resources/Editor/vendor/js` (`npm ci && ./build.sh`); never load them from a CDN
-- `tasks/todo.md`: active work log; `tasks/archive/`: archived task logs; `tasks/lessons.md`: durable debugging lessons
+- `docs/architecture/`: the architecture docs and the review of 2026-11 (status of each finding); `tasks/todo.md`: active work log;
+  `tasks/archive/`: archived task logs; `tasks/lessons.md`: durable debugging lessons
 
 ## Working Rules
 
@@ -69,6 +86,31 @@ implementation.
    (e.g., no `Process()` outside Core) is a lint script with an explicit name, not a feature test.
 5. **Status follows evidence.** "Done" is written by whoever ran the count, with the count.
 6. **`verified` stays the owner's status** (as the feature workflow specifies).
+
+## How to Add
+
+Each line is the number of places to edit; a new Swift file also needs its entries in `MarkView.xcodeproj` (the
+`target-membership` lint checks it), and a JSON file in `Resources/Themes` or `Resources/Layouts` needs none (folder references).
+
+- **A tool** (a tab the window can open): 2. A `ToolID` and its `ToolDescriptor` in `ToolRegistry.shared`
+  (`Models/Workspace/ToolRegistry.swift`), and its view in `ToolTabViews.builders` (`Views/Workspace/ToolTabViews.swift`). Only a tool
+  that needs window wiring adds a case to `ToolTabsRouter.opener(for:)`.
+- **An assistant** (a CLI or ACP provider): 2. A provider file in `Models/AI/Providers/` and one line in `AssistantProviders.list`
+  (`AssistantProviderList.swift`). A literal `.claude`/`.codex`/... outside that folder fails the `assistant-switch` lint.
+- **A theme**: 1. A JSON file in `Resources/Themes/` (`ThemeCatalog`; a person's own themes are JSON in Application Support).
+- **A layout preset**: 1. A JSON file in `Resources/Layouts/`, ordered by file name, so by its `NN-` prefix (`LayoutCatalog`).
+- **A welcome backdrop**: 1. A class conforming to `BackdropRegistration` and `BackdropDrawing` in `Views/Appearance/*BackdropLayers.swift`.
+- **A settings key**: 1. An entry in `Setting` (`Packages/MarkViewCore/.../SettingsKeys.swift`), read through `Settings`,
+  `@AppStorage(key)` or `@WindowStorage(key)`. A name never changes once shipped (`settings-key-table-tests` pins them); a literal key
+  or a direct `UserDefaults` call fails the `settings-literal` lint. Per-window UI state uses `@WindowStorage`, never `@AppStorage`.
+- **A bridge message**: 4. Its entry in `Resources/Editor/js/bridge-contract.json`, its payload type in `Bridge/PageMessages.swift`, its
+  `messages.on` handler in `Bridge/WebViewBridge.swift`, and the page's `mvBridge.send(...)` call. A page never posts through
+  `messageHandlers` itself (`bridge-no-bypass` lint), and `bridge-contract-tests.sh` runs a sample of every message through the types.
+- **A SQLite migration**: 1. A new `SQLiteMigration` at the end of `SemanticSchema.migrations` (`Models/Insight/SemanticSchema.swift`);
+  a released step is never edited.
+- **A JSON store**: 1. Use `SchemaVersionedStore<T>` (`Models/Workspace/`); it separates missing, corrupted and newer-schema files.
+  Writes go through `AtomicFile`; paths under `.dde/` come from `ProjectPaths`.
+- **A child process**: `MarkViewCore.Subprocess` (see Working Rules). **An assistant call**: `AIOperation`. **A log line**: `AppLog`.
 
 ## Git Workflow
 
@@ -129,10 +171,15 @@ swift test --package-path Packages/MarkViewCore
 ```
 
 Standalone verification suites live under `tools/tests/` and are cataloged in
-`tools/tests/manifest.json` (run all suites with `./tools/tests/run.sh --all`,
-pure suites with `./tools/tests/run.sh --tier pure`, or a specific suite with
-`./tools/tests/run.sh <name>`). Use the relevant fixtures and perform a focused
-check for behavior that compilation does not cover.
+`tools/tests/manifest.json`. Each suite has a tier: `pure` (no app, no window), `gui` (builds or drives the app) and `live`
+(needs a real assistant or network). Run all suites with `./tools/tests/run.sh --all`, one tier with `--tier pure|gui|live`,
+the suites of the files you changed with `--changed [ref]` (it exits 3 when files changed but no suite covers them), or one
+suite with `./tools/tests/run.sh <name>`; `--list` and `--dry-run` show what would run. Use the relevant fixtures and perform
+a focused check for behavior that compilation does not cover.
+
+The structural rules are `./tools/lint/architecture-lint.sh` (CI runs it in the pure job): zero-count rules such as
+`process` and `clicompletion`, and ratchets whose allow-lists in `tools/lint/*.txt` may only shrink (`--tighten` rewrites them to
+today's counts and refuses a rise). A new site is fixed, not added to a list.
 
 ## Completion
 
