@@ -1,5 +1,5 @@
 #!/bin/bash
-# Feature workflow-templates, REQ-001..003: the template document and the shared folder that holds it (Models/WorkflowTemplate.swift).
+# Feature workflow-templates, REQ-001..003: the template document and the shared folder that holds it (Models/Lifecycle/WorkflowTemplate.swift).
 # Foundation only; compiled on its own with a test main (no XCTest target exists). It works in a temporary folder and never touches
 # ~/Library/Application Support/MarkView.
 #   tools/tests/workflow-template-tests.sh

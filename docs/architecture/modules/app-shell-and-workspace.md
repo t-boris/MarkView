@@ -260,7 +260,7 @@ flowchart TD
 
 ### 5.2a Linked folders (Task 59)
 
-- `LinkedFolders` (`Models/Workspace/LinkedFolders.swift`) keeps, per project, the folders attached as aliases: local
+- `LinkedFolders` (store in `Models/AI/LinkedFolderStore.swift`, because an assistant run reads it; linking rules in `Models/Workspace/LinkedFolders.swift`) keeps, per project, the folders attached as aliases: local
   settings under `project.linkedFolders[<project key>]` (JSON `[LinkedFolder]`: canonical path, unique name,
   date), never a file in the project. A folder can be linked when it exists, is not the project, not inside
   it, does not contain it, and is not nested with another linked folder either way.
@@ -340,7 +340,7 @@ flowchart TD
 | `layout.showTOC` | Bool | `WorkspaceManager.showTOC`. `showFileTree` (the left panel) is not stored globally: it starts `false` in every window and is restored from the window's session (`restoreWindowState`) |
 | `fileTree.sortField` (`"Name"`/`"Date Modified"`), `fileTree.sortAscending` | String, Bool | `WorkspaceManager.swift:13-14,28-34` |
 | `excludedFolders.<standardized root path>` | [String] relative paths; a list saved under `excludedFolders.<folder name>` is copied to the new key once | `Models/Workspace/ExcludedFolders.swift`, used by `WorkspaceFileTreeStore` |
-| `project.linkedFolders` | [project key: Data (JSON `[LinkedFolder]`)] | `LinkedFolders.load/save` (`Models/Workspace/LinkedFolders.swift`) |
+| `project.linkedFolders` | [project key: Data (JSON `[LinkedFolder]`)] | `LinkedFolders.load/save` (`Models/AI/LinkedFolderStore.swift`) |
 | `layout.navigatorTab` | `TOCView.Tab` raw (`Contents`…`Feature`) | `PanelLayout.navigatorTab`; set by `TOCView`, `showAIConsole`, `intakeFinished`, `runFeatureAction` |
 | `layout.leftPanel` (`files`/`issues`), `layout.issuesFeature` | String | `PanelLayout.leftPanel` / `.issuesFeature`; `FeatureNavigatorView.swift`, `intakeFinished` |
 | `feature.stage` (`FeatureStage.storageKey`) | String | `PanelLayout.featureStage`; `FeaturePanelView`, `intakeFinished` |

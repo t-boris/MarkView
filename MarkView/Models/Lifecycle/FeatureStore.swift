@@ -1,6 +1,16 @@
 import Foundation
 import MarkViewCore
 
+/// Where the feature workspaces read the GitHub client of the folder's repository from: the window's `GitHubStore`.
+@MainActor
+protocol GitHubClientSource: AnyObject {
+    /// The client of the folder's repository; nil while the integration is off or the repository is not known.
+    var client: GitHubClient? { get }
+}
+
+/// The window's GitHub store is the source: the feature workspaces name it, the Git domain does not name them.
+extension GitHubStore: GitHubClientSource {}
+
 /// The feature workspaces of the open folder (`docs/features/<slug>/`): read from their Markdown
 /// files, written back as the user and the AI act on them. Files changed outside the app
 /// (editor, git, the AI terminal) are picked up by a light polling of their dates.
@@ -37,6 +47,8 @@ final class FeatureStore: ObservableObject {
     }
     @Published var lastError: String?
 
+    /// The folder's GitHub repository, for the assistant (`FeatureAssistant.gitHubClient`); nil for a store that has none.
+    private(set) weak var gitHub: (any GitHubClientSource)?
     private(set) var root: URL?
     /// True once the project's features and bugs were read at least once since the folder was opened: only then is an empty list a
     /// project without items rather than a list not read yet.
@@ -56,6 +68,10 @@ final class FeatureStore: ObservableObject {
     private var lastLifecycleSync: Date?
     /// The AI side of the workspaces (explore, review, actions…).
     private(set) lazy var assistant = FeatureAssistant(store: self)
+
+    init(gitHub: (any GitHubClientSource)? = nil) {
+        self.gitHub = gitHub
+    }
     /// Every status change of a feature or a bug goes through it (Models/FeatureStore+Lifecycle.swift).
     private(set) lazy var lifecycle = IssueLifecycleCoordinator(store: self)
     /// Sync of documented status to GitHub issues and its last report (issue #36).

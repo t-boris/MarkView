@@ -206,10 +206,10 @@ var badSequence = diagram; badSequence.edges[0].label = "2. out of order"
 check((try? CodeArchitecture.validateSequence(badSequence, root: fixture)) == nil, "unordered sequence rejected")
 badSequence = diagram; badSequence.edges[0].evidence = "missing.py:1"
 check((try? CodeArchitecture.validateSequence(badSequence, root: fixture)) == nil, "sequence with invented evidence rejected")
-let mermaid = CodeArchitecture.sequenceMermaid(diagram)
+let mermaid = DiagramAI.sequenceMermaid(diagram)
 check(mermaid.hasPrefix("sequenceDiagram\n") && mermaid.contains("p0->>p1: 1. place order"), "sequence is a time-axis Mermaid diagram")
 var unsafe = diagram; unsafe.nodes[0].label = "API\nparticipant evil as <script>;"
-check(!CodeArchitecture.sequenceMermaid(unsafe).contains("<script>") && !CodeArchitecture.sequenceMermaid(unsafe).contains("\nparticipant evil"), "model labels cannot inject Mermaid statements or HTML")
+check(!DiagramAI.sequenceMermaid(unsafe).contains("<script>") && !DiagramAI.sequenceMermaid(unsafe).contains("\nparticipant evil"), "model labels cannot inject Mermaid statements or HTML")
 // Coverage: the shipping tables say python/javascript/swift extract dependencies and
 // outline declarations, java outlines but (here) extracts nothing, sql has neither.
 let capabilities = CodeCoverage.Capabilities(dependencyLanguages: ["python", "javascript", "swift"],

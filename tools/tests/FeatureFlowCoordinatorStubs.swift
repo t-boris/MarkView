@@ -130,7 +130,7 @@ final class GitClient: ObservableObject {
     @Published var operationInProgress: String?
     @Published var lastError: String?
     var workingDirectory: URL?
-    var onBranch: ((String) -> Void)?
+    let branchReports = PassthroughSubject<String, Never>()
     var refreshes = 0
     var branchError: String?
     var switched: [String] = []
@@ -142,11 +142,11 @@ final class GitClient: ObservableObject {
 
 /// GitHub of the folder: what the coordinator sets up and resets is recorded. `perform` runs no `gh`; it records the label and answers.
 @MainActor
-final class GitHubStore: ObservableObject {
+final class GitHubStore: ObservableObject, GitHubClientSource {
     @Published var repos: [GitHubRepo] = []
     @Published var selectedRepo: GitHubRepo?
     @Published var lastError: String?
-    var onPoll: ((GitHubClient) -> Void)?
+    let polls = PassthroughSubject<GitHubClient, Never>()
     private(set) var root: URL?
     var setups: [URL] = []
     var resets = 0
@@ -236,14 +236,21 @@ enum FeatureAction: String {
 }
 
 @MainActor
+protocol GitHubClientSource: AnyObject {
+    var client: GitHubClient? { get }
+}
+
+@MainActor
 final class FeatureAssistant: ObservableObject {
+    unowned let store: FeatureStore
+    init(store: FeatureStore) { self.store = store }
     struct IntakeOutcome {
         var file: URL?
         var feature: String?
         var issue: String?
     }
     weak var project: (any ProjectProviding)?
-    var gitHubClient: () -> GitHubClient? = { nil }
+    func gitHubClient() -> GitHubClient? { store.gitHub?.client }
     var performed: [(action: FeatureAction, selection: String, document: String?, question: String, feature: String?)] = []
     func perform(_ action: FeatureAction, selection: String, document: String?, question: String = "", feature slug: String?) async {
         performed.append((action, selection, document, question, slug))
@@ -259,7 +266,9 @@ final class FeatureStore: ObservableObject {
     @Published var lastError: String?
     private(set) var root: URL?
     let lifecycle = StubLifecycle()
-    let assistant = FeatureAssistant()
+    private(set) weak var gitHub: (any GitHubClientSource)?
+    private(set) lazy var assistant = FeatureAssistant(store: self)
+    init(gitHub: (any GitHubClientSource)? = nil) { self.gitHub = gitHub }
     var lifecycleActor = "Boris"
     var setups: [URL] = []
     var resets = 0
@@ -277,7 +286,8 @@ final class FeatureStore: ObservableObject {
     func bug(at url: URL) -> BugReport? { bugs.first { $0.url == url } }
     func setup(root: URL) { self.root = root; setups.append(root) }
     func reset() { resets += 1; root = nil }
-    func syncLifecycle(with client: GitHubClient) {}
+    var syncs = 0
+    func syncLifecycle(with client: GitHubClient) { syncs += 1 }
     func markImplementing(_ slug: String, handoff tool: String) { implementing.append((slug, tool)) }
     func recordImplementationStarted(_ slug: String, tool: CLITool, directory: URL, runningSince: Date?) {
         implementationStarts.append((slug, tool, directory))

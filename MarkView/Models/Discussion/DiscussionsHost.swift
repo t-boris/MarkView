@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Discussions tool of a window: the store of the project's discussions, and the project's assistant answering inside them. The
 /// answer streams into `store.live` and becomes a turn when it is finished. The host owns what the answer needs (one request in

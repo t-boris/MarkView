@@ -1,0 +1,34 @@
+# Back-edges between domain folders that depend on each other (AR-21): `<types> <layer>/<from> -> <layer>/<to>  # why it stays`. The
+# types are the ones <from> names that <to> declares (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them).
+# A ratchet that only falls: remove the dependency (a protocol in the lower domain, or move the type) and run --tighten; the goal is an
+# empty list. The back-edge points away from `Workspace`, which composes the others; a pair that is not listed gets the lighter
+# direction. A new cycle is written here by a person, with the reason it stays.
+2 Models/Architecture -> Models/Book  # BookBuilder (ArchitectureScanner) and BookAnnotator (ArchitectureStore): the architecture scan builds and annotates the Book view; Book names 4 Architecture types the other way, so the two halves of the Book view need a split, not a move of 1-2 types
+7 Models/Architecture -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (ProjectProviding, FileType, FrontMatter, FilterSearch, ProjectSearchIndex, TabKind, DiffHunk)
+1 Models/Book -> Models/Workspace  # WikiLinkResolver, declared in Workspace
+1 Models/Browser -> Models/Terminal  # BrowserHost opens and previews app terminals (TerminalSession); Terminal names AgentBrowserRegistration back, a one-type pair
+9 Models/Browser -> Models/Workspace  # BrowserHost composes the window: tabs, panel layout, project and window chrome (OpenTab, TabsController, PanelLayout, WindowChrome, WorkspaceManager, ProjectProviding, FileType, WebAppPreview, WebAppTarget)
+9 Models/Cockpit -> Models/Workspace  # the cockpit opens its tools as tabs of the window (OpenTab, TabsController, TabsProviding, ToolDescriptor, ToolID, ToolOpener, ToolOpening, ToolTabsWindow) and keeps SchemaVersionedStore files
+4 Models/Deployments -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (ProjectProviding, SchemaVersionedStore, ToolOpener, ToolOpening)
+4 Models/Discussion -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (ProjectProviding, SchemaVersionedStore, ToolOpener, ToolOpening)
+5 Models/Git -> Models/Workspace  # records the Git domain stores or publishes are declared in Workspace (GitHubConnectionRecord, GitPublication, OriginState, ProjectNaming, StoreLoadResult)
+1 Models/Insight -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (ProjectProviding)
+1 Models/Lifecycle -> Models/Architecture  # FeatureStore watches the project with ProjectChangeMonitor, an FSEvents watcher declared in Architecture/ProjectChangeReview.swift; its home is Workspace, but moving it adds a Workspace back-edge to both Lifecycle and Architecture (net +1), so it stays until Workspace's shared types are split out
+10 Models/Lifecycle -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (ProjectProviding, SchemaVersionedStore, FrontMatter, YAMLValue, OpenTab, PanelLayout, WindowChrome, WindowRequests, FeatureStage, GitHubItem)
+1 Models/Prototype -> Models/AgentTools  # PrototypeFeatureWriter writes a requirement file with ProjectAgentTools.requirementBody, which AgentTools and UIStudio call too; its home is the requirement format in Lifecycle, but moving it rewrites three test stubs of ProjectAgentTools
+10 Models/Prototype -> Models/Workspace  # the prototype studio composes the window: tabs, panel layout, image attachments, web previews (OpenTab, TabsController, PanelLayout, WindowChrome, WindowRequests, ImageAttachments, ImageAttachmentList, WebAppPreview, ToolOpening, ProjectProviding)
+1 Models/QA -> Models/Cockpit  # QARunCleanup takes the retention lock and the set of runs a cockpit result links from CockpitResults before it deletes a run; a protocol in QA would be threaded through QARunModel, the run report views and ~25 test call sites
+2 Models/QA -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (FrontMatter, SchemaVersionedStore)
+4 Models/Remote -> Models/Terminal  # the remote workspace carries Terminal's own session types (PTYWriter, TerminalConnection, TerminalProfile, TerminalSession); Terminal names 6 Remote types back, a two-way coupling that needs a shared terminal-transport protocol, not a move of 1-2 types
+1 Models/Research -> Models/Lifecycle  # research jobs write their findings into features through FeatureStore; Lifecycle names 2 Research types back
+2 Models/Research -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (FrontMatter, ProjectProviding)
+2 Models/Terminal -> Models/AgentTools  # AITerminalsController builds an assistant's MCP launch (AgentToolServer.mcpServers, BrowserAgentTools); AgentTools drives terminals, so Terminal is the lower side
+2 Models/Terminal -> Models/Workspace  # shared infrastructure declared in Workspace, the composition domain (FileType, ProjectProviding)
+12 Models/UIStudio -> Models/Workspace  # the UI studio composes the window: tabs, image attachments, web previews, tool descriptors (OpenTab, TabsController, ToolDescriptor, ToolOpener, ToolTabsWindow, ImageAttachment, ImageAttachmentList, ImageAttachments, WebAppPreview, WebAppTarget, ProjectProviding, SchemaVersionedStore)
+1 Views/AI -> Views/Workspace  # AIToolbarMenu, a view declared in Views/Workspace
+2 Views/Git -> Views/Workspace  # PanelTabButton and WindowStorage, shared view helpers declared in Views/Workspace
+1 Views/Lifecycle -> Views/Research  # ResearchIntakeOptions, declared in Views/Research; Research names 1 Lifecycle view back
+1 Views/Lifecycle -> Views/Workspace  # FileTreeView, declared in Views/Workspace
+3 Views/Prototype -> Views/Workspace  # ImageAttachmentMenu, ImageAttachmentStrip and WindowStorage, shared view helpers declared in Views/Workspace
+1 Views/QA -> Views/Workspace  # WindowStorage, a shared view helper declared in Views/Workspace
+4 Views/UIStudio -> Views/Workspace  # FactRows, ImageAttachmentMenu, ImageAttachmentStrip and WindowStorage, shared view helpers declared in Views/Workspace

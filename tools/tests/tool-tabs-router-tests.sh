@@ -14,12 +14,12 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/tool-tab
     MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
     MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \
     MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
-    MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/TabsController.swift \
+    MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift \
     MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Workspace/SchemaVersionedStore.swift MarkView/Models/Workspace/WindowSession.swift \
     MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift MarkView/Models/Workspace/ProjectProviding.swift \
     MarkView/Models/Workspace/ToolOpener.swift MarkView/Models/Workspace/ToolTabsRouter.swift MarkView/Models/Terminal/AssistantProviding.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/AIOperation.swift \
-    MarkView/Models/AI/CommandPolicy.swift MarkView/Models/Deployments/DeploymentModels.swift MarkView/Models/AI/SystemProbe.swift \
+    MarkView/Models/AI/CommandPolicy.swift MarkView/Models/Deployments/DeploymentModels.swift MarkView/Models/Deployments/SystemProbe.swift \
     MarkView/Models/Deployments/DeploymentDiscovery.swift MarkView/Models/Deployments/DeploymentExecutor.swift \
     MarkView/Models/Deployments/DeploymentLogs.swift MarkView/Models/Deployments/CloudServices.swift MarkView/Models/AI/ProviderHints.swift \
     MarkView/Models/Deployments/DeploymentStore.swift MarkView/Models/Deployments/DeploymentStore+Databases.swift \

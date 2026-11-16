@@ -75,7 +75,7 @@ struct ArchitectureScanner {
                 textDocs.append(path)
                 continue
             }
-            if Self.isDeploymentHint(path) { hints.append(path) }
+            if ProjectOperationDiscovery.isDeploymentHint(path) { hints.append(path) }
             guard let language = FileType.codeLanguage(for: url) else { continue }
             if let reason = Self.skipReason(name: name, url: url, language: language) {
                 skipped[language.isEmpty ? "text" : language, default: [:]][reason, default: 0] += 1
@@ -274,22 +274,6 @@ struct ArchitectureScanner {
         if lower.contains(".min.") || lower.contains(".bundle.") || lower.contains(".bundled.") { return .generatedBundle }
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         return size > maxParseBytes ? .tooLarge : nil
-    }
-
-    static func isDeploymentHint(_ path: String) -> Bool {
-        let lower = path.lowercased()
-        let name = (lower as NSString).lastPathComponent
-        if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") { return true }
-        if name.hasPrefix("docker-compose") || name.hasPrefix("compose.") { return true }
-        if ["procfile", "fly.toml", "vercel.json", "netlify.toml", "serverless.yml", "serverless.yaml",
-            "app.yaml", "render.yaml", "railway.json", "skaffold.yaml", "chart.yaml", "project.yml",
-            "info.plist", "cloudbuild.yaml", "buildspec.yml", "nginx.conf", "makefile"].contains(name) { return true }
-        if name.hasSuffix(".tf") || name.hasSuffix(".entitlements") || name.hasSuffix(".xcconfig") { return true }
-        if lower.hasPrefix(".github/workflows/") { return true }
-        let parts = lower.split(separator: "/")
-        if parts.contains(where: { ["k8s", "kubernetes", "helm", "charts", "deploy", "deployment", "infra", "terraform"].contains(String($0)) })
-            && (name.hasSuffix(".yml") || name.hasSuffix(".yaml") || name.hasSuffix(".json")) { return true }
-        return false
     }
 
     // MARK: - Modules view

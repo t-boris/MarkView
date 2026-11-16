@@ -65,6 +65,13 @@ check(!plain.contains("%%") && !plain.contains("%%INTERACTIVE"), "plain Mermaid 
 check(plain.contains("a -->|\"ask (twice) 'now'\"| b"), "plain Mermaid quotes the edge label and replaces quotes inside it: \(plain)")
 check(plain.contains("  a[\"A\"]:::service") || plain.contains("a[\"A\"]:::service"), "plain Mermaid keeps the node lines")
 check(DiagramAI.mermaid(branching).contains("a -->|ask (twice) \"now\"| b"), "the editor's own Mermaid keeps bare edge labels")
+// A sequence diagram: one participant per node, one message per edge, and no model text that could add a statement or markup.
+let hostile = spec(nodes: [node("a"), .init(id: "b", label: "B\nparticipant evil as <script>;", kind: "service", group: nil, source: nil, note: "n")],
+                   edges: [.init(from: "a", to: "b", label: "1. place order", evidence: "A.swift:1"), .init(from: "a", to: "missing", label: "2. dropped", evidence: nil)])
+let sequence = DiagramAI.plainMermaid(hostile, kind: .sequence)
+check(sequence.hasPrefix("sequenceDiagram\nparticipant p0 as A\n") && sequence.contains("p0->>p1: 1. place order") && !sequence.contains("dropped"),
+      "a sequence diagram names its participants and messages and leaves out an edge to a node that is not there")
+check(!sequence.contains("<script>") && !sequence.contains("\nparticipant evil"), "model labels cannot inject Mermaid statements or HTML into a sequence diagram")
 
 // The language of a node, and the check of a drawn diagram against it.
 let english = "The explore run reads the project, writes its understanding and the open questions, and sets the feature status to exploring."

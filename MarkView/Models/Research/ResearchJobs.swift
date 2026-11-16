@@ -119,7 +119,7 @@ final class ResearchJobs: ObservableObject {
             do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the follow-up: \(error.localizedDescription)"
             }
-            self.host?.researchDocumentChanged(file, content: updated) { tabText in
+            self.documentRewritten(file, content: updated) { tabText in
                 ResearchDocument.appending(section, to: tabText, webQueries: run.webQueries)
             }
             return run.incomplete.map { "Follow-up saved as incomplete: \($0)" }
@@ -164,11 +164,18 @@ final class ResearchJobs: ObservableObject {
             do { try AtomicFile.write(Data(updated.utf8), to: file) } catch {
                 return "Could not save the revision: \(error.localizedDescription)"
             }
-            self.host?.researchDocumentChanged(file, content: updated) { tabText in
+            self.documentRewritten(file, content: updated) { tabText in
                 tabText.range(of: original).flatMap { ResearchDocument.replacing($0, in: tabText, with: checked, webQueries: outcome.queries) }
             }
             return nil
         }
+    }
+
+    /// A job rewrote `file` on disk: the tab that shows it takes the new text. A tab with unsaved edits that conflict is left as it was and
+    /// the person is told to reload it.
+    private func documentRewritten(_ file: URL, content: String, applyToEdited: (String) -> String?) {
+        guard host?.researchDocumentChanged(file, content: content, applyToEdited: applyToEdited) == false else { return }
+        message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
     }
 
     // MARK: - Running

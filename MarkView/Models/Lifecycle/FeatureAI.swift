@@ -102,10 +102,10 @@ final class FeatureAssistant: ObservableObject {
     /// Voice notes for sources; owned here so a recording survives switching panels.
     let voice = WhisperClient()
 
-    /// The project whose search database the assistant records its runs in and reads related documents from. Wired by WorkspaceManager.
+    /// The project whose search database the assistant records its runs in and reads related documents from. Set by the feature flow when a folder opens.
     weak var project: (any ProjectProviding)?
-    /// Wired by WorkspaceManager.
-    var gitHubClient: () -> GitHubClient? = { nil }
+    /// The GitHub client of the folder's repository, nil while the integration is off or the repository is not known.
+    func gitHubClient() -> GitHubClient? { store.gitHub?.client }
     /// The store is a new-project draft (Start a Project from Scratch): the "feature" is the whole
     /// project, specified before its folder exists.
     var projectDiscovery = false

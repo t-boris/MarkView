@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Combine
 import UserNotifications
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -39,8 +40,8 @@ final class GitHubStore: ObservableObject {
             if selectedRepo != nil { refreshAll() }
         }
     }
-    /// Told on every poll (and when polling starts), for other state that follows GitHub.
-    var onPoll: ((GitHubClient) -> Void)?
+    /// The client of the repository, sent on every poll (and when polling starts), for other state that follows GitHub.
+    let polls = PassthroughSubject<GitHubClient, Never>()
     @Published var lastError: String?
 
     // Pull requests
@@ -338,7 +339,7 @@ final class GitHubStore: ObservableObject {
     private func startPolling() {
         polling.stop(key: pollKey)
         guard selectedRepo != nil else { return }
-        if let client { onPoll?(client) }
+        if let client { polls.send(client) }
         let key = pollKey, polling = polling
         polling.every(key: key, interval: { [weak self] in
             (self?.anyRunActive ?? false) ? GitHubSettings.activeInterval : GitHubSettings.idleInterval
@@ -347,7 +348,7 @@ final class GitHubStore: ObservableObject {
             self.refreshRuns()
             self.refreshBranchRuns()
             for model in self.runModels.values where model.isLive { model.refresh() }
-            if let client = self.client { self.onPoll?(client) }
+            if let client = self.client { self.polls.send(client) }
         }
     }
 

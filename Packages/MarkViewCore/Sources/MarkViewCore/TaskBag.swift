@@ -7,7 +7,7 @@ import Foundation
 /// `cancelAll()` on folder switch, close of the tool or close of the window cancels everything that is tracked, and so does the
 /// bag's own release.
 @MainActor
-final class TaskBag {
+public final class TaskBag {
     private struct Entry {
         let serial: UInt64
         let cancel: () -> Void
@@ -16,11 +16,13 @@ final class TaskBag {
     private var entries: [String: Entry] = [:]
     private var serial: UInt64 = 0
 
+    public init() {}
+
     /// The owner is gone: whatever it still tracks stops with it.
     deinit { for entry in entries.values { entry.cancel() } }
 
     /// Store `task` under `key`, cancelling any prior task with the same key.
-    func store<Success, Failure: Error>(_ task: Task<Success, Failure>, for key: String) {
+    public func store<Success, Failure: Error>(_ task: Task<Success, Failure>, for key: String) {
         entries[key]?.cancel()
         serial += 1
         let mine = serial
@@ -33,20 +35,20 @@ final class TaskBag {
     }
 
     /// Cancel and remove the task stored under `key`, if any.
-    func cancel(key: String) {
+    public func cancel(key: String) {
         entries.removeValue(forKey: key)?.cancel()
     }
 
     /// Cancel and remove all tracked tasks.
-    func cancelAll() {
+    public func cancelAll() {
         let all = entries.values
         entries.removeAll()
         for entry in all { entry.cancel() }
     }
 
     /// The tasks that are tracked and have not ended.
-    var activeCount: Int { entries.count }
-    func contains(key: String) -> Bool { entries[key] != nil }
+    public var activeCount: Int { entries.count }
+    public func contains(key: String) -> Bool { entries[key] != nil }
 
     /// A task that ended leaves the bag, unless a newer task already took its key.
     private func forget(_ key: String, serial: UInt64) {

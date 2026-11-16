@@ -3,34 +3,15 @@ import Foundation
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
-import WebKit
 
-/// The app side of `BrowserAgentTools`: a Unix socket in the user's temporary folder that the
-/// `--mcp-browser` processes of this app's terminals connect to. A request names the window — by
-/// id, or by the processes above the MCP server (its terminal's shell) — and a tool; the tool runs
-/// in one of that window's browser tabs (`BrowserAgentExecutor`).
+/// The app side of the MCP servers of this binary (`--mcp-browser`, `--mcp-project`, `--mcp-control`): a Unix socket in the user's
+/// temporary folder that the servers of this app's terminals connect to. A request names the window (by id, or by the processes
+/// above the MCP server, its terminal's shell) and a tool, and the tool runs for that window: the control, project, deployments,
+/// discussions and lifecycle tools on its stores (`ControlToolRunner`, `ProjectToolRunner`, ...), a browser tool in its browser
+/// tabs (`AgentToolWindow.browser`). Windows register themselves; the Browser domain depends on this one for that, not the reverse.
 @MainActor
-enum BrowserControlServer {
-    /// What a window offers agents: its browser tabs, the active one, bringing one to the front,
-    /// and opening a new one.
-    struct Window {
-        /// The window's workspace, for the control tools (`ControlToolRunner`); nil once the window is gone.
-        var workspace: () -> WorkspaceManager? = { nil }
-        /// The window's project folder (agents outside its terminals are matched by their folder).
-        var root: () -> URL?
-        var tabs: () -> [BrowserSession]
-        var active: () -> BrowserSession?
-        var show: (BrowserSession) -> Void
-        var open: (URL?, String?) -> BrowserSession
-        /// The window's features and bugs, for the project tools (`ProjectToolRunner`).
-        var features: () -> FeatureStore? = { nil }
-        /// The window's Deployments, for the deployments tools (`DeploymentToolRunner`).
-        var deployments: () -> DeploymentStore? = { nil }
-        /// The window's Discussions, for the discussions tools (`DiscussionToolRunner`).
-        var discussions: () -> DiscussionStore? = { nil }
-    }
-
-    private static var windows: [UUID: Window] = [:]
+enum AgentToolServer {
+    private static var windows: [UUID: AgentToolWindow] = [:]
     private static var listening: String?
     /// The open control socket and its per-instance token (`AR-40`, `DEC-009`, `PrivateSocket`).
     private static var listener: PrivateSocket.Listener?
@@ -44,15 +25,7 @@ enum BrowserControlServer {
         return path
     }
 
-    /// Per agent and per Mac: give it the server when it starts from the AI panel (default on). Off
-    /// for an agent whose organisation blocks MCP servers it does not list (BUG-025).
-    static func agentToolsKey(_ tool: CLITool) -> SettingsKey<Bool> { Setting.browserAgentTools(tool.rawValue) }
-
-    static func agentToolsEnabled(_ tool: CLITool) -> Bool {
-        Settings.standard.value(agentToolsKey(tool))
-    }
-
-    static func register(_ id: UUID, _ window: Window) {
+    static func register(_ id: UUID, _ window: AgentToolWindow) {
         windows[id] = window
         _ = socketPath
     }
@@ -63,7 +36,7 @@ enum BrowserControlServer {
 
     /// The windows that exist now, for the control tools: each with the workspace that shows it. A window whose
     /// workspace is gone (closed) leaves the table here; one that has no host window yet (still being set up) is not listed.
-    static func liveWindows() -> [(id: UUID, window: Window, workspace: WorkspaceManager)] {
+    static func liveWindows() -> [(id: UUID, window: AgentToolWindow, workspace: WorkspaceManager)] {
         for (id, window) in windows where window.workspace() == nil { windows[id] = nil }
         return windows.compactMap { id, window in
             guard let workspace = window.workspace(), workspace.hostWindow != nil else { return nil }
@@ -71,10 +44,18 @@ enum BrowserControlServer {
         }
     }
 
-    /// The arguments that start this binary as the MCP server for window `id`.
-    static func mcpArguments(window id: UUID, flag: String = "--mcp-browser") -> (command: String, args: [String])? {
-        guard let socket = socketPath, let executable = Bundle.main.executablePath else { return nil }
-        return (executable, [flag, "--socket", socket, "--window", id.uuidString])
+    /// The MCP servers of this binary for window `id`, as an assistant's launch takes them: the browser tools (when asked for) and the
+    /// project tools, each a server of this same binary bound to the window.
+    static func mcpServers(window id: UUID, includingBrowser: Bool) -> [AgentMCPServer] {
+        guard let socket = socketPath, let executable = Bundle.main.executablePath else { return [] }
+        func server(_ name: String, _ tomlName: String, _ flag: String, _ label: String) -> AgentMCPServer {
+            AgentMCPServer(name: name, tomlName: tomlName, flag: flag, label: label,
+                           command: executable, args: [flag, "--socket", socket, "--window", id.uuidString])
+        }
+        var servers: [AgentMCPServer] = []
+        if includingBrowser { servers.append(server(BrowserAgentTools.serverName, "markview_browser", "--mcp-browser", "browser")) }
+        servers.append(server(ProjectAgentTools.serverName, ProjectAgentTools.serverName, "--mcp-project", "project"))
+        return servers
     }
 
     // MARK: - Socket
@@ -85,7 +66,7 @@ enum BrowserControlServer {
         do {
             opened = try PrivateSocket.open(at: path)
         } catch {
-            AppLog.browser.error("browser control socket unavailable at \(path): \(error)")
+            AppLog.browser.error("agent tool socket unavailable at \(path): \(error)")
             return false
         }
         listener = opened
@@ -99,7 +80,7 @@ enum BrowserControlServer {
                 DispatchQueue.global(qos: .userInitiated).async { serve(client, listener: opened) }
             }
         }
-        thread.name = "MarkView browser control"
+        thread.name = "MarkView agent tools"
         thread.start()
         return true
     }
@@ -173,26 +154,17 @@ enum BrowserControlServer {
 
     // MARK: - Tools
 
-    /// Relay sessions address only their work-computer window, never a folder or process on the home Mac.
-    static func performRemoteBrowser(_ tool: String, arguments: RemoteJSON, window id: UUID,
-                                     root: URL, agent: CLITool) async -> RemoteJSON {
-        guard BrowserControlServer.agentToolsEnabled(agent) else {
-            return .textResult("Browser tools for this assistant are turned off in the globe menu.", error: true)
+    /// A browser call of a relay session (`RemoteBrowserRelay`): it addresses only its work-computer window, never a folder or process on
+    /// the home Mac, and only while that window still shows the project the relay connected to.
+    static func performForRelay(_ tool: String, _ args: [String: Any], window id: UUID, root: URL, agent: CLITool) async -> BrowserAgentTools.Reply {
+        guard agent.agentToolsEnabled else {
+            return .error("Browser tools for this assistant are turned off in the globe menu.")
         }
-        guard RemoteWorkspaceTools.browserNames.contains(tool), let window = windows[id],
-              let workspace = window.workspace(), workspace.terminals.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else {
-            return .textResult("The connected project window was closed or changed. Reconnect before using its browser.", error: true)
+        guard let window = windows[id], let workspace = window.workspace(),
+              workspace.terminals.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else {
+            return .error("The connected project window was closed or changed. Reconnect before using its browser.")
         }
-        guard let data = try? JSONEncoder().encode(arguments == .null ? .object([:]) : arguments),
-              let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return .textResult("Browser arguments must be an object.", error: true)
-        }
-        let reply = await perform(tool, args, window: id, pids: [], cwd: root.path)
-        guard let result = try? JSONSerialization.data(withJSONObject: reply.mcpResult),
-              let json = try? JSONDecoder().decode(RemoteJSON.self, from: result) else {
-            return .textResult("Could not encode the browser result.", error: true)
-        }
-        return json
+        return await perform(tool, args, window: id, pids: [], cwd: root.path)
     }
 
     /// The reason a call is refused when it comes from the agent of a running Cockpit step (its shell is among `pids`), else nil.
@@ -255,33 +227,7 @@ enum BrowserControlServer {
             if LifecycleToolRunner.handles(tool, args) { return await LifecycleToolRunner.run(tool, args, store: store) }
             return ProjectToolRunner.run(tool, args, store: store)
         }
-        switch tool {
-        case "browser_tabs":
-            return BrowserAgentTools.Reply(text: tabList(window))
-        case "browser_open_tab":
-            let url = (args["url"] as? String).flatMap { BrowserAddress.url(from: $0) ?? URL(string: $0) }
-            let session = window.open(url, (args["name"] as? String).flatMap { $0.isEmpty ? nil : $0 })
-            session.agentLastUsed = Date()
-            if url != nil { await BrowserAgentExecutor.settle(session, started: true) }
-            return BrowserAgentTools.Reply(text: "Opened tab \(session.agentName)." + (url == nil ? "" : " " + BrowserAgentExecutor.status(session).text))
-        default:
-            let session: BrowserSession
-            if let query = args["tab"] as? String, !query.trimmingCharacters(in: .whitespaces).isEmpty {
-                let tabs = window.tabs()
-                guard let index = BrowserAgentTools.tabIndex(query, in: tabs.map { ($0.agentName, $0.displayTitle, $0.url?.absoluteString ?? "") }) else {
-                    return .error("No single browser tab matches “\(query)”.\n" + tabList(window))
-                }
-                session = tabs[index]
-            } else {
-                session = window.active() ?? window.tabs().first ?? window.open(nil, nil)
-            }
-            guard !session.agentStopped else {
-                return .error("The user stopped agent control of tab \(session.agentName). Do not retry; ask the user.")
-            }
-            window.show(session)
-            session.agentLastUsed = Date()
-            return await BrowserAgentExecutor.run(tool, args, in: session)
-        }
+        return await window.browser(tool, args)
     }
 
     /// BUG-027: an agent running its tools outside the terminal (Cline's background hub): the window
@@ -290,17 +236,5 @@ enum BrowserControlServer {
         let entries = Array(windows)
         guard let index = BrowserAgentTools.windowIndex(forFolder: cwd, roots: entries.map { $0.value.root()?.path }, strict: strict) else { return nil }
         return entries[index].key
-    }
-
-    private static func tabList(_ window: Window) -> String {
-        let active = window.active()
-        let tabs = window.tabs()
-        guard !tabs.isEmpty else { return "No browser tabs are open; browser_open_tab opens one." }
-        return tabs.map { tab in
-            var line = "\(tab.agentName): \(tab.displayTitle) — \(tab.url?.absoluteString ?? "(empty)")"
-            if tab === active { line += " [active]" }
-            if tab.agentStopped { line += " [stopped by the user]" }
-            return line
-        }.joined(separator: "\n")
     }
 }

@@ -31,6 +31,8 @@
 #   tabs-direct          (AR-15) a view never reads the window's tabs (openTabs, activeTab, activeTabIndex, lastSaveError) through the
 #                        manager, and the manager never forwards a part's objectWillChange (tabs, file tree, layout, Git) into its own:
 #                        a view observes the part it shows, so typing redraws what shows the tabs and nothing else
+#   (the ratchets below also include window-wiring, AR-17: closure hooks assigned after construction, references to the window's
+#                        whole WorkspaceManager, and hooks a view writes into a model)
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -45,6 +47,13 @@
 #   unowned-task         (AR-19) a `Task { }`, `Task.detached`, `Timer`, or `.asyncAfter` that is not stored (TaskBag or a task property), not
 #                        awaited in place and not justified by a `// task: <why it needs no owner>` comment: work that nothing cancels
 #                        when its window, folder or tool tab closes. Classified by tools/lint/task-ownership.sh  tools/lint/unowned-task-allowlist.txt
+#   domain-cycles        (AR-21) a back-edge between two domain folders of Models (or of Views) that depend on each other: the count is the
+#                        number of types the back-edge names (tools/lint/domain-dependencies.py measures it; `--why A B` lists them).
+#                        `<count> Models/<from> -> Models/<to>  # why it stays` in tools/lint/domain-cycles-allowlist.txt; a pair that
+#                        becomes a cycle is a new entry the lint refuses until a person writes it down with its reason
+#   window-wiring        (AR-17) three lists: closure `var` hooks of Models classes and protocols (window-wiring-hooks.txt), Models that hold
+#                        the whole WorkspaceManager or a back-reference set after construction (window-wiring-backrefs.txt), and hooks that a
+#                        view writes into the window's models (window-wiring-views.txt)
 # A migration that reaches zero ends with an empty list (no lines), which means none allowed.
 #
 # Usage: tools/lint/architecture-lint.sh [--root <repo>] [--tighten]
@@ -63,12 +72,14 @@ while [ $# -gt 0 ]; do
 done
 
 exec python3 - "$ROOT" "$TIGHTEN" "$(cd "$(dirname "$0")" && pwd)" <<'PY'
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True   # importing domain-dependencies.py must not leave a __pycache__ in the repository
 root, tighten, lint_dir = Path(sys.argv[1]), sys.argv[2] == "1", Path(sys.argv[3])
 violations = []   # (rule, message)
 notes = []
@@ -175,33 +186,44 @@ def count_sites(files, matcher, exclude=lambda path: False):
             counts[rel(path)] = hits
     return counts
 
+allowlist_cache = {}     # list name -> {path: allowed count}, or None when the list does not exist
+allowlist_reasons = {}   # (list name, path) -> the `# reason` after an entry, kept when the list is rewritten
+
 def read_allowlist(name):
-    """The allowance per file, or None when the list does not exist."""
+    """The allowance per file, or None when the list does not exist. An entry may end in `  # why it stays`."""
+    if name in allowlist_cache:
+        return allowlist_cache[name]
     path = root / "tools" / "lint" / name
     if not path.is_file():
+        allowlist_cache[name] = None
         return None
     allowed = {}
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         text = line.strip()
         if not text or text.startswith("#"):
             continue
-        match = re.fullmatch(r"(\d+)\s+(\S.*)", text)
+        match = re.fullmatch(r"(\d+)\s+(\S.*?)(?:\s+#\s*(\S.*))?", text)
         if not match or match.group(2) in allowed:
             violations.append((name, f"tools/lint/{name}:{number}: expected `<count> <path>` once per path"))
             continue
         allowed[match.group(2)] = int(match.group(1))
+        if match.group(3):
+            allowlist_reasons[(name, match.group(2))] = match.group(3)
+    allowlist_cache[name] = allowed
     return allowed
 
 def write_allowlist(name, header, counts):
-    lines = [header.rstrip("\n")] + [f"{count} {path}" for path, count in sorted(counts.items())]
+    lines = [header.rstrip("\n")] + [
+        f"{count} {path}" + (f"  # {allowlist_reasons[(name, path)]}" if (name, path) in allowlist_reasons else "")
+        for path, count in sorted(counts.items())]
     (root / "tools" / "lint" / name).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-def ratchet(rule, name, noun, counts, header):
+def ratchet(rule, name, noun, counts, header, label=None, unit="file(s)"):
     allowed = read_allowlist(name)
     if allowed is None:
         if tighten:
             write_allowlist(name, header, counts)
-            notes.append(f"{rule}: created tools/lint/{name} with {sum(counts.values())} in {len(counts)} file(s)")
+            notes.append(f"{label or rule}: created tools/lint/{name} with {sum(counts.values())} in {len(counts)} {unit}")
         else:
             violations.append((rule, f"tools/lint/{name} is missing (create it with --tighten)"))
         return
@@ -221,7 +243,7 @@ def ratchet(rule, name, noun, counts, header):
         for path, (was, now) in sorted(fell.items()):
             violations.append((rule, f"{path}: {now} {noun}, {was} allowed; the count fell, lower the allowance in tools/lint/{name} (--tighten) so it cannot rise again"))
     total = sum(counts.values())
-    notes.append(f"{rule}: {total} in {len(counts)} file(s), {sum(allowed.values())} allowed")
+    notes.append(f"{label or rule}: {total} in {len(counts)} {unit}, {sum(allowed.values())} allowed")
 
 app_swift = swift_files("MarkView")
 package_swift = swift_files("Packages")
@@ -305,6 +327,113 @@ else:
             "# property, not awaited in place, and without a `// task: <why it needs no owner>` comment. `<count> <path>`; a ratchet that only\n"
             "# falls. Convert a site (the object that starts it owns a TaskBag, keys the task, cancels it on close and checks cancellation before\n"
             "# it touches state), or justify it, then run tools/lint/architecture-lint.sh --tighten; tools/lint/task-ownership.sh --sites lists them.")
+
+# --- domain-cycles (AR-21)
+def domain_back_edges():
+    """{`<layer>/<from> -> <layer>/<to>`: types} for the back-edge of every pair of domain folders that depend on each other.
+    The direction an allow-list entry names stays the back-edge; a new pair gets the heuristic of domain-dependencies.py."""
+    spec = importlib.util.spec_from_file_location("domain_dependencies", lint_dir / "domain-dependencies.py")
+    measuring = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(measuring)
+    named = read_allowlist("domain-cycles-allowlist.txt") or {}
+    preferred = {}
+    for key in named:
+        found = re.fullmatch(r"(Models|Views)/(\w+) -> (Models|Views)/(\w+)", key)
+        if found and found.group(1) == found.group(3):
+            preferred.setdefault(found.group(1), set()).add((found.group(2), found.group(4)))
+    counts = {}
+    for layer, measured in measuring.measure(root).items():
+        for pair in measured["pairs"]:
+            source, target, weight, _ = measuring.back_edge(pair, preferred.get(layer, set()))
+            counts[f"{layer}/{source} -> {layer}/{target}"] = weight
+    return counts
+
+ratchet("domain-cycles", "domain-cycles-allowlist.txt", "type(s) named back across a cycle", domain_back_edges(),
+        "# Back-edges between domain folders that depend on each other (AR-21): `<types> <layer>/<from> -> <layer>/<to>  # why it stays`. The\n"
+        "# types are the ones <from> names that <to> declares (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them).\n"
+        "# A ratchet that only falls: remove the dependency (a protocol in the lower domain, or move the type) and run --tighten; the goal is an\n"
+        "# empty list. The back-edge points away from `Workspace`, which composes the others; a pair that is not listed gets the lighter\n"
+        "# direction. A new cycle is written here by a person, with the reason it stays.",
+        unit="pair(s)")
+
+# --- window-wiring (AR-17)
+# A window's object graph is built in one place (WindowComposition). A feature gets what it needs of the window through a narrow
+# protocol or an initializer parameter, never through a closure that another object assigns after construction, never by holding the
+# window's whole `WorkspaceManager`, and never by a view that writes a hook into a model.
+WIRING_TYPE = [(re.compile(r"\b(?:class|actor)\s+[A-Za-z_]"), "class"), (re.compile(r"\bprotocol\s+[A-Za-z_]"), "protocol"),
+               (re.compile(r"\b(?:struct|enum)\s+[A-Za-z_]"), "value"), (re.compile(r"\bextension\s+[A-Za-z_]"), "extension")]
+WIRING_DECL = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*((?:(?:private|fileprivate|internal|public|open|static|weak|unowned|lazy|nonisolated(?:\(unsafe\))?|final|override|private\(set\)|fileprivate\(set\)|internal\(set\)|public\(set\))\s+)*)(var|let)\s+([A-Za-z_]\w*)\s*:\s*(.*)$")
+BACKREF_SET = re.compile(r"(?<![A-Za-z0-9_])\w+\??\.(?:workspace|manager|workspaceManager|host|presenter)\s*=\s*self\b")
+VIEW_HOOK = re.compile(r"\b(?:workspaceManager|workspace|manager|wm)\.[A-Za-z_][\w.]*\s*=\s*(?:\{|\[(?:weak|unowned)|self\b)")
+
+def wiring_scrub(line):
+    return re.sub(r'"(?:\\.|[^"\\])*"', '""', line).split("//")[0]
+
+def wiring_kind(prefix):
+    if re.search(r"\bfunc\b|\binit\b|\bdeinit\b|\bsubscript\b|=\s*$|\bget\b|\bset\b|\bdidSet\b|\bwillSet\b", prefix):
+        return "other"
+    for matcher, kind in WIRING_TYPE:
+        if matcher.search(prefix):
+            return kind
+    return "other"
+
+def wiring_sites(files):
+    """(hooks, backrefs) per file. A hook is a stored `var` of function type that other code assigns after the object exists: declared
+    in a class, an actor or a protocol (`{ get set }`), not private, not static (a `let` is an initializer parameter and is fine).
+    A back-reference is a stored property or requirement that mentions `WorkspaceManager`, or an assignment `x.host = self` (or
+    `.workspace`, `.manager`, `.workspaceManager`, `.presenter`) made after construction."""
+    hooks, backrefs = {}, {}
+    for path in files:
+        stack = []
+        carry = ""   # the start of a declaration that continues on this line (`class A: B,` then `C {`)
+        for _, raw in code_lines(path):
+            line = wiring_scrub(raw)
+            if not line.strip():
+                continue
+            head, carry = carry, (carry + " " + line.strip()) if line.rstrip().endswith((",", "&", ":", "(")) else ""
+            top = stack[-1] if stack else None
+            match = WIRING_DECL.match(line)
+            if match and top in ("class", "protocol", "value"):
+                modifiers, keyword, _, rest = match.groups()
+                if "WorkspaceManager" in rest:
+                    backrefs[rel(path)] = backrefs.get(rel(path), 0) + 1
+                elif top != "value" and keyword == "var" and not re.search(r"\b(?:static|private|fileprivate)\b", modifiers):
+                    declared = re.split(r"\s=\s|\s=$", rest)[0].strip()
+                    declared = re.sub(r"\{\s*get\s+set\s*\}\s*$", "", declared).strip()
+                    declared = re.sub(r"^(?:@\w+(?:\([^)]*\))?\s+)+", "", declared)
+                    if "->" in declared and declared.startswith("(") and "{" not in declared and "}" not in declared:
+                        hooks[rel(path)] = hooks.get(rel(path), 0) + 1
+            if BACKREF_SET.search(line):
+                backrefs[rel(path)] = backrefs.get(rel(path), 0) + 1
+            for index, char in enumerate(line):
+                if char == "{":
+                    stack.append(wiring_kind(head + " " + line[:index]))
+                elif char == "}" and stack:
+                    stack.pop()
+    return hooks, backrefs
+
+model_files = [path for path in app_swift if rel(path).startswith("MarkView/Models/")]
+wiring_hooks, wiring_backrefs = wiring_sites(model_files)
+ratchet("window-wiring", "window-wiring-hooks.txt", "closure wiring propert(ies) (a `var` of function type in a class or protocol; inject a protocol or an initializer parameter)",
+        wiring_hooks,
+        "# Closure-typed `var` properties of classes, actors and protocols in MarkView/Models that other code assigns after construction (AR-17).\n"
+        "# `<count> <path>`; a ratchet that only falls. A feature takes a narrow protocol or an initializer parameter from WindowComposition\n"
+        "# (an event is a publisher); run tools/lint/architecture-lint.sh --tighten after removing a site.", label="window-wiring (hooks)")
+ratchet("window-wiring", "window-wiring-backrefs.txt", "reference(s) to the window's WorkspaceManager (a property of its type, or `x.host = self` after construction)",
+        wiring_backrefs,
+        "# Models that hold the window's whole WorkspaceManager, and back-references set after construction (`x.host = self`) (AR-17).\n"
+        "# `<count> <path>`; a ratchet that only falls. A feature holds a narrow host protocol that WindowComposition passes at init;\n"
+        "# run tools/lint/architecture-lint.sh --tighten after removing a site.", label="window-wiring (back-references)")
+view_hooks = {}
+for path in swift_files("MarkView/Views"):
+    hits = sum(1 for _, line in code_lines(path) if VIEW_HOOK.search(re.split(r"\s//", line)[0]))
+    if hits:
+        view_hooks[rel(path)] = hits
+ratchet("window-wiring", "window-wiring-views.txt", "hook(s) a view writes into the window's models (`manager.part.x = { ... }` or `= self`)",
+        view_hooks,
+        "# Views that assign a closure or `self` to a part of the window's manager (AR-17). `<count> <path>`; a ratchet that only falls.\n"
+        "# The model publishes what happened and the view subscribes, or the model is given its collaborator at construction.",
+        label="window-wiring (views)")
 
 # --- semantic-database-actor
 database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
@@ -544,7 +673,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

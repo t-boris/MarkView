@@ -6,7 +6,6 @@
 1 MarkView/Bridge/PDFExporter.swift
 1 MarkView/Models/AI/ACPAssistant.swift
 1 MarkView/Models/AI/AgentUsageTracker.swift
-1 MarkView/Models/AI/CLICompletion.swift
 8 MarkView/Models/Architecture/ArchitectureStore.swift
 17 MarkView/Models/Architecture/ChangeReviewStore.swift
 3 MarkView/Models/Architecture/CodeExplainer.swift

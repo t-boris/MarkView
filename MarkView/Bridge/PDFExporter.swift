@@ -72,11 +72,12 @@ enum PDFExporter {
     }
 
     /// A document the page builds on request, such as the report of a research map: printed from its Markdown.
-    static func exportPDF(markdown: String, title: String, fileName: String, baseURL: URL?, documentFiles: DocumentFileSchemeHandler) {
+    /// `roots` are the folders a picture of the document may come from (`DocumentFiles.roots`).
+    static func exportPDF(markdown: String, title: String, fileName: String, baseURL: URL?, roots: [URL]) {
         let folder = baseURL ?? FileManager.default.temporaryDirectory
         let chapter = BookPDFChapter(id: "c0", url: folder.appendingPathComponent((fileName as NSString).deletingPathExtension + ".md"),
                                      path: fileName, title: title, format: "markdown", text: markdown, original: markdown)
-        begin(fileName: fileName, roots: documentFiles.allowedRoots()) { chapter }
+        begin(fileName: fileName, roots: roots) { chapter }
     }
 
     // MARK: - Making the PDF

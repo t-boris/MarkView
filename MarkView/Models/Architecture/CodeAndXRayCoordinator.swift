@@ -66,7 +66,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
     @Published private(set) var selectionActions: [UUID: SelectionActionState] = [:]
 
     private let project: any ProjectProviding
-    weak var host: (any CodeXRayHost)?
+    private weak var host: (any CodeXRayHost)?
     /// Folder X-Rays by folder path (relative to the project root). The project's own X-Ray is `architecture` (scope "").
     private var folderXRays: [String: ArchitectureStore] = [:]
     /// The coordinator's own one-off background work (`AR-19`): cancelled when the folder switches or the window closes.
@@ -74,8 +74,9 @@ final class CodeAndXRayCoordinator: ObservableObject {
     private var selectionTasks: [UUID: Task<CLICompletion.Result, Error>] = [:]
     private var stoppedSelectionActions: Set<UUID> = []
 
-    init(project: any ProjectProviding) {
+    init(project: any ProjectProviding, host: any CodeXRayHost) {
         self.project = project
+        self.host = host
     }
 
     /// A folder opens or closes: the stores start over and the work started for the old project stops.

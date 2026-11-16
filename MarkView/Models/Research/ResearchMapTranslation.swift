@@ -424,7 +424,7 @@ enum ResearchMapTranslation {
     /// Kept: the diagram type line, ids, arrows, keywords, shapes and classes. Dropped: `%%` comments and the label text
     /// (in quotes, in `[]` `()` `{}`, between `|`, after the colon of a sequence message or note, after `as`, after
     /// `loop`/`alt`/`opt` and the like). Fits the flowchart that `DiagramAI.mermaid` writes and the sequence diagram
-    /// that `CodeArchitecture.sequenceMermaid` writes; a diagram of another kind is compared by its quotes, brackets and bars.
+    /// that `DiagramAI.sequenceMermaid` writes; a diagram of another kind is compared by its quotes, brackets and bars.
     static func skeleton(ofMermaid source: String) -> String {
         var lines = source.components(separatedBy: "\n")
             .map { collapse($0) }

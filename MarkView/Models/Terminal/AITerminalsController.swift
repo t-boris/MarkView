@@ -8,12 +8,10 @@ import MarkViewCore
 /// runs while a terminal does. The folder, the project and its linked folders come from the window's `ProjectProviding`.
 /// `WorkspaceManager` conforms.
 @MainActor
-protocol AITerminalsHost: AnyObject {
-    /// This window's id for agents driving its browser tab (`BrowserControlServer`).
+protocol AITerminalsHost: TerminalLinkTarget {
+    /// This window's id for agents driving its browser tab (`AgentToolServer`).
     var browserControlID: UUID { get }
     func registerBrowserControl()
-    func openFile(_ url: URL, line: Int?, endLine: Int?)
-    func openInAppBrowser(_ url: URL)
     func showAIConsole()
     /// A terminal started: open files an assistant changes on disk are reloaded while terminals run.
     func terminalStarted()
@@ -104,19 +102,11 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     private func browserToolArgs(for tool: CLITool) -> [String] {
         guard let host else { return [] }
         host.registerBrowserControl()
-        guard BrowserControlServer.agentToolsEnabled(tool) else { return [] }
+        guard tool.agentToolsEnabled else { return [] }
         let windowID = host.browserControlID
         // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
         // prototypes), each a server of this same binary, both bound to this window.
-        var servers: [AgentMCPServer] = []
-        if TerminalBrowserBridge.isEnabled, let server = BrowserControlServer.mcpArguments(window: windowID) {
-            servers.append(AgentMCPServer(name: BrowserAgentTools.serverName, tomlName: "markview_browser", flag: "--mcp-browser", label: "browser",
-                                          command: server.command, args: server.args))
-        }
-        if let server = BrowserControlServer.mcpArguments(window: windowID, flag: "--mcp-project") {
-            servers.append(AgentMCPServer(name: ProjectAgentTools.serverName, tomlName: ProjectAgentTools.serverName, flag: "--mcp-project",
-                                          label: "project", command: server.command, args: server.args))
-        }
+        let servers = AgentToolServer.mcpServers(window: windowID, includingBrowser: TerminalBrowserBridge.isEnabled)
         guard !servers.isEmpty else { return [] }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         if let arguments = tool.provider.mcpLaunchArguments(for: servers, quote: shellQuote) { return arguments }
@@ -136,8 +126,8 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
             guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
             recent = ""
             DispatchQueue.main.async {
-                guard let self, let session, BrowserControlServer.agentToolsEnabled(tool) else { return }
-                Settings.standard.set(false, for: BrowserControlServer.agentToolsKey(tool))
+                guard let self, let session, tool.agentToolsEnabled else { return }
+                Settings.standard.set(false, for: tool.agentToolsKey)
                 let alert = NSAlert()
                 alert.messageText = "\(name)'s policy blocks MarkView's browser tools"
                 alert.informativeText = "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working."
@@ -186,12 +176,6 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
                         model: chosenModel(for: profile))
     }
 
-    /// The terminal reaches the editor and the browser of its window.
-    private func connect(_ session: TerminalSession) {
-        session.openFile = { [weak self] url, line in self?.host?.openFile(url, line: line, endLine: nil) }
-        session.openInAppBrowser = { [weak self] url in self?.host?.openInAppBrowser(url) }
-    }
-
     /// Open another terminal in the AI panel and show it.
     /// `resuming` continues the assistant's last session in the folder (terminals restored after a relaunch).
     /// `model` starts the assistant with that model instead of the one chosen for the project (a Cockpit step's own).
@@ -202,8 +186,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
                                       startupCommand: startupCommand(for: profile, model: model),
                                       resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
                                       title: terminalTitle(for: profile),
-                                      model: model ?? chosenModel(for: profile))
-        connect(session)
+                                      model: model ?? chosenModel(for: profile), links: host)
         session.browserWindowID = host.browserControlID
         host.registerBrowserControl()
         if let tool = profile.tool, tool.provider.reportsMCPPolicyBlock { watchForMCPPolicyBlock(session, tool: tool) }
@@ -222,13 +205,12 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: host.browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
         guard self.root?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
         let session = TerminalSession(directory: root, profile: TerminalProfile(provider),
-                                      title: "Home · " + provider.displayName)
+                                      title: "Home · " + provider.displayName, links: host)
         connection.onState = { [weak session] phase, text in
             session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
             if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
         }
         session.connection = connection
-        connect(session)
         sessions.append(session)
         shownID = session.id
         host.showAIConsole()
@@ -415,8 +397,7 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     /// A terminal in `folder` for an editor tab; `startupCommand` is typed once the shell is up. The window builds the tab.
     func makeTabTerminal(in folder: URL, startupCommand: String?, title: String?) -> TerminalSession {
-        let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title)
-        connect(session)
+        let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title, links: host)
         session.browserWindowID = host?.browserControlID
         host?.registerBrowserControl()
         tabTerminals[session.id] = session

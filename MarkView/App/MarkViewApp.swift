@@ -86,7 +86,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     /// Quitting for real (not when the user keeps a running project operation): stop the assistants of headless runs
     /// so none keeps working, and spending tokens, for a window that is gone.
     func applicationWillTerminate(_ notification: Notification) {
-        BrowserControlServer.shutdown()
+        AgentToolServer.shutdown()
         RemoteConnectionsStore.shared.suspend()
         CockpitAgentRegistry.cancelAll(reason: "MarkView is closing.")
         AgentProcesses.terminateAll()
@@ -100,7 +100,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("applicationDidFinishLaunching")
         // Listen for agents from the start, not when the first folder opens: an agent that drives the app opens it.
-        _ = BrowserControlServer.socketPath
+        _ = AgentToolServer.socketPath
         // One app-wide poll for Finder Quick Action requests (`AR-19`): started with the app, so a request is taken with or without a
         // window; `enqueueOpen` holds it until a window shows it.
         FinderOpenRequests.shared.start { MarkViewApp.enqueueOpen($0) }
@@ -437,7 +437,7 @@ struct MarkViewApp: App {
 
         let handler: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
-            let currentIsEmpty = ws?.rootNode == nil && ws?.openTabs.isEmpty != false
+            let currentIsEmpty = ws?.rootNode == nil && ws?.tabs.openTabs.isEmpty != false
             if currentIsEmpty, let ws = ws {
                 ws.openFolder(url)
             } else {

@@ -84,7 +84,7 @@ final class BrowserSession: NSObject, ObservableObject {
     /// The user is choosing an element on the page (Pick Element).
     @Published private(set) var isPicking = false
     /// The window of this tab: it opens links in new tabs, takes a picked element to the AI and runs Preview Web App's dev server.
-    weak var host: (any BrowserSessionHost)?
+    private(set) weak var host: (any BrowserSessionHost)?
     /// The outcome of the last pick ("Pasted into Claude", an error), shown briefly.
     @Published var pickNotice: String?
     private(set) var isClosed = false
@@ -121,7 +121,8 @@ final class BrowserSession: NSObject, ObservableObject {
     /// Page channels the owner of the session adds to the tab's own (the QA player's fault counter).
     private let extraHandlers: [WebHost.Handler]
 
-    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = []) {
+    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = [], host: (any BrowserSessionHost)? = nil) {
+        self.host = host
         self.url = url
         self.dataStore = dataStore
         self.extraHandlers = extraHandlers

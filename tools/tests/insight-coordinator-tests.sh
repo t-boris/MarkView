@@ -29,8 +29,8 @@ swiftc -o "$out/insight-coordinator-tests" -target "$(uname -m)-apple-macos13.0"
     MarkView/Models/Insight/InsightArchiveExporter.swift MarkView/Models/Insight/InsightCache.swift \
     MarkView/Models/Insight/InsightModels.swift MarkView/Models/Insight/InsightSession.swift MarkView/Models/Insight/InsightHTMLTemplate.swift MarkView/Models/Insight/InsightTreeSnapshot.swift \
     MarkView/Models/Insight/GraphRAG.swift MarkView/Models/Insight/EmbeddingClient.swift \
-    MarkView/Models/Insight/SemanticDatabase.swift MarkView/Models/Insight/SemanticSchema.swift MarkView/Models/Insight/SemanticModels.swift \
-    MarkView/Models/Workspace/TaskBag.swift MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/Appearance/ProjectColor.swift \
+    MarkView/Models/Insight/SemanticDatabase.swift MarkView/Models/Insight/SemanticUsage.swift MarkView/Models/Insight/SemanticSchema.swift MarkView/Models/Insight/SemanticModels.swift \
+    MarkView/Models/Workspace/LinkedFolders.swift MarkView/Models/AI/LinkedFolderStore.swift MarkView/Models/Appearance/ProjectColor.swift \
     MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
     MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/DiagramAI.swift \

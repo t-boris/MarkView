@@ -19,8 +19,8 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
     static let shared = RemoteConnectionsStore()
     func connectionStopped(_ id: UUID) {}
 }
-@MainActor enum BrowserControlServer {
-    static func performRemoteBrowser(_ name: String, arguments: RemoteJSON, window: UUID, root: URL, agent: CLITool) async -> RemoteJSON {
+@MainActor enum RemoteBrowserRelay {
+    static func perform(_ name: String, arguments: RemoteJSON, window: UUID, root: URL, agent: CLITool) async -> RemoteJSON {
         .textResult("BROWSER " + window.uuidString)
     }
 }

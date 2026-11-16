@@ -110,8 +110,9 @@ func run() async {
     check(host.registered >= 1, "the window is offered to the agents' browser control when a terminal starts")
     check(host.started == 1, "the window is told a terminal started (open files are watched from then on)")
     check(claude?.browserWindowID == host.browserControlID, "the terminal carries the window's browser id")
-    claude?.openFile?(folder.appendingPathComponent("a.md"), 7)
-    claude?.openInAppBrowser?(URL(string: "http://localhost:3000")!)
+    check(claude?.links === host, "the terminal is given the window, so its file and web links reach the window's editor and browser")
+    claude?.links?.openFile(folder.appendingPathComponent("a.md"), line: 7, endLine: nil)
+    claude?.links?.openInAppBrowser(URL(string: "http://localhost:3000")!)
     check(host.opened.count == 1 && host.opened[0].url.lastPathComponent == "a.md" && host.opened[0].line == 7, "a file link in the terminal opens in the window's editor at its line")
     check(host.browserOpened == [URL(string: "http://localhost:3000")!], "a web link in the terminal opens in the window's browser")
 
@@ -160,7 +161,7 @@ func run() async {
     check(remote?.title == "Home · Codex", "its tab says it is the home assistant (\(remote?.title ?? "nil"))")
     check(host.consoleShown >= 1, "the panel is brought to the front for it")
     check((defaults.dictionary(forKey: savedKey(folder))?["profiles"] as? [String]) == ["claude", "claude", "shell"], "a home assistant is not saved among the local terminals")
-    remote?.openFile?(folder.appendingPathComponent("b.md"), nil)
+    remote?.links?.openFile(folder.appendingPathComponent("b.md"), line: nil, endLine: nil)
     check(host.opened.last?.url.lastPathComponent == "b.md", "a home assistant's file link opens in the window's editor too")
 
     // The folder changes while the home assistant connects: nothing opens for the old folder.
@@ -279,6 +280,7 @@ func run() async {
     check(terminals.tabTerminal(tab.id) === tab && tab.startupCommand == "npm run dev" && tab.title == "Dev server", "an editor-tab terminal is kept under its tab id")
     check(tab.directory == folder.appendingPathComponent("sub").standardizedFileURL, "its folder is standardized")
     check(!terminals.sessions.contains { $0 === tab }, "it is not one of the AI panel's terminals")
+    check(tab.links === host, "an editor-tab terminal reaches the window's editor and browser too")
     check(terminals.previewTerminal(forApp: "/app") == nil, "no dev server is remembered at first")
     terminals.rememberPreviewTerminal(tab, forApp: "/app")
     check(terminals.previewTerminal(forApp: "/app") === tab, "Preview Web App finds the dev server it started")

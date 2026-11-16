@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, REQ-001): the state of the QA tab. It keeps the scenarios of the project, the one being
 // edited, and the generation in progress. Every edit is saved a moment later, off the main thread, so a scenario and its edits survive
