@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Darwin
 
 enum CLIToolLocator {
@@ -15,6 +16,13 @@ enum CLIToolLocator {
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("gh"), withDestinationURL: executable)
         setenv("MARKVIEW_GITHUB_TEST_PATH", root.path, 1)
 
+        let expectedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let dateErrors = OSAllocatedUnfairLock(initialState: 0)
+        DispatchQueue.concurrentPerform(iterations: 200) { index in
+            let stamp = index.isMultiple(of: 2) ? "2023-11-14T22:13:20Z" : "2023-11-14T22:13:20.000Z"
+            if GHDate.parse(stamp) != expectedDate { dateErrors.withLock { $0 += 1 } }
+        }
+        precondition(dateErrors.withLock { $0 } == 0, "Concurrent GitHub date parsing preserves both formats.")
         let start = Date()
         let inherited = await GitHubClient.execute(["--fixture", "inherited-writer"], in: root, timeout: 2)
         precondition(inherited.status == 0 && inherited.stdout == "[]")

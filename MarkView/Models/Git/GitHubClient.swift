@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Darwin
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -350,22 +351,21 @@ struct GHWorkflowInput: Hashable, Sendable {
 
 /// Dates as `gh` prints them (ISO 8601; the zero date for "not yet").
 enum GHDate {
-    private static let formatter: ISO8601DateFormatter = {
+    // The formatters never leave their locks, so independent GitHub requests can parse dates concurrently.
+    private static let formatter: OSAllocatedUnfairLock<ISO8601DateFormatter> = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
-        return f
+        return OSAllocatedUnfairLock(uncheckedState: f)
     }()
-    private static let fractional: ISO8601DateFormatter = {
+    private static let fractional: OSAllocatedUnfairLock<ISO8601DateFormatter> = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
+        return OSAllocatedUnfairLock(uncheckedState: f)
     }()
-    private static let lock = NSLock()
 
     static func parse(_ text: String?) -> Date? {
         guard let text, !text.isEmpty, !text.hasPrefix("0001-") else { return nil }
-        lock.lock(); defer { lock.unlock() }
-        return formatter.date(from: text) ?? fractional.date(from: text)
+        return formatter.withLock { $0.date(from: text) } ?? fractional.withLock { $0.date(from: text) }
     }
 
     static func span(_ start: String?, _ end: String?, running: Bool) -> TimeInterval? {
@@ -1060,19 +1060,18 @@ enum GHJobLog {
         return result
     }
 
-    private static let stampFormatter: ISO8601DateFormatter = {
+    // The formatter is accessed only while this lock is held.
+    private static let stampFormatter: OSAllocatedUnfairLock<ISO8601DateFormatter> = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
+        return OSAllocatedUnfairLock(uncheckedState: f)
     }()
-    private static let lock = NSLock()
 
     /// "2026-09-25T11:51:34.4762030Z" (7 fraction digits) → Date.
     private static func parseStamp(_ stamp: String) -> Date? {
         guard stamp.hasSuffix("Z"), let dot = stamp.firstIndex(of: ".") else { return GHDate.parse(stamp) }
         let fraction = stamp[stamp.index(after: dot)..<stamp.index(before: stamp.endIndex)]
         let trimmed = String(stamp[..<dot]) + "." + fraction.prefix(3) + "Z"
-        lock.lock(); defer { lock.unlock() }
-        return stampFormatter.date(from: trimmed)
+        return stampFormatter.withLock { $0.date(from: trimmed) }
     }
 }
