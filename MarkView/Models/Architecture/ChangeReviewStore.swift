@@ -21,9 +21,11 @@ final class ChangeReviewStore {
     private(set) var prOverlay: PROverlay?
 
     private(set) var historyPicker: HistoryPicker?
-    /// Answers only the latest question: a day asked for while an earlier one is still being read wins.
-    private var historyRequest = 0
-    private var prLoadToken = 0
+    /// The work this store starts (`AR-19`), one key per kind, so a new start replaces the work of the old one and `reset` (a project
+    /// switch, the window's close) ends all of it, after which nothing is written: "sources", "history" (the latest day asked for wins),
+    /// "compare", "load" (the last change started is the one that shows), "analyze", "review", "info", "action", and per item
+    /// "explain:<file>", "ask:<n>" with "ask-refresh:<n>", "finding:", "comment:" and "issue:" with the finding's file and index.
+    private let tasks = TaskBag()
 
     /// Per-file diffs of the loaded change (kept here, sent only for the selected file).
     private var prFileDiffs: [String: String] = [:]
@@ -49,13 +51,14 @@ final class ChangeReviewStore {
     private var prReloadedAt = Date.distantPast
 
 
-    /// A new workspace: neither a commit list nor a change that is still being read may land in it.
+    /// A new workspace, or the window's close: neither a commit list nor a change that is still being read, explained, analysed or
+    /// reviewed may land in it, and what was under way is not marked as under way any more.
     func reset() {
-        historyRequest += 1
+        tasks.cancelAll()
         historyPicker = nil
-        prLoadToken += 1
         prSources = []
         prOverlay = nil
+        prExplaining = []
     }
 
     // MARK: - Pull request overlay
@@ -64,12 +67,13 @@ final class ChangeReviewStore {
     var selectDefaultSource = false
 
     func refreshPRSources(root: URL) {
-        Task {
+        tasks.store(Task {
             let repo = gitHubRepo
             // Pull requests on GitHub need `gh`: only the opt-in integration may run it. The switch
             // is read here, on the main actor, once per refresh.
             let gitHub = GitHubSettings.enabled
             let sources = await Task.detached { ChangeSource.list(root: root, repo: repo, gitHub: gitHub) }.value
+            guard !Task.isCancelled else { return }
             // Comparisons the person asked for (a branch against this one, a commit of an earlier day) are not in
             // the list git builds.
             let comparisons = prSources.filter {
@@ -83,7 +87,7 @@ final class ChangeReviewStore {
                     showPR(first.id, root: root)
                 }
             }
-        }
+        }, for: "sources")
     }
 
     /// Show a branch comparison in the PR view; `title` is what the source picker shows.
@@ -98,8 +102,8 @@ final class ChangeReviewStore {
     /// day on every local branch. A day asked for while an earlier one is still being read replaces it.
     func listHistory(day text: String, root: URL) {
         let calendar = Calendar.autoupdatingCurrent
-        historyRequest += 1
-        let request = historyRequest
+        // A day asked for while an earlier one is still being read replaces it.
+        tasks.cancel(key: "history")
         // The page sends valid days; one outside the calendar the history can have (before 1970) has no commits.
         guard let day = HistoricalBaseline.day(from: text, calendar: calendar) else {
             historyPicker = HistoryPicker(day: text, state: "ready", commits: [])
@@ -108,20 +112,20 @@ final class ChangeReviewStore {
         }
         historyPicker = HistoryPicker(day: text, state: "loading", commits: [])
         host.bump()
-        Task {
+        tasks.store(Task {
             let commits = await Task.detached {
                 HistoricalBaseline.commits(on: day, calendar: calendar) {
                     ChangeSource.git($0, in: root)
                 }
             }.value
-            guard request == historyRequest else { return }
+            guard !Task.isCancelled else { return }
             historyPicker = HistoryPicker(day: text, state: commits == nil ? "unavailable" : "ready",
                                           commits: (commits ?? []).map {
                                               HistoryPicker.Entry(sha: $0.sha, short: $0.shortSha, subject: $0.subject,
                                                                   author: $0.author, time: $0.committed.timeIntervalSince1970)
                                           })
             host.bump()
-        }
+        }, for: "history")
     }
 
     /// The person chose a commit of that day: show the working copy against it, like a branch comparison (no AI
@@ -129,20 +133,22 @@ final class ChangeReviewStore {
     func compareWithCommit(sha: String, root: URL, db: SemanticDatabase?) {
         guard let id = HistoricalBaseline.sourceId(for: sha), let arguments = HistoricalBaseline.logArguments(forCommit: sha) else { return }
         let calendar = Calendar.autoupdatingCurrent
-        Task {
+        tasks.store(Task {
             let commit = await Task.detached { () -> HistoricalBaseline.Commit? in
                 ChangeSource.git(arguments, in: root)
                     .flatMap { HistoricalBaseline.parse($0).first }
             }.value
+            guard !Task.isCancelled else { return }
             guard let commit, commit.sha == sha else {
                 host.setError("That commit is no longer in this repository.")
                 host.bump()
                 return
             }
-            historyRequest += 1
+            // The commit list the person chose from is done with: a listing still being read must not bring it back.
+            tasks.cancel(key: "history")
             historyPicker = nil
             showComparison(id: id, title: HistoricalBaseline.title(for: commit, calendar: calendar), root: root, db: db)
-        }
+        }, for: "compare")
     }
 
     /// The change's version of `path`, written to MarkView's cache so the viewer shows the
@@ -214,28 +220,26 @@ final class ChangeReviewStore {
             return
         }
         host.setError(nil)
-        Task {
+        tasks.store(Task {
             guard await loadPR(source, root: root) else { return }
             if review { reviewPR(root: root, db: db) }
             if analyze { analyzePR(root: root, db: nil) }
-        }
+        }, for: "load")
     }
 
     /// Read the change as it is now: diff, files, links. Questions asked so far are kept
     /// when it is the change already shown.
     @discardableResult
     private func loadPR(_ source: PRSource, root: URL, keepReview: Bool = false) async -> Bool {
-        // Loads can overlap (a comparison with an old commit takes seconds to read): the last one started is the one
-        // that shows. A replaced load returns false without writing anything.
-        prLoadToken += 1
-        let token = prLoadToken
+        // Loads can overlap (a comparison with an old commit takes seconds to read): every caller runs it as the store's "load" work,
+        // so the last one started is the one that shows. A replaced or reset load is cancelled and returns false without writing anything.
         prRoot = root
         host.setStatus("Loading \(source.title)…")
         // A reload keeps the repository the pull request came from.
         let repo = prOverlay?.source.id == source.id && prRepo != nil ? prRepo : gitHubRepo
         let gitHub = GitHubSettings.enabled
         let (diff, checkout, base) = await Task.detached { ChangeSource.read(source, root: root, repo: repo, gitHub: gitHub) }.value
-        guard token == prLoadToken else { return false }
+        guard !Task.isCancelled else { return false }
         guard let diff else {
             host.setError(HistoricalBaseline.commitHash(fromSourceId: source.id) != nil
                 ? "Could not read the changes since that commit. It may no longer be in this repository."
@@ -255,7 +259,7 @@ final class ChangeReviewStore {
                 .map { PRDependency(source: $0.source, target: $0.target, change: $0.added ? "added" : "removed") }
             return (dependencies, ChangeDiff.files(diff), ChangeDiff.split(diff))
         }.value
-        guard token == prLoadToken else { return false }
+        guard !Task.isCancelled else { return false }
         let previous = prOverlay?.source.id == source.id ? prOverlay : nil
         let changed = diff != prDiffText
         prDiffText = diff
@@ -291,11 +295,11 @@ final class ChangeReviewStore {
     func reviewAgain(root: URL, db: SemanticDatabase?) {
         guard !host.isBusy, let source = prOverlay?.source else { return }
         let hadAnalysis = prOverlay?.analysis != nil
-        Task {
+        tasks.store(Task {
             guard await loadPR(source, root: root) else { return }
             reviewPR(root: root, db: db, fresh: true)
             if hadAnalysis { analyzePR(root: root, db: db, fresh: true) }
-        }
+        }, for: "load")
     }
 
     /// The review's findings and the analysis's checks as a task list — to paste into the
@@ -326,7 +330,7 @@ final class ChangeReviewStore {
            Date().timeIntervalSince(prReloadedAt) > 10 {
             prReloadedAt = Date()
             let source = overlay.source
-            Task { await loadPR(source, root: root, keepReview: true) }
+            tasks.store(Task { await loadPR(source, root: root, keepReview: true) }, for: "load")
         }
         return notes
     }
@@ -420,8 +424,9 @@ final class ChangeReviewStore {
                 "required": ["summary", "changes"],
             ])
         request.timeout = 300
-        Task {
-            defer { prExplaining.remove(key); host.bump() }
+        tasks.store(Task {
+            // A task cancelled by `reset` finds `prExplaining` cleared and leaves it alone.
+            defer { if !Task.isCancelled { prExplaining.remove(key); host.bump() } }
             do {
                 let object = try await host.assistantCall(request, root: root, db: db, call: 98, fresh: false)
                 let partNames = Set(parts.map(\.name))
@@ -433,13 +438,13 @@ final class ChangeReviewStore {
                     return PRChangeNote(part: part, title: title, start: start, end: end,
                                         kind: raw["kind"] as? String, why: raw["why"] as? String)
                 }
-                guard !notes.isEmpty else { return }
+                guard !Task.isCancelled, !notes.isEmpty else { return }
                 prExplanations[key] = (object["summary"] as? String ?? "", notes.sorted { $0.start < $1.start })
             } catch is CancellationError {
             } catch {
                 host.setError("Could not explain the changes in \((path as NSString).lastPathComponent): \(error.localizedDescription)")
             }
-        }
+        }, for: "explain:" + key)
     }
 
     /// Ask the AI about the loaded change — the whole of it, or one file — with the
@@ -470,20 +475,15 @@ final class ChangeReviewStore {
         request.effort = "low"
         request.timeout = 300
         let source = overlay.source.id
-        Task { [self] in
+        tasks.store(Task { [self] in
             var streamed = ""
-            var pendingRefresh = false
             do {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-pr-question").execute(request, onDelta: { [weak self] text in
                     Task { @MainActor in
                         guard let self, self.prOverlay?.source.id == source, index < (self.prOverlay?.chat.count ?? 0) else { return }
                         streamed += text
                         self.prOverlay?.chat[index].answer = streamed
-                        guard !pendingRefresh else { return }
-                        pendingRefresh = true
-                        try? await Task.sleep(nanoseconds: 300_000_000)
-                        pendingRefresh = false
-                        self.host.bump()
+                        self.tasks.coalesce(key: "ask-refresh:\(index)") { self.host.bump() }
                     }
                 })
                 result.record(in: db)
@@ -491,6 +491,8 @@ final class ChangeReviewStore {
                     prOverlay?.chat[index].answer = answer.isEmpty ? streamed : answer
                 }
             } catch is CancellationError {
+                // `reset` ended it: the chat is not this task's any more.
+                return
             } catch {
                 if prOverlay?.source.id == source, index < (prOverlay?.chat.count ?? 0) {
                     prOverlay?.chat[index].answer = "Failed: \(error.localizedDescription)"
@@ -498,7 +500,7 @@ final class ChangeReviewStore {
             }
             if prOverlay?.source.id == source, index < (prOverlay?.chat.count ?? 0) { prOverlay?.chat[index].pending = false }
             host.bump()
-        }
+        }, for: "ask:\(index)")
     }
 
     /// Set by the PR X-Ray tab: analyse the change as soon as it is loaded.
@@ -514,12 +516,14 @@ final class ChangeReviewStore {
         host.bump()
         let source = overlay.source
         let current = host.snapshot
-        Task {
-            defer { prOverlay?.analyzing = nil; host.bump(); host.setStatus(nil) }
+        tasks.store(Task {
+            // A task cancelled by `reset` finds the overlay gone and the status cleared, and leaves them alone.
+            defer { if !Task.isCancelled { prOverlay?.analyzing = nil; host.bump(); host.setStatus(nil) } }
             host.setStatus("Analysing \(source.title)…")
             let repo = prRepo ?? gitHubRepo
             let gitHub = GitHubSettings.enabled
             let diff = await Task.detached { ChangeSource.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
+            guard !Task.isCancelled else { return }
             // Which component each changed file belongs to, from the X-Ray.
             let fileNodes = Dictionary((current?.view("modules")?.nodes ?? []).filter { $0.kind == "file" }
                 .compactMap { node in node.path.map { ($0, node) } }, uniquingKeysWith: { a, _ in a })
@@ -616,12 +620,12 @@ final class ChangeReviewStore {
                         return .init(path: path.hasPrefix("b/") ? String(path.dropFirst(2)) : path,
                                      line: raw["line"] as? Int ?? 0, note: raw["note"] as? String ?? "")
                     })
-                if prOverlay?.source.id == source.id { prOverlay?.analysis = analysis }
+                if !Task.isCancelled, prOverlay?.source.id == source.id { prOverlay?.analysis = analysis }
             } catch is CancellationError {
             } catch {
                 host.setError("PR analysis failed: \(error.localizedDescription)")
             }
-        }
+        }, for: "analyze")
     }
 
     /// Ask the assistant to review the loaded change file by file.
@@ -629,15 +633,18 @@ final class ChangeReviewStore {
         guard !host.isBusy, let overlay = prOverlay else { return }
         let token = host.beginRun()
         let source = overlay.source
-        Task {
+        tasks.store(Task {
+            // The lease on the run flag: after `reset` it is another run's, and this ends without touching it.
             defer { host.endRun(token) }
             host.setStatus("Reviewing \(source.title)…")
             let repo = prRepo ?? gitHubRepo
             let gitHub = GitHubSettings.enabled
             let diff = await Task.detached { ChangeSource.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
+            guard !Task.isCancelled else { return }
             let key = SHA256.hash(data: Data(diff.utf8)).map { String(format: "%02x", $0) }.joined()
             reviewKey = (key, db)
             if !fresh, let cached = await db?.loadArchitectureReview(key: key),
+               !Task.isCancelled,
                let data = cached.data(using: .utf8),
                var reviewed = try? JSONDecoder().decode(PROverlay.self, from: data) {
                 reviewed.info = prOverlay?.info
@@ -695,6 +702,7 @@ final class ChangeReviewStore {
             do {
                 let (object, result) = try await AIOperation<CLICompletion.Request, [String: Any]>.object(name: "xray-pr-review").execute(request)
                 result.record(in: db)
+                guard !Task.isCancelled else { return }
                 var byPath: [String: [String: Any]] = [:]
                 for item in object["files"] as? [[String: Any]] ?? [] {
                     if let path = item["path"] as? String { byPath[path.hasPrefix("b/") ? String(path.dropFirst(2)) : path] = item }
@@ -718,11 +726,12 @@ final class ChangeReviewStore {
                     saveReview(key: key, json: String(decoding: data, as: UTF8.self), db: db)
                 }
             } catch is CancellationError {
+                return
             } catch {
                 host.setError("Review failed: \(error.localizedDescription)")
             }
             host.setStatus(nil)
-        }
+        }, for: "review")
     }
 
     // MARK: - Pull request on GitHub: header and finding actions
@@ -770,8 +779,8 @@ final class ChangeReviewStore {
     /// State, checks and review decision of pull request `number`, for the panel's header.
     func loadPRInfo(_ number: Int, root: URL) {
         guard let client = githubClient(root: root) else { return }
-        Task {
-            guard let pr = try? await client.pullRequest(number), shownPRNumber == number else { return }
+        tasks.store(Task {
+            guard let pr = try? await client.pullRequest(number), !Task.isCancelled, shownPRNumber == number else { return }
             let checks = pr.checks
             let info = PRInfo(number: number, url: pr.url, state: pr.state, isDraft: pr.isDraft ?? false,
                               author: pr.author?.login ?? "", head: pr.headRefName, base: pr.baseRefName,
@@ -781,7 +790,7 @@ final class ChangeReviewStore {
                               busy: nil, message: prOverlay?.info?.message, ok: prOverlay?.info?.ok)
             prOverlay?.info = info
             host.bump()
-        }
+        }, for: "info")
     }
 
     /// Approve, request changes, comment, merge or close the pull request shown.
@@ -791,7 +800,7 @@ final class ChangeReviewStore {
         prOverlay?.info?.message = nil
         prOverlay?.info?.ok = nil
         host.bump()
-        Task {
+        tasks.store(Task {
             var message: String
             var ok = true
             do {
@@ -809,13 +818,13 @@ final class ChangeReviewStore {
                 default: message = ""
                 }
             } catch { message = error.localizedDescription; ok = false }
-            guard shownPRNumber == number else { return }
+            guard !Task.isCancelled, shownPRNumber == number else { return }
             prOverlay?.info?.busy = nil
             prOverlay?.info?.message = message
             prOverlay?.info?.ok = ok
             host.bump()
             loadPRInfo(number, root: root)
-        }
+        }, for: "action")
     }
 
     private func findingIndex(path: String, index: Int) -> (Int, Int)? {
@@ -871,25 +880,23 @@ final class ChangeReviewStore {
         request.effort = "low"
         request.timeout = 300
         let source = overlay.source.id
-        Task {
+        let findingKey = "\(path)|\(index)"
+        tasks.store(Task {
             var streamed = ""
-            var pendingRefresh = false
             do {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-finding").execute(request, onDelta: { text in
                     Task { @MainActor in
                         streamed += text
                         self.updateFinding(source: source, path: path, index: index) { $0.explanation = streamed }
-                        guard !pendingRefresh else { return }
-                        pendingRefresh = true
-                        try? await Task.sleep(nanoseconds: 300_000_000)
-                        pendingRefresh = false
-                        self.host.bump()
+                        self.tasks.coalesce(key: "finding-refresh:" + findingKey) { self.host.bump() }
                     }
                 })
                 result.record(in: db)
                 let text = answer.isEmpty ? streamed : answer
                 updateFinding(source: source, path: path, index: index) { $0.explanation = text }
             } catch is CancellationError {
+                // `reset` ended it: the review is not this task's any more, and its marks are not saved from here.
+                return
             } catch {
                 let message = "Failed: \(error.localizedDescription)"
                 updateFinding(source: source, path: path, index: index) { $0.explanation = message }
@@ -897,7 +904,7 @@ final class ChangeReviewStore {
             updateFinding(source: source, path: path, index: index) { $0.explaining = nil }
             host.bump()
             saveReviewMarks()
-        }
+        }, for: "finding:" + findingKey)
     }
 
     /// Post a finding to the pull request as a comment on its line.
@@ -912,7 +919,7 @@ final class ChangeReviewStore {
         var body = "**\(finding.severity.capitalized):** \(finding.message)"
         if let explanation = finding.explanation, !explanation.isEmpty { body += "\n\n" + explanation }
         let source = prOverlay?.source.id ?? ""
-        Task {
+        tasks.store(Task {
             do {
                 if finding.line > 0 {
                     try await client.lineComment(number, commit: commit, path: path, line: finding.line, body: body)
@@ -921,11 +928,13 @@ final class ChangeReviewStore {
                 }
                 updateFinding(source: source, path: path, index: index) { $0.commented = true }
                 saveReviewMarks()
+            } catch is CancellationError {
+                return
             } catch {
                 host.setError("Comment failed: \(error.localizedDescription)")
             }
             host.bump()
-        }
+        }, for: "comment:\(path)|\(index)")
     }
 
     /// Create a GitHub issue from a finding.
@@ -942,15 +951,17 @@ final class ChangeReviewStore {
         body += ".\n\n`\(path)\(finding.line > 0 ? ":\(finding.line)" : "")` — \(finding.severity)\n\n\(finding.message)"
         if let explanation = finding.explanation, !explanation.isEmpty { body += "\n\n" + explanation }
         let source = overlay.source.id
-        Task {
+        tasks.store(Task {
             do {
                 let url = try await client.createIssue(title: title, body: body)
                 updateFinding(source: source, path: path, index: index) { $0.issueURL = url }
                 saveReviewMarks()
+            } catch is CancellationError {
+                return
             } catch {
                 host.setError("Issue failed: \(error.localizedDescription)")
             }
             host.bump()
-        }
+        }, for: "issue:\(path)|\(index)")
     }
 }
