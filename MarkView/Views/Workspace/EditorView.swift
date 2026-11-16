@@ -197,7 +197,9 @@ struct EditorView: NSViewRepresentable {
                 forName: .codeNavEvent,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.object as AnyObject? === self.parent.workspaceManager.codeXRay.codeNav,
+                // Delivered on the main queue, where the window's models live.
+                guard let self,
+                      MainActor.assumeIsolated({ notification.object as AnyObject? === self.parent.workspaceManager.codeXRay.codeNav }),
                       let webView = self.webView,
                       let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
                       let json = notification.userInfo?["json"] as? String else { return }
