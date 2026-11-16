@@ -152,7 +152,7 @@ extension PrototypeHandoff {
 
     // MARK: - The assistant's description of one unit
 
-    static let describeSchema: [String: Any] = [
+    static var describeSchema: [String: Any] { [
         "type": "object",
         "properties": [
             "changes": [
@@ -171,7 +171,7 @@ extension PrototypeHandoff {
         ],
         "required": ["changes"],
         "additionalProperties": false
-    ]
+    ] }
 
     static let describeSystem = """
     You compare two versions of one screen or component of a web prototype and say what the real application must change to match the newer \

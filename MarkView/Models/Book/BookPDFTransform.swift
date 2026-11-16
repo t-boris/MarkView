@@ -94,7 +94,7 @@ enum BookPDFTransform {
         """
     }
 
-    static let schema: [String: Any] = ["type": "object", "properties": ["text": ["type": "string"]], "required": ["text"]]
+    static var schema: [String: Any] { ["type": "object", "properties": ["text": ["type": "string"]], "required": ["text"]] }
 
     static func validate(_ answer: String, for chunk: Chunk) throws {
         guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
