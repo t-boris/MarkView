@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 225,
+  "suiteCount": 224,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1863,46 +1863,6 @@
       ]
     },
     {
-      "name": "pdf-reader-tests",
-      "script": "tools/tests/pdf-reader-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/WindowTheme.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Lifecycle/FeatureIngest.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "MarkView/Models/Architecture/XRayScope.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
-        "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Views/Appearance/AppPalette.swift",
-        "MarkView/Views/Book/PDFReaderView.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/PDFReaderRoutingTests.swift",
-        "tools/tests/PDFReaderTests.swift",
-        "tools/tests/PDFReaderViewTests.swift",
-        "tools/tests/TabClosingStoreTests.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "tools/tests/TabsControllerStubs.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "MarkView/Models/Shared/UserPrompts.swift"
-      ]
-    },
-    {
       "name": "persistent-remote-session-tests",
       "script": "tools/tests/persistent-remote-session-tests.sh",
       "tier": "pure",
@@ -3130,7 +3090,19 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "MarkView/Models/Architecture/ProjectChangeReview.swift",
         "MarkView/Models/Architecture/ProjectChangeReviewModel.swift",
-        "MarkView/Models/Workspace/WorkspaceFileTreeStore.swift"
+        "MarkView/Models/Workspace/WorkspaceFileTreeStore.swift",
+        "MarkView/Models/Book/PDFReader.swift",
+        "MarkView/Models/Lifecycle/FeatureIngest.swift",
+        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
+        "MarkView/Models/Workspace/DocumentState.swift",
+        "MarkView/Models/Architecture/XRayScope.swift",
+        "MarkView/Models/Git/GitHubItem.swift",
+        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
+        "MarkView/Models/Workspace/TabClosing.swift",
+        "MarkView/Models/Workspace/TabsController.swift",
+        "MarkView/Views/Book/PDFReaderView.swift",
+        "MarkViewHostedTests/PDFReaderHostTests.swift"
       ]
     },
     {

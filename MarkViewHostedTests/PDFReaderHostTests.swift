@@ -1,8 +1,11 @@
 import AppKit
 import PDFKit
+import SwiftUI
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-@main
-enum PDFReaderTests {
+private enum PDFReaderTests {
     static var checks = 0
 
     static func check(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -10,20 +13,20 @@ enum PDFReaderTests {
         precondition(condition(), message)
     }
 
-    @MainActor static func main() {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.prohibited)
-        Task { @MainActor in
-            do {
-                try await run()
-                print("PDF reader checks: \(checks), failures: 0")
-                exit(0)
-            } catch {
-                fputs("PDF reader checks failed: \(error)\n", stderr)
-                exit(1)
+    /// The native copy action uses the general pasteboard. Restore its representations
+    /// immediately after each synchronous check rather than leaving test data there.
+    @MainActor static func preservingPasteboard(_ body: () -> Void) {
+        let pasteboard = NSPasteboard.general
+        let saved = (pasteboard.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
             }
+            return copy
         }
-        app.run()
+        body()
+        pasteboard.clearContents()
+        if !saved.isEmpty { pasteboard.writeObjects(saved) }
     }
 
     @MainActor static func waitUntil(_ condition: () -> Bool) async throws {
@@ -67,7 +70,7 @@ enum PDFReaderTests {
 
     @MainActor static func run() async throws {
         PDFReaderRoutingTests.run()
-        TabClosingStoreTests.run()
+        try TabClosingStoreTests.run()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView PDF reader \(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -101,7 +104,7 @@ enum PDFReaderTests {
         first.addAnnotation(form)
         check(fixtureDocument.write(to: url), "fixture can be written")
         let original = try Data(contentsOf: url)
-        let ingested = await ExistingPDFIngest.readableText(of: url)
+        let ingested = await FeatureAssistant.readableText(of: url)
         check(ingested.contains("FIRST") && ingested.contains("LAST"), "existing feature-source ingestion still extracts embedded text")
 
         let reader = PDFReaderController()
@@ -177,9 +180,11 @@ enum PDFReaderTests {
         check(reader.pageNumber == 1 && reader.matchIndex == 0, "search results wrap")
         reader.nextMatch(-1)
         check(reader.pageNumber == 3, "previous match wraps backwards")
-        NSPasteboard.general.clearContents()
-        view.copy(nil)
-        check(NSPasteboard.general.string(forType: .string)?.lowercased() == "needle", "embedded selection copies through native PDFView")
+        preservingPasteboard {
+            NSPasteboard.general.clearContents()
+            view.copy(nil)
+            check(NSPasteboard.general.string(forType: .string)?.lowercased() == "needle", "embedded selection copies through native PDFView")
+        }
         reader.search("not present in scan")
         try await waitUntil { !reader.searching }
         check(reader.matches.isEmpty, "no OCR text is invented for scanned pages")
@@ -229,10 +234,12 @@ enum PDFReaderTests {
         let restricted = PDFReaderPDFView(frame: view.frame)
         restricted.document = protectedReader.document
         restricted.setCurrentSelection(protectedReader.document!.findString("needle", withOptions: []).first, animate: false)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("copy-protected", forType: .string)
-        restricted.copy(nil)
-        check(NSPasteboard.general.string(forType: .string) == "copy-protected", "restricted document cannot copy to pasteboard")
+        preservingPasteboard {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("copy-protected", forType: .string)
+            restricted.copy(nil)
+            check(NSPasteboard.general.string(forType: .string) == "copy-protected", "restricted document cannot copy to pasteboard")
+        }
         let protectedAfter = try Data(contentsOf: protectedURL)
         check(protectedAfter == protectedOriginal, "unlocking never rewrites the PDF")
 
@@ -247,7 +254,7 @@ enum PDFReaderTests {
         scanReader.search("needle")
         try await waitUntil { !scanReader.searching }
         check(scanReader.matches.isEmpty, "image-only PDF has no text-search matches")
-        let scannedIngest = await ExistingPDFIngest.readableText(of: scanURL)
+        let scannedIngest = await FeatureAssistant.readableText(of: scanURL)
         check(scannedIngest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               "unchanged feature-source ingestion performs no OCR on scans")
 
@@ -292,5 +299,136 @@ enum PDFReaderTests {
         check(reader.pageNumber == 3, "a detached view cannot update the tab's reading position")
         window.close()
         try await PDFReaderViewTests.run(url: url)
+    }
+}
+
+/// The person is never asked anything while a PDF opens: any question is a failure of the check.
+@MainActor
+private struct NeverAsked: UserPrompts {
+    func ask(_ prompt: UserPrompt) -> Int? { preconditionFailure("A PDF tab asks nothing, but it asked: \(prompt.title)") }
+}
+
+/// A PDF opens in a tab of its own on the shipping `TabsController`: no text, no save, no watcher, one tab per file.
+private enum PDFReaderRoutingTests {
+    @MainActor static func run() {
+        let file = URL(fileURLWithPath: "/tmp/Read only.PDF")
+        let tabs = TabsController(prompts: NeverAsked())
+        tabs.openDocument(file)
+        precondition(FileType.from(url: file) == .pdf && !FileType.hasTextSource(file))
+        precondition(tabs.openTabs.count == 1 && tabs.activeTabIndex == 0)
+        precondition(!tabs.openTabs[0].isFileBacked && tabs.openTabs[0].content.isEmpty)
+        guard case .pdf = tabs.openTabs[0].kind else { preconditionFailure("Not a PDF reader tab") }
+        let originalID = tabs.openTabs[0].id
+        tabs.saveActiveFile()
+        precondition(!FileManager.default.fileExists(atPath: file.path) && tabs.lastSaveError == nil, "saving a PDF tab writes nothing")
+        tabs.openDocument(URL(fileURLWithPath: "/tmp/Another.pdf"))
+        precondition(tabs.openTabs.count == 2 && tabs.activeTabIndex == 1)
+        tabs.openDocument(file)
+        precondition(tabs.openTabs.count == 2 && tabs.activeTabIndex == 0)
+        precondition(tabs.openTabs[0].id == originalID)
+        tabs.shutdown()
+        print("PDF workspace routing: dedicated tabs, duplicate reuse, no text/save path passed")
+    }
+}
+
+/// "Close Documents" on the shipping `OpenTab` and `TabsController`: which tabs are documents, and what stays open and active.
+private enum TabClosingStoreTests {
+    @MainActor static func run() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-pdf-tabs-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = WorkspaceManager(prompts: NoPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { workspace.windowWillClose() }
+        let cache = try InsightCache(workspaceURL: root, sessionId: UUID(), pagePolicy: "test")
+        let cockpitHost = CockpitHost(window: workspace, tabs: workspace.tabs, tools: workspace.toolTabs,
+                                      qa: workspace.toolTabs.qa, features: workspace.flow.features, assistants: workspace.terminals)
+        func tab(_ name: String, _ kind: TabKind) -> OpenTab {
+            OpenTab(url: URL(fileURLWithPath: "/tmp/\(name)"), content: "", originalContent: "", kind: kind)
+        }
+        let pdfTabs = TabsController(prompts: NoPrompts())
+        pdfTabs.openDocument(URL(fileURLWithPath: "/tmp/doc.pdf"))
+        let documents = [tab("a.md", .file), tab("b.png", .image), pdfTabs.openTabs[0], tab("c.zip", .archive), tab("d.csv", .data)]
+        let tools = [tab("t", .terminal(UUID())), tab("x", .architecture(scope: "")), tab("pr", .architecture(scope: XRayScope.pullRequest)),
+                     tab("i", .insight(InsightSession(folderURL: root, mdFiles: [], graphRAG: nil, cache: cache))), tab("dep", .tool(.deployments)), tab("dis", .tool(.discussions)), tab("wf", .tool(.workflow)), tab("g", .tool(.git)),
+                     tab("rev", .tool(.changeReview)), tab("gh", .github(.run(id: 1, repo: "o/r", title: "Run"))), tab("br", .browser(BrowserSession(url: nil, prompts: NoPrompts()))),
+                     tab("p", .prototype(PrototypeSession(root: root, title: "p", brief: "", sources: []))), tab("ui", .uiStudio(StudioSession(root: root))), tab("ck", .cockpit(CockpitSession(root: root, workspace: cockpitHost))),
+                     tab("qa", .tool(.qa))]
+        precondition(documents.allSatisfy(\.isDocument), "file, image, PDF, archive and data tabs are documents")
+        precondition(tools.allSatisfy { !$0.isDocument }, "every tool tab stays when documents close")
+
+        func store(_ list: [OpenTab], active: Int) -> TabsController {
+            let store = TabsController(prompts: NoPrompts())
+            list.forEach { store.appendTab($0, activate: false) }
+            store.activeTabIndex = active
+            return store
+        }
+        let doc1 = documents[0], git = tools[7], doc2 = documents[1], doc3 = documents[3], workflow = tools[6], doc4 = documents[4]
+        let mixed = [doc1, git, doc2, doc3, workflow, doc4]
+
+        var s = store(mixed, active: 1)
+        s.keepTabs { !$0.isDocument }
+        precondition(s.openTabs.map(\.id) == [git.id, workflow.id], "only the tool tabs stay, in their order")
+        precondition(s.activeTabIndex == 0, "an active tool tab stays active")
+
+        s = store(mixed, active: 4)
+        s.keepTabs { !$0.isDocument }
+        precondition(s.activeTabIndex == 1 && s.openTabs[1].id == workflow.id, "the second tool tab stays active at its new index")
+
+        s = store(mixed, active: 3)
+        s.keepTabs { !$0.isDocument }
+        precondition(s.activeTabIndex == 0 && s.openTabs[0].id == git.id, "a closed active document hands over to the nearest tool tab on its left")
+
+        s = store(mixed, active: 0)
+        s.keepTabs { !$0.isDocument }
+        precondition(s.activeTabIndex == 0 && s.openTabs[0].id == git.id, "with no tool tab on its left the first one on its right takes over")
+
+        s = store(documents, active: 2)
+        s.keepTabs { !$0.isDocument }
+        precondition(s.openTabs.isEmpty && s.activeTabIndex == -1, "with only documents open every tab closes and the Welcome tab is active")
+
+        s = store(tools, active: 3)
+        let before = s.openTabs.map(\.id)
+        s.keepTabs { !$0.isDocument }
+        precondition(s.openTabs.map(\.id) == before && s.activeTabIndex == 3, "with no document open nothing changes")
+
+        s = store(mixed, active: -1)
+        s.keepTabs { !$0.isDocument }
+        precondition(s.activeTabIndex == -1 && s.openTabs.count == 2, "the Welcome tab stays active")
+        print("Close Documents: every tab kind classified, tool tabs kept in order, active tab handed over correctly")
+    }
+}
+
+private enum PDFReaderViewTests {
+    @MainActor static func run(url: URL) async throws {
+        let reader = PDFReaderController()
+        await reader.load(url)
+        let hosting = NSHostingView(rootView: PDFReaderView(url: url, reader: reader))
+        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1000, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        defer { window.close() }
+        func descendants(_ view: NSView) -> [NSView] {
+            [view] + view.subviews.flatMap(descendants)
+        }
+        hosting.layoutSubtreeIfNeeded()
+        try await PDFReaderTests.waitUntil {
+            hosting.layoutSubtreeIfNeeded()
+            let views = descendants(hosting)
+            guard let canvas = views.compactMap({ $0 as? PDFReaderPDFView }).first,
+                  let thumbnails = views.compactMap({ $0 as? PDFThumbnailView }).first else { return false }
+            return canvas.document === reader.document && thumbnails.pdfView === canvas
+        }
+        PDFReaderTests.check(reader.pageCount == 3, "shipping SwiftUI reader mounts both the native document and thumbnails")
+        reader.go(to: 3)
+        PDFReaderTests.check(reader.pageNumber == 3, "mounted SwiftUI reader responds to controller navigation")
+        print("PDF SwiftUI integration: document canvas, thumbnails and controls mounted successfully")
+    }
+}
+
+final class PDFReaderHostTests: XCTestCase {
+    @MainActor func testPDFReaderAndWindowRouting() async throws {
+        try await PDFReaderTests.run()
+        print("PDF reader hosted checks: \(PDFReaderTests.checks)")
     }
 }
