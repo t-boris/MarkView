@@ -109,6 +109,8 @@ Proposed decomposition, in this order (each step ships on its own):
 
 Steps 1-3 share no state and are safe first. Step 5 removes the hot path of AR-15. Steps 4 and 8 introduce the protocols that make 9-11 testable.
 
+Status (2026-11-15): partial. All 11 steps of the decomposition table exist as types (`DocumentTranslator`, `InsightCoordinator`, `ResearchMapController`, `AITerminalsController`, `TabsController`, `WindowChrome`, `WindowSessionSnapshotter`, `ProjectContext`, `FeatureFlowCoordinator`, `ToolTabsRouter`, `CodeAndXRayCoordinator`: 11 of 11 files present) under `WindowComposition`. `WorkspaceManager.swift` 730 lines (5,747 at 6.26.2; plus 267 in `WorkspaceManager+AIToolRuns.swift`); the roadmap target under 1,000 is met, the table's under 400 (wiring only) is not. Not done: views that take the whole manager 56 `@EnvironmentObject` sites (62 at 6.26.2; target 0; the `workspace-manager` lint reports 56 in 34 files and stops it rising); 4 back-references in 4 files and 33 closure hooks in 12 files remain (`window-wiring` lint).
+
 ### AR-15 Window-wide re-render through `objectWillChange` forwarding (high, M)
 
 `WorkspaceManager` forwards the change signals of `fileTreeStore`, `tabsStore`, `layout` and `gitClient` (18 more `@Published`) into its own (`:692-712`). `updateTabContent` (every editor content message) and `updateActiveTabScrollPosition` (called unthrottled from `EditorView.swift:909-911`) rewrite `openTabs`, an array that carries each document's full text. Each such event invalidates all 69 observing declarations including `ContentView`, and triggers the session archive rebuild (debounced 400 ms). Whether the JS side throttles scroll events, and the frame cost, are not measured.
