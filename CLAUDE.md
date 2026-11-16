@@ -17,7 +17,8 @@ implementation.
   `Models/Workspace/FinderOpenRequests.swift`
 - `Packages/MarkViewCore/`: local Swift package linked into `MarkView` and tested with `swift test` (`MarkViewCoreTests`). It holds the
   infrastructure the app shares: `Subprocess`, `AtomicFile` and `ProjectPaths` (`CoreFiles.swift`), `AppLog`, `JS.call`, `WebHost`
-  (with `WeakScriptMessageHandler`), `PrivateSocket`, `SQLiteSchema`, and `Settings`/`SettingsKey`/`Setting`/`SettingsObserver`
+  (with `WeakScriptMessageHandler`), `PrivateSocket`, `SQLiteSchema`, `TaskBag` (keyed cancellable tasks), `PollingScheduler` (the one
+  place that polls), and `Settings`/`SettingsKey`/`Setting`/`SettingsObserver`
 - `MarkView/Views/`: SwiftUI views and `WKWebView` coordination in 19 domain subfolders (`AI/`, `Appearance/`, `Architecture/`, `Book/`,
   `Browser/`, `Cockpit/`, `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`,
   `Remote/`, `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`). `ContentView`, `EditorView` and `ToolTabViews` are in `Workspace/`
