@@ -117,7 +117,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let visibleWindows = NSApp.windows.filter { ($0.isVisible || $0.isMiniaturized) && !$0.className.contains("Panel") }
             if visibleWindows.isEmpty {
-                self.log("No visible windows — creating one")
+                AppLog.appDelegate.debug("[AppDelegate] No visible windows — creating one")
                 // SwiftUI's built-in new window action
                 NSApp.sendAction(#selector(NSResponder.newWindowForTab(_:)), to: nil, from: nil)
             }
