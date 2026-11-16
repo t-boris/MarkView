@@ -62,7 +62,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 - Risk: a new tool on every developer machine and in CI; the install step must be documented in `CLAUDE.md`.
 
 **A3. AR-41 platform posture (hardened runtime).**
-- Status 2026-11-16: enabled the Xcode setting in Debug and Release (2 occurrences). Debug build and the Cockpit scratch harness passed. An independent Xcode Release build, without `release.sh`, succeeded and `codesign -dv` reported `flags=0x10002(adhoc,runtime)`; the intermediate 6.29.0 release was Developer ID signed and notarized. The exact Developer ID Xcode-signing acceptance and final release verification remain open.
+- Status 2026-11-16: enabled the Xcode setting in Debug and Release (2 occurrences). Debug build and the Cockpit scratch harness passed. An independent Xcode Release build, without `release.sh`, succeeded and `codesign -dv` reported `flags=0x10002(adhoc,runtime)`; the intermediate 6.29.0 release was Developer ID signed and notarized. An independent Xcode Release build of 6.30.7 signed directly with Developer ID (without `release.sh`) reported `flags=0x10000(runtime)` and passed `codesign --verify --deep --strict`. Final release verification remains open.
 - Now: `ENABLE_HARDENED_RUNTIME` appears 0 times in `project.pbxproj` (measured); only `release.sh` signs with `--options runtime`.
   `NSAllowsArbitraryLoads` is already false; `NSAllowsArbitraryLoadsInWebContent` is true (needed for local pages and web previews).
   The shell-string deployment and remote commands are the documented exception and were not re-checked.
