@@ -2,7 +2,8 @@ import Foundation
 
 // Runtime dependencies are inert here: this check exercises the production store and real Keychain.
 @MainActor final class RemoteHostController {
-    var onState: ((RemoteConnectionState.Phase, String) -> Void)?
+    let onState: ((RemoteConnectionState.Phase, String) -> Void)?
+    init(onState: ((RemoteConnectionState.Phase, String) -> Void)? = nil) { self.onState = onState }
     func start(code: String) { onState?(.waiting, "Test host available") }
     func suspend() {}
 }

@@ -72,10 +72,9 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
             while !predicate(), Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
             precondition(predicate(), message); print("PASS: " + message)
         }
-        let homeA = RemoteHostController(), homeB = RemoteHostController()
         var hostAReady = false, hostBReady = false
-        homeA.onState = { phase, _ in if phase == .waiting { hostAReady = true } }
-        homeB.onState = { phase, _ in if phase == .waiting { hostBReady = true } }
+        let homeA = RemoteHostController { phase, _ in if phase == .waiting { hostAReady = true } }
+        let homeB = RemoteHostController { phase, _ in if phase == .waiting { hostBReady = true } }
         homeA.start(code: try first.code); homeB.start(code: try second.code)
         defer { homeA.suspend(); homeB.suspend() }
         try await wait("Multiple saved hosts independently register and become available") { hostAReady && hostBReady }

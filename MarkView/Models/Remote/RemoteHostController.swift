@@ -8,7 +8,7 @@ import MarkViewCore
 /// explicit revocation. Transport sessions can restart without replacing the saved pairing.
 @MainActor
 final class RemoteHostController: ObservableObject {
-    var onState: ((RemoteConnectionState.Phase, String) -> Void)?
+    private let onState: ((RemoteConnectionState.Phase, String) -> Void)?
     @Published private(set) var status = "Remote access is off."
     @Published private(set) var connectionCode = ""
     @Published private(set) var isHosting = false
@@ -24,6 +24,10 @@ final class RemoteHostController: ObservableObject {
     /// The short jobs of one transport (telling the work Mac the terminal exited, closing a channel that failed, the teardown): `suspend()`
     /// ends them, and a new one of a kind replaces the one before it (`AR-19`).
     private let transportTasks = TaskBag()
+
+    init(onState: ((RemoteConnectionState.Phase, String) -> Void)? = nil) {
+        self.onState = onState
+    }
 
     func start(code: String) {
         guard !isHosting else { return }

@@ -178,9 +178,8 @@ final class RemoteConnectionsStore: ObservableObject {
     }
 
     private func startHost(_ entry: SavedRemoteConnection) {
-        let host = RemoteHostController()
+        let host = RemoteHostController { [weak self] phase, text in self?.update(entry.id, phase, text) }
         hosts[entry.id] = host
-        host.onState = { [weak self] phase, text in self?.update(entry.id, phase, text) }
         host.start(code: entry.code)
     }
 
