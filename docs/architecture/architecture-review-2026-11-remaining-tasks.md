@@ -51,7 +51,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 - Risk: a suite that reads `TestFiles/` fails; run `./tools/tests/run.sh --all` once.
 
 **A2. AR-47 compiler and lint policy.**
-- Status 2026-11-16: SwiftLint 0.65.1 reports 50 warnings (47 force_try, 3 unused_closure_parameter); a per-file/rule ratchet and CI step were added. Warnings-as-errors is enabled in both app configurations; a Debug build passed on 2026-11-16. Analyzer-only unused_import, Release and CI verification remain outstanding.
+- Status 2026-11-16: SwiftLint 0.65.1 reports 50 warnings (47 force_try, 3 unused_closure_parameter); a per-file/rule ratchet and CI step were added. Warnings-as-errors is enabled in both app configurations; a Debug build passed on 2026-11-16. Analyzer-only unused_import, Release and CI verification remain outstanding. A full `swiftlint analyze` against the Debug compiler log was stopped after 20 minutes without a result; it reached about 4 GB RSS. Do not add that unbounded invocation to CI or claim unused_import is checked until a bounded approach is verified.
 - Now: no SwiftLint or SwiftFormat (0 config files), `SWIFT_TREAT_WARNINGS_AS_ERRORS` not set *(recorded)*. The build-warnings ratchet
   (`tools/lint/build-warnings.sh`, allow-list empty) already holds app warnings at 0; `.editorconfig` exists.
 - Do (after D2): `.swiftlint.yml` with the rules the project already enforces by script left to the scripts, only style rules that find
