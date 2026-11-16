@@ -78,6 +78,29 @@ private actor DelayedSessionTestFactory: QADriverFactory {
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
     @MainActor
+    func testTerminalEventsFromRealProcess() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-terminal-events-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let terminal = TerminalSession(directory: root, operationCommand: "printf MV_EVENT_OUTPUT; exit 7")
+        defer { terminal.terminate() }
+        var first = Data(), second = Data()
+        var code: Int32?
+        let finished = expectation(description: "PTY process exited")
+        let subscriptions = [
+            terminal.outputEvents.sink { first.append($0) },
+            terminal.outputEvents.sink { second.append($0) },
+            terminal.exitEvents.sink { code = $0; finished.fulfill() },
+        ]
+        terminal.start()
+        await fulfillment(of: [finished], timeout: 30)
+        XCTAssertEqual(code, 7)
+        XCTAssertEqual(first, second)
+        XCTAssertTrue(String(decoding: first, as: UTF8.self).contains("MV_EVENT_OUTPUT"))
+        withExtendedLifetime(subscriptions) {}
+    }
+
+    @MainActor
     func testCockpitSupervisorUsesCurrentStepChoiceAndLiveCut() async {
         let assistants = CockpitTestAssistants()
         var choices: [(String?, String?)] = [], exchanges: [CockpitSupervisorExchange] = []
