@@ -637,15 +637,15 @@ struct QAInspector: View {
     private func nodeSection(_ node: QANode) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             heading("Step \(node.id)")
-            TextField("Title", text: node.binding(model, \.title)).textFieldStyle(.roundedBorder)
-            Picker("Kind", selection: node.binding(model, \.kind)) {
+            TextField("Title", text: node.binding(model, read: { $0.title }, write: { $0.title = $1 })).textFieldStyle(.roundedBorder)
+            Picker("Kind", selection: node.binding(model, read: { $0.kind }, write: { $0.kind = $1 })) {
                 Text("Action").tag(QANodeKind.action)
                 Text("Check").tag(QANodeKind.check)
                 Text("Alternative").tag(QANodeKind.alternative)
                 Text("Failure").tag(QANodeKind.failure)
             }
             Text(node.kind == .check || node.kind == .failure ? "What must hold" : "What happens").uiFont(size: 10.5).foregroundColor(palette.textDim)
-            TextEditor(text: node.binding(model, \.detail)).uiFont(size: 11.5).frame(minHeight: 70)
+            TextEditor(text: node.binding(model, read: { $0.detail }, write: { $0.detail = $1 })).uiFont(size: 11.5).frame(minHeight: 70)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
             Picker("Player", selection: Binding(get: { node.actor ?? "" }, set: { value in model.edit { $0.update(node: node.id) { $0.actor = value.isEmpty ? nil : value } } })) {
                 Text("Same as before").tag("")
@@ -657,7 +657,7 @@ struct QAInspector: View {
                     ForEach(scenario.apps) { Text($0.name).tag($0.id) }
                 }
             }
-            Picker("Changes data", selection: node.binding(model, \.changesData)) {
+            Picker("Changes data", selection: node.binding(model, read: { $0.changesData }, write: { $0.changesData = $1 })) {
                 Text("Unknown").tag(QADataChange.unknown)
                 Text("Yes").tag(QADataChange.yes)
                 Text("No").tag(QADataChange.no)
@@ -1070,14 +1070,16 @@ struct QAInspector: View {
     }
 }
 
-private extension QANode {
+extension QANode {
     /// A binding that writes one field of this step through the model, so the edit is saved.
-    func binding<Value>(_ model: QAModel, _ keyPath: WritableKeyPath<QANode, Value>) -> Binding<Value> {
+    @MainActor
+    func binding<Value: Sendable>(_ model: QAModel, read: @escaping @Sendable (QANode) -> Value,
+                                 write: @escaping @Sendable (inout QANode, Value) -> Void) -> Binding<Value> {
         let id = self.id
-        let current = self[keyPath: keyPath]
-        // SwiftUI reads and writes a binding on the main thread; the closures are only declared `@Sendable`.
-        return Binding(get: { MainActor.assumeIsolated { model.current?.node(id)?[keyPath: keyPath] ?? current } },
-                       set: { value in MainActor.assumeIsolated { model.edit { $0.update(node: id) { $0[keyPath: keyPath] = value } } } })
+        let current = read(self)
+        // SwiftUI reads and writes a binding on the main thread; the closures are declared `@Sendable`.
+        return Binding(get: { MainActor.assumeIsolated { model.current?.node(id).map(read) ?? current } },
+                       set: { value in MainActor.assumeIsolated { model.edit { $0.update(node: id) { write(&$0, value) } } } })
     }
 }
 

@@ -125,7 +125,7 @@ struct QAActor: Codable, Equatable, Identifiable {
     var createTestAccount: Bool = false
 }
 
-enum QANodeKind: String, Codable, CaseIterable {
+enum QANodeKind: String, Codable, CaseIterable, Sendable {
     /// An actor does something, written in words.
     case action
     /// What must hold at this point.
@@ -137,7 +137,7 @@ enum QANodeKind: String, Codable, CaseIterable {
 }
 
 /// Whether doing a step changes data in the target. Unknown counts as changing it where it matters (production).
-enum QADataChange: String, Codable {
+enum QADataChange: String, Codable, Sendable {
     case yes
     case no
     case unknown

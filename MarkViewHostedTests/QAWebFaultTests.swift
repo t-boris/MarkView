@@ -113,3 +113,40 @@ final class QAWebFaultTests: XCTestCase {
         await first.close(); await second.close(); await legacy.close()
     }
 }
+
+extension QAWebFaultTests {
+    @MainActor
+    func testScenarioFieldBindingsEditTheRealModel() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-qa-binding-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let node = QANode(id: "step-1", kind: .action, title: "Before")
+        var scenario = QAScenario(id: "binding-test", title: "Test", goal: "Test", appKind: .web,
+                                 nodes: [node], created: Date(), updated: Date())
+        // Opening the fixture must not start the optional assistant summary.
+        scenario.summary = "Existing summary"
+        scenario.summarySource = QASummary.source(scenario)
+        try QAStore.saveScenario(scenario, root: root)
+        let model = QAModel()
+        defer { model.close() }
+        model.attach(root: root)
+        for _ in 0..<100 where model.scenarios.isEmpty { try await Task.sleep(nanoseconds: 20_000_000) }
+        model.open(scenario.id)
+        let title = node.binding(model, read: { $0.title }, write: { $0.title = $1 })
+        let kind = node.binding(model, read: { $0.kind }, write: { $0.kind = $1 })
+        XCTAssertEqual(title.wrappedValue, "Before")
+        title.wrappedValue = "After"
+        kind.wrappedValue = .check
+        XCTAssertEqual(model.current?.node(node.id)?.title, "After")
+        XCTAssertEqual(model.current?.node(node.id)?.kind, .check)
+        model.flush()
+        var saved: QANode?
+        for _ in 0..<100 {
+            saved = QAStore.loadScenarios(root).scenarios.first?.node(node.id)
+            if saved?.title == "After", saved?.kind == .check { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(saved?.title, "After")
+        XCTAssertEqual(saved?.kind, .check)
+    }
+}
