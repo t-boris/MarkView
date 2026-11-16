@@ -38,7 +38,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 ## Group A: cleanup (D1, D2, D3). Size S-M, low risk
 
 **A1. AR-48 dead files in git.**
-- Status 2026-11-16: removed 11 tracked `TestFiles/` files and both presentation files. `git ls-files TestFiles` and `git ls-files "*.pdf"` each report 0 after staging. `EmbeddingClient` remains in 2 files (its definition and `DDESettingsView` calls to the key helpers). DEC-013 replaces the all-tier run with automated pure and gui tiers; the complete gui run remains outstanding.
+- Status 2026-11-16: removed 11 tracked `TestFiles/` files and both presentation files. `git ls-files TestFiles` and `git ls-files "*.pdf"` each report 0 after staging. `EmbeddingClient` remains in 2 files (its definition and `DDESettingsView` calls to the key helpers). DEC-013 replaces the all-tier run with automated pure and gui tiers. The complete pure tier passed 149 suites with 0 failures; the complete gui rerun remains in progress.
 - Now: `TestFiles/` 11 tracked files (measured), `MarkView-Presentation.pdf` 3,653,172 bytes and `MarkView-Presentation.html` 54,317 bytes
   (measured). `EmbeddingClient` is still constructed; two files use its key helpers, `DDESettingsView` among them *(recorded 2026-11-15)*.
 - Do: remove the tracked test files and the presentation after checking that no test or script reads them (`git grep -n TestFiles
