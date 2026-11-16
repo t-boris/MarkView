@@ -399,6 +399,8 @@ Status (2026-11-15): done for manual switching. 4 JSON presets in `Resources/Lay
 
 **Backdrops (AR-34, S):** split the mode (`off`, `shuffle`, `byProject`, `scene(id)`) from the scene and give each scene one file behind a small protocol (`id`, `title`, `symbol`, `build(context) -> [CALayer]`). Do not make scenes declarative or user-authored: each is 100-400 lines of bespoke Core Animation, and a data language for that would be a second animation engine.
 
+Status (2026-11-15): done. `BackdropRegistry` discovers the classes that conform to `BackdropRegistration` (17 descriptors) and Shuffle and By Project read it; a new backdrop is 1 place. The scenes live in 4 layer files (`Atmosphere`, `Dev`, `Project`, `BackdropLayerBuilders`), not one file each.
+
 **Assistants (AR-35, M-L):** an `AssistantProvider` (identity, locating and probing, model catalogue, one-shot arguments and event parser or the session-protocol profile, terminal launch arguments, goal phrasing, optional usage source) with one registry; `TerminalProfile` becomes `provider | shell` and the three duplicate enums go. Behavioural, so not data. Worth doing when a sixth assistant is planned, or together with AR-26.
 
 ## 8. Persistence and domain model
