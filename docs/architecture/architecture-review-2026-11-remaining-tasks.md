@@ -144,7 +144,7 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
-The UI Studio server reaper is being changed to capture the spawned process ID by value; verification is in progress.
+The UI Studio server reaper now captures the spawned process ID by value. The UI Studio and lifetime suites, Debug build and warning ratchet passed; complete checking reports no warnings in `UIStudioServer.swift` (two captured-variable warnings before).
 
 Ten additional standalone WebKit drivers now make their existing main-thread execution explicit for the contract script. The full pure run exposed two compilation failures; both affected suites and the other eight driver suites passed after correction.
 

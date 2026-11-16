@@ -100,7 +100,7 @@ final class StudioDevServer: @unchecked Sendable {
             self.onOutput?(text)
         }
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        DispatchQueue.global(qos: .utility).async { [weak self, child] in
             var code: Int32 = 0
             while waitpid(child, &code, 0) == -1 && errno == EINTR {}
             // The leader ended (npm, pnpm…): what it started may still run in the group. The group is still ours at this
