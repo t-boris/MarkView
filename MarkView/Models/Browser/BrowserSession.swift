@@ -79,6 +79,9 @@ final class BrowserSession: NSObject, ObservableObject {
     /// Open `window.open` popups of this tab.
     private var popups: [BrowserPopup] = []
     private var promptTask: Task<Void, Never>?
+    /// The page work the person started from this tab's toolbar (picking an element, filling a login, saving the page as a PDF): a new run
+    /// of a kind replaces the one before it, and closing the tab cancels what is left (`AR-19`).
+    private let tasks = TaskBag()
     /// The terminal tab running the dev server this preview started, if any.
     var previewTerminalID: UUID?
     /// The user is choosing an element on the page (Pick Element).
@@ -302,6 +305,7 @@ final class BrowserSession: NSObject, ObservableObject {
     func close() {
         isClosed = true
         observations = []
+        tasks.cancelAll()
         promptTask?.cancel()
         passwordPrompt = nil
         for popup in popups { popup.close() }
@@ -339,6 +343,30 @@ final class BrowserSession: NSObject, ObservableObject {
         } catch {
             pickNotice = "The page changed before an element was chosen."
         }
+    }
+
+    /// Starts `pickElement` for the toolbar button.
+    func startPickElement() {
+        tasks.store(Task { [weak self] in await self?.pickElement() }, for: "pick")
+    }
+
+    /// Starts `fillPassword` for a menu item: the login of `username`, or the only one.
+    func startFillPassword(username: String?) {
+        tasks.store(Task { [weak self] in await self?.fillPassword(username: username) }, for: "fill-password")
+    }
+
+    /// Renders the whole page to PDF for the save sheet; `finished` gets the document or the reason, and `CancellationError` when the
+    /// tab closed or a second render replaced this one.
+    func startPagePDF(finished: @escaping (Result<Data, Error>) -> Void) {
+        tasks.store(Task { [weak self] in
+            guard let self else { return finished(.failure(CancellationError())) }
+            do {
+                let data = try await pagePDF()
+                finished(Task.isCancelled ? .failure(CancellationError()) : .success(data))
+            } catch {
+                finished(.failure(Task.isCancelled ? CancellationError() : error))
+            }
+        }, for: "page-pdf")
     }
 
     func cancelPick() {

@@ -1,6 +1,6 @@
-// Checks linked folders (MarkView/Models/Workspace/LinkedFolders.swift, Task 59): what can be linked, unique
+// Checks linked folders (MarkView/Models/Shared/LinkedFolders.swift, Task 59): what can be linked, unique
 // names, document ids and their resolution, and the project search index walking linked folders
-// (MarkView/Models/Workspace/ProjectSearch.swift).
+// (MarkView/Models/Shared/ProjectSearch.swift).
 import Foundation
 
 /// Stand-ins for app types the checked modules mention but never exercise here.

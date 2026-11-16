@@ -88,6 +88,19 @@ private func showError(_ title: String, _ message: String?) {
     alert.runModal()
 }
 
+private extension View {
+    /// Shows the failure of a finished job of `gitHub` whose key starts with `keyPrefix` in an alert, once, and forgets the job.
+    func showsFailures(of gitHub: GitHubStore, keyPrefix: String) -> some View {
+        onChange(of: gitHub.jobs) { jobs in
+            for (key, job) in jobs where key.hasPrefix(keyPrefix) {
+                guard let message = job.failure else { continue }
+                showError(job.title, message)
+                gitHub.clearJob(key)
+            }
+        }
+    }
+}
+
 private struct ErrorBanner: View {
     @Environment(\.palette) private var palette
     let text: String?
@@ -210,13 +223,20 @@ struct GitHubBranchStatus: View {
 struct GitHubPullRequestsView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var gitHub: GitHubStore
-    let workspaceManager: WorkspaceManager
+    let flow: FeatureFlowCoordinator
+    let codeXRay: CodeAndXRayCoordinator
+    let gitClient: GitClient
     @State private var search = ""
     @State private var textAction: TextAction?
     @State private var confirm: Confirm?
     @State private var showNewPR = false
+
+    /// The job an action on a pull request runs as; its row shows what it is doing (`working`).
+    private static func jobKey(_ number: Int) -> String { "pr-\(number)" }
     /// A pull request an action is running on, and what the action is (shown in its row).
-    @State private var working: (number: Int, label: String)?
+    private func working(_ number: Int) -> String? {
+        gitHub.jobs[Self.jobKey(number)].flatMap { $0.isRunning ? $0.label : nil }
+    }
 
     struct TextAction: Identifiable {
         let id = UUID()
@@ -263,36 +283,34 @@ struct GitHubPullRequestsView: View {
             GitHubTextSheet(title: sheetTitle(action), placeholder: "Markdown is supported.",
                             action: action.kind == "approve" ? "Approve" : action.kind == "comment" ? "Comment" : "Request changes",
                             allowsEmpty: action.kind == "approve") { text in
-                working = (action.pr.number, action.kind == "approve" ? "Approving…" : action.kind == "comment" ? "Commenting…" : "Requesting changes…")
-                Task {
-                    defer { working = nil }
+                gitHub.start(Self.jobKey(action.pr.number),
+                             label: action.kind == "approve" ? "Approving…" : action.kind == "comment" ? "Commenting…" : "Requesting changes…") {
                     let error = await gitHub.perform("#\(action.pr.number)") { client in
                         if action.kind == "comment" { try await client.commentPR(action.pr.number, body: text) }
                         else { try await client.review(action.pr.number, action: action.kind, body: text) }
                     }
-                    showError("GitHub", error)
                     gitHub.refreshPullRequests()
+                    return error
                 }
             }
         }
         .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
                             presenting: confirm) { item in
             Button(item.kind == "close" ? "Close pull request" : "Merge", role: item.kind == "close" ? .destructive : nil) {
-                working = (item.pr.number, item.kind == "close" ? "Closing…" : "Merging…")
-                Task {
-                    defer { working = nil }
+                gitHub.start(Self.jobKey(item.pr.number), label: item.kind == "close" ? "Closing…" : "Merging…") {
                     let error = await gitHub.perform("#\(item.pr.number)") { client in
                         if item.kind == "close" { try await client.closePR(item.pr.number) }
                         else { try await client.merge(item.pr.number, method: item.kind) }
                     }
-                    showError("GitHub", error)
                     gitHub.refreshPullRequests()
+                    return error
                 }
             }
         }
         .sheet(isPresented: $showNewPR) {
-            GitHubNewPRSheet(gitHub: gitHub, git: workspaceManager.gitClient)
+            GitHubNewPRSheet(gitHub: gitHub, git: gitClient)
         }
+        .showsFailures(of: gitHub, keyPrefix: "pr-")
     }
 
     private var confirmTitle: String {
@@ -339,20 +357,17 @@ struct GitHubPullRequestsView: View {
                     .uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
             }
             HStack(spacing: 10) {
-                Button(action: { workspaceManager.codeXRay.reviewPullRequest(pr.number) }) {
+                Button(action: { codeXRay.reviewPullRequest(pr.number) }) {
                     Label("Review", systemImage: "sparkles").uiFont(size: 10)
                 }
                 .buttonStyle(.plain).foregroundColor(palette.blue)
                 .help("Open this pull request in the PR X-Ray and start the AI review")
-                if let working, working.number == pr.number {
-                    Working(text: working.label)
+                if let label = working(pr.number) {
+                    Working(text: label)
                 } else if pr.state.uppercased() == "OPEN" {
                     Button(action: {
-                        working = (pr.number, "Checking out…")
-                        Task {
-                            let error = await workspaceManager.flow.checkoutPullRequest(pr.number)
-                            working = nil
-                            showError("Checkout #\(pr.number)", error)
+                        gitHub.start(Self.jobKey(pr.number), label: "Checking out…", title: "Checkout #\(pr.number)") {
+                            await flow.checkoutPullRequest(pr.number)
                         }
                     }) {
                         Label("Checkout", systemImage: "arrow.down.to.line").uiFont(size: 10)
@@ -372,7 +387,7 @@ struct GitHubPullRequestsView: View {
     /// The pull request in its own tab: description, comments, reviews, checks, reply box.
     private func openTab(_ pr: GHPullRequest) {
         guard let repo = gitHub.selectedRepo?.slug else { return }
-        workspaceManager.flow.openGitHubTab(.pullRequest(number: pr.number, repo: repo, title: "#\(pr.number) \(pr.title)"))
+        flow.openGitHubTab(.pullRequest(number: pr.number, repo: repo, title: "#\(pr.number) \(pr.title)"))
     }
 
     private func menu(_ pr: GHPullRequest) -> some View {
@@ -381,8 +396,8 @@ struct GitHubPullRequestsView: View {
             Button("Open on GitHub") { openInBrowser(pr.url) }
             Button("Copy Link") { copyToPasteboard(pr.url) }
             Divider()
-            Button("New Feature from This PR…") { workspaceManager.flow.startIntake(.feature, fromPullRequest: pr) }
-            Button("New Bug from This PR…") { workspaceManager.flow.startIntake(.bug, fromPullRequest: pr) }
+            Button("New Feature from This PR…") { flow.startIntake(.feature, fromPullRequest: pr) }
+            Button("New Bug from This PR…") { flow.startIntake(.bug, fromPullRequest: pr) }
             if pr.state.uppercased() == "OPEN" {
                 Divider()
                 Button("Approve…") { textAction = TextAction(pr: pr, kind: "approve") }
@@ -437,8 +452,11 @@ struct GitHubNewPRSheet: View {
     @State private var bodyText = ""
     @State private var base = "main"
     @State private var draft = false
-    @State private var working = false
-    @State private var error: String?
+
+    private static let jobKey = "create-pr"
+    private var job: GitHubStore.Job? { gitHub.jobs[Self.jobKey] }
+    private var working: Bool { job?.isRunning == true }
+    private var error: String? { job?.failure }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -462,22 +480,22 @@ struct GitHubNewPRSheet: View {
         }
         .padding(16)
         .onAppear {
+            gitHub.clearJob(Self.jobKey)
             if title.isEmpty { title = git.commitLog.first?.message ?? "" }
+        }
+        .onChange(of: job?.end) { end in
+            if end == .done { gitHub.clearJob(Self.jobKey); dismiss() }
         }
     }
 
     private func create() {
         guard let root = gitHub.root, let repo = gitHub.selectedRepo else { return }
-        working = true
-        error = nil
-        let branch = git.branch
-        Task {
-            defer { working = false }
+        let branch = git.branch, title = title, body = bodyText, base = base, draft = draft
+        gitHub.start(Self.jobKey, label: "Creating…") {
             // The branch must be on GitHub first (always to origin: our fork or the repo).
             let push = await GitHubClient.execute(["push", "-u", "origin", "HEAD"], in: root, git: true)
             guard push.status == 0 else {
-                error = "Push failed: " + push.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                return
+                return "Push failed: " + push.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             var head = branch
             if repo.isUpstream, let origin = gitHub.repos.first(where: { !$0.isUpstream }) {
@@ -485,11 +503,11 @@ struct GitHubNewPRSheet: View {
             }
             do {
                 let url = try await GitHubClient(root: root, repo: repo)
-                    .createPR(title: title, body: bodyText, base: base, head: head, draft: draft)
+                    .createPR(title: title, body: body, base: base, head: head, draft: draft)
                 gitHub.refreshPullRequests()
-                dismiss()
                 openInBrowser(url)
-            } catch { self.error = error.localizedDescription }
+                return nil
+            } catch { return error.localizedDescription }
         }
     }
 }
@@ -499,7 +517,7 @@ struct GitHubNewPRSheet: View {
 struct GitHubIssuesView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var gitHub: GitHubStore
-    let workspaceManager: WorkspaceManager
+    let flow: FeatureFlowCoordinator
     @State private var search = ""
     @State private var showNew = false
     @State private var board = false
@@ -579,12 +597,12 @@ struct GitHubIssuesView: View {
             ForEach(issues) { issue in
                 Button(action: {
                     guard let repo = gitHub.selectedRepo?.slug else { return }
-                    workspaceManager.flow.openGitHubTab(.issue(number: issue.number, repo: repo, title: "#\(issue.number) \(issue.title)"))
+                    flow.openGitHubTab(.issue(number: issue.number, repo: repo, title: "#\(issue.number) \(issue.title)"))
                 }) { row(issue) }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    Button("New Feature from #\(issue.number)…") { workspaceManager.flow.startIntake(.feature, fromIssue: issue.number) }
-                    Button("New Bug from #\(issue.number)…") { workspaceManager.flow.startIntake(.bug, fromIssue: issue.number) }
+                    Button("New Feature from #\(issue.number)…") { flow.startIntake(.feature, fromIssue: issue.number) }
+                    Button("New Bug from #\(issue.number)…") { flow.startIntake(.bug, fromIssue: issue.number) }
                     Button("Open on GitHub") { openInBrowser(issue.url) }
                 }
                 Divider().background(palette.border)
@@ -642,8 +660,11 @@ struct GitHubNewIssueSheet: View {
     @State private var title = ""
     @State private var bodyText = ""
     @State private var chosen: Set<String> = []
-    @State private var working = false
-    @State private var error: String?
+
+    private static let jobKey = "create-issue"
+    private var job: GitHubStore.Job? { gitHub.jobs[Self.jobKey] }
+    private var working: Bool { job?.isRunning == true }
+    private var error: String? { job?.failure }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -672,19 +693,24 @@ struct GitHubNewIssueSheet: View {
             }
         }
         .padding(16)
-        .onAppear { gitHub.loadIssueMetadata() }
+        .onAppear {
+            gitHub.clearJob(Self.jobKey)
+            gitHub.loadIssueMetadata()
+        }
+        .onChange(of: job?.end) { end in
+            if end == .done { gitHub.clearJob(Self.jobKey); dismiss() }
+        }
     }
 
     private func create() {
         guard let client = gitHub.client else { return }
-        working = true
-        Task {
-            defer { working = false }
+        let title = title, body = bodyText, labels = chosen.sorted()
+        gitHub.start(Self.jobKey, label: "Creating…") {
             do {
-                _ = try await client.createIssue(title: title, body: bodyText, labels: chosen.sorted())
+                _ = try await client.createIssue(title: title, body: body, labels: labels)
                 gitHub.refreshIssues()
-                dismiss()
-            } catch { self.error = error.localizedDescription }
+                return nil
+            } catch { return error.localizedDescription }
         }
     }
 }
@@ -694,7 +720,9 @@ struct GitHubNewIssueSheet: View {
 struct GitHubActionsView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var gitHub: GitHubStore
-    let workspaceManager: WorkspaceManager
+    let flow: FeatureFlowCoordinator
+    /// Shows a file of the project in a tab of the window (a workflow file); the window's command, handed down by the Git tab.
+    let openFile: (URL) -> Void
     @State private var search = ""
     @State private var showDispatch = false
 
@@ -726,7 +754,7 @@ struct GitHubActionsView: View {
                             ForEach(list) { run in
                                 Button(action: {
                                     guard let repo = gitHub.selectedRepo?.slug else { return }
-                                    workspaceManager.flow.openGitHubTab(.run(id: run.databaseId, repo: repo, title: "⚙ \(run.workflowName) #\(run.number)"))
+                                    flow.openGitHubTab(.run(id: run.databaseId, repo: repo, title: "⚙ \(run.workflowName) #\(run.number)"))
                                 }) { row(run) }
                                 .buttonStyle(.plain)
                                 Divider().background(palette.border)
@@ -765,7 +793,7 @@ struct GitHubActionsView: View {
         guard let root = gitHub.root, !workflow.path.split(separator: "/").contains("..") else { return }
         let url = root.appendingPathComponent(workflow.path)
         if FileManager.default.fileExists(atPath: url.path) {
-            workspaceManager.openFile(url)
+            openFile(url)
         } else if let web = gitHub.selectedRepo?.webURL {
             openInBrowser(web.absoluteString + "/blob/HEAD/" + workflow.path)
         }
@@ -804,8 +832,11 @@ struct GitHubDispatchSheet: View {
     @State private var values: [String: String] = [:]
     @State private var dispatchable = true
     @State private var loading = false
-    @State private var working = false
-    @State private var error: String?
+
+    private static let jobKey = "dispatch-workflow"
+    private var job: GitHubStore.Job? { gitHub.jobs[Self.jobKey] }
+    private var working: Bool { job?.isRunning == true }
+    private var error: String? { job?.failure }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -833,8 +864,15 @@ struct GitHubDispatchSheet: View {
         }
         .padding(16)
         .frame(minWidth: 420)
-        .onAppear { if ref.isEmpty { ref = gitHub.branch } }
-        .onChange(of: workflowId) { _ in loadInputs() }
+        .onAppear {
+            gitHub.clearJob(Self.jobKey)
+            if ref.isEmpty { ref = gitHub.branch }
+        }
+        // The sheet owns the read of the inputs: choosing another workflow ends the one before it, and closing the sheet ends it.
+        .task(id: workflowId) { await loadInputs() }
+        .onChange(of: job?.end) { end in
+            if end == .done { gitHub.clearJob(Self.jobKey); dismiss() }
+        }
     }
 
     private var missingRequired: Bool {
@@ -862,39 +900,35 @@ struct GitHubDispatchSheet: View {
     }
 
     /// Read the inputs from the workflow file (the local copy, else GitHub's).
-    private func loadInputs() {
+    private func loadInputs() async {
         inputs = []; values = [:]; dispatchable = true
         guard let id = workflowId, let workflow = gitHub.workflows.first(where: { $0.id == id }),
               let root = gitHub.root, let client = gitHub.client else { return }
         loading = true
-        Task {
-            defer { loading = false }
-            var text = (try? String(contentsOf: root.appendingPathComponent(workflow.path), encoding: .utf8)) ?? ""
-            if text.isEmpty { text = (try? await client.workflowFile(workflow.path)) ?? "" }
-            let parsed = GHWorkflowFile.dispatchInputs(text)
-            guard workflowId == id else { return }
-            dispatchable = text.isEmpty || parsed.dispatchable
-            inputs = parsed.inputs
-            for input in parsed.inputs {
-                values[input.name] = input.defaultValue ?? (input.type == "choice" ? input.options.first ?? "" : input.type == "boolean" ? "false" : "")
-            }
+        defer { if workflowId == id { loading = false } }
+        var text = (try? String(contentsOf: root.appendingPathComponent(workflow.path), encoding: .utf8)) ?? ""
+        if text.isEmpty { text = (try? await client.workflowFile(workflow.path)) ?? "" }
+        let parsed = GHWorkflowFile.dispatchInputs(text)
+        guard !Task.isCancelled, workflowId == id else { return }
+        dispatchable = text.isEmpty || parsed.dispatchable
+        inputs = parsed.inputs
+        for input in parsed.inputs {
+            values[input.name] = input.defaultValue ?? (input.type == "choice" ? input.options.first ?? "" : input.type == "boolean" ? "false" : "")
         }
     }
 
     private func run() {
         guard let id = workflowId, let client = gitHub.client else { return }
-        working = true
-        error = nil
-        let chosen = values.filter { !$0.value.isEmpty }
-        Task {
-            defer { working = false }
+        let chosen = values.filter { !$0.value.isEmpty }, ref = ref
+        gitHub.start(Self.jobKey, label: "Starting…") {
             do {
                 try await client.dispatch(workflow: id, ref: ref, inputs: chosen)
                 // The new run appears after a moment.
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return nil }
                 gitHub.refreshRuns()
-                dismiss()
-            } catch { self.error = error.localizedDescription }
+                return nil
+            } catch { return error.localizedDescription }
         }
     }
 }
@@ -905,22 +939,24 @@ struct GitHubDispatchSheet: View {
 struct GitHubTabView: View {
     @Environment(\.palette) private var palette
     let item: GitHubItem
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject var flow: FeatureFlowCoordinator
+    @EnvironmentObject var codeXRay: CodeAndXRayCoordinator
+    @EnvironmentObject var project: ProjectContext
 
     var body: some View {
         Group {
             switch item {
             case .run(let id, let repo, _):
-                if let model = workspaceManager.flow.gitHub.runModel(id, repo: repo) {
-                    GitHubRunView(model: model)
+                if let model = flow.gitHub.runModel(id, repo: repo) {
+                    GitHubRunView(model: model, flow: flow, project: project)
                 } else { unavailable }
             case .issue(let number, let repo, _):
-                if let model = workspaceManager.flow.gitHub.issueModel(number, repo: repo) {
-                    GitHubIssueView(model: model, gitHub: workspaceManager.flow.gitHub)
+                if let model = flow.gitHub.issueModel(number, repo: repo) {
+                    GitHubIssueView(model: model, gitHub: flow.gitHub, flow: flow)
                 } else { unavailable }
             case .pullRequest(let number, let repo, _):
-                if let model = workspaceManager.flow.gitHub.pullRequestModel(number, repo: repo) {
-                    GitHubPullRequestView(model: model)
+                if let model = flow.gitHub.pullRequestModel(number, repo: repo) {
+                    GitHubPullRequestView(model: model, gitHub: flow.gitHub, flow: flow, codeXRay: codeXRay)
                 } else { unavailable }
             }
         }
@@ -941,7 +977,8 @@ struct GitHubTabView: View {
 struct GitHubRunView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: GitHubRunModel
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    let flow: FeatureFlowCoordinator
+    let project: ProjectContext
     @State private var expanded: Set<Int> = []
     @State private var search = ""
     @State private var confirmCancel = false
@@ -991,10 +1028,10 @@ struct GitHubRunView: View {
                         }
                         Button("Open on GitHub") { openInBrowser(run.url) }
                         if run.outcome == .failure {
-                            Button(action: { model.explainFailure(db: workspaceManager.semanticDatabase) }) {
+                            Button(action: { model.explainFailure(db: project.database) }) {
                                 Label("Explain Failure", systemImage: "sparkles")
                             }.disabled(model.explaining)
-                            Button(action: { workspaceManager.flow.fixRunWithAI(model) }) {
+                            Button(action: { flow.fixRunWithAI(model) }) {
                                 Label("Fix with AI", systemImage: "sparkles")
                             }.help("Send the failed steps' logs to the AI terminal")
                         }
@@ -1138,12 +1175,11 @@ struct GitHubIssueView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: GitHubIssueModel
     @ObservedObject var gitHub: GitHubStore
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    let flow: FeatureFlowCoordinator
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
     @WindowStorage(Setting.editorTextSizeMirror) private var editorTextSize: Double
     @State private var comment = ""
-    @State private var starting = false
     @State private var editing = false
 
     var body: some View {
@@ -1173,6 +1209,7 @@ struct GitHubIssueView: View {
         .sheet(isPresented: $editing) {
             if let issue = model.issue { GitHubEditIssueSheet(model: model, issue: issue) }
         }
+        .showsFailures(of: gitHub, keyPrefix: "issue-\(model.number)-")
     }
 
     private func header(_ issue: GHIssue) -> some View {
@@ -1200,8 +1237,8 @@ struct GitHubIssueView: View {
                     .help("Create a branch for the issue and hand it to the AI terminal")
                     .disabled(starting)
                 Menu("New from It") {
-                    Button("New Feature from #\(issue.number)…") { workspaceManager.flow.startIntake(.feature, fromIssue: issue.number) }
-                    Button("New Bug from #\(issue.number)…") { workspaceManager.flow.startIntake(.bug, fromIssue: issue.number) }
+                    Button("New Feature from #\(issue.number)…") { flow.startIntake(.feature, fromIssue: issue.number) }
+                    Button("New Bug from #\(issue.number)…") { flow.startIntake(.bug, fromIssue: issue.number) }
                 }
                 .menuStyle(.borderlessButton).fixedSize()
                 Button("Edit") { editing = true }
@@ -1273,14 +1310,12 @@ struct GitHubIssueView: View {
         }
     }
 
+    private var jobKey: String { "issue-\(model.number)-ai" }
+    private var starting: Bool { gitHub.jobs[jobKey]?.isRunning == true }
+
     private func startWithAI() {
         guard let issue = model.issue else { return }
-        starting = true
-        Task {
-            let error = await workspaceManager.flow.startIssueWithAI(issue)
-            starting = false
-            showError("Start with AI", error)
-        }
+        gitHub.start(jobKey, label: "Starting…", title: "Start with AI") { await flow.startIssueWithAI(issue) }
     }
 }
 
@@ -1290,8 +1325,9 @@ private struct GitHubEditIssueSheet: View {
     let issue: GHIssue
     @State private var title: String
     @State private var bodyText: String
-    @State private var saving = false
-    @State private var error: String?
+    /// The model runs the edit and says whether it is saving and what went wrong.
+    private var saving: Bool { model.busy }
+    private var error: String? { model.error }
 
     init(model: GitHubIssueModel, issue: GHIssue) {
         self.model = model
@@ -1313,21 +1349,14 @@ private struct GitHubEditIssueSheet: View {
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
                     .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(16)
+        }
+        .padding(16)
+        .onAppear { model.error = nil }
     }
 
     private func save() {
-        saving = true
-        Task {
-            do {
-                try await model.client.editIssueContent(issue.number, title: title, body: bodyText)
-                model.contentDidChange()
-                dismiss()
-            } catch {
-                self.error = error.localizedDescription
-                saving = false
-            }
-        }
+        let title = title, body = bodyText, number = issue.number
+        model.act("Save", onSuccess: { dismiss() }) { try await $0.editIssueContent(number, title: title, body: body) }
     }
 }
 
@@ -1463,7 +1492,8 @@ struct GitHubHTMLView: NSViewRepresentable {
 /// Settings → GitHub: the switch, the account `gh` uses, and how the integration behaves.
 struct GitHubSettingsSection: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject var flow: FeatureFlowCoordinator
+    @EnvironmentObject var project: ProjectContext
     @AppStorage(Setting.gitHubEnabled) private var enabled: Bool
     @AppStorage(Setting.gitHubIdleInterval) private var idleInterval: Double
     @AppStorage(Setting.gitHubActiveInterval) private var activeInterval: Double
@@ -1473,6 +1503,8 @@ struct GitHubSettingsSection: View {
     @State private var account: GitHubClient.Account?
     @State private var accountError: String?
     @State private var checking = false
+    /// Bumped to ask for a look at the account; the `.task` that follows it ends the look before it and ends with the view.
+    @State private var accountRequest = 0
 
     var body: some View {
         GroupBox("GitHub") {
@@ -1508,14 +1540,14 @@ struct GitHubSettingsSection: View {
             }
             .padding(8)
         }
-        .onAppear { if enabled { checkAccount() } }
+        .task(id: accountRequest) { await readAccount() }
     }
 
     private var repositoryText: String {
-        if let repo = workspaceManager.flow.gitHub.selectedRepo {
-            return repo.slug + (workspaceManager.flow.gitHub.repos.count > 1 ? " (+ \(workspaceManager.flow.gitHub.repos.count - 1) more)" : "")
+        if let repo = flow.gitHub.selectedRepo {
+            return repo.slug + (flow.gitHub.repos.count > 1 ? " (+ \(flow.gitHub.repos.count - 1) more)" : "")
         }
-        return workspaceManager.rootNode == nil ? "Open a folder with a GitHub remote." : "This folder has no GitHub remote."
+        return project.rootNode == nil ? "Open a folder with a GitHub remote." : "This folder has no GitHub remote."
     }
 
     private var idleIntervalPicker: some View {
@@ -1545,7 +1577,7 @@ struct GitHubSettingsSection: View {
                 }
                 Spacer()
                 Button(account == nil ? "Sign In…" : "Switch Account…") {
-                    GitHubSettingsSection.openLoginInTerminal(root: workspaceManager.rootNode?.url)
+                    GitHubSettingsSection.openLoginInTerminal(root: project.rootNode?.url)
                 }
                 Button("Check") { checkAccount() }
             }
@@ -1564,7 +1596,7 @@ struct GitHubSettingsSection: View {
     /// Which `gh` configuration this folder's requests use. Several GitHub accounts on one
     /// machine each keep their own, and a project picks one with a `.ghprofile` file.
     private var profileRow: some View {
-        let profile = GitHubProfile.resolve(root: workspaceManager.rootNode?.url)
+        let profile = GitHubProfile.resolve(root: project.rootNode?.url)
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("Profile:").uiFont(.caption, weight: .bold)
@@ -1595,19 +1627,23 @@ struct GitHubSettingsSection: View {
         checkAccount()
     }
 
-    private func checkAccount() {
+    private func checkAccount() { accountRequest += 1 }
+
+    private func readAccount() async {
+        guard enabled else { return }
         checking = true
-        let root = workspaceManager.rootNode?.url ?? URL(fileURLWithPath: NSHomeDirectory())
-        Task {
-            do {
-                account = try await GitHubClient.account(root: root)
-                accountError = nil
-            } catch {
-                account = nil
-                accountError = error.localizedDescription
-            }
-            checking = false
+        let root = project.rootNode?.url ?? URL(fileURLWithPath: NSHomeDirectory())
+        do {
+            let found = try await GitHubClient.account(root: root)
+            guard !Task.isCancelled else { return }
+            account = found
+            accountError = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            account = nil
+            accountError = error.localizedDescription
         }
+        checking = false
     }
 
     /// `gh auth login` in Terminal.app, like the AI CLIs' login (a `.command` file, no Apple Events).
@@ -1651,13 +1687,17 @@ struct GitHubSettingsSection: View {
 struct GitHubPullRequestView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var model: GitHubPullRequestModel
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @ObservedObject var gitHub: GitHubStore
+    let flow: FeatureFlowCoordinator
+    let codeXRay: CodeAndXRayCoordinator
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
     @WindowStorage(Setting.editorTextSizeMirror) private var editorTextSize: Double
     @State private var comment = ""
-    @State private var checkingOut = false
     @State private var confirm: String?
+
+    private var checkoutKey: String { "pr-\(model.number)-checkout" }
+    private var checkingOut: Bool { gitHub.jobs[checkoutKey]?.isRunning == true }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1683,6 +1723,7 @@ struct GitHubPullRequestView: View {
                 EmptyList("Loading…")
             }
         }
+        .showsFailures(of: gitHub, keyPrefix: "pr-\(model.number)-")
         .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } })) {
             if let kind = confirm {
                 Button(kind == "close" ? "Close pull request" : "Merge", role: kind == "close" ? .destructive : nil) {
@@ -1731,15 +1772,12 @@ struct GitHubPullRequestView: View {
             }
             if !pr.checks.isEmpty { checks(pr) }
             HStack(spacing: 12) {
-                Button { workspaceManager.codeXRay.reviewPullRequest(pr.number) } label: { Label("Review with AI", systemImage: "sparkles") }
+                Button { codeXRay.reviewPullRequest(pr.number) } label: { Label("Review with AI", systemImage: "sparkles") }
                     .help("Open this pull request in the PR X-Ray and start the AI review")
                 if state == "OPEN" {
                     Button {
-                        checkingOut = true
-                        Task {
-                            let error = await workspaceManager.flow.checkoutPullRequest(pr.number)
-                            checkingOut = false
-                            showError("Checkout #\(pr.number)", error)
+                        gitHub.start(checkoutKey, label: "Checking out…", title: "Checkout #\(pr.number)") {
+                            await flow.checkoutPullRequest(pr.number)
                         }
                     } label: { Label("Checkout", systemImage: "arrow.down.to.line") }
                         .help("Check out the branch of this pull request (refused while there are uncommitted changes)")

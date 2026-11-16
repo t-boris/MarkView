@@ -63,17 +63,14 @@ enum CLICompletion {
     }
 }
 
-enum ProjectAgentTools {
-    static func requirementBody(statement: String, criteria: [String]) -> String {
-        "## Statement\n\n\(statement)\n\n## Acceptance Criteria\n\n" + criteria.map { "- [ ] \($0)" }.joined(separator: "\n") + "\n"
-    }
-}
-
 enum FeatureObjectKind: String { case source, requirement }
 
 struct FeatureObject {
     let id: String
     let url: URL
+    static func requirementBody(statement: String, criteria: [String]) -> String {
+        "## Statement\n\n\(statement)\n\n## Acceptance Criteria\n\n" + criteria.map { "- [ ] \($0)" }.joined(separator: "\n") + "\n"
+    }
 }
 
 /// Records features and objects in memory; source files get a real folder so pictures can be copied next to them.

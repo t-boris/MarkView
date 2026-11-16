@@ -57,7 +57,7 @@ Sibling modules: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 - The JS side of the code viewer (`markview-code.js`) and the bridge transport — see
   [editor-and-bridge](editor-and-bridge.md).
 - The toolbar assistant menu `AIToolbarMenu` lives in
-  `MarkView/Views/Workspace/ContentView.swift` but edits the same keys documented here.
+  `MarkView/Views/AI/AIToolbarMenu.swift` but edits the same keys documented here.
 
 ---
 
@@ -174,7 +174,7 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 | `DocumentTranslator.translate(markdown:targetLang:)` + chunk translation (`Models/Workspace/DocumentTranslator.swift`) | `AIAssistantPreferences.backend/model`, `CLIToolLocator.resolve`, `CLICompletion.run` | Engine fixed per document, 240 s |
 | Recursive Insight start (`InsightCoordinator.start`, `Models/Insight/InsightCoordinator.swift`) | `CLIToolLocator.resolve` | Pre-flight check |
 | `CodeAndXRayCoordinator.handleCodeAction` / `handleNavigation` | `CodeExplainStore.explain/rate/freshness`, `CodeNavigationStore.*` | From bridge `codeAction` messages (`EditorView.swift`) |
-| `AITerminalsController.startupCommand` (`Models/Terminal/AITerminalsController.swift`) | `CLIToolLocator.resolve`, `CLITool.modelArgs`, `AIAssistantPreferences.model` | Interactive terminals |
+| `AITerminalsController.startupCommand` (`Models/Workspace/AITerminalsController.swift`) | `CLIToolLocator.resolve`, `CLITool.modelArgs`, `AIAssistantPreferences.model` | Interactive terminals |
 | `WorkspaceManager.runAITool` (`runCritic`, `runAudit`, `runCodemap` in `WorkspaceManager+AIToolRuns.swift`) | `CLICompletion.Request` through the window's `aiJobs` | AI Tools menu; each run is an AI job shown in the jobs banner |
 | `ArchitectureStore` (12 requests, e.g. `ArchitectureStore.swift`) | `CLICompletion.Request/run`, `xrayModel` | X-Ray; see [architecture-and-xray](architecture-and-xray.md) |
 | `XRaySearch` (`XRaySearch.swift`) | `CodeNavigator.find/rank/sortUsages`, `CLICompletion.Request` | Symbol hints for ⚡ search, 900 s |
@@ -188,7 +188,7 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 | `TerminalSession.dictation` (`TerminalSession.swift`), `SessionDictationButton` (`TerminalView.swift`) | `WhisperClient` | Pasted at the prompt, not submitted |
 | Intake sheet (`FeatureNavigatorView.swift`) | `DictationController`, `DictationButton`, `DictationInsertion`, `DictationStatusView` | Mic shown only when key set |
 | `DDESettingsView` (`DDESettingsView.swift`) | key save, `AIAssistantPickerView`, probes, login, Whisper self-test | |
-| `AIToolbarMenu` (`ContentView.swift`) | same `@AppStorage` keys, `modelOptions`, `ACPAssistant.refreshModels` | |
+| `AIToolbarMenu` (`Views/AI/AIToolbarMenu.swift`) | same `@AppStorage` keys, `modelOptions`, `ACPAssistant.refreshModels` | |
 | `AgentUsageTracker` (`AgentUsageTracker.swift`) | `CLIToolLocator.resolve/run` | |
 
 ### What it calls
@@ -491,7 +491,7 @@ In-memory only: `CodeNavigationStore.back/forward` (≤100), answer tasks; `Code
 3. Add argv construction in `CLICompletion.run`'s `switch tool` (`CLICompletion.swift`)
    and an event parser in `Invocation.consume`/`handle<Tool>`.
 4. Add `@AppStorage` bindings in `AIAssistantPickerView` (`AIAssistantPickerView.swift`),
-   `AIToolbarMenu` (`ContentView.swift`) and `AITerminalPanel` (`TerminalView.swift`).
+   `AIToolbarMenu` (`AIToolbarMenu.swift`) and `AITerminalPanel` (`TerminalView.swift`).
 5. Add the startup command case in `WorkspaceManager.startupCommand` (`WorkspaceManager.swift`)
    and a `TerminalProfile` (`TerminalSession.swift`).
 

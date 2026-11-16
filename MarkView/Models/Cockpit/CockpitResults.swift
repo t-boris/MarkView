@@ -88,3 +88,9 @@ enum CockpitResults {
         }
     }
 }
+
+/// What QA's run cleanup asks of the Cockpit's results: the runs they link, read under the lock they are saved under (`QARunLinks`).
+struct CockpitRunLinks: QARunLinks {
+    func withLock<T>(_ root: URL, _ body: () throws -> T) throws -> T { try CockpitResults.withLock(root, body) }
+    func linkedRunIDsLocked(_ root: URL) throws -> Set<String> { try CockpitResults.linkedRunIDsLocked(root) }
+}

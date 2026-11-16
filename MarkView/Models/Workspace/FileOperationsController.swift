@@ -23,15 +23,55 @@ final class FileOperationsController {
     private weak var host: FileOperationsHost?
     private let tabs: TabsController
     private let project: any ProjectProviding
+    /// The window's background tasks: an unpacking or a zip runs in them, so closing the folder or the window stops it (`AR-19`).
+    private let tasks: TaskBag
     /// Puts one item in the Trash; the system's by default, a check supplies a folder of its own.
     private let moveToTrash: (URL) throws -> Void
 
-    init(host: FileOperationsHost, tabs: TabsController, project: any ProjectProviding,
+    init(host: FileOperationsHost, tabs: TabsController, project: any ProjectProviding, tasks: TaskBag,
          trash: @escaping (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) {
         self.host = host
         self.tabs = tabs
         self.project = project
+        self.tasks = tasks
         self.moveToTrash = trash
+    }
+
+    // MARK: - Archives
+
+    /// Unpacks `archive` into a new folder next to it, or inside `parent`, off the main thread, then reads the file tree again.
+    /// `finished` gets the new folder or the reason. A second unpacking of the same archive, and closing the window, cancel this one:
+    /// it then ends in `CancellationError` and reads nothing. The unpacking tool itself runs to its end once it has started, and its
+    /// folder stays; only a cancel before it starts prevents it.
+    func startExtract(_ archive: URL, into parent: URL?, finished: @escaping (Result<URL, Error>) -> Void) {
+        tasks.store(Task { [weak self] in
+            var result: Result<URL, Error> = .failure(CancellationError())
+            if !Task.isCancelled {
+                result = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                    let folder = Archive.uniqueFolder(for: archive, in: parent)
+                    return Result { try Archive.extractAll(archive, to: folder); return folder }
+                }.value
+            }
+            self?.archiveWorkDone(result, finished: finished)
+        }, for: "extract:" + archive.path)
+    }
+
+    /// Zips `items` into a new .zip next to them, off the main thread, then reads the file tree again. `finished` gets the archive or
+    /// the reason; a second zip, or closing the window, cancels this one (see `startExtract`).
+    func startCompress(_ items: [URL], finished: @escaping (Result<URL, Error>) -> Void) {
+        tasks.store(Task { [weak self] in
+            var result: Result<URL, Error> = .failure(CancellationError())
+            if !Task.isCancelled {
+                result = await Task.detached(priority: .userInitiated) { Result { try Archive.compress(items) } }.value
+            }
+            self?.archiveWorkDone(result, finished: finished)
+        }, for: "compress")
+    }
+
+    private func archiveWorkDone(_ result: Result<URL, Error>, finished: (Result<URL, Error>) -> Void) {
+        if Task.isCancelled { return finished(.failure(CancellationError())) }
+        if case .success = result { host?.refreshFileTree() }
+        finished(result)
     }
 
     // MARK: - Moving and copying

@@ -360,11 +360,6 @@ enum ProjectAgentTools {
 
     // MARK: - Writing the files
 
-    /// The body of a requirement file.
-    static func requirementBody(statement: String, criteria: [String]) -> String {
-        "## Statement\n\n\(statement)\n\n## Acceptance Criteria\n\n" + criteria.map { "- [ ] \($0)" }.joined(separator: "\n") + "\n"
-    }
-
     static func decisionBody(context: String, alternatives: [String], decision: String, reason: String, consequences: String) -> String {
         """
         ## Context

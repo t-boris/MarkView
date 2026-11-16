@@ -173,16 +173,16 @@ try:
 
     # --- semantic-database-actor
     root = fresh()
-    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "// @MainActor in a comment does not count\nactor SemanticDatabase {\n    func search() {}\n}\n")
+    write(root, "MarkView/Models/Shared/SemanticDatabase.swift", "// @MainActor in a comment does not count\nactor SemanticDatabase {\n    func search() {}\n}\n")
     project(root, app_swift(root))
     code, out = run(root)
     check(code == 0, "a SemanticDatabase declared as an actor passes")
     root = fresh()
-    write(root, "MarkView/Models/Insight/SemanticDatabase.swift", "@MainActor\nclass SemanticDatabase {\n    func search() {}\n}\n")
+    write(root, "MarkView/Models/Shared/SemanticDatabase.swift", "@MainActor\nclass SemanticDatabase {\n    func search() {}\n}\n")
     project(root, app_swift(root))
     code, out = run(root)
-    check(code == 1 and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift: `SemanticDatabase` must be declared as an `actor`" in out
-          and "[semantic-database-actor] MarkView/Models/Insight/SemanticDatabase.swift:1: `@MainActor` in the database" in out,
+    check(code == 1 and "[semantic-database-actor] MarkView/Models/Shared/SemanticDatabase.swift: `SemanticDatabase` must be declared as an `actor`" in out
+          and "[semantic-database-actor] MarkView/Models/Shared/SemanticDatabase.swift:1: `@MainActor` in the database" in out,
           "a SemanticDatabase that is a @MainActor class fails with both reasons")
 
     # --- process ratchet
@@ -704,24 +704,24 @@ try:
     ALPHA = "struct AlphaOne {}\nstruct AlphaTwo {}\nstruct AlphaThree {}\n"
     BETA = "struct BetaOne {}\nstruct BetaTwo {}\n"
     root = fresh()
-    check("domain-cycles: 0 in 0 pair(s), 0 allowed" in run(root)[1], "a tree without a cycle reports domain-cycles 0")
+    check("domain-cycles: 0 in 0 back-edge(s), 0 allowed" in run(root)[1], "a tree without a cycle reports domain-cycles 0")
     domain_files(root, models={"Alpha": ALPHA + "let b = BetaOne()\n", "Beta": BETA + "let a = [AlphaOne(), AlphaTwo()]\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 1 type(s) named back across a cycle, 0 allowed (new sites)" in out and out.count("[domain-cycles]") == 1,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 1 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out and out.count("[domain-cycles]") == 1,
           "two domains that name each other's types are a cycle: the lighter direction is the back-edge and a new one fails, named")
     write(root, "tools/lint/domain-cycles-allowlist.txt", "1 Models/Alpha -> Models/Beta  # Alpha shows a Beta type\n")
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 1 in 1 pair(s), 1 allowed" in out, "a listed back-edge passes while it does not grow")
+    check(code == 0 and "domain-cycles: 1 in 1 back-edge(s), 1 allowed" in out, "a listed back-edge passes while it does not grow")
     domain_files(root, models={"Beta": BETA + "let a = [AlphaOne(), AlphaTwo(), AlphaThree()]\n"})
     code, out = run(root)
     check(code == 0, "the forward direction may grow: only the back-edge is limited")
     domain_files(root, models={"Alpha": ALPHA + "let b = [BetaOne(), BetaTwo()]\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 2 type(s) named back across a cycle, 1 allowed (more sites)" in out,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 2 type(s) named against the layering or across a cycle, 1 allowed (more sites)" in out,
           "a back-edge that names one more type fails")
     domain_files(root, models={"Alpha": ALPHA + "let b = 1\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 0 type(s) named back across a cycle, 1 allowed; the count fell" in out,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Beta: 0 type(s) named against the layering or across a cycle, 1 allowed; the count fell" in out,
           "a cycle that is gone fails until the allowance is lowered (no slack)")
     code, out = run(root, "--tighten")
     check(code == 0 and "Alpha -> Models/Beta" not in (root / "tools/lint/domain-cycles-allowlist.txt").read_text(), "--tighten drops the entry of a cycle that is gone")
@@ -731,7 +731,7 @@ try:
                "struct Local {\n    struct BetaTwo {}\n}\nlet u = Local.BetaTwo()\nlet w = AlphaTwo()\n")
     domain_files(root, models={"Alpha": ALPHA + ignored, "Beta": BETA + "let a = AlphaOne()\n"})
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 0 in 0 pair(s)" in out,
+    check(code == 0 and "domain-cycles: 0 in 0 back-edge(s)" in out,
           "a type named in a comment, in a string, as a member, or that is also declared nested in the domain does not count as a dependency")
     domain_files(root, models={"Alpha": ALPHA + "let line = \"count: \\(BetaOne().id)\"\n"})
     code, out = run(root)
@@ -742,25 +742,47 @@ try:
                  views={"Alpha": "struct AlphaView {}\nlet m = BetaOne()\n", "Beta": "struct BetaView {}\n"})
     write(root, "tools/lint/domain-cycles-allowlist.txt", "1 Models/Alpha -> Models/Beta\n")
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 1 in 1 pair(s), 1 allowed" in out, "a view that names a model is not a cycle: Models and Views are separate graphs")
+    check(code == 0 and "domain-cycles: 1 in 1 back-edge(s), 1 allowed" in out, "a view that names a model is not a cycle: Models and Views are separate graphs")
     domain_files(root, views={"Beta": "struct BetaView { let a = AlphaView() }\n"})
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 1 in 1 pair(s), 1 allowed" in out, "a view domain that names a view of another domain, which names only models back, is not a cycle")
+    check(code == 0 and "domain-cycles: 1 in 1 back-edge(s), 1 allowed" in out, "a view domain that names a view of another domain, which names only models back, is not a cycle")
     domain_files(root, views={"Alpha": "struct AlphaView {}\nlet b = BetaView()\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Views/Alpha -> Views/Beta: 1 type(s) named back across a cycle, 0 allowed (new sites)" in out,
+    check(code == 1 and "[domain-cycles] Views/Alpha -> Views/Beta: 1 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
           "two view domains that name each other are a cycle of the Views graph")
 
     root = fresh()
     domain_files(root, models={"Alpha": ALPHA + "let w = [WorkspaceOne(), WorkspaceTwo()]\n", "Workspace": "struct WorkspaceOne {}\nstruct WorkspaceTwo {}\nlet a = AlphaOne()\n"})
     code, out = run(root)
-    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Workspace: 2 type(s) named back across a cycle, 0 allowed (new sites)" in out,
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Workspace: 2 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
           "in a pair with Workspace, the composition domain, the back-edge points at it even when it is the heavier direction")
+
+    # The layering (AR-20): Appearance < Shared < AI < feature domains < Workspace. An edge that points up is a back-edge although nothing points back.
+    root = fresh()
+    domain_files(root, models={"Alpha": ALPHA + "let w = [WorkspaceOne(), WorkspaceTwo()]\n", "Workspace": "struct WorkspaceOne {}\nstruct WorkspaceTwo {}\n"})
+    code, out = run(root)
+    check(code == 1 and "[domain-cycles] Models/Alpha -> Models/Workspace: 2 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
+          "a feature domain that names a Workspace type fails although Workspace names nothing back: no feature domain names Workspace")
+    root = fresh()
+    domain_files(root, models={"Alpha": ALPHA + "let s = SharedOne()\n", "Shared": "struct SharedOne {}\nstruct SharedTwo {}\n",
+                               "Workspace": "struct WorkspaceOne {}\nlet a = AlphaOne()\nlet s = [SharedOne(), SharedTwo()]\n"})
+    code, out = run(root)
+    check(code == 0 and "domain-cycles: 0 in 0 back-edge(s)" in out, "naming a lower domain is no back-edge: a feature names Shared, Workspace names both")
+    domain_files(root, models={"Shared": "struct SharedOne {}\nstruct SharedTwo {}\nlet a = [AlphaOne(), AlphaTwo()]\n"})
+    code, out = run(root)
+    check(code == 1 and "[domain-cycles] Models/Shared -> Models/Alpha: 2 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out
+          and out.count("[domain-cycles]") == 1,
+          "Shared naming a feature domain is the back-edge of their cycle even when it is the heavier direction: Shared is the lower layer")
+    root = fresh()
+    domain_files(root, models={"Appearance": "struct LookOne {}\nlet a = SharedOne()\n", "Shared": "struct SharedOne {}\n"})
+    code, out = run(root)
+    check(code == 1 and "[domain-cycles] Models/Appearance -> Models/Shared: 1 type(s) named against the layering or across a cycle, 0 allowed (new sites)" in out,
+          "Appearance, the lowest layer, names nothing above it")
     root = fresh()
     domain_files(root, models={"Alpha": ALPHA + "let b = BetaOne()\n", "Beta": BETA + "let a = [AlphaOne(), AlphaTwo()]\n"})
     write(root, "tools/lint/domain-cycles-allowlist.txt", "2 Models/Beta -> Models/Alpha  # the allow-list names the direction\n")
     code, out = run(root)
-    check(code == 0 and "domain-cycles: 2 in 1 pair(s), 2 allowed" in out, "the direction an allow-list entry names is the back-edge, whatever the weights")
+    check(code == 0 and "domain-cycles: 2 in 1 back-edge(s), 2 allowed" in out, "the direction an allow-list entry names is the back-edge, whatever the weights")
     write(root, "tools/lint/domain-cycles-allowlist.txt", "2 Models/Beta -> Models/Alpha  # the allow-list names the direction\n1 Models/Zeta -> Models/Eta  # gone\n")
     run(root, "--tighten")
     check((root / "tools/lint/domain-cycles-allowlist.txt").read_text().endswith("2 Models/Beta -> Models/Alpha  # the allow-list names the direction\n"),

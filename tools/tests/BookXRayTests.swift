@@ -1,4 +1,4 @@
-// Checks the Book X-Ray skeleton (MarkView/Models/Book/BookBuilder.swift): headings of every text
+// Checks the Book X-Ray skeleton (MarkView/Models/Architecture/BookBuilder.swift): headings of every text
 // format, slugs, nested sections with line ranges, link extraction and resolution down to the
 // section, reading order, and the nodes/edges of a small book.
 import Foundation

@@ -77,6 +77,10 @@ check(lastReplaced.hasSuffix("## Notes\n\nChanged.\n") && lastReplaced.contains(
 let appended = FeatureObject.replacingSection("Statement", in: "## Acceptance Criteria\n\n- [ ] A\n", with: "S.")
 check(appended.hasSuffix("## Statement\n\nS.\n") && appended.hasPrefix("## Acceptance Criteria"), "a missing section is appended")
 check(FeatureObject.acceptanceCriteria(in: requirementBody).map(\.done) == [true, false], "criteria are read from a body")
+let writtenBody = FeatureObject.requirementBody(statement: "The system shall list tickets.", criteria: ["Shows 20 per page", "Sorted by SLA"])
+check(writtenBody == "## Statement\n\nThe system shall list tickets.\n\n## Acceptance Criteria\n\n- [ ] Shows 20 per page\n- [ ] Sorted by SLA\n", "a requirement body is the statement and its open criteria")
+check(FeatureObject.acceptanceCriteria(in: writtenBody).map(\.text) == ["Shows 20 per page", "Sorted by SLA"]
+      && FeatureObject.acceptanceCriteria(in: writtenBody).allSatisfy { !$0.done }, "the criteria of a written requirement are read back, none of them done")
 
 var decided = feature(front: "title: T\nstatus: review", questions: [])
 decided.objects[.decision] = [object(.decision, "DEC-001", "status: proposed"),

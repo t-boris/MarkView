@@ -122,7 +122,7 @@ Quit the instance you are resetting first. Never reset the user's live app witho
 |---|---|---|
 | Preferences (layout, theme, sort order, AI backend, CLI extra PATH, GitHub settings, Whisper model, custom AI filters, last folder) | UserDefaults domain `com.markview.MarkView` | bundle id `project.pbxproj`. Every key is declared once in `Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift` (for example `workspace.lastFolder`); UI state of a window is `@WindowStorage` (`WindowUIState`), not a shared key |
 | OpenAI API key (Whisper, embeddings) | the Keychain (`AR-10`) | `WhisperClient.loadAPIKey` / `saveAPIKey` in `MarkView/Models/Dictation/WhisperClient.swift`; `EmbeddingClient` delegates to it |
-| Per-folder index (SQLite + FTS5), caches, overlays | `<folder>/.dde/` (`state.db`, `cache/`, `overlays/`), git-ignored (`.gitignore`) | `MarkView/Models/Insight/SemanticDatabase.swift` |
+| Per-folder index (SQLite + FTS5), caches, overlays | `<folder>/.dde/` (`state.db`, `cache/`, `overlays/`), git-ignored (`.gitignore`) | `MarkView/Models/Shared/SemanticDatabase.swift` |
 | Index fallback when `.dde/` cannot be created | `~/Library/Application Support/MarkView/Projects/<ProjectPaths.projectCacheIdentifier>/` | `SemanticDatabase.swift` (`AR-39`) |
 | Recent files | `~/Library/Application Support/MarkView/recentFiles.json` | `MarkView/Models/Workspace/ProjectContext.swift` |
 | Lifecycle events (append-only, shared by all windows) | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | `MarkView/Models/Lifecycle/LifecycleLog.swift` |
@@ -158,7 +158,7 @@ them is a major version bump (`CLAUDE.md` Versioning).
 | Menu item stuck enabled or disabled | Menu state read from an object behind `@FocusedValue`. Use a value-typed `focusedSceneValue` | `tasks/lessons.md` |
 | Finder "Open With" opens nothing | Notification sent before the window attached. Queue external requests durably and drain them | `tasks/lessons.md` |
 | Blank editor or terminal web view | New file in `Resources/Editor` not copied by the pre-build script | `tasks/lessons.md` |
-| "no column named ..." after an upgrade | Column added without a migration. Append a step to `SemanticSchema.migrations` (`SQLiteSchema.addMissingColumns`) | `tasks/lessons.md`, `MarkView/Models/Insight/SemanticSchema.swift` |
+| "no column named ..." after an upgrade | Column added without a migration. Append a step to `SemanticSchema.migrations` (`SQLiteSchema.addMissingColumns`) | `tasks/lessons.md`, `MarkView/Models/Shared/SemanticSchema.swift` |
 | Editor panel will not hide | CSS `display` overrides `[hidden]`. Add `[hidden]{display:none}` (with `!important` for CodeMirror) and check in WebKit | `tasks/lessons.md` |
 | Terminal link opens nothing or triggers TUI clicks | OSC 8 links need `linkHandler`; reserve Cmd+click; resolve against the live cwd | `tasks/lessons.md` |
 | Dictation keeps the microphone on or writes into the wrong field | Capture a generation token and the originating window | `tasks/lessons.md` |

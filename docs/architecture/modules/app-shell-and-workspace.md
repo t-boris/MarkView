@@ -46,18 +46,19 @@ What it does **not** own. It calls into these, but the logic lives in sibling mo
 | `MarkView/Models/Workspace/WorkspaceFileTreeStore.swift`, `FileNode.swift` | The folder tree (`FileNode`, built from a `FileTree` value), exclusions, sort order, the root watcher |
 | `MarkView/Models/Workspace/FileBrowserModel.swift`, `Views/Workspace/FileBrowserViews.swift`, `FileTreeView.swift` | How Files shows a folder (views, filters, selection) |
 | `MarkView/Models/Workspace/FileOperationsController.swift`, `FileTransfer.swift` | File operations of the project; non-overwriting move and copy |
-| `MarkView/Models/Workspace/DocumentState.swift` | `FileType`, `HeadingItem`, `TabKind`, `GitHubItem`, `OpenTab` |
-| `MarkView/Models/Workspace/PanelLayout.swift`, `WindowChrome.swift`, `WindowRequests.swift`, `WindowUIState.swift`, `Views/Workspace/WindowStorage.swift` | Per-window panel selection, panels shown, requests for sheets and popovers, interface state (`@WindowStorage`) |
+| `MarkView/Models/Workspace/DocumentState.swift` | `HeadingItem`, `TabKind`, `OpenTab` (`FileType` is in `Models/Shared/FileType.swift`, `GitHubItem` in `Models/Git/GitHubItem.swift`) |
+| `MarkView/Models/Workspace/PanelLayout.swift`, `WindowChrome.swift`, `WindowRequests.swift`, `WindowUIState.swift`, `Views/Shared/WindowStorage.swift` | Per-window panel selection, panels shown, requests for sheets and popovers, interface state (`@WindowStorage`) |
 | `MarkView/Models/Workspace/WindowSessionController.swift`, `WindowSession.swift`, `WindowSessionSnapshotter.swift` | Saving and restoring the windows (`windowSessions.json`) |
 | `MarkView/Models/Workspace/FinderOpenRequests.swift` | The Finder Quick Action hand-off, a job of `PollingScheduler` |
 | `MarkView/Models/Workspace/ToolRegistry.swift`, `ToolTabsRouter.swift`, `ToolOpener.swift`, `Views/Workspace/ToolTabViews.swift` | The tools that have a tab per window: identity, opening, view |
-| `MarkView/Models/Workspace/ProjectProviding.swift` | The narrow protocol a feature reads the open project through (`ProjectContext` implements it) |
+| `MarkView/Models/Shared/ProjectProviding.swift` | The narrow protocol a feature reads the open project through (`ProjectContext` implements it) |
 | `MarkView/Models/Workspace/DocumentTranslator.swift`, `MarkdownDocumentChunker.swift` | Document translation |
-| `MarkView/Models/Workspace/WikiLinkResolver.swift`, `LinkedFolders.swift`, `ExcludedFolders.swift`, `FilterSearch.swift`, `FrontMatter.swift` | Wiki-links, linked and excluded folders, AI filter terms, YAML front matter |
+| `MarkView/Models/Shared/WikiLinkResolver.swift`, `LinkedFolders.swift`, `FrontMatter.swift`, `MarkView/Models/Workspace/ExcludedFolders.swift`, `MarkView/Models/Architecture/FilterSearch.swift` | Wiki-links, linked and excluded folders, AI filter terms, YAML front matter |
 | `MarkView/Models/Workspace/BackgroundFileScans.swift` | File-system walks a window needs and must not run on the main thread (`AR-42`) |
 | `MarkView/Models/Workspace/EditorDocumentRouting.swift`, `EditorPage.swift`, `EditorWindowPrefs.swift`, `DocumentFiles.swift` | Which tab an editor message belongs to; the editor page and its CSP; the page's per-window preferences; the `markview-doc:///` rule for files next to a document |
-| `MarkView/Models/Workspace/SchemaVersionedStore.swift` | Versioned JSON stores (`AR-36`) |
+| `MarkView/Models/Shared/SchemaVersionedStore.swift` | Versioned JSON stores (`AR-36`) |
 | `MarkView/Models/Appearance/AppTheme.swift`, `WindowTheme.swift`, `MarkView/Views/Appearance/*` | Themes: one `WindowTheme` per window |
+| `MarkView/Views/Shared/PanelTabButton.swift`, `WindowStorage.swift`, `ImageAttachmentViews.swift`, `FactRows.swift`, `SmallButton.swift` | Small views every feature's screens use (`Views/Shared` names no feature domain) |
 | `MarkView/Views/Workspace/TabBarView.swift`, `TOCView.swift`, `ContentsPanelView.swift`, `ImageViewerView.swift`, `DDESettingsView.swift` | Tab strip, right panel, image tab, settings window |
 | `MarkView/Info.plist`, `MarkView.entitlements`, `MarkViewDebug.entitlements` | Document types and usage strings; sandbox off |
 
@@ -259,8 +260,8 @@ flowchart TD
 
 - `LinkedFolders` keeps, per project, the folders attached as aliases, in local settings under `project.linkedFolders[<project key>]`
   (never a file in the project). A folder can be linked when it exists, is not the project, is not inside it, does not contain it, and
-  is not nested with another linked folder either way. The linking rules are in `Models/Workspace/LinkedFolders.swift`; the store
-  is in `Models/AI/LinkedFolderStore.swift`, because an assistant run reads it.
+  is not nested with another linked folder either way. The linking rules are in `Models/Shared/LinkedFolders.swift`; the store
+  is in `Models/Shared/LinkedFolderStore.swift`, because an assistant run reads it.
 - `ProjectContext.linkedFolders` is loaded with the folder and cleared on close; `linkFolders` and `unlinkFolder` save the list
   and re-run the structural index; `chooseFoldersToLink()` is "Link Folder...".
 - Document ids of files in a linked folder are `@linked/<name>/<path>` (`LinkedFolders.documentId`,

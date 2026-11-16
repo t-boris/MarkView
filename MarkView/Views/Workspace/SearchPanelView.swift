@@ -7,7 +7,6 @@ import MarkViewCore
 /// names inside archives), or the meaning search of the Markdown documents.
 struct WorkspaceSearchView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     @WindowStorage(Setting.searchPanelMode) private var mode: String
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -26,9 +25,9 @@ struct WorkspaceSearchView: View {
             .help("Project: filenames, searchable text, PDF and Word documents. Documents: indexed Markdown search.")
             Divider().background(palette.border)
             if mode == Mode.documents.rawValue {
-                DocumentSearchView().environmentObject(workspaceManager)
+                DocumentSearchView()
             } else {
-                ProjectSearchPanel().environmentObject(workspaceManager)
+                ProjectSearchPanel()
             }
         }
         .background(palette.bgSidebar)
@@ -38,7 +37,8 @@ struct WorkspaceSearchView: View {
 /// File names and contents of the project, found as you type (the index is the one ⌘⇧K uses).
 struct ProjectSearchPanel: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var project: ProjectContext
+    @Environment(\.windowCommands) private var window
     @StateObject private var model = SharedSearchModel()
 
     var body: some View {
@@ -50,11 +50,11 @@ struct ProjectSearchPanel: View {
                     .onChange(of: model.query) { _ in model.scheduleSearch() }
                 if model.indexing { ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12) }
                 if !model.query.isEmpty {
-                    Button { model.query = ""; Task { await model.search() } } label: {
+                    Button { model.query = ""; model.startSearch() } label: {
                         Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(palette.textDim)
                     }.buttonStyle(.plain)
                 }
-                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } } label: {
+                Button { model.startRebuild(root: project.rootNode?.url, linked: project.linkedFolders) } label: {
                     Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Refresh the search index")
             }
@@ -65,8 +65,8 @@ struct ProjectSearchPanel: View {
             }
             results
         }
-        .task(id: workspaceManager.project.searchRootsKey) {
-            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders)
+        .task(id: project.searchRootsKey) {
+            await model.rebuild(root: project.rootNode?.url, linked: project.linkedFolders)
         }
     }
 
@@ -107,6 +107,11 @@ struct ProjectSearchPanel: View {
         }
     }
 
+    private func open(_ result: ProjectSearchResult) {
+        guard let window else { return }
+        model.startOpen(result, root: project.rootNode?.url, linked: project.linkedFolders) { $0.show(in: window) }
+    }
+
     private func placeholder(_ text: String) -> some View {
         VStack { Spacer(); Text(text).uiFont(size: 11).foregroundColor(palette.textDim).multilineTextAlignment(.center).padding(16); Spacer() }
             .frame(maxWidth: .infinity)
@@ -119,7 +124,7 @@ struct ProjectSearchPanel: View {
 
     private func row(_ result: ProjectSearchResult) -> some View {
         let inArchive = result.path?.contains(ProjectSearchIndex.archiveSeparator) == true
-        return Button { Task { _ = await model.open(result, in: workspaceManager) } } label: {
+        return Button { open(result) } label: {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Image(systemName: inArchive ? "archivebox" : result.scope == .file ? "doc" : "text.magnifyingglass")

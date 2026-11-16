@@ -19,12 +19,19 @@ implementation.
   infrastructure the app shares: `Subprocess`, `AtomicFile` and `ProjectPaths` (`CoreFiles.swift`), `AppLog`, `JS.call`, `WebHost`
   (with `WeakScriptMessageHandler`), `PrivateSocket`, `SQLiteSchema`, `TaskBag` (keyed cancellable tasks), `PollingScheduler` (the one
   place that polls), and `Settings`/`SettingsKey`/`Setting`/`SettingsObserver`
-- `MarkView/Views/`: SwiftUI views and `WKWebView` coordination in 19 domain subfolders (`AI/`, `Appearance/`, `Architecture/`, `Book/`,
+- `MarkView/Views/`: SwiftUI views and `WKWebView` coordination in 20 domain subfolders (`AI/`, `Appearance/`, `Architecture/`, `Book/`,
   `Browser/`, `Cockpit/`, `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`,
-  `Remote/`, `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`). `ContentView`, `EditorView` and `ToolTabViews` are in `Workspace/`
-- `MarkView/Models/`: 21 domain subfolders (`AI/`, `AgentTools/`, `Appearance/`, `Architecture/`, `Book/`, `Browser/`, `Cockpit/`,
+  `Remote/`, `Research/`, `Shared/`, `Terminal/`, `UIStudio/`, `Workspace/`). `Shared/` holds the small views every feature uses
+  (`PanelTabButton`, `WindowStorage`, `ImageAttachmentViews`, `FactRows`, `SmallButton`). `ContentView`, `EditorView` and `ToolTabViews` are in `Workspace/`
+- `MarkView/Models/`: 22 domain subfolders (`AI/`, `AgentTools/`, `Appearance/`, `Architecture/`, `Book/`, `Browser/`, `Cockpit/`,
   `Deployments/`, `Dictation/`, `Discussion/`, `Git/`, `Insight/`, `Lifecycle/`, `ProjectOps/`, `Prototype/`, `QA/`, `Remote/`,
-  `Research/`, `Terminal/`, `UIStudio/`, `Workspace/`). No Swift file lives directly in `Models/` or `Views/` (`no-loose-swift` lint).
+  `Research/`, `Shared/`, `Terminal/`, `UIStudio/`, `Workspace/`). No Swift file lives directly in `Models/` or `Views/` (`no-loose-swift` lint).
+  The folders are layered, lowest first: `Appearance/`, `Shared/` (infrastructure that names no feature domain: `ProjectProviding`,
+  `SchemaVersionedStore`, `FrontMatter`, `FileType`, `SemanticDatabase`, `ProjectChangeMonitor`...), `AI/`, the feature domains, then
+  `Workspace/`. A folder names its own layer and the ones below it, never a higher one: no feature domain names `Workspace/`
+  (the `domain-cycles` lint counts every back-edge; `tools/lint/domain-dependencies.py` measures it). The window hosts that implement a
+  feature's window protocol (`BrowserHost`, `CockpitHost`, `PrototypeStudioHost`, `UIStudioHost`, `FeatureFlowCoordinator`,
+  `AITerminalsController`) live in `Workspace/` with the window composition; the protocol stays with the feature.
   A window is built by `WindowComposition` (`Workspace/`): its parts (`TabsController`, `ProjectContext`, `PanelLayout`, `WindowTheme`,
   `TaskBag`, and the lazy coordinators) take what they need at construction, and `WorkspaceManager` is the thin facade that conforms to
   their narrow host protocols
@@ -107,9 +114,9 @@ Each line is the number of places to edit; a new Swift file also needs its entri
 - **A bridge message**: 4. Its entry in `Resources/Editor/js/bridge-contract.json`, its payload type in `Bridge/PageMessages.swift`, its
   `messages.on` handler in `Bridge/WebViewBridge.swift`, and the page's `mvBridge.send(...)` call. A page never posts through
   `messageHandlers` itself (`bridge-no-bypass` lint), and `bridge-contract-tests.sh` runs a sample of every message through the types.
-- **A SQLite migration**: 1. A new `SQLiteMigration` at the end of `SemanticSchema.migrations` (`Models/Insight/SemanticSchema.swift`);
+- **A SQLite migration**: 1. A new `SQLiteMigration` at the end of `SemanticSchema.migrations` (`Models/Shared/SemanticSchema.swift`);
   a released step is never edited.
-- **A JSON store**: 1. Use `SchemaVersionedStore<T>` (`Models/Workspace/`); it separates missing, corrupted and newer-schema files.
+- **A JSON store**: 1. Use `SchemaVersionedStore<T>` (`Models/Shared/`); it separates missing, corrupted and newer-schema files.
   Writes go through `AtomicFile`; paths under `.dde/` come from `ProjectPaths`.
 - **A child process**: `MarkViewCore.Subprocess` (see Working Rules). **An assistant call**: `AIOperation`. **A log line**: `AppLog`.
 

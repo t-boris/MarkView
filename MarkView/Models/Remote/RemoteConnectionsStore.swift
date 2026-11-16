@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The complete saved record, including its pairing secret, lives only in the login Keychain.
 struct SavedRemoteConnection: Codable, Identifiable {
@@ -31,6 +34,10 @@ final class RemoteConnectionsStore: ObservableObject {
     private var paused: Set<UUID> = []
     private var revocations: [UUID: Task<Void, Never>] = [:]
     private var shuttingDown = false
+    /// What the Remote Assistants window asked for. It runs here and not in the window: the store lives for the process, and a handshake
+    /// on its way does not stop because the window closed. A second request for the same connection replaces the first; quitting ends
+    /// the rest (`AR-19`).
+    private let requests = TaskBag()
 
     init(keychain: RemoteRelayKeychain = RemoteRelayKeychain(service: "MarkView saved remote connections." + (Bundle.main.bundleIdentifier ?? "cli"), maxBytes: 1_048_576)) {
         self.keychain = keychain
@@ -92,6 +99,49 @@ final class RemoteConnectionsStore: ObservableObject {
         entries.append(entry)
         do { try await persist() } catch { entries.removeAll { $0.id == entry.id }; throw error }
         try await open(entry, host: host)
+    }
+
+    // MARK: Requests of the connections window
+
+    /// Runs `action` as the request `key`; `finished` gets the failure, or nil. A request replaced or cancelled before it starts
+    /// is not run and ends with `CancellationError`.
+    private func request(_ key: String, finished: @escaping (Error?) -> Void, _ action: @escaping (RemoteConnectionsStore) async throws -> Void) {
+        requests.store(Task { [weak self] in
+            guard let self, !Task.isCancelled else { return finished(CancellationError()) }
+            do { try await action(self); finished(nil) } catch { finished(error) }
+        }, for: key)
+    }
+
+    /// Allow this Mac to be used from another one (see `allow`).
+    func startAllow(name: String, relay: String, finished: @escaping (Error?) -> Void) {
+        request("allow", finished: finished) { try await $0.allow(name: name, relay: relay) }
+    }
+
+    /// Connect to a home Mac with its code (see `connect`).
+    func startConnect(name: String, code: String, provider: CLITool, model: String?, resume: Bool, host: any RemoteAssistantHost,
+                      finished: @escaping (Error?) -> Void) {
+        request("connect", finished: finished) {
+            try await $0.connect(name: name, code: code, provider: provider, model: model, resume: resume, host: host)
+        }
+    }
+
+    /// Reconnect a saved connection (see `reconnect`).
+    func startReconnect(_ entry: SavedRemoteConnection, host: any RemoteAssistantHost, finished: @escaping (Error?) -> Void) {
+        request("reconnect:" + entry.id.uuidString, finished: finished) { try await $0.reconnect(entry, host: host) }
+    }
+
+    /// Disconnect a saved connection and revoke its access (see `disconnect`).
+    func startDisconnect(_ entry: SavedRemoteConnection, finished: @escaping (Error?) -> Void) {
+        request("disconnect:" + entry.id.uuidString, finished: finished) { try await $0.disconnect(entry) }
+    }
+
+    /// Waits until the relay settings and the saved connections are in the Keychain, then calls `then` (the window's Done button).
+    func startSaving(relaySettings: RemoteRelaySettings, then: @escaping () -> Void) {
+        requests.store(Task { [weak self] in
+            await relaySettings.finishPendingChanges()
+            await self?.finishPendingChanges()
+            if !Task.isCancelled { then() }
+        }, for: "finish")
     }
 
     func attach(_ host: any RemoteAssistantHost) {
@@ -173,6 +223,7 @@ final class RemoteConnectionsStore: ObservableObject {
     }
     func suspend() {
         shuttingDown = true
+        requests.cancelAll()
         for host in hosts.values { host.suspend() }
         for connection in connections.values { connection.stop() }
         for task in revocations.values { task.cancel() }

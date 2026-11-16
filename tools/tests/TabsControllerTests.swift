@@ -436,9 +436,9 @@ enum TabsControllerChecks {
             tabs.activeTabIndex = 0
             tabs.showArchitectureTab(scope: "", root: dir)
             check(tabs.openTabs.count == 2 && tabs.activeTabIndex == 1, "showing the X-Ray again selects its tab instead of adding one")
-            tabs.showArchitectureTab(scope: TabKind.pullRequestScope, root: dir)
+            tabs.showArchitectureTab(scope: XRayScope.pullRequest, root: dir)
             tabs.showArchitectureTab(scope: "Sources/Core", root: dir)
-            check(tabs.openTabs.count == 4 && scope(tabs.openTabs[2]) == TabKind.pullRequestScope && scope(tabs.openTabs[3]) == "Sources/Core",
+            check(tabs.openTabs.count == 4 && scope(tabs.openTabs[2]) == XRayScope.pullRequest && scope(tabs.openTabs[3]) == "Sources/Core",
                   "the pull request's and a folder's X-Ray are tabs of their own")
             check(tabs.openTabs[2].url.lastPathComponent == ".markview-pr-xray" && tabs.openTabs[3].url.lastPathComponent.hasPrefix(".markview-architecture-"),
                   "each X-Ray tab has its own name")

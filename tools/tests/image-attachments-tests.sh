@@ -1,5 +1,5 @@
 #!/bin/bash
-# Checks the images of the request boxes of Prototype Studio and UI Studio (MarkView/Models/Workspace/ImageAttachments.swift): PNG
+# Checks the images of the request boxes of Prototype Studio and UI Studio (MarkView/Models/Shared/ImageAttachments.swift): PNG
 # normalisation and the 1600 px downscale, images read from a pasteboard, a file or a drop, the limits of a request (six
 # images, 8 MB each) with the notice for what is refused, the name of the saved file, and a paste of text at the caret.
 #   tools/tests/image-attachments-tests.sh
@@ -8,5 +8,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/ImageAttachmentsTests.swift "$out/main.swift"
-swiftc -O -o "$out/image-attachments-tests" MarkView/Models/Workspace/ImageAttachments.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$out/main.swift"
+swiftc -O -o "$out/image-attachments-tests" MarkView/Models/Shared/ImageAttachments.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$out/main.swift"
 "$out/image-attachments-tests"

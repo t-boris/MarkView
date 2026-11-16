@@ -17,8 +17,8 @@ Sibling module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 | Section | Main entry point | Owner object | Network | Persistence |
 |---|---|---|---|---|
-| A. Git & GitHub | `FeatureFlowCoordinator.setUpGitHub` (`Models/Lifecycle/FeatureFlowCoordinator.swift`) | `GitClient`, `GitHubStore` per window | `gh` CLI → GitHub (opt-in) | UserDefaults only |
-| B. Terminal | `AITerminalsController.openAITerminal` (`Models/Terminal/AITerminalsController.swift`) / `WorkspaceManager.openTerminal` | `TerminalSession` per terminal | none (child processes may) | pasted images in Caches |
+| A. Git & GitHub | `FeatureFlowCoordinator.setUpGitHub` (`Models/Workspace/FeatureFlowCoordinator.swift`) | `GitClient`, `GitHubStore` per window | `gh` CLI → GitHub (opt-in) | UserDefaults only |
+| B. Terminal | `AITerminalsController.openAITerminal` (`Models/Workspace/AITerminalsController.swift`) / `WorkspaceManager.openTerminal` | `TerminalSession` per terminal | none (child processes may) | pasted images in Caches |
 | C. Cycle time | `CycleTimeModel` over the workflow journal; evidence in `FeatureStore` | `LifecycleLog.shared` (app-wide) for evidence | GitHub only via the GitHub poll | `.dde/lifecycle/cycle-time.json`, `lifecycle-events.jsonl` |
 | D. Agent usage | `AgentUsageBar` (`Views/AI/AgentUsageViews.swift`) | `AgentUsageTracker.shared` (app-wide) | Anthropic / ChatGPT usage endpoints | UserDefaults only |
 
@@ -86,7 +86,7 @@ Important methods:
 
 ### A.4 Internal interfaces
 
-- `GitClient.branchReports` (a publisher) → `GitHubStore.branchChanged`, subscribed by `FeatureFlowCoordinator` (`Models/Lifecycle/FeatureFlowCoordinator.swift`).
+- `GitClient.branchReports` (a publisher) → `GitHubStore.branchChanged`, subscribed by `FeatureFlowCoordinator` (`Models/Workspace/FeatureFlowCoordinator.swift`).
 - `GitHubStore.$selectedRepo` → the PR review's `gitHubRepo` (PR X-Ray follows the selected repo), subscribed once in `WindowComposition.connect`; see [architecture-and-xray](architecture-and-xray.md).
 - `GitHubStore.polls` (a publisher of the repository's client, sent on every poll) → `FeatureStore.syncLifecycle(with:)`, subscribed by `FeatureFlowCoordinator` — the only path from the
   lifecycle log to GitHub (section C).

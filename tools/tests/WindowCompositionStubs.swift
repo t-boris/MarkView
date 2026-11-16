@@ -73,6 +73,7 @@ enum TabsEvent {
     init() { Journal.built.append("gitClient") }
     func refreshStatus() async { statusLooks += 1 }
     func refresh() async { looks += 1 }
+    func close() { Journal.shutdown.append("gitClient") }
 }
 
 @MainActor final class ResearchMapController {
@@ -120,7 +121,7 @@ enum TabsEvent {
 
 @MainActor final class FileOperationsController {
     let tabs: TabsController
-    init(host: any FileOperationsHost, tabs: TabsController, project: ProjectContext) {
+    init(host: any FileOperationsHost, tabs: TabsController, project: ProjectContext, tasks: TaskBag) {
         self.tabs = tabs
         Journal.built.append("fileOperations")
     }

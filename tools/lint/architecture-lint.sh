@@ -7,7 +7,7 @@
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
 #   target-membership    every MarkView/**/*.swift on disk is a file reference and a Sources build file of the Xcode target in
 #                        MarkView.xcodeproj/project.pbxproj, and every Swift file the project references exists on disk
-#   semantic-database-actor  MarkView/Models/Insight/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
+#   semantic-database-actor  MarkView/Models/Shared/SemanticDatabase.swift declares `actor SemanticDatabase` and no @MainActor, so
 #                        none of its sqlite3 calls can run on the main thread (AR-37)
 #   bridge-no-bypass     (AR-28) the editor page's scripts send through mvBridge.send only: no `messageHandlers` in
 #                        Editor/js/*.js (except mv-kit.js, the one sender, and markview-ui-studio-*.js, a different host) or in
@@ -56,10 +56,12 @@
 #   unowned-task         (AR-19) a `Task { }`, `Task.detached`, `Timer`, or `.asyncAfter` that is not stored (TaskBag or a task property), not
 #                        awaited in place and not justified by a `// task: <why it needs no owner>` comment: work that nothing cancels
 #                        when its window, folder or tool tab closes. Classified by tools/lint/task-ownership.sh  tools/lint/unowned-task-allowlist.txt
-#   domain-cycles        (AR-21) a back-edge between two domain folders of Models (or of Views) that depend on each other: the count is the
-#                        number of types the back-edge names (tools/lint/domain-dependencies.py measures it; `--why A B` lists them).
-#                        `<count> Models/<from> -> Models/<to>  # why it stays` in tools/lint/domain-cycles-allowlist.txt; a pair that
-#                        becomes a cycle is a new entry the lint refuses until a person writes it down with its reason
+#   domain-cycles        (AR-20, AR-21) a back-edge between domain folders of Models (or of Views): a domain naming a type of a higher layer
+#                        (Appearance < Shared < AI < feature domains < Workspace; Workspace is named by no feature domain), or one side of two
+#                        feature domains that name each other. The count is the number of types the back-edge names
+#                        (tools/lint/domain-dependencies.py measures it; `--why A B` lists them).
+#                        `<count> Models/<from> -> Models/<to>  # why it stays` in tools/lint/domain-cycles-allowlist.txt; a new back-edge
+#                        is a new entry the lint refuses until a person writes it down with its reason
 #   window-wiring        (AR-17) three lists: closure `var` hooks of Models classes and protocols (window-wiring-hooks.txt), Models that hold
 #                        the whole WorkspaceManager or a back-reference set after construction (window-wiring-backrefs.txt), and hooks that a
 #                        view writes into the window's models (window-wiring-views.txt)
@@ -339,8 +341,9 @@ else:
 
 # --- domain-cycles (AR-21)
 def domain_back_edges():
-    """{`<layer>/<from> -> <layer>/<to>`: types} for the back-edge of every pair of domain folders that depend on each other.
-    The direction an allow-list entry names stays the back-edge; a new pair gets the heuristic of domain-dependencies.py."""
+    """{`<layer>/<from> -> <layer>/<to>`: types} for every back-edge between domain folders: an edge that points up the layering of
+    domain-dependencies.py (Appearance < Shared < AI < feature domains < Workspace), and one side of two feature domains that name
+    each other. The direction an allow-list entry names stays the back-edge of such a pair; a new pair gets the lighter side."""
     spec = importlib.util.spec_from_file_location("domain_dependencies", lint_dir / "domain-dependencies.py")
     measuring = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(measuring)
@@ -352,18 +355,19 @@ def domain_back_edges():
             preferred.setdefault(found.group(1), set()).add((found.group(2), found.group(4)))
     counts = {}
     for layer, measured in measuring.measure(root).items():
-        for pair in measured["pairs"]:
-            source, target, weight, _ = measuring.back_edge(pair, preferred.get(layer, set()))
+        for source, target, weight, _ in measuring.back_edges(measured, preferred.get(layer, set())):
             counts[f"{layer}/{source} -> {layer}/{target}"] = weight
     return counts
 
-ratchet("domain-cycles", "domain-cycles-allowlist.txt", "type(s) named back across a cycle", domain_back_edges(),
-        "# Back-edges between domain folders that depend on each other (AR-21): `<types> <layer>/<from> -> <layer>/<to>  # why it stays`. The\n"
-        "# types are the ones <from> names that <to> declares (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them).\n"
-        "# A ratchet that only falls: remove the dependency (a protocol in the lower domain, or move the type) and run --tighten; the goal is an\n"
-        "# empty list. The back-edge points away from `Workspace`, which composes the others; a pair that is not listed gets the lighter\n"
-        "# direction. A new cycle is written here by a person, with the reason it stays.",
-        unit="pair(s)")
+ratchet("domain-cycles", "domain-cycles-allowlist.txt", "type(s) named against the layering or across a cycle", domain_back_edges(),
+        "# Back-edges between domain folders (AR-20, AR-21): `<types> <layer>/<from> -> <layer>/<to>  # why it stays`. The layering, lowest\n"
+        "# first, is Appearance, Shared, AI, the feature domains, Workspace (tools/lint/domain-dependencies.py): a domain may name its own\n"
+        "# rank and the ranks below, so an edge up the layering is a back-edge, and so is one side of two feature domains that name each\n"
+        "# other (the lighter one, or the one named here). The types are the ones <from> names that <to> declares\n"
+        "# (tools/lint/domain-dependencies.py --layer <layer> --why <from> <to> lists them). A ratchet that only falls: remove the dependency\n"
+        "# (a protocol in the lower domain, or move the type) and run --tighten; the goal is an empty list. A new back-edge is written here\n"
+        "# by a person, with the reason it stays.",
+        unit="back-edge(s)")
 
 # --- window-wiring (AR-17)
 # A window's object graph is built in one place (WindowComposition). A feature gets what it needs of the window through a narrow
@@ -445,7 +449,7 @@ ratchet("window-wiring", "window-wiring-views.txt", "hook(s) a view writes into 
         label="window-wiring (views)")
 
 # --- semantic-database-actor
-database = root / "MarkView" / "Models" / "Insight" / "SemanticDatabase.swift"
+database = root / "MarkView" / "Models" / "Shared" / "SemanticDatabase.swift"
 if database.is_file():
     if not any(re.match(r"\s*actor\s+SemanticDatabase\b", line) for _, line in code_lines(database)):
         violations.append(("semantic-database-actor", f"{rel(database)}: `SemanticDatabase` must be declared as an `actor`; its SQLite calls must not run on the main thread"))

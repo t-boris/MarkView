@@ -32,9 +32,9 @@ final class ToolTabsRouter: ToolOpening {
     private let terminals: any AssistantProviding & AssistantPrompting
 
     /// Where the project runs and how each place is doing (the Deployments tab), and the assistant questions about it.
-    private(set) lazy var deployments = DeploymentsHost(project: project, assistants: terminals, tabs: self)
+    private(set) lazy var deployments = DeploymentsHost(project: project, assistants: terminals, showTab: { [weak self] in self?.open(.deployments) })
     /// Questions asked before there is a feature, answered as pages (the Discussions tab).
-    private(set) lazy var discussions = DiscussionsHost(project: project, tabs: self)
+    private(set) lazy var discussions = DiscussionsHost(project: project, showTab: { [weak self] in self?.open(.discussions) })
     /// The state of the Workflow tab: the draft being edited survives a switch to another tab.
     let workflowEditor = WorkflowEditorModel()
     /// End-to-End QA: the scenarios of the project and the one being edited.
@@ -60,8 +60,8 @@ final class ToolTabsRouter: ToolOpening {
     /// What opening the tool does beyond showing its tab. Every tool of the registry that is not listed opens as a plain `.tool` tab.
     private func opener(for id: ToolID) -> ToolOpener {
         switch id {
-        case .deployments: return deployments.opener
-        case .discussions: return discussions.opener
+        case .deployments: return ToolOpener(prepare: { [unowned self] root in deployments.prepare(root) })
+        case .discussions: return ToolOpener(prepare: { [unowned self] root in discussions.prepare(root) })
         case .workflow: return ToolOpener(prepare: { [unowned self] _ in window.hostWindow?.makeKeyAndOrderFront(nil) })
         case .qa:
             return ToolOpener(prepare: { [unowned self] root in
@@ -69,6 +69,9 @@ final class ToolTabsRouter: ToolOpening {
                 qa.attach(root: root)
                 if qa.run.bugFiler == nil { qa.run.bugFiler = QABugFiler(sink: QAFeatureStoreBugSink(store: features)) }
                 qa.archive.bugFiler = qa.run.bugFiler
+                // A run that a Cockpit result links is never deleted.
+                qa.run.runLinks = CockpitRunLinks()
+                qa.archive.runLinks = qa.run.runLinks
             })
         case .uiStudio: return uiStudio.opener
         case .cockpit: return cockpit.opener

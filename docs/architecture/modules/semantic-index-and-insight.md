@@ -24,7 +24,7 @@ What this subsystem owns:
 - **Workspace database engine.** `SemanticDatabase` is an `actor` over the system `SQLite3` C API (`AR-37`): the connection
   belongs to the actor, so no statement runs on the main thread. It opens `.dde/state.db` through `SQLiteSchema` and
   `SemanticSchema.migrations` (`AR-38`), which create 35 tables, and gives typed helpers to the rest of the app
-  (`MarkView/Models/Insight/SemanticDatabase.swift`, `SemanticSchema.swift`; the architecture snapshot helpers are in
+  (`MarkView/Models/Shared/SemanticDatabase.swift`, `SemanticSchema.swift`; the architecture snapshot helpers are in
   `MarkView/Models/Architecture/SemanticDatabase+Architecture.swift`).
 - **Structural (no-LLM) indexing.** `StructuralIndexer` walks the folder once. It records directories as `modules`, each `.md`
   file as a `documents` row, headings, links and code fences as `symbols`, Markdown links as `struct_relations`, and the full
@@ -66,11 +66,11 @@ What it does **not** own:
 
 | Path | Role |
 |---|---|
-| `MarkView/Models/Insight/SemanticDatabase.swift` | The `actor`: open, typed helpers for documents, blocks, modules, symbols, relations, FTS, usage stats |
-| `MarkView/Models/Insight/SemanticSchema.swift` | The ordered `SemanticSchema.migrations` (version 1 = docId scheme, version 2 = the 6.26 table set), the pragmas and the busy timeout |
+| `MarkView/Models/Shared/SemanticDatabase.swift` | The `actor`: open, typed helpers for documents, blocks, modules, symbols, relations, FTS, usage stats |
+| `MarkView/Models/Shared/SemanticSchema.swift` | The ordered `SemanticSchema.migrations` (version 1 = docId scheme, version 2 = the 6.26 table set), the pragmas and the busy timeout |
 | `Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift` | `SQLiteMigration`, `SQLiteSchema.open`: version check, migration steps in one transaction each, backup of an unreadable file |
 | `MarkView/Models/Architecture/SemanticDatabase+Architecture.swift` | `saveArchitecture` / `loadArchitecture` and the review cache over the `arch_*` tables |
-| `MarkView/Models/Insight/SemanticModels.swift` | `SemanticBlock` and `BlocksDelta` (the editor's block deltas) |
+| `MarkView/Models/Shared/SemanticModels.swift` | `SemanticBlock` and `BlocksDelta` (the editor's block deltas) |
 | `MarkView/Models/Insight/SemanticUsage.swift` | `CLICompletion.Result.record(in:)`: queues `addUsage` on the database actor |
 | `MarkView/Models/Architecture/StructuralIndexer.swift` | Deterministic tree walk + Markdown parse → modules, documents, symbols, relations, FTS |
 | `MarkView/Models/Insight/GraphRAG.swift` | Insight prompt builder: Phase 0 classifier, Phase 1 skeleton (structured JSON call), Phase 2 per-section prompts, catalog mode, prompt-injection escaping |

@@ -1623,6 +1623,8 @@ struct QALoginForm: View {
     let save: (String, String, String) async -> Bool
     @State private var saving = false
     @State private var failed = false
+    /// Asks for the save; the `.task` that follows it ends with the form, and a newer request replaces an older one.
+    @State private var submission: UUID?
 
     private var host: String? { PasswordRules.host(fromInput: draft.host) }
     private var valid: Bool { host != nil && !draft.username.isEmpty && !draft.password.isEmpty }
@@ -1644,23 +1646,22 @@ struct QALoginForm: View {
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
-                Button("Save") { submit() }
+                Button("Save") { submission = UUID() }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
                     .disabled(!valid || saving)
             }
         }
         .padding(12)
         .frame(width: 300)
+        .task(id: submission) { await submit() }
     }
 
-    private func submit() {
-        guard let host, valid else { return }
+    private func submit() async {
+        guard submission != nil, let host, valid else { return }
         saving = true; failed = false
-        let username = draft.username, password = draft.password
-        Task {
-            let saved = await save(host, username, password)
-            saving = false
-            failed = !saved
-        }
+        let saved = await save(host, draft.username, draft.password)
+        guard !Task.isCancelled else { return }
+        saving = false
+        failed = !saved
     }
 }

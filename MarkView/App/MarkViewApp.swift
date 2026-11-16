@@ -68,6 +68,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // task: the quit itself: it answers `.terminateLater` and replies when the stores have saved; nothing may cancel it
         Task { @MainActor in
             guard await ProjectOperationsStore.stopAllBeforeQuit() else {
                 sender.reply(toApplicationShouldTerminate: false)
@@ -174,6 +175,7 @@ enum DDEIndexerRunner {
     static func run(folderPath: String) -> Never {
         let url = URL(fileURLWithPath: folderPath)
         err("start \(folderPath)")
+        // task: the child process is this task: it ends the process with exit(), and nothing in a headless run can cancel it
         Task {
             do {
                 let db = try await SemanticDatabase.open(workspacePath: url)
@@ -352,7 +354,7 @@ struct MarkViewApp: App {
 
                 Menu("Layout") {
                     LayoutMenuItems(library: layouts.library, enabled: activeWorkspaceHasFolder == true,
-                                    apply: { activeWorkspace?.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+                                    apply: { activeWorkspace?.applyLayoutPreset($0) }, reload: { layouts.startReload() })
                 }
             }
 
@@ -507,7 +509,7 @@ enum DDESettingsWindow {
         shownWorkspace = workspace
         let size = window.contentLayoutRect.size
         let hosting = NSHostingView(
-            rootView: DDESettingsView()
+            rootView: DDESettingsView(terminals: workspace.terminals)
                 .environmentObject(workspace)
                 .environmentObject(workspace.windowUI)
                 .observingParts(of: workspace)
@@ -527,7 +529,7 @@ enum DDESettingsWindow {
 extension NotificationCenter {
     /// Posts a notification that is for one window only: every window's observers hear it, and the ones of other windows ignore it
     /// (`Notification.isFor`). A scroll, a reveal or an export started in one window must not move another window.
-    func post(_ name: Notification.Name, for workspace: WorkspaceManager, object: Any? = nil, userInfo: [AnyHashable: Any] = [:]) {
+    func post(_ name: Notification.Name, for workspace: any WindowCommands, object: Any? = nil, userInfo: [AnyHashable: Any] = [:]) {
         var info = userInfo
         info[Notification.workspaceKey] = ObjectIdentifier(workspace)
         post(name: name, object: object, userInfo: info)
@@ -538,7 +540,7 @@ extension Notification {
     static let workspaceKey = "workspace"
 
     /// True when this notification was posted for `workspace`'s window. One posted for no window is for none.
-    func isFor(_ workspace: WorkspaceManager) -> Bool {
+    func isFor(_ workspace: any WindowCommands) -> Bool {
         (userInfo?[Self.workspaceKey] as? ObjectIdentifier) == ObjectIdentifier(workspace)
     }
 }

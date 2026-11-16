@@ -1,4 +1,4 @@
-// Checks the browser tab's pure rules (MarkView/Models/Workspace/WebAppPreview.swift, WebClip.swift,
+// Checks the browser tab's pure rules (MarkView/Models/Browser/WebAppPreview.swift, WebClip.swift,
 // BrowserAddress in BrowserSession.swift) and runs the page-to-Markdown converter
 // (Resources/Editor/js/markview-page-markdown.js) in a real WKWebView.
 import AppKit

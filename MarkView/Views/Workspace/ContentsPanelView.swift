@@ -10,6 +10,8 @@ import MarkViewCore
 struct ContentsPanelView<Headings: View>: View {
     @Environment(\.palette) private var palette
     let tab: OpenTab
+    /// The window's terminals, for the facts of a terminal tab.
+    let terminals: AITerminalsController
     @ViewBuilder let headings: () -> Headings
     @WindowStorage(Setting.contentsInfoExpanded) private var infoExpanded: Bool
 
@@ -41,7 +43,7 @@ struct ContentsPanelView<Headings: View>: View {
             case .uiStudio(let session):
                 UIStudioContentsPanel(session: session).id(session.id)
             default:
-                TabFactsPanel(tab: tab)
+                TabFactsPanel(tab: tab, terminals: terminals)
             }
         }
         .background(palette.bgSidebar)
@@ -141,7 +143,6 @@ struct HTMLPreviewView: NSViewRepresentable {
 /// An archive in the panel: facts, a filter and the entries (a click opens the file).
 struct ArchiveContentsPanel: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     @StateObject private var model: ArchiveModel
 
     init(url: URL) { _model = StateObject(wrappedValue: ArchiveModel(url: url)) }
@@ -184,7 +185,7 @@ struct ArchiveContentsPanel: View {
 /// The keys of a JSON or YAML file as a tree; a click jumps to the key in the file.
 struct StructureOutlineList: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
     let url: URL
     /// The text as edited, so the outline follows typing.
     let text: String
@@ -210,7 +211,7 @@ struct StructureOutlineList: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(shown) { item in
-                            Button { workspaceManager.revealStructure(url, item: item) } label: {
+                            Button { window?.revealStructure(url, item: item) } label: {
                                 HStack(spacing: 4) {
                                     Color.clear.frame(width: CGFloat(filter.isEmpty ? item.depth : 0) * 12, height: 1)
                                     Circle().fill(palette.textDim.opacity(0.4)).frame(width: 5, height: 5)
@@ -240,30 +241,10 @@ struct StructureOutlineList: View {
     }
 }
 
-/// A label and a value, in the style of the file facts.
-struct FactRows: View {
-    @Environment(\.palette) private var palette
-    let rows: [(String, String)]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(row.0).uiFont(size: 10).foregroundColor(palette.textDim).frame(width: 70, alignment: .leading)
-                    Text(row.1).uiFont(size: 10).foregroundColor(palette.text).textSelection(.enabled)
-                        .lineLimit(4).truncationMode(.middle)
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// What a terminal, GitHub, X-Ray or Insight tab is: facts only (these tabs have no outline of their own).
 struct TabFactsPanel: View {
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     let tab: OpenTab
+    let terminals: AITerminalsController
 
     var body: some View {
         ScrollView { FactRows(rows: rows).padding(10) }
@@ -273,7 +254,7 @@ struct TabFactsPanel: View {
         switch tab.kind {
         case .terminal(let id):
             var rows: [(String, String)] = [("Tab", "Terminal")]
-            if let session = workspaceManager.terminals.tabTerminal(id) {
+            if let session = terminals.tabTerminal(id) {
                 rows.append(("Runs", session.profile == .shell ? "Shell" : session.profile.rawValue.capitalized))
                 rows.append(("Status", session.isRunning ? "Running" : "Exited" + (session.exitCode.map { " (code \($0))" } ?? "")))
                 rows.append(("Folder", session.directory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")))
@@ -286,7 +267,7 @@ struct TabFactsPanel: View {
             case .run(let id, let repo, let title): return [("Tab", "GitHub Actions run"), ("Repository", repo), ("Run", String(id)), ("Title", title)]
             }
         case .architecture(let scope):
-            return [("Tab", "X-Ray"), ("Scope", scope.isEmpty ? "Whole project" : scope == TabKind.pullRequestScope ? "Pull request" : scope)]
+            return [("Tab", "X-Ray"), ("Scope", scope.isEmpty ? "Whole project" : scope == XRayScope.pullRequest ? "Pull request" : scope)]
         default:
             return [("Tab", tab.displayName)]
         }
@@ -332,6 +313,8 @@ final class BrowserOutlineModel: ObservableObject {
     @Published private(set) var links = 0
     let session: BrowserSession
     private static let selector = "h1,h2,h3,h4,h5,h6"
+    /// The page reads this panel started: they end with the panel, and a new one replaces its own kind (`AR-19`).
+    private let tasks = TaskBag()
 
     init(session: BrowserSession) { self.session = session }
 
@@ -347,10 +330,11 @@ final class BrowserOutlineModel: ObservableObject {
 
     func reload() {
         guard session.url != nil else { headings = []; links = 0; return }
-        Task { [weak self] in
+        tasks.store(Task { [weak self] in
             guard let self,
                   let value = try? await session.webView.callAsyncJavaScript(
                       Self.outlineScript, arguments: ["selector": Self.selector], in: nil, contentWorld: .page),
+                  !Task.isCancelled,
                   let text = value as? String, let data = text.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
             let list = (object["h"] as? [[String: Any]] ?? []).compactMap { entry -> Heading? in
@@ -359,14 +343,14 @@ final class BrowserOutlineModel: ObservableObject {
             }
             self.headings = list
             self.links = object["a"] as? Int ?? 0
-        }
+        }, for: "reload")
     }
 
     func scroll(to heading: Heading) {
-        Task { [session] in
+        tasks.store(Task { [session] in
             _ = try? await session.webView.callAsyncJavaScript(
                 Self.scrollScript, arguments: ["selector": Self.selector, "index": heading.id], in: nil, contentWorld: .page)
-        }
+        }, for: "scroll")
     }
 }
 

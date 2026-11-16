@@ -8,14 +8,17 @@ import MarkViewCore
 /// Settings panel for DDE — AI CLI (assistant, model, paths), voice input, maintenance
 struct DDESettingsView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var project: ProjectContext
+    @Environment(\.windowCommands) private var window
+    /// The window's terminals, which the remote-connection settings work with.
+    let terminals: AITerminalsController
     @State private var openaiKey: String = ""
     @AppStorage(Setting.outputLanguage) private var outputLanguage: String
     @AppStorage(Setting.researchTimeoutMinutes) private var researchTimeout: Int
     @AppStorage(Setting.autoAnalyze) private var autoAnalyze: Bool
     @AppStorage(Setting.fontScalePercent) private var fontScalePercent: Int
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
-    private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
+    private var workspaceTransparency: Double { transparencyStore.value(for: project.projectFolder) }
     @State private var showKey = false
     @State private var showDone = false
     @State private var saved = false
@@ -35,6 +38,9 @@ struct DDESettingsView: View {
     @StateObject private var whisperClient = WhisperClient()
     @State private var whisperTesting = false
     @State private var whisperTestResult: String?
+    /// The checks this panel started (CLI probes, the key check, the Whisper self-test): they end when the panel closes, and a new
+    /// check replaces the running one of its kind (`AR-19`).
+    @State private var tasks = TaskBag()
 
     /// Shows and edits the validated value, so an invalid stored value starts from 100%.
     private var fontScaleBinding: Binding<Int> {
@@ -63,9 +69,9 @@ struct DDESettingsView: View {
                     }
                     HStack {
                         Text("Workspace transparency: \(Int(workspaceTransparency * 100))%")
-                        Slider(value: transparencyStore.binding(for: workspaceManager.projectFolder), in: 0...0.7, step: 0.05)
-                            .disabled(workspaceManager.projectFolder == nil)
-                        Button("Reset") { transparencyStore.set(0, for: workspaceManager.projectFolder) }.disabled(workspaceTransparency == 0)
+                        Slider(value: transparencyStore.binding(for: project.projectFolder), in: 0...0.7, step: 0.05)
+                            .disabled(project.projectFolder == nil)
+                        Button("Reset") { transparencyStore.set(0, for: project.projectFolder) }.disabled(workspaceTransparency == 0)
                     }
                     Text("Shows this project’s selected welcome background behind its workspace panels. Some embedded content retains its own background.")
                         .uiFont(size: 9).foregroundColor(palette.textDim)
@@ -106,7 +112,7 @@ struct DDESettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         // The window's project, as its toolbar menu edits it; other projects keep
                         // theirs (BUG-022). Without a project these are the defaults.
-                        let project = workspaceManager.aiProject
+                        let project = project.aiProject
                         Text(project.map { "Assistant & model for \($0.lastPathComponent)" } ?? "Default assistant & model")
                             .uiFont(.caption, weight: .bold)
                         Text(project == nil
@@ -242,7 +248,7 @@ struct DDESettingsView: View {
 
             GitHubSettingsSection()
 
-            RemoteSettingsSection(terminals: workspaceManager.terminals)
+            RemoteSettingsSection(terminals: terminals)
 
             GroupBox("Workflow templates") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -261,9 +267,9 @@ struct DDESettingsView: View {
                         Text(VariantTemplate.allCases.map(\.title).joined(separator: "; ") + ". They keep the transitions of the type.")
                             .uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     }
-                    Button("Open the project's Workflow tab") { workspaceManager.openTool(.workflow) }
-                        .disabled(workspaceManager.projectFolder == nil)
-                        .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Configure this project's statuses, transitions and processes")
+                    Button("Open the project's Workflow tab") { window?.openTool(.workflow) }
+                        .disabled(project.projectFolder == nil)
+                        .help(project.projectFolder == nil ? "Open a project folder first" : "Configure this project's statuses, transitions and processes")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(6)
             }
@@ -273,29 +279,29 @@ struct DDESettingsView: View {
                     Text("What “done” means for an implementation goal: a fresh branch from origin/main, up-to-date records and GitHub issues, everything committed, a pull request with green CI, tests, deploy… Each item can be required, asked about or skipped; you can also change it just before a run. It guides the assistant; what a status change needs is set in the project workflow above.")
                         .uiFont(.caption).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Button("Definition of Done…") { showDone = true }
-                        .disabled(workspaceManager.projectFolder == nil)
-                        .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Choose what the assistant must finish")
+                        .disabled(project.projectFolder == nil)
+                        .help(project.projectFolder == nil ? "Open a project folder first" : "Choose what the assistant must finish")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(6)
             }
-            .sheet(isPresented: $showDone) { DefinitionOfDoneSheet(root: workspaceManager.projectFolder) }
+            .sheet(isPresented: $showDone) { DefinitionOfDoneSheet(root: project.projectFolder) }
 
             // Clear database
             GroupBox("Maintenance") {
                 VStack(alignment: .leading, spacing: 8) {
-                    if let folder = workspaceManager.rootNode?.url {
+                    if let folder = project.rootNode?.url {
                         Text("MarkView data stored in “\(folder.lastPathComponent)”: the search index, architecture, AI descriptions and filters, file contents and Insight pages. Documents and code are never touched.")
                             .uiFont(.caption)
                             .foregroundColor(palette.textDim)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack {
                             Button {
-                                workspaceManager.removeMetadata(recreate: true)
+                                window?.removeMetadata(recreate: true)
                             } label: {
                                 Label("Recreate Metadata…", systemImage: "arrow.clockwise")
                             }
                             Button(role: .destructive) {
-                                workspaceManager.removeMetadata(recreate: false)
+                                window?.removeMetadata(recreate: false)
                             } label: {
                                 Label("Remove Metadata…", systemImage: "trash")
                             }
@@ -412,11 +418,12 @@ struct DDESettingsView: View {
 
     private func probeCLI(_ tool: CLITool) {
         cliProbing.insert(tool)
-        Task {
+        tasks.store(Task {
             let result = await CLIToolLocator.probe(tool)
+            guard !Task.isCancelled else { return }
             cliProbes[tool] = result
             cliProbing.remove(tool)
-        }
+        }, for: "probe-" + tool.rawValue)
     }
 
     private func loadCLISettings() {
@@ -482,11 +489,12 @@ struct DDESettingsView: View {
     private func runWhisperTest() {
         whisperTesting = true
         whisperTestResult = nil
-        Task {
+        tasks.store(Task {
             let result = await whisperClient.runSelfTest()
+            guard !Task.isCancelled else { return }
             whisperTestResult = result
             whisperTesting = false
-        }
+        }, for: "whisper-test")
     }
 
     @ViewBuilder
@@ -511,13 +519,14 @@ struct DDESettingsView: View {
 
     private func verifyOpenAIKey(_ key: String) {
         openaiStatus = .checking
-        Task {
+        tasks.store(Task {
             var request = URLRequest(url: URL(string: "https://api.openai.com/v1/models")!)
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
             request.timeoutInterval = 10
 
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
+                guard !Task.isCancelled else { return }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if status == 200 {
                     openaiStatus = .valid
@@ -532,9 +541,10 @@ struct DDESettingsView: View {
                     }
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 openaiStatus = .invalid(error.localizedDescription)
             }
-        }
+        }, for: "openai-key")
     }
 }
 

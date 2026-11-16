@@ -10,5 +10,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/QABugsChecks.swift "$out/main.swift"
-swiftc -O -o "$out/qabugs" "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAEffort.swift" "$M/QA/QATriage.swift" "$M/QA/QABugs.swift" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$M/QA/QABugFiler.swift" "$M/Workspace/FrontMatter.swift" "$M/Lifecycle/BugReportWriter.swift" "$M/Lifecycle/FeatureVocabulary.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
+swiftc -O -o "$out/qabugs" "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAEffort.swift" "$M/QA/QATriage.swift" "$M/QA/QABugs.swift" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$M/QA/QABugFiler.swift" "$M/Shared/FrontMatter.swift" "$M/Lifecycle/BugReportWriter.swift" "$M/Lifecycle/FeatureVocabulary.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 "$out/qabugs"

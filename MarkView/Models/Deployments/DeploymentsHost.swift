@@ -9,22 +9,21 @@ final class DeploymentsHost {
     let advisor = DeploymentAdvisor()
     private let project: any ProjectProviding
     private let assistants: any AssistantPrompting
-    private weak var tabs: (any ToolOpening)?
+    /// Brings the Deployments tab forward (the window's own way to open a tool).
+    private let showTab: () -> Void
     /// Follows the store's request for the tab; started when the tab is first opened.
     private var attention: AnyCancellable?
 
-    init(project: any ProjectProviding, assistants: any AssistantPrompting, tabs: any ToolOpening) {
+    init(project: any ProjectProviding, assistants: any AssistantPrompting, showTab: @escaping () -> Void) {
         self.project = project
         self.assistants = assistants
-        self.tabs = tabs
+        self.showTab = showTab
     }
 
     /// What opening the Deployments tab does: the store reads the project's folder, and asks for the tab when an approval waits.
-    var opener: ToolOpener {
-        ToolOpener(prepare: { [unowned self] root in
-            store.setRoot(root)
-            attention = store.needsAttention.sink { [weak self] in self?.tabs?.open(.deployments) }
-        })
+    func prepare(_ root: URL) {
+        store.setRoot(root)
+        attention = store.needsAttention.sink { [weak self] in self?.showTab() }
     }
 
     /// The folder finished opening: the store reads it, also when the tab was never opened (agents use the store).

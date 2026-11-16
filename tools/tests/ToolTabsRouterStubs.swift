@@ -76,15 +76,18 @@ final class CockpitSession {
 @MainActor
 protocol CockpitQAWindow: AnyObject {
     var qa: QAModel { get }
-    func openTool(_ id: ToolID)
+    func showQATool()
 }
 
 @MainActor
-protocol CockpitWindow: CockpitQAWindow, TabsProviding {
+protocol CockpitWindow: CockpitQAWindow {
     var hostWindow: NSWindow? { get }
     func showAIConsole()
     var assistants: any AssistantProviding { get }
     var features: FeatureStore { get }
+    var cockpitTabIsActive: Bool { get }
+    func showCockpitTool()
+    func openFile(_ url: URL)
 }
 
 @MainActor
@@ -94,8 +97,11 @@ protocol QABugSink {}
 struct QAFeatureStoreBugSink: QABugSink { init(store: FeatureStore) {} }
 final class QABugFiler { init(sink: any QABugSink) {} }
 
+protocol QARunLinks: Sendable {}
+struct CockpitRunLinks: QARunLinks {}
+
 @MainActor
-final class QARunSlot { var bugFiler: QABugFiler? }
+final class QARunSlot { var bugFiler: QABugFiler?; var runLinks: (any QARunLinks)? }
 
 @MainActor
 final class QAModel {
