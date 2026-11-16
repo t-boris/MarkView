@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 229,
+  "suiteCount": 227,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1993,22 +1993,6 @@
       ]
     },
     {
-      "name": "phase2-core-tests",
-      "script": "tools/tests/phase2-core-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "Packages/MarkViewCore/Package.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "Packages/MarkViewCore/Tests/MarkViewCoreTests/MarkViewCoreTests.swift",
-        "Packages/MarkViewCore/Tests/MarkViewCoreTests/SubprocessProcessGroupTests.swift",
-        "tools/tests/Phase2CoreTests.swift"
-      ]
-    },
-    {
       "name": "phase3-extensibility-tests",
       "script": "tools/tests/phase3-extensibility-tests.sh",
       "tier": "pure",
@@ -2100,15 +2084,6 @@
         "MarkView/Resources/Editor/js/mv-kit.js",
         "tools/tests/Phase7WebCITests.swift",
         "MarkView/Resources/Editor/js/bridge-contract.json"
-      ]
-    },
-    {
-      "name": "private-socket-tests",
-      "script": "tools/tests/private-socket-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/PrivateSocketTests.swift"
       ]
     },
     {

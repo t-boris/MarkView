@@ -153,7 +153,7 @@ func runPhase6Tests() async {
     check(((try? FileManager.default.attributesOfItem(atPath: modeURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0) == 0o640, "AR-39: a save keeps the mode the file already had")
 
     // 2. AR-40: the control socket token, its file, the peer check and the shared server protection are checked over real
-    //    sockets by tools/tests/private-socket-tests.sh (and, per server, remote-browser-, remote-workspace- and cockpit-host-bridge-tests).
+    //    sockets by the MarkViewCore PrivateSocketTests (and, per server, remote-browser-, remote-workspace- and cockpit-host-bridge-tests).
     let ancestors = BrowserAgentTools.ancestorPIDs(startingAt: getpid())
     check(ancestors.first == getpid(), "AR-40: ancestorPIDs(startingAt:) starts from kernel-verified peer PID")
 
