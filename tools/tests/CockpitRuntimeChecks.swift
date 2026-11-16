@@ -195,6 +195,15 @@ private actor Latch {
                                    plan: action == "start" ? plan : nil, approval: approval, command: nil, tls: endpoint.tls)
         }
         _ = try await service.request(waitingRequest("start", endpoint: endpoint))
+        var readyToRestart = false
+        for _ in 0..<90 {
+            if let data = try? await service.request(waitingRequest("state", endpoint: endpoint)),
+               let value = try? JSONDecoder().decode(TemporalState.self, from: data), value.status == "awaiting-approval" {
+                readyToRestart = true; break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        guard readyToRestart else { fatalError("workflow did not reach approval before restart") }
         worker.stop(); bridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard AgentProcesses.count == 0 else { fatalError("local helper processes did not stop") }
@@ -207,13 +216,24 @@ private actor Latch {
         }
         let newWorker = try await service.worker(socket: newBridge.path, queue: queue)
         var restored: TemporalState?
+        var lastRestoreStatus = "no response"
+        var lastRestoreError = "none"
         let restoreDeadline = Date().addingTimeInterval(90)
         while Date() < restoreDeadline {
-            if let data = try? await service.request(waitingRequest("state", endpoint: restarted)),
-               let value = try? JSONDecoder().decode(TemporalState.self, from: data), value.status == "awaiting-approval" { restored = value; break }
+            do {
+                let data = try await service.request(waitingRequest("state", endpoint: restarted))
+                let value = try JSONDecoder().decode(TemporalState.self, from: data)
+                lastRestoreStatus = value.status
+                if value.status == "awaiting-approval" { restored = value; break }
+            } catch {
+                lastRestoreError = error.localizedDescription
+            }
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
-        guard restored?.status == "awaiting-approval", await afterRestart.tasks.isEmpty else { fatalError("restart resumed work without approval") }
+        guard restored?.status == "awaiting-approval" else {
+            fatalError("persisted workflow was not restored: last status \(lastRestoreStatus), last error \(lastRestoreError)")
+        }
+        guard await afterRestart.tasks.isEmpty else { fatalError("restart resumed work without approval") }
         _ = try await service.request(waitingRequest("approve", endpoint: restarted, approval: CockpitTemporalApproval(fingerprint: plan.fingerprint, step: 0)))
         var resumed: TemporalState?
         let resumeDeadline = Date().addingTimeInterval(90)
