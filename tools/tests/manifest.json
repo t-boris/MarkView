@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 223,
+  "suiteCount": 224,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -109,6 +109,16 @@
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+      ]
+    },
+    {
+      "name": "ai-call-log-tests",
+      "script": "tools/tests/ai-call-log-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/AI/AICallLog.swift",
+        "tools/tests/AICallLogTests.swift"
       ]
     },
     {

@@ -72,7 +72,7 @@ final class LifecycleLog: ObservableObject {
         let url = url
         queue.async {
             do {
-                try Self.append(data + Data("\n".utf8), to: url)
+                try AtomicFile.append(data + Data("\n".utf8), to: url)
             } catch {
                 let message = "Could not save the delivery evidence: \(error.localizedDescription)"
                 Task { @MainActor in LifecycleLog.shared.lastError = message }
@@ -102,19 +102,6 @@ final class LifecycleLog: ObservableObject {
                 Task { @MainActor in LifecycleLog.shared.lastError = message }
             }
         }
-    }
-
-    nonisolated private static func append(_ data: Data, to url: URL) throws {
-        let fm = FileManager.default
-        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: url.path) {
-            try data.write(to: url, options: .withoutOverwriting)
-            return
-        }
-        let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: data)
     }
 
     func clearError() { lastError = nil }

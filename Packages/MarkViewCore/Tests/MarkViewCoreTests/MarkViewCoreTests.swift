@@ -280,6 +280,76 @@ final class MarkViewCoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: document).count, payload.count)
     }
 
+    // MARK: AtomicFile.append (AR-24)
+
+    func testAtomicFileAppendCreatesTheFileAndItsFolderThenAddsToIt() throws {
+        let root = try makeScratchFolder()
+        let log = root.appendingPathComponent("logs/deep/events.jsonl")
+        try AtomicFile.append(Data("one\n".utf8), to: log)
+        try AtomicFile.append(Data("two\n".utf8), to: log)
+        XCTAssertEqual(try String(contentsOf: log, encoding: .utf8), "one\ntwo\n")
+        XCTAssertEqual(try mode(of: log) & 0o777, 0o644 & ~Int(umaskValue()), "a new log gets the default mode")
+
+        let secret = root.appendingPathComponent("secret.log")
+        try AtomicFile.append(Data("a\n".utf8), to: secret, permissions: 0o600)
+        try AtomicFile.append(Data("b\n".utf8), to: secret, permissions: 0o644)
+        XCTAssertEqual(try mode(of: secret) & 0o777, 0o600, "the mode is that of the file's creation; a later append never widens it")
+        XCTAssertEqual(try String(contentsOf: secret, encoding: .utf8), "a\nb\n")
+    }
+
+    func testAtomicFileAppendFollowsASymbolicLink() throws {
+        let root = try makeScratchFolder()
+        let real = root.appendingPathComponent("real.log")
+        let link = root.appendingPathComponent("link.log")
+        try AtomicFile.append(Data("first\n".utf8), to: real)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        try AtomicFile.append(Data("second\n".utf8), to: link)
+        XCTAssertTrue(isSymbolicLink(link), "the link stays a link")
+        XCTAssertEqual(try String(contentsOf: real, encoding: .utf8), "first\nsecond\n")
+    }
+
+    func testAtomicFileAppendThatCannotWriteLeavesTheEarlierRecordsAlone() throws {
+        try XCTSkipIf(geteuid() == 0, "a file the owner cannot write is still written by root")
+        let root = try makeScratchFolder()
+        let log = root.appendingPathComponent("events.jsonl")
+        try AtomicFile.append(Data("kept\n".utf8), to: log)
+
+        XCTAssertEqual(chmod(log.path, 0o444), 0)
+        XCTAssertThrowsError(try AtomicFile.append(Data("lost\n".utf8), to: log), "a read-only file takes no record")
+        XCTAssertEqual(chmod(log.path, 0o644), 0)
+        XCTAssertEqual(try String(contentsOf: log, encoding: .utf8), "kept\n")
+
+        let locked = root.appendingPathComponent("locked", isDirectory: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        XCTAssertEqual(chmod(locked.path, 0o555), 0)
+        defer { _ = chmod(locked.path, 0o755) }
+        XCTAssertThrowsError(try AtomicFile.append(Data("lost\n".utf8), to: locked.appendingPathComponent("new.log")),
+                             "a read-only folder takes no new log")
+        XCTAssertEqual(try entries(in: locked), [], "and keeps no partial file")
+    }
+
+    func testAtomicFileAppendKeepsEveryRecordOfConcurrentWriters() throws {
+        let root = try makeScratchFolder()
+        let log = root.appendingPathComponent("shared.jsonl")
+        let writers = 8, records = 200
+        DispatchQueue.concurrentPerform(iterations: writers) { writer in
+            for record in 0..<records {
+                // The first append of every writer races to create the file.
+                try? AtomicFile.append(Data("writer \(writer) record \(record)\n".utf8), to: log)
+            }
+        }
+        let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, writers * records, "no record is lost or overwritten")
+        XCTAssertEqual(Set(lines).count, writers * records, "no record is doubled or cut")
+        XCTAssertTrue(lines.allSatisfy { $0.hasPrefix("writer ") && $0.contains(" record ") })
+    }
+
+    private func umaskValue() -> mode_t {
+        let current = umask(0)
+        umask(current)
+        return current
+    }
+
     func testSubprocessCancellationAndProcessGroupKill() async {
         // Pre-cancelled Task must abort before/during launch and not block (`FU-04`).
         let canceledTask = Task { () -> SubprocessResult in

@@ -13,6 +13,7 @@ import Foundation
 /// - An existing file keeps its extended attributes (quarantine, Finder tags) and ACL; a new file gets none.
 /// - The mode is set before the rename, so a file never exists with a mode weaker than the one requested (`FU-04`).
 /// - The rename gives the file a new inode: other hard links to the old file keep its old content.
+/// - `append` adds to a log file.
 public enum AtomicFile {
     public static func write(_ data: Data, to url: URL, permissions: Int16? = nil) throws {
         let fm = FileManager.default
@@ -39,18 +40,7 @@ public enum AtomicFile {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
 
-            try data.withUnsafeBytes { rawBuffer in
-                guard let base = rawBuffer.baseAddress else { return }
-                var written = 0
-                while written < rawBuffer.count {
-                    let n = Darwin.write(fd, base.advanced(by: written), rawBuffer.count - written)
-                    if n < 0 {
-                        if errno == EINTR { continue }
-                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-                    }
-                    written += n
-                }
-            }
+            try writeAll(data, to: fd)
             _ = Darwin.fsync(fd)
             closed = true
             guard Darwin.close(fd) == 0 else {
@@ -68,6 +58,33 @@ public enum AtomicFile {
 
     public static func write(_ text: String, to url: URL, permissions: Int16? = nil) throws {
         try write(Data(text.utf8), to: url, permissions: permissions)
+    }
+
+    /// Adds `data` to the end of the file (created, with its folder, when missing) in one `O_APPEND` write, so two writers
+    /// (two windows, two processes) never overwrite each other and a check-then-create race cannot lose the first record.
+    /// A new file gets `permissions` (default 0o644, less the process's umask). A write that fails half way can leave a
+    /// partial last record: the logs that use this skip damaged lines when they read.
+    public static func append(_ data: Data, to url: URL, permissions: Int16? = nil) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = Darwin.open(url.path, O_WRONLY | O_APPEND | O_CREAT, mode_t(permissions ?? 0o644))
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(fd) }
+        try writeAll(data, to: fd)
+    }
+
+    private static func writeAll(_ data: Data, to fd: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return }
+            var written = 0
+            while written < rawBuffer.count {
+                let n = Darwin.write(fd, base.advanced(by: written), rawBuffer.count - written)
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                written += n
+            }
+        }
     }
 
     /// The file `url` stands for: a link as the last component is replaced by what it points at, until the last component
