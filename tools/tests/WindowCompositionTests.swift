@@ -52,8 +52,9 @@ func building() {
     check(composition.project.prompts as AnyObject === windowPrompts && composition.tabs.prompts as AnyObject === windowPrompts
           && composition.terminals.prompts as AnyObject === windowPrompts,
           "the parts that ask the person (the project, the tabs, the terminals) are given the prompter the app gave the window")
-    check(composition.browser.prompts as AnyObject === windowPrompts,
-          "so is the browser, made when first needed")
+    check(composition.browser.prompts as AnyObject === windowPrompts && composition.codeXRay.prompts as AnyObject === windowPrompts
+          && composition.insight.prompts as AnyObject === windowPrompts,
+          "so are the parts made when first needed (the browser, the code and X-Ray, Recursive Insight)")
     check(composition.flow.terminals === composition.terminals && composition.flow.research === composition.research && composition.flow.gitClient === composition.gitClient,
           "the feature flow is given the window's terminals, research and Git client")
     check(composition.browser.terminals === composition.terminals && composition.browser.tabs === composition.tabs,

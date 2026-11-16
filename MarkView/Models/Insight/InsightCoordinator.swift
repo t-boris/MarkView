@@ -29,14 +29,17 @@ final class InsightCoordinator {
     private weak var host: InsightHost?
     private let project: any ProjectProviding
     private let tasks: TaskBag
+    /// What tells the person why a session could not start or an export failed (`AR-22`).
+    private let prompts: any UserPrompts
     /// Sent when the page that shows the sessions must drop the blob URLs the insight iframe made for the vendored libraries (the first
     /// step of closing an insight tab). The editor page listens while it routes an insight tab.
     let blobReleases = PassthroughSubject<Void, Never>()
 
-    init(host: InsightHost, project: any ProjectProviding, tasks: TaskBag) {
+    init(host: InsightHost, project: any ProjectProviding, tasks: TaskBag, prompts: any UserPrompts) {
         self.host = host
         self.project = project
         self.tasks = tasks
+        self.prompts = prompts
     }
 
     /// The engine that searches the project's database; nil until the workspace has opened it.
@@ -49,7 +52,7 @@ final class InsightCoordinator {
     /// (`<root>/.markview-insight/`, whichever sub-folder or file is analysed), shows it in a new tab and starts the root summary.
     func start(at target: URL? = nil, title: String? = nil) {
         guard let rootURL = project.root else {
-            Self.alert("No folder open", "Open a folder before starting Recursive Insight.")
+            prompts.inform("No folder open", "Open a folder before starting Recursive Insight.")
             return
         }
         let target = target?.standardizedFileURL ?? rootURL
@@ -59,17 +62,17 @@ final class InsightCoordinator {
         let aiProject = project.aiProject
         let tool = AIAssistantPreferences.backend(project: aiProject)
         guard CLIToolLocator.resolve(tool) != nil else {
-            Self.alert("\(tool.displayName) not found", "Set its path in DDE Settings → AI CLI Tools, or choose the other assistant.")
+            prompts.inform("\(tool.displayName) not found", "Set its path in DDE Settings → AI CLI Tools, or choose the other assistant.")
             return
         }
         guard let graphRAG else {
-            Self.alert("Workspace not ready", "Wait for the folder to finish opening, then try again.")
+            prompts.inform("Workspace not ready", "Wait for the folder to finish opening, then try again.")
             return
         }
 
         let mdFiles = targetIsFile ? [target] : project.markdownFiles(in: folderURL)
         guard !mdFiles.isEmpty else {
-            Self.alert("No markdown files", "This folder contains no .md files for Recursive Insight to summarize.")
+            prompts.inform("No markdown files", "This folder contains no .md files for Recursive Insight to summarize.")
             return
         }
 
@@ -77,7 +80,7 @@ final class InsightCoordinator {
         do {
             cache = try InsightCache(workspaceURL: rootURL, sessionId: UUID(), pagePolicy: InsightHTMLTemplate.policyKey)
         } catch {
-            Self.alert("Cannot start Recursive Insight", "Failed to initialise insight cache: \(error.localizedDescription)")
+            prompts.inform("Cannot start Recursive Insight", "Failed to initialise insight cache: \(error.localizedDescription)")
             return
         }
         let session = InsightSession(
@@ -253,6 +256,7 @@ final class InsightCoordinator {
         let nodeChildMap = InsightArchiveExport.childMap(nodes: session.nodes)
         let rootNodeId = session.nodes.values.first { $0.parentId == nil }?.id
         let cache = session.cache
+        let prompts = self.prompts
 
         session.writeAllPagesToCache()
 
@@ -268,16 +272,8 @@ final class InsightCoordinator {
             } catch InsightArchiveExporterError.cancelled {
                 AppLog.insight.notice("exportInsightArchive: cancelled mid-zip")
             } catch {
-                Self.alert("ZIP export failed", InsightSession.sanitizeForLog(error.localizedDescription), style: .warning)
+                prompts.inform("ZIP export failed", InsightSession.sanitizeForLog(error.localizedDescription))
             }
         }, for: "insight.export.\(session.id)")
-    }
-
-    private static func alert(_ title: String, _ message: String, style: NSAlert.Style = .warning) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = style
-        alert.runModal()
     }
 }

@@ -1542,9 +1542,11 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/InsightCoordinatorTests.swift",
         "tools/tests/ProjectOperationAnyCodableStub.swift",
-        "tools/tests/SemanticDatabaseTestSupport.swift"
+        "tools/tests/SemanticDatabaseTestSupport.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {

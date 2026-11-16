@@ -161,8 +161,10 @@ enum TabsEvent {
 @MainActor final class CodeAndXRayCoordinator: ObservableObject {
     let architecture = ArchitectureStore()
     let project: ProjectContext
-    init(project: ProjectContext, host: any CodeXRayHost) {
+    let prompts: any UserPrompts
+    init(project: ProjectContext, host: any CodeXRayHost, prompts: any UserPrompts) {
         self.project = project
+        self.prompts = prompts
         Journal.built.append("codeXRay")
     }
     func close() { Journal.shutdown.append("codeXRay") }
@@ -171,8 +173,10 @@ enum TabsEvent {
 @MainActor final class InsightCoordinator {
     let tasks: TaskBag
     var closed: [UUID] = []
-    init(host: any InsightHost, project: ProjectContext, tasks: TaskBag) {
+    let prompts: any UserPrompts
+    init(host: any InsightHost, project: ProjectContext, tasks: TaskBag, prompts: any UserPrompts) {
         self.tasks = tasks
+        self.prompts = prompts
         Journal.built.append("insight")
     }
     func close(_ session: InsightSession) { closed.append(session.id) }

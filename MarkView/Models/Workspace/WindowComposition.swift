@@ -63,9 +63,9 @@ final class WindowComposition {
     /// The browser of the window: its tabs, what agents drive of them, Preview Web App and the picked page element.
     private(set) lazy var browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: host, prompts: prompts)
     /// Code explanations, code navigation, the X-Ray tabs and the AI actions on selected text.
-    private(set) lazy var codeXRay = CodeAndXRayCoordinator(project: project, host: host)
+    private(set) lazy var codeXRay = CodeAndXRayCoordinator(project: project, host: host, prompts: prompts)
     /// Recursive Insight of the window: its graph engine runs over the project's database.
-    private(set) lazy var insight = InsightCoordinator(host: host, project: project, tasks: taskBag)
+    private(set) lazy var insight = InsightCoordinator(host: host, project: project, tasks: taskBag, prompts: prompts)
     /// The tools of the window: the tab of each tool of `ToolRegistry`, and the stores that need the project.
     private(set) lazy var toolTabs = ToolTabsRouter(window: host, project: project, tabs: tabs, layout: layout, chrome: chrome,
                                                     requests: requests, features: flow.features, assistants: terminals)
