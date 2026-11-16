@@ -820,3 +820,5 @@ protocol that would cut `AgentTools` <-> `Workspace`. Also open: 31 closure hook
 **Not seen in the real app:** the real `NSAlert` presentation of `AlertPrompts` (an alert is app-modal and a hidden probe cannot reach it without blocking); the save-panel
 exports; the paste, element-pick, Preview and hand-off picture writers (covered by `AtomicFile` unit tests and the build); the sign-in scripts (`claude login`, `gh auth login`);
 `book-pdf-live` and `ui-studio-live-run`; the `silent-decode` fallbacks of the 59 allowed sites (the ratchet stops growth, it does not test them).
+
+**The open work is now one list:** `docs/architecture/architecture-review-2026-11-remaining-tasks.md` (tasks, the decision each needs, the count that closes it).
