@@ -16,7 +16,10 @@ count that proves it (project rule: a finding is done when the old thing is gone
 - One group = one pull request (Boris, 2026-11-15: all in one pull request, merged by me, CI checked afterwards); one commit per task.
   Each pull request bumps the version once (`./bump-version.sh`) and ends with the release workflow from `CLAUDE.md`.
 
-## Decisions needed from Boris
+## Decisions
+
+Boris delegated D1–D9 to the implementing agent on 2026-11-16. The decisions are recorded in [DEC-012](../features/architecture-review-2026-11/decisions/DEC-012.md); D5 preserves the binding token-only decisions DEC-009 and DEC-011. The table below is the original set of questions and recommendations.
+
 
 Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 
@@ -35,6 +38,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 ## Group A: cleanup (D1, D2, D3). Size S-M, low risk
 
 **A1. AR-48 dead files in git.**
+- Status 2026-11-16: removed 11 tracked `TestFiles/` files and both presentation files. `git ls-files TestFiles` and `git ls-files "*.pdf"` each report 0 after staging. `EmbeddingClient` remains in 2 files (its definition and `DDESettingsView` calls to the key helpers). The requested all-tier run remains outstanding.
 - Now: `TestFiles/` 11 tracked files (measured), `MarkView-Presentation.pdf` 3,653,172 bytes and `MarkView-Presentation.html` 54,317 bytes
   (measured). `EmbeddingClient` is still constructed; two files use its key helpers, `DDESettingsView` among them *(recorded 2026-11-15)*.
 - Do: remove the tracked test files and the presentation after checking that no test or script reads them (`git grep -n TestFiles
@@ -47,6 +51,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 - Risk: a suite that reads `TestFiles/` fails; run `./tools/tests/run.sh --all` once.
 
 **A2. AR-47 compiler and lint policy.**
+- Status 2026-11-16: SwiftLint 0.65.1 reports 50 warnings (47 force_try, 3 unused_closure_parameter); a per-file/rule ratchet and CI step were added. Warnings-as-errors is enabled in both app configurations; a Debug build passed on 2026-11-16. Analyzer-only unused_import, Release and CI verification remain outstanding.
 - Now: no SwiftLint or SwiftFormat (0 config files), `SWIFT_TREAT_WARNINGS_AS_ERRORS` not set *(recorded)*. The build-warnings ratchet
   (`tools/lint/build-warnings.sh`, allow-list empty) already holds app warnings at 0; `.editorconfig` exists.
 - Do (after D2): `.swiftlint.yml` with the rules the project already enforces by script left to the scripts, only style rules that find
@@ -57,6 +62,7 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 - Risk: a new tool on every developer machine and in CI; the install step must be documented in `CLAUDE.md`.
 
 **A3. AR-41 platform posture (hardened runtime).**
+- Status 2026-11-16: enabled the Xcode setting in Debug and Release (2 occurrences). Debug/harness and signed Release verification are outstanding; do not mark complete yet.
 - Now: `ENABLE_HARDENED_RUNTIME` appears 0 times in `project.pbxproj` (measured); only `release.sh` signs with `--options runtime`.
   `NSAllowsArbitraryLoads` is already false; `NSAllowsArbitraryLoadsInWebContent` is true (needed for local pages and web previews).
   The shell-string deployment and remote commands are the documented exception and were not re-checked.
@@ -88,12 +94,14 @@ Answer by the id; "A, B" is a complete answer. My recommendation is in brackets.
 
 All of C is a redesign; none is a sweep. Do it in this order because each step shrinks the next.
 
-**C1. `AgentTools` <-> `Workspace`.** The MCP control tools name `WorkspaceManager` and `WindowSessionController`. Define a window protocol
+**C1. `AgentTools` <-> `Workspace`.**
+- Status 2026-11-16: the control tools use `AgentControlWindow`; window opening is supplied by the window implementation. Debug build passed and `domain-dependencies.py --layer Models --why AgentTools Workspace` reports 0 types (was 2); `domain-cycles` is now 0 back-edges. `control-agent-tools-tests`, `project-agent-tools-tests`, `browser-agent-tools-tests`, `cockpit-host-bridge-tests`, `remote-workspace-tests` and `remote-browser-tests` passed. The standalone control suite exercises the tool contract and socket clients, not the shipping `ControlToolRunner`; app-hosted coverage remains open under C5. The MCP control tools name `WorkspaceManager` and `WindowSessionController`. Define a window protocol
 of about 15 members (the ones those tools actually call: read the list with `python3 tools/lint/domain-dependencies.py --why AgentTools
 Workspace`) and an "open a window" function the app passes in; the tools take the protocol. Acceptance: `domain-cycles` back-edges 1 -> 0
 (`tools/lint/domain-cycles-allowlist.txt` empty after `--tighten`); the control tools still pass `control-agent-tools-tests` and the other MCP suites.
 
-**C2. 31 closure hooks and 4 back-references.** Each is listed with a reason in `tools/lint/window-wiring-hooks.txt` and
+**C2. 31 closure hooks and 4 back-references.**
+- Status 2026-11-16: the C1 protocol removed three manager references; `architecture-lint.sh --tighten` reports 31 hooks and 1 back-reference. The remaining back-reference and hooks remain open. Each is listed with a reason in `tools/lint/window-wiring-hooks.txt` and
 `window-wiring-backrefs.txt`. The remaining ones are redesigns (for example `ResearchMapStream.onReady` needs a relay object). Per hook:
 replace the closure by a protocol the owner conforms to, or by an event on an existing part, and delete the closure property.
 Acceptance: `architecture-lint.sh` `window-wiring (hooks)` 31 -> a lower stated number and `(back-references)` 4 -> 0, each by `--tighten`.
@@ -137,12 +145,14 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
   is a single object, keep the build-warnings ratchet at 0. Acceptance: setting `complete` in both configurations with 0 warnings, and the
   unchecked count at a stated lower number.
 
-**D4. AR-44 steps 3-4 and the stubs.** Port script mains to `swift test` cases in `Packages/MarkViewCore` and delete the scripts; one
+**D4. AR-44 steps 3-4 and the stubs.**
+- Status 2026-11-16: moved the PrivateSocket real-socket and phase2 core checks to `MarkViewCoreTests` and removed their standalone script and manifest entry. The PrivateSocket package test passed (1 test, 0 failures); the migrated phase2 checks passed (2 tests, 0 failures); the remaining script mains and application stubs are not yet migrated. Port script mains to `swift test` cases in `Packages/MarkViewCore` and delete the scripts; one
 `TestSupport` target with one fake per protocol replaces the stub type definitions (81 stubbed application types, 125 definitions, at
 2026-11-15). Acceptance: the stub count by `git grep -c "^final class\|^struct" tools/tests/*.swift` for application type names falls to a
 stated number per pull request; `tools/tests/manifest.json` suite count stays true.
 
 **D5. The 19 SQLite tables nothing touches (D8).**
+- Status 2026-11-16: startup now records row counts for the 19 candidate tables on the database-opening thread, without reading row content; missing or unreadable tables are reported as errors, not empty. `semantic-database-tests` passed, including the 19-count check on a real database. The first release is outstanding. No table may be dropped until after that release.
 - Now: `SemanticSchema` creates 34 tables; 19 are touched by no code (counted in section 15.3, not dropped). The `blocks` path was removed
   in 6.27.2 with migration step 3 as the template.
 - Do (after D8): add one startup check that logs (counts only, never content) whether any of the 19 has rows; release; then add the next
@@ -177,3 +187,7 @@ Every AR and FU item not named above is recorded as done, or as partial with its
 is the open part. Two accepted limits are not tasks: 59 tolerant `try? decode` sites stay on the `silent-decode` allow-list with a reason each
 (AR-36), and CI jobs per push (AR-45) were not measured against the target of three. The structural rules that hold the closed items are in
 `tools/lint/architecture-lint.sh`, all passing at 6.27.3. A ratchet allow-list under `tools/lint/` may only shrink.
+
+## CI duration investigation (2026-11-16)
+
+On [push run 43871770311](https://github.com/t-boris/MarkView/actions/runs/43871770311), the pure regression step took 12m46s of the 13m15s workflow; the parallel build job took 4m46s. The previous push run 43856849658 spent 15m37s in that step. The suite runner compiles many standalone Swift test binaries; it already runs up to six suites per machine. CI now distributes the same manifest-selected pure suites over three independent macOS jobs; the former phase2 core checks were moved into the package suite, removing a redundant package build and test run. Its standalone suite took 94.7 seconds in run 43871770311. The current manifest has 149 pure suites after moving two scripts into the package. Timing and full coverage must be verified on the next push; no speedup is claimed before measurement.
