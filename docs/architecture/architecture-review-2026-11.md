@@ -447,6 +447,8 @@ Beyond section 2:
 
 Fix: derive the peer pid in the server, issue a per-window token to the agents the app launches, and require a native confirmation for `by_user` actions.
 
+Status (2026-11-15): partial. The browser control, Cockpit and Remote sockets all use `PrivateSocket`: a 256-bit token in a mode-0600 file next to a mode-0600 socket, compared in constant time, plus the kernel's peer credentials (`LOCAL_PEERPID`, `LOCAL_PEERCRED`); `AgentToolServer` prefers the kernel's pid ancestry. Not done: `cwd`, `folderDeclared` and `cwdTrusted` (defaults to true) still come from the request, and `by_user` is still a boolean the agent supplies (`ControlAgentTools`); no native confirmation exists (`DEC-009` records that none is wanted).
+
 ### AR-41 Platform posture (medium, S-M)
 
 Sandbox off (by design). Hardened runtime is applied only by `release.sh`, not in `project.yml`. App Transport Security allows arbitrary loads (`Info.plist:212`); scope it to web content. Approved deployment and remote commands run as one string through a shell (`DeploymentExecutor.swift:153`, `RemoteCommand.swift:28`): this is the documented exception, and its safety rests on the approval UI and on regex blocklists that cannot be complete. Full-permission flags are passed to all five agents (`AIAssistants.swift:72-76`; S4). Other editor settings: `img-src` allows any `https:` image (remote tracking), and navigation policy allows every `.other` navigation.
