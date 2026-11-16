@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 227,
+  "suiteCount": 228,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -118,6 +118,8 @@
       "tier": "pure",
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "tools/tests/AICallLogTests.swift"
       ]

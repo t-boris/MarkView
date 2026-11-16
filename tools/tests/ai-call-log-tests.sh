@@ -7,6 +7,6 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/AICallLogTests.swift "$out/main.swift"
-swiftc -O -o "$out/ai-call-log-tests" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/AI/AICallLog.swift "$out/main.swift"
+swiftc -O -o "$out/ai-call-log-tests" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift MarkView/Models/AI/AICallLog.swift "$out/main.swift"
 # CFFIXED_USER_HOME moves Application Support into the scratch folder: the person's own log is never touched.
 CFFIXED_USER_HOME="$out/home" "$out/ai-call-log-tests"

@@ -110,6 +110,11 @@ private struct EnvelopeProbe: Decodable {
 ///   the backup cannot be made, nothing is replaced.
 ///
 /// A reader of the file by other means (a test, a script) finds the payload under the `data` key.
+///
+/// There is no lock (`AR-36`): a save reads the file once to check it and then replaces it, so two writers at the same moment end
+/// with the last one's content. A reader never sees half a file (`AtomicFile`), and a file that cannot be read is backed up before
+/// anything replaces it. The one lock helper in the app, `CockpitResults.withLock`, is the cockpit's own and does not fit a store
+/// that every window shares; a store whose writers really race (more than one window saving at once) takes its own lock.
 struct SchemaVersionedStore<T: Codable> {
     /// How dates are written and read. It must be the strategy the file's previous writer used, so that existing files
     /// decode: `.iso8601` (whole seconds) or the default `Codable` seconds since the reference date. A bare legacy payload is

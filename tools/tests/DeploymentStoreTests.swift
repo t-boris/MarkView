@@ -149,8 +149,7 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
 
     // A line of the log that cannot be read (cut by an interrupted write, or made by another version) is skipped when the log is read
     // again, and stays in the file: reading never rewrites the log, and the next command is appended after it (AR-36).
-    let logFile = root.appendingPathComponent(".dde/deployments-log.jsonl")
-    let keptLines = logText.split(separator: "\n").count
+    let keptLines = grown.split(separator: "\n").count
     if let handle = try? FileHandle(forWritingTo: logFile) {
         handle.seekToEndOfFile(); handle.write(Data("{ cut off\n".utf8)); try? handle.close()
     }
