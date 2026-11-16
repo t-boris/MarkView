@@ -521,6 +521,8 @@ Status (2026-11-15): partial. Done: `install.sh`, `setup.sh` and `tools/importan
 
 `EmbeddingClient` is still constructed (`WorkspaceManager.swift:462`); `IncrementalCompiler`, `DependencyGraphScheduler` and a two-line `SemanticModel.swift` remain; the dead bridge code of AR-28. At the top level: `QUICKSTART.md` and `EDITOR_IMPLEMENTATION.md` (stale), `EditorWeb/`, a 3.5 MB presentation PDF, `work/` (123 tracked spec files), ad-hoc `TestFiles/`, an empty `lsd/`. Locally: 3.4 GB in `build/` with 12 old installers, 13 worktrees, 48 local and 35 remote branches almost all merged.
 
+Status (2026-11-15): partial. Absent: `EditorWeb/`, `QUICKSTART.md`, `EDITOR_IMPLEMENTATION.md`, `work/`, `lsd/`, `IncrementalCompiler`, `SemanticModel` and `DependencyGraphScheduler` (0 references in `MarkView/`). Remaining: `EmbeddingClient` (2 files use its key helpers, `DDESettingsView` among them), `TestFiles/` (11 tracked files) and `MarkView-Presentation.pdf` (3.65 MB) with `MarkView-Presentation.html`. The local `build/` folder, worktrees and branches are not part of the repository and were not counted.
+
 ### AR-49 Documentation drift (medium, M)
 
 `docs/architecture` describes 2.17.0 and carries about 1,350 `file:line` citations; five of six spot-checked have drifted. `build-release-testing.md` lists 6 test scripts where there are 166. `editor-and-bridge.md` still describes libraries on a CDN that are now vendored. `tasks/todo.md` is 5,961 lines and `tasks/lessons.md` 2,024, both read at session start and containing superseded rules. `CLAUDE.md` is outdated on XcodeGen, on `EditorWeb` and on the vendor list, and the agent memory holds instructions that contradict it ("main directly, no pull requests") while recent history uses pull requests.
