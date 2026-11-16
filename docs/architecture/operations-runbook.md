@@ -43,7 +43,7 @@ xcodebuild -project MarkView.xcodeproj -scheme MarkView \
 ## 2. Run a build without touching the user's app
 
 ```bash
-open -n -a /tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app TestFiles/demo.md
+open -n -a /tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app Tests/Fixtures
 ```
 
 - `open -n` with the DerivedData app together with the debug log is the verification method

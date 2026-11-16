@@ -234,7 +234,7 @@ There is no XCTest target for the app. Two kinds of tests exist:
 
 Fixtures:
 - `Tests/Fixtures/` holds the data the suites read: `importance`, `insight-skeleton-sample.json`, `marker-cases`, `pdf-export`, `prototype-audit`, `qa-api-demo`, `qa-demo`, `qa-native-demo`, `sse-anthropic-sample.txt`, `themes`.
-- `TestFiles/` holds files for manual checks: `demo.md`, `demo.canvas`, `structured/test.{json,xml,yaml}`, `translation-fixture.md`, plus ad-hoc files.
+- `Tests/Fixtures/` holds fixtures used by automated tests.
 
 ## 12. Verification checklist
 

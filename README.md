@@ -17,7 +17,7 @@ terminals right next to your files.
 ![Signed & notarized](https://img.shields.io/badge/Developer%20ID-notarized-success)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 
-**[⬇ Download the latest MarkView.dmg](https://github.com/t-boris/MarkView/releases/latest/download/MarkView.dmg)** · [All releases](https://github.com/t-boris/MarkView/releases) · [Presentation (PDF)](MarkView-Presentation.pdf)
+**[⬇ Download the latest MarkView.dmg](https://github.com/t-boris/MarkView/releases/latest/download/MarkView.dmg)** · [All releases](https://github.com/t-boris/MarkView/releases)
 
 <img src="docs/images/xray-component.png" alt="X-Ray of a project: subsystems with their components and dependencies" width="820">
 
