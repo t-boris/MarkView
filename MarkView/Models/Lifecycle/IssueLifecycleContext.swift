@@ -197,7 +197,7 @@ final class SessionLinkStore: @unchecked Sendable {
         let text = try String(contentsOf: url, encoding: .utf8)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return text.split(separator: "\n").compactMap { try? decoder.decode(SessionLinkRecord.self, from: Data($0.utf8)) }
+        return JSONLinesFile.decode(SessionLinkRecord.self, from: text, using: decoder, owner: "session links").records
     }
 
     private func append(_ record: SessionLinkRecord) throws {

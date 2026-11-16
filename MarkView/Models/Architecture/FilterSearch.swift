@@ -21,7 +21,8 @@ enum FilterSearch {
         let key = SHA256.hash(data: Data(("terms\u{1}" + filter.criterion.lowercased()).utf8))
             .map { String(format: "%02x", $0) }.joined().prefix(24)
         let file = cache?.appendingPathComponent("terms-\(key).json")
-        if let file, let data = try? Data(contentsOf: file), let cached = try? JSONDecoder().decode([String].self, from: data) {
+        if let file, let data = try? Data(contentsOf: file),
+           let cached = StoredJSON.decode([String].self, from: data, owner: "filter terms cache") {
             return cached
         }
         var request = CLICompletion.Request(

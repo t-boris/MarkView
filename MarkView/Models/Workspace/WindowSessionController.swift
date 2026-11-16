@@ -9,6 +9,8 @@ protocol WindowSessionWindow: WindowSessionHost {
     var theme: WindowTheme { get }
     var taskBag: TaskBag { get }
     var projectOperations: ProjectOperationsStore? { get }
+    /// How the window asks the person before it closes over a running project operation (`AR-22`).
+    var prompts: any UserPrompts { get }
     /// Fires when anything the saved session records changes: the tabs, the panels, the theme, the interface state, the project.
     var sessionChanges: AnyPublisher<Void, Never> { get }
     /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
@@ -270,18 +272,16 @@ private final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDeleg
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         let originalAllows = previous?.windowShouldClose?(sender) ?? true
         guard originalAllows else { return false }
-        guard !closeAfterStop, let store = workspace?.projectOperations else { return true }
+        guard !closeAfterStop, let workspace, let store = workspace.projectOperations else { return true }
         let active = store.runs.values.filter(\.isActive)
         guard !active.isEmpty else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Stop running project operations before closing this window?"
-        alert.informativeText = active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }
-            .joined(separator: "\n")
-        alert.addButton(withTitle: "Keep working")
-        alert.addButton(withTitle: "Stop operations and close")
-        guard alert.runModal() == .alertSecondButtonReturn else { return false }
+        let stop = UserPrompt(
+            title: "Stop running project operations before closing this window?",
+            detail: active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }.joined(separator: "\n"),
+            buttons: ["Keep working", "Stop operations and close"])
+        guard workspace.prompts.confirm(stop, proceedingWith: 1) else { return false }
         store.cancelForClose()
-        workspace?.taskBag.store(Task { [weak self, weak sender] in
+        workspace.taskBag.store(Task { [weak self, weak sender] in
             while !Task.isCancelled, store.runs.values.contains(where: \.isActive) {
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }

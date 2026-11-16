@@ -314,7 +314,7 @@ extension FeatureAssistant {
         if !questions.isEmpty { front["questions"] = .list(questions.map(\.yaml)) }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try AtomicFile.write(front.join(body: "# \(title)\n\n" + report), to: file)
+            try front.writeFile(body: "# \(title)\n\n" + report, to: file)
         } catch {
             self.error = "Could not write the bug report: \(error.localizedDescription)"
             return nil
@@ -333,7 +333,7 @@ extension FeatureAssistant {
                 issueRef = "#\(number)"
                 front.set("issue", "#\(number)")
                 do {
-                    try AtomicFile.write(front.join(body: "# \(title)\n\n" + report), to: file)
+                    try front.writeFile(body: "# \(title)\n\n" + report, to: file)
                 } catch {
                     self.error = "GitHub issue #\(number) was created, but saving the link into the bug report failed: \(error.localizedDescription)"
                 }

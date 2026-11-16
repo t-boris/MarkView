@@ -334,7 +334,7 @@ final class ArchitectureStore: ObservableObject {
         guard let file = persistenceFile, let data = try? Data(contentsOf: file) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(ArchitectureSnapshot.self, from: data)
+        return StoredJSON.decode(ArchitectureSnapshot.self, from: data, using: decoder, owner: "X-Ray snapshot")
     }
 
     /// Where AI answers for this X-Ray are cached.
@@ -665,7 +665,7 @@ final class ArchitectureStore: ObservableObject {
     nonisolated private static func cachedValue<T: Decodable & Sendable>(_ type: T.Type, at file: URL) async -> T? {
         await Task.detached(priority: .utility) {
             guard let data = try? Data(contentsOf: file) else { return nil }
-            return try? JSONDecoder().decode(type, from: data)
+            return StoredJSON.decode(type, from: data, owner: "X-Ray answer cache")
         }.value
     }
 

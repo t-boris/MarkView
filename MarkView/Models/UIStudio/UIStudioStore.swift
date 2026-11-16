@@ -61,15 +61,20 @@ enum StudioStore {
         }
     }
 
-    static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? decoder.decode(type, from: data)
+    /// Reads a file of `.markview/studio/` (team-owned, committed). A file that cannot be read, or that a newer MarkView wrote
+    /// (`version`), is logged and left as it is; the next save copies the first to a dated backup and refuses to replace the second
+    /// (`PlainJSONFile`).
+    static func load<T: Decodable>(_ type: T.Type, from url: URL, version: PlainJSONFile.VersionField? = nil) -> T? {
+        PlainJSONFile.read(type, from: url, using: decoder, version: version, owner: "UIStudio").value
     }
 
-    static func save<T: Encodable>(_ value: T, to url: URL) throws {
+    static func save<T: Codable>(_ value: T, to url: URL, version: PlainJSONFile.VersionField? = nil) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try AtomicFile.write(encoder.encode(value), to: url)
+        try PlainJSONFile.write(encoder.encode(value), replacing: T.self, at: url, using: decoder, version: version, owner: "UIStudio")
     }
+
+    private static let screenBookVersion = PlainJSONFile.VersionField("version", supported: StudioScreenBook.currentVersion)
+    private static let environmentVersion = PlainJSONFile.VersionField("schemaVersion", supported: StudioEnvironmentSpec.currentSchemaVersion)
 
     /// The scenario a session ended on, so that the next one opens on it and the data asked for is still there (BUG-087). It is the
     /// person's own state, kept with the session data (never committed), not with the team's scenarios.
@@ -94,15 +99,18 @@ enum StudioStore {
     }
 
     static func loadScreenBook(_ root: URL, appFolder: String) -> StudioScreenBook? {
-        guard let book = load(StudioScreenBook.self, from: screensURL(root, appFolder: appFolder)), book.version <= StudioScreenBook.currentVersion else { return nil }
-        return book
+        load(StudioScreenBook.self, from: screensURL(root, appFolder: appFolder), version: screenBookVersion)
     }
     static func saveScreenBook(_ book: StudioScreenBook, root: URL) throws {
-        try save(book, to: screensURL(root, appFolder: book.appFolder))
+        try save(book, to: screensURL(root, appFolder: book.appFolder), version: screenBookVersion)
     }
 
-    static func loadEnvironment(_ root: URL) -> StudioEnvironmentSpec? { load(StudioEnvironmentSpec.self, from: environmentURL(root)) }
-    static func saveEnvironment(_ spec: StudioEnvironmentSpec, root: URL) throws { try save(spec, to: environmentURL(root)) }
+    static func loadEnvironment(_ root: URL) -> StudioEnvironmentSpec? {
+        load(StudioEnvironmentSpec.self, from: environmentURL(root), version: environmentVersion)
+    }
+    static func saveEnvironment(_ spec: StudioEnvironmentSpec, root: URL) throws {
+        try save(spec, to: environmentURL(root), version: environmentVersion)
+    }
 
     /// A scenario id is a file name: letters, digits and dashes.
     static func safeID(_ text: String) -> String {

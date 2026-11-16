@@ -12,13 +12,13 @@ import SQLite3
         if !condition { fatalError(message) }
     }
 
-    /// The app writes the live status through the lifecycle service; the checks write it the same way, byte for byte.
+    /// The app writes the live status through the lifecycle service; the checks write it the same way (`FrontMatter.writeFile`), byte for byte.
     nonisolated static func writeReady(_ overview: URL) -> @Sendable (String) -> Bool {
         { _ in
             guard let text = try? String(contentsOf: overview, encoding: .utf8) else { return false }
             var (front, body) = FrontMatter.split(text)
             front.set("status", "ready")
-            return (try? front.join(body: body).write(to: overview, atomically: true, encoding: .utf8)) != nil
+            return (try? front.writeFile(body: body, to: overview)) != nil
         }
     }
 
@@ -95,6 +95,17 @@ import SQLite3
         try FileManager.default.removeItem(at: project.appendingPathComponent(".dde"))
         check((try await handoff.state(project: project, slug: "demo")).history.count == 2,
               "metadata removal leaves handoff history intact")
+        // A revision whose record cannot be read is skipped by the history, left as it is, and never collided with (AR-36).
+        let secondRecord = project.appendingPathComponent("docs/handoffs/demo/revisions/000002/record.json")
+        let cutRecord = Data("{ \"number\": 2, ".utf8)
+        try cutRecord.write(to: secondRecord)
+        let withDamaged = try await handoff.state(project: project, slug: "demo")
+        check(withDamaged.history.map(\.number) == [1] && (try? Data(contentsOf: secondRecord)) == cutRecord,
+              "a damaged revision record is left out of the history and left as it is")
+        let third = try await handoff.markReady(project: project, slug: "demo", actor: "Developer", commitStatus: { _ in true })
+        check(third.number == 3 && (try? Data(contentsOf: secondRecord)) == cutRecord,
+              "the next revision is numbered after the damaged one and does not replace it")
+        check((try await handoff.state(project: project, slug: "demo")).history.map(\.number) == [1, 3], "the readable revisions stay in the history")
         do {
             try await handoff.setLinkedFiles(["../outside.md"], project: project, slug: "demo")
             check(false, "a link cannot escape the project")

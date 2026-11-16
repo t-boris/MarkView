@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One line per CLI completion, appended to `Application Support/MarkView/ai-calls.jsonl`: what
 /// was asked (the caller's label), which assistant and model answered, the effort, how long it
@@ -36,17 +39,7 @@ enum AICallLog {
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(entry) else { return }
         let url = url
-        queue.async {
-            let fm = FileManager.default
-            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let handle = try? FileHandle(forWritingTo: url) {
-                defer { try? handle.close() }
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: data + Data("\n".utf8))
-            } else {
-                try? (data + Data("\n".utf8)).write(to: url)
-            }
-        }
+        queue.async { try? AtomicFile.append(data + Data("\n".utf8), to: url) }
     }
 
     /// Entries of the log, oldest first; damaged lines are skipped.
@@ -54,6 +47,6 @@ enum AICallLog {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return text.split(separator: "\n").compactMap { try? decoder.decode(Entry.self, from: Data($0.utf8)) }
+        return JSONLinesFile.decode(Entry.self, from: text, using: decoder, owner: "AI call log").records
     }
 }

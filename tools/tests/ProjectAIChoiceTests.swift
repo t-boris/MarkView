@@ -8,6 +8,13 @@ func check(_ name: String, _ got: String?, _ want: String?) {
     if got == want { print("ok  \(name)") } else { failures += 1; print("FAIL \(name): got \(got.debugDescription) want \(want.debugDescription)") }
 }
 
+// The home folder of this process is a temporary one, so that the copies of unreadable records (below) and the defaults domain never
+// reach the real Application Support folder of whoever runs the check. It must be set before anything asks for a folder.
+let fixedHome = FileManager.default.temporaryDirectory.appendingPathComponent("ai-choice-home-\(UUID().uuidString)", isDirectory: true)
+try! FileManager.default.createDirectory(at: fixedHome, withIntermediateDirectories: true)
+setenv("CFFIXED_USER_HOME", fixedHome.path, 1)
+defer { try? FileManager.default.removeItem(at: fixedHome) }
+
 let domain = ProcessInfo.processInfo.processName
 UserDefaults.standard.removePersistentDomain(forName: domain)
 defer { UserDefaults.standard.removePersistentDomain(forName: domain) }
@@ -95,6 +102,44 @@ if CLIToolLocator.resolve(.antigravity) != nil {
     }
     semaphore.wait()
     check("antigravity structured answer", answer.map { String(Int($0)) }, "4")
+}
+
+// A record in the preferences that cannot be read is not "none" (AR-36): it reads as absent, a copy of its bytes is kept once, and the
+// next save replaces the value without losing what was there. A record that can be read leaves no copy.
+do {
+    let garbage = Data("{ not a choice".utf8)
+    let copiesFolder = PreferenceRecord.defaultFolder
+    check("home is the temporary one", copiesFolder.path.hasPrefix(fixedHome.resolvingSymlinksInPath().path) || copiesFolder.path.hasPrefix(fixedHome.path) ? "yes" : copiesFolder.path, "yes")
+    let c = base.appendingPathComponent("gamma", isDirectory: true)
+    try! FileManager.default.createDirectory(at: c, withIntermediateDirectories: true)
+    AssistantChoice(project: c).setTool("codex")
+    check("a readable choice leaves no copy", String(PreferenceRecord.copies(named: "project-ai-choice").count), "0")
+
+    var all = Settings.standard.value(Setting.projectAI)
+    all[ProjectAIChoice.key(c)] = garbage
+    Settings.standard.set(all, for: Setting.projectAI)
+    check("an unreadable choice reads as none", ProjectAIChoice.load(c) == nil ? "none" : "choice", "none")
+    _ = ProjectAIChoice.load(c)
+    let kept = PreferenceRecord.copies(named: "project-ai-choice")
+    check("a copy of it is kept, once", String(kept.count), "1")
+    check("the copy holds its bytes", (kept.first.flatMap { try? Data(contentsOf: $0) }) == garbage ? "same" : "different", "same")
+    check("the other projects' choices still read", AIAssistantPreferences.backend(project: a).rawValue, "codex")
+    ProjectAIChoice.update(c) { $0.backend = "claude" }
+    check("a save replaces the value", ProjectAIChoice.load(c)?.backend, "claude")
+    check("and the copy is still there", (kept.first.flatMap { try? Data(contentsOf: $0) }) == garbage ? "same" : "gone", "same")
+    check("no second copy for the readable value", String(PreferenceRecord.copies(named: "project-ai-choice").count), "1")
+
+    let linked = [LinkedFolder(path: a.path, name: "alpha", added: Date(timeIntervalSince1970: 1_800_000_000))]
+    LinkedFolders.save(linked, project: c)
+    check("linked folders read back", String(LinkedFolders.load(project: c).count), "1")
+    var folders = Settings.standard.value(Setting.linkedFolders)
+    folders[LinkedFolders.key(c)] = garbage
+    Settings.standard.set(folders, for: Setting.linkedFolders)
+    check("an unreadable list of linked folders reads as empty", String(LinkedFolders.load(project: c).count), "0")
+    check("a copy of it is kept", String(PreferenceRecord.copies(named: "linked-folders").count), "1")
+    LinkedFolders.save(linked, project: c)
+    check("a save replaces it", String(LinkedFolders.load(project: c).count), "1")
+    check("the copy keeps the old bytes", (PreferenceRecord.copies(named: "linked-folders").first.flatMap { try? Data(contentsOf: $0) }) == garbage ? "same" : "gone", "same")
 }
 
 print(failures == 0 ? "All project AI choice checks passed" : "\(failures) check(s) failed")

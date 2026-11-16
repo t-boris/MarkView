@@ -194,7 +194,7 @@ final class AgentUsageTracker: ObservableObject {
 
     static func limit(for agent: CLITool) -> FallbackLimit? {
         guard let data = Settings.standard.stored(Setting.usageLimit(agent.rawValue)) else { return nil }
-        return try? JSONDecoder().decode(FallbackLimit.self, from: data)
+        return PreferenceRecord.decode(FallbackLimit.self, from: data, name: "usage-limit-\(agent.rawValue)")
     }
 
     /// Saves the user's limit, or clears it with nil (back to the no-limit state).

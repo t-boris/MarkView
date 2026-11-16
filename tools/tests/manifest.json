@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 223,
+  "suiteCount": 228,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -108,7 +108,20 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
+      ]
+    },
+    {
+      "name": "ai-call-log-tests",
+      "script": "tools/tests/ai-call-log-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "MarkView/Models/AI/AICallLog.swift",
+        "tools/tests/AICallLogTests.swift"
       ]
     },
     {
@@ -159,7 +172,10 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/AITerminalsControllerTests.swift",
-        "tools/tests/ai-terminals-controller-tests.sh"
+        "tools/tests/ai-terminals-controller-tests.sh",
+        "MarkView/Models/AI/LoginScript.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -271,7 +287,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "MarkView/Models/AI/LoginScript.swift"
       ]
     },
     {
@@ -302,7 +319,9 @@
         "tools/tests/BookXRayTests.swift",
         "tools/tests/book-xray-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -399,7 +418,8 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -503,7 +523,10 @@
         "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/CockpitAgentRegistryChecks.swift"
+        "tools/tests/CockpitAgentRegistryChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -535,7 +558,10 @@
         "MarkView/Models/Cockpit/CockpitHostBridge.swift",
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/CockpitHostBridgeChecks.swift"
+        "tools/tests/CockpitHostBridgeChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -550,7 +576,10 @@
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitInstrumentsChecks.swift",
-        "tools/tests/cockpit-instruments-tests.sh"
+        "tools/tests/cockpit-instruments-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -559,7 +588,10 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "tools/tests/CockpitPlanChecks.swift"
+        "tools/tests/CockpitPlanChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -569,7 +601,10 @@
       "sources": [
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitPlanning.swift",
-        "tools/tests/CockpitPlanningChecks.swift"
+        "tools/tests/CockpitPlanningChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -588,7 +623,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitPolicyChecks.swift",
         "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/cockpit-policy-tests.sh"
+        "tools/tests/cockpit-policy-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -600,7 +637,9 @@
         "MarkView/Models/Cockpit/CockpitQAAttempt.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/CockpitQAAttemptChecks.swift"
+        "tools/tests/CockpitQAAttemptChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -618,7 +657,8 @@
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/StoreTestSupport.swift",
-        "tools/tests/CockpitRunChecks.swift"
+        "tools/tests/CockpitRunChecks.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -671,6 +711,38 @@
         "MarkView/Resources/Editor/js/markview-architecture-panels.js",
         "MarkView/Resources/Editor/js/markview-architecture-details.js",
         "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
+      ]
+    },
+    {
+      "name": "codex-launch-tests",
+      "script": "tools/tests/codex-launch-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/AI/Providers/AgentActivity.swift",
+        "MarkView/Models/AI/Providers/AgentUsage.swift",
+        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
+        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantACP.swift",
+        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
+        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
+        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
+        "MarkView/Models/AI/Providers/AssistantMCP.swift",
+        "MarkView/Models/AI/Providers/AssistantProvider.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
+        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
+        "MarkView/Models/AI/Providers/AssistantRemote.swift",
+        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
+        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
+        "MarkView/Models/AI/Providers/ClineProvider.swift",
+        "MarkView/Models/AI/Providers/CLITool.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "tools/tests/CodexLaunchTests.swift"
       ]
     },
     {
@@ -764,7 +836,8 @@
         "tools/tests/StoreTestSupport.swift",
         "tools/tests/CycleTimeChecks.swift",
         "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/cycle-time-tests.sh"
+        "tools/tests/cycle-time-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -840,7 +913,8 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1008,7 +1082,8 @@
         "MarkView/Models/Discussion/DiscussionPrompt.swift",
         "tools/tests/StoreTestSupport.swift",
         "tools/tests/DiscussionTests.swift",
-        "tools/tests/discussion-tests.sh"
+        "tools/tests/discussion-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1082,7 +1157,8 @@
         "tools/tests/DocumentTranslatorTests.swift",
         "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/document-translator-tests.sh"
+        "tools/tests/document-translator-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -1186,7 +1262,9 @@
         "tools/tests/BrowserHostStubs.swift",
         "tools/tests/BrowserHostTests.swift",
         "tools/tests/browser-host-tests.sh",
-        "MarkView/Models/AgentTools/AgentToolWindow.swift"
+        "MarkView/Models/AgentTools/AgentToolWindow.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -1329,7 +1407,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/FileOperationsTests.swift",
         "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/file-operations-tests.sh"
+        "tools/tests/file-operations-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -1441,7 +1520,8 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1538,7 +1618,10 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/InsightCoordinatorTests.swift",
         "tools/tests/ProjectOperationAnyCodableStub.swift",
-        "tools/tests/SemanticDatabaseTestSupport.swift"
+        "tools/tests/SemanticDatabaseTestSupport.swift",
+        "MarkView/Models/AI/LoginScript.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -1559,7 +1642,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -1596,7 +1681,9 @@
         "tools/tests/StoreTestSupport.swift",
         "tools/tests/IssueCollectorChecks.swift",
         "tools/tests/IssueLogSupport.swift",
-        "tools/tests/issue-lifecycle-tests.sh"
+        "tools/tests/issue-lifecycle-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "MarkView/Models/Shared/FrontMatterFile.swift"
       ]
     },
     {
@@ -1691,6 +1778,16 @@
         "MarkView/Models/Workspace/ListSelection.swift",
         "tools/tests/ListSelectionTests.swift",
         "tools/tests/list-selection-tests.sh"
+      ]
+    },
+    {
+      "name": "login-script-tests",
+      "script": "tools/tests/login-script-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/AI/LoginScript.swift",
+        "tools/tests/LoginScriptTests.swift"
       ]
     },
     {
@@ -1792,7 +1889,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -1925,7 +2023,9 @@
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
         "MarkView/Models/Appearance/ProjectBackdrop.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1971,7 +2071,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "MarkView/Models/AI/LoginScript.swift"
       ]
     },
     {
@@ -2092,7 +2193,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "MarkView/Models/AI/LoginScript.swift"
       ]
     },
     {
@@ -2134,7 +2236,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2234,7 +2337,9 @@
         "MarkView/Models/Prototype/PrototypeStyles.swift",
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeBaselineTests.swift"
+        "tools/tests/PrototypeBaselineTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2333,7 +2438,9 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeHandoffDraftTests.swift",
-        "tools/tests/prototype-handoff-draft-tests.sh"
+        "tools/tests/prototype-handoff-draft-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2524,7 +2631,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeReference.swift",
         "tools/tests/PrototypeReferenceTests.swift",
-        "tools/tests/prototype-reference-tests.sh"
+        "tools/tests/prototype-reference-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2646,7 +2755,9 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeTailwindRenderTests.swift",
-        "tools/tests/prototype-tailwind-render-tests.sh"
+        "tools/tests/prototype-tailwind-render-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2719,7 +2830,9 @@
         "MarkView/Models/Prototype/PrototypeFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeThemesTests.swift"
+        "tools/tests/PrototypeThemesTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2771,7 +2884,8 @@
         "MarkView/Models/AI/AIOperation.swift",
         "tools/tests/AIOperationStub.swift",
         "tools/tests/QAAPIChecks.swift",
-        "tools/tests/QANativeKeychainStub.swift"
+        "tools/tests/QANativeKeychainStub.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2842,7 +2956,8 @@
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QANativeChecks.swift",
         "tools/tests/QANativeKeychainStub.swift",
-        "tools/tests/qa-native-tests.sh"
+        "tools/tests/qa-native-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2871,7 +2986,8 @@
         "tools/tests/StoreTestSupport.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QARetentionChecks.swift",
-        "tools/tests/qa-retention-tests.sh"
+        "tools/tests/qa-retention-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2901,7 +3017,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/QARunArchiveOwnershipTests.swift",
-        "tools/tests/qa-run-archive-ownership-tests.sh"
+        "tools/tests/qa-run-archive-ownership-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2955,7 +3072,8 @@
         "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QAChecks.swift",
-        "tools/tests/qa-tests.sh"
+        "tools/tests/qa-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -3000,12 +3118,14 @@
         "MarkView/Models/QA/QAWebActor.swift",
         "MarkView/Views/QA/QAWebWindow.swift",
         "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QANativeKeychainStub.swift",
         "tools/tests/QAWebFaultChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -3286,7 +3406,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ResearchMapControllerTests.swift",
-        "tools/tests/SemanticDatabaseTestSupport.swift"
+        "tools/tests/SemanticDatabaseTestSupport.swift",
+        "MarkView/Models/AI/LoginScript.swift"
       ]
     },
     {
@@ -3321,7 +3442,8 @@
       "sources": [
         "MarkView/Models/Research/ResearchMapImages.swift",
         "tools/tests/ResearchMapImagesTests.swift",
-        "tools/tests/research-map-images-tests.sh"
+        "tools/tests/research-map-images-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -3395,7 +3517,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -3442,7 +3566,8 @@
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -3518,7 +3643,8 @@
         "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/TabsControllerTests.swift",
-        "tools/tests/tabs-controller-tests.sh"
+        "tools/tests/tabs-controller-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -3658,7 +3784,9 @@
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -3674,7 +3802,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -3802,7 +3932,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "MarkView/Models/AI/LoginScript.swift"
       ]
     },
     {
@@ -4096,7 +4227,9 @@
         "tools/tests/web-preview-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -4150,7 +4283,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -4209,7 +4343,8 @@
         "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/WindowSessionSnapshotterTests.swift",
-        "tools/tests/window-session-snapshotter-tests.sh"
+        "tools/tests/window-session-snapshotter-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -4248,7 +4383,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -4311,7 +4448,8 @@
         "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
         "MarkView/Models/Lifecycle/WorkflowDone.swift",
         "tools/tests/WorkflowDoneChecks.swift",
-        "tools/tests/workflow-done-tests.sh"
+        "tools/tests/workflow-done-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -4359,7 +4497,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -4380,7 +4519,8 @@
         "MarkView/Models/Lifecycle/WorkflowFlow.swift",
         "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
         "tools/tests/WorkflowFlowChecks.swift",
-        "tools/tests/workflow-flow-tests.sh"
+        "tools/tests/workflow-flow-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -4429,7 +4569,8 @@
         "MarkView/Models/Lifecycle/WorkflowTemplate.swift",
         "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
         "tools/tests/WorkflowTemplateChecks.swift",
-        "tools/tests/workflow-template-tests.sh"
+        "tools/tests/workflow-template-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -4449,7 +4590,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/WorkspaceRedesignTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/Shared/FrontMatterFile.swift"
       ]
     },
     {
@@ -4471,7 +4613,9 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -4481,7 +4625,9 @@
       "sources": [
         "MarkView/Models/Architecture/XRayContent.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/XRayContentTests.swift"
+        "tools/tests/XRayContentTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -4753,7 +4899,9 @@
         "tools/tests/DiagramCLIStub.swift",
         "tools/tests/ProjectContextTests.swift",
         "tools/tests/SemanticDatabaseTestSupport.swift",
-        "tools/tests/project-context-tests.sh"
+        "tools/tests/project-context-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -4916,7 +5064,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ToolTabsRouterStubs.swift",
         "tools/tests/ToolTabsRouterTests.swift",
-        "tools/tests/tool-tabs-router-tests.sh"
+        "tools/tests/tool-tabs-router-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -4929,7 +5078,9 @@
         "MarkView/Models/Workspace/WindowComposition.swift",
         "tools/tests/WindowCompositionStubs.swift",
         "tools/tests/WindowCompositionTests.swift",
-        "tools/tests/window-composition-tests.sh"
+        "tools/tests/window-composition-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -4979,6 +5130,23 @@
       ]
     },
     {
+      "name": "feature-store-schema-tests",
+      "script": "tools/tests/feature-store-schema-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Lifecycle/FeatureStore.swift",
+        "MarkView/Models/Lifecycle/FeatureModels.swift",
+        "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift",
+        "MarkView/Models/Lifecycle/FeatureIntake.swift",
+        "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
+        "MarkView/Models/Shared/FrontMatter.swift",
+        "MarkView/Models/Shared/FrontMatterFile.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/FeatureStoreSchemaChecks.swift",
+        "tools/tests/feature-store-schema-tests.sh"
+      ]
+    },
+    {
       "name": "insight-page-web-tests",
       "script": "tools/tests/insight-page-web-tests.sh",
       "tier": "gui",
@@ -4996,6 +5164,26 @@
         "tools/tests/InsightPageWebTests.swift",
         "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/insight-page-web-tests.sh"
+      ]
+    },
+    {
+      "name": "project-operations-store-tests",
+      "script": "tools/tests/project-operations-store-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOps/ProjectOperationsStore.swift",
+        "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationHistory.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ProjectOperationsStoreStubs.swift",
+        "tools/tests/ScriptedPrompts.swift",
+        "tools/tests/ProjectOperationsStoreTests.swift",
+        "tools/tests/project-operations-store-tests.sh"
       ]
     }
   ]

@@ -9,5 +9,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
 cp tools/tests/CockpitPolicyChecks.swift "$out/main.swift"
-swiftc -O -o "$out/cockpit-policy" "$M/Cockpit/CockpitPlan.swift" "$M/Cockpit/CockpitStepPolicy.swift" "$M/Cockpit/CockpitStepAudit.swift" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$M/Cockpit/CockpitStepMeter.swift" "$M/Cockpit/CockpitSupervisor.swift" "$M/Cockpit/CockpitAgentRegistry.swift" Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift "$M/Cockpit/CockpitHostBridge.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
+swiftc -O -o "$out/cockpit-policy" "$M/Cockpit/CockpitPlan.swift" "$M/Cockpit/CockpitStepPolicy.swift" "$M/Cockpit/CockpitStepAudit.swift" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift "$M/Cockpit/CockpitStepMeter.swift" "$M/Cockpit/CockpitSupervisor.swift" "$M/Cockpit/CockpitAgentRegistry.swift" Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift "$M/Cockpit/CockpitHostBridge.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
 "$out/cockpit-policy"

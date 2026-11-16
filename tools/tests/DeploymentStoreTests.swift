@@ -134,6 +134,33 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
     let logText = (try? String(contentsOf: root.appendingPathComponent(".dde/deployments-log.jsonl"), encoding: .utf8)) ?? ""
     check(logText.split(separator: "\n").count == store.log.count && logText.contains("shutdown"), "the log file has a line per command")
     check(!logText.contains("abcdef"), "the log holds commands, not their output")
+    // The log is read again by the next window, and a note that cannot be written is dropped without touching the lines before it.
+    let logFile = root.appendingPathComponent(".dde/deployments-log.jsonl")
+    let reopened = DeploymentStore()
+    reopened.setRoot(root)
+    check(reopened.log.map(\.id) == store.log.map(\.id), "a second window reads the same log back")
+    chmod(logFile.path, 0o444)
+    store.note(CommandLogEntry(time: Date(), environment: "this-mac", command: "echo dropped", origin: "test", outcome: "ran", status: 0))
+    chmod(logFile.path, 0o644)
+    check((try? String(contentsOf: logFile, encoding: .utf8)) == logText, "a note the file cannot take leaves the earlier lines as they were")
+    store.note(CommandLogEntry(time: Date(), environment: "this-mac", command: "echo kept", origin: "test", outcome: "ran", status: 0))
+    let grown = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+    check(grown.hasPrefix(logText) && grown.hasSuffix("\n") && grown.contains("echo kept") && !grown.contains("echo dropped"), "the next note is added after them")
+
+    // A line of the log that cannot be read (cut by an interrupted write, or made by another version) is skipped when the log is read
+    // again, and stays in the file: reading never rewrites the log, and the next command is appended after it (AR-36).
+    let keptLines = grown.split(separator: "\n").count
+    if let handle = try? FileHandle(forWritingTo: logFile) {
+        handle.seekToEndOfFile(); handle.write(Data("{ cut off\n".utf8)); try? handle.close()
+    }
+    let damagedBefore = (try? Data(contentsOf: logFile)) ?? Data()
+    let reread = DeploymentStore()
+    reread.setRoot(root)
+    check(reread.log.count == keptLines, "a damaged line of the command log is skipped, the \(keptLines) others load (\(reread.log.count))")
+    check((try? Data(contentsOf: logFile)) == damagedBefore, "reading the log leaves the file as it was, damaged line included")
+    reread.note(CommandLogEntry(time: Date(), environment: "this-mac", command: "uptime", origin: "You", outcome: "ran"))
+    let afterNote = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+    check(afterNote.contains("{ cut off") && afterNote.contains("uptime"), "the next command is appended after the damaged line")
 
     // Proposals.
     var s = DeploymentSuggestion(id: "prod", name: "Production", kind: .ssh, host: "web-1.example.com", user: "deploy")

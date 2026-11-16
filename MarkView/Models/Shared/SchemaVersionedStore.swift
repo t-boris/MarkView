@@ -98,14 +98,6 @@ private struct EnvelopeProbe: Decodable {
     var hasEnvelopeShape: Bool { schema != nil && data != nil }
 }
 
-private let schemaBackupTimestampFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.timeZone = TimeZone(secondsFromGMT: 0)
-    f.dateFormat = "yyyyMMddHHmmss"
-    return f
-}()
-
 /// Atomic, schema-versioned JSON store (`AR-36`, `AR-39`, `FU-04`): the one way the app keeps a whole document of user or project
 /// data in a file under `.dde/` or Application Support.
 ///
@@ -118,6 +110,11 @@ private let schemaBackupTimestampFormatter: DateFormatter = {
 ///   the backup cannot be made, nothing is replaced.
 ///
 /// A reader of the file by other means (a test, a script) finds the payload under the `data` key.
+///
+/// There is no lock (`AR-36`): a save reads the file once to check it and then replaces it, so two writers at the same moment end
+/// with the last one's content. A reader never sees half a file (`AtomicFile`), and a file that cannot be read is backed up before
+/// anything replaces it. The one lock helper in the app, `CockpitResults.withLock`, is the cockpit's own and does not fit a store
+/// that every window shares; a store whose writers really race (more than one window saving at once) takes its own lock.
 struct SchemaVersionedStore<T: Codable> {
     /// How dates are written and read. It must be the strategy the file's previous writer used, so that existing files
     /// decode: `.iso8601` (whole seconds) or the default `Codable` seconds since the reference date. A bare legacy payload is
@@ -168,7 +165,7 @@ struct SchemaVersionedStore<T: Codable> {
                 let envelope = try decoder(dates).decode(VersionedEnvelope<T>.self, from: raw)
                 return .loaded(envelope.data, schemaVersion: envelope.schema)
             } catch {
-                return .corrupted(url, Self.describe(error))
+                return .corrupted(url, StoredJSON.describe(error))
             }
         }
 
@@ -181,7 +178,7 @@ struct SchemaVersionedStore<T: Codable> {
                 firstFailure = firstFailure ?? error
             }
         }
-        return .corrupted(url, Self.describe(firstFailure ?? CocoaError(.fileReadCorruptFile)))
+        return .corrupted(url, StoredJSON.describe(firstFailure ?? CocoaError(.fileReadCorruptFile)))
     }
 
     /// Saves `value` in the envelope. Throws `SchemaStoreError.newerSchemaVersion` and leaves the file alone when it was written by
@@ -197,9 +194,7 @@ struct SchemaVersionedStore<T: Codable> {
                     supported: currentSchemaVersion
                 )
             case .corrupted:
-                let stamp = schemaBackupTimestampFormatter.string(from: Date())
-                let uniqueSuffix = UUID().uuidString.prefix(8).lowercased()
-                try fm.copyItem(at: url, to: url.appendingPathExtension("corrupt-\(stamp)-\(uniqueSuffix)"))
+                try fm.copyItem(at: url, to: UnreadableCopy.url(of: url))
             case .loaded, .missing:
                 break
             }
@@ -210,17 +205,5 @@ struct SchemaVersionedStore<T: Codable> {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let envelope = VersionedEnvelope(schema: currentSchemaVersion, updatedAt: Date(), data: value)
         try AtomicFile.write(try encoder.encode(envelope), to: url, permissions: permissions)
-    }
-
-    /// What is wrong with a document, in words a notice can show.
-    private static func describe(_ error: Error) -> String {
-        guard let decoding = error as? DecodingError else { return error.localizedDescription }
-        switch decoding {
-        case .keyNotFound(let key, _): return "\"\(key.stringValue)\" is missing"
-        case .typeMismatch(_, let context), .valueNotFound(_, let context), .dataCorrupted(let context):
-            let path = context.codingPath.map(\.stringValue).joined(separator: ".")
-            return path.isEmpty ? context.debugDescription : "\(path): \(context.debugDescription)"
-        @unknown default: return error.localizedDescription
-        }
     }
 }

@@ -128,26 +128,6 @@ protocol TransitionStorage: AnyObject {
     func load() throws -> [TransitionRecord]
 }
 
-/// An append-only JSON-lines file, written by the journal and by the session links.
-enum JSONLinesFile {
-    /// Adds one line with a single `O_APPEND` write, so two writers (two windows on one project) never overwrite each other. A
-    /// line that an earlier, interrupted write left without its newline is ended first, so the new line stands on its own.
-    static func append(_ line: Data, to url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let descriptor = open(url.path, O_RDWR | O_APPEND | O_CREAT, 0o644)
-        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        defer { close(descriptor) }
-        var data = line
-        let size = lseek(descriptor, 0, SEEK_END)
-        if size > 0 {
-            var last: UInt8 = 0
-            if pread(descriptor, &last, 1, size - 1) == 1, last != 0x0A { data = Data([0x0A]) + line }
-        }
-        let written = data.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
-        guard written == data.count else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    }
-}
-
 /// `.dde/lifecycle/transitions.jsonl` of a project: append-only, one JSON object per line.
 final class FileTransitionStorage: TransitionStorage {
     let url: URL
@@ -212,7 +192,8 @@ final class FileTransitionStorage: TransitionStorage {
                 }
                 return date
             }
-            if let normalized = try? decoder.decode(TransitionRecord.self, from: line) {
+            // A line that does not read back as written leaves no cache: the next load reads the file again.
+            if let normalized = StoredJSON.decode(TransitionRecord.self, from: line, using: decoder, owner: "transition log") {
                 cached = (after, prior.records + [normalized])
                 return
             }
@@ -242,7 +223,7 @@ final class FileTransitionStorage: TransitionStorage {
             }
             return date
         }
-        let records = text.split(separator: "\n").compactMap { try? decoder.decode(TransitionRecord.self, from: Data($0.utf8)) }
+        let records = JSONLinesFile.decode(TransitionRecord.self, from: text, using: decoder, owner: "transition log").records
         cached = (signature, records)
         return records
     }

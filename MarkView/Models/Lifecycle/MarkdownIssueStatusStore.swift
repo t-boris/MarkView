@@ -102,7 +102,7 @@ final class MarkdownIssueStatusStore: LifecycleStatusStore, @unchecked Sendable 
         let current = front.string("status").isEmpty ? (kind == .feature ? "idea" : "open") : front.string("status")
         guard LifecycleVocabulary.normalize(current) == LifecycleVocabulary.normalize(expected) else { return false }
         front.set("status", to)
-        try AtomicFile.write(front.join(body: body), to: url)
+        try front.writeFile(body: body, to: url)
         return true
     }
 }

@@ -10,7 +10,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/project-context-tests" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Workspace/ProjectContext.swift MarkView/Models/Shared/ProjectProviding.swift MarkView/Models/Workspace/WorkspaceFileTreeStore.swift MarkView/Models/Workspace/FileNode.swift \
+    MarkView/Models/Workspace/ProjectContext.swift MarkView/Models/Shared/UserPrompts.swift MarkView/Models/Shared/ProjectProviding.swift MarkView/Models/Workspace/WorkspaceFileTreeStore.swift MarkView/Models/Workspace/FileNode.swift tools/tests/ScriptedPrompts.swift \
     MarkView/Models/Workspace/ExcludedFolders.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/Shared/SchemaVersionedStore.swift \
     MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Workspace/BackgroundFileScans.swift \
     MarkView/Models/Shared/SemanticDatabase.swift MarkView/Models/Shared/SemanticSchema.swift MarkView/Models/Shared/SemanticModels.swift \

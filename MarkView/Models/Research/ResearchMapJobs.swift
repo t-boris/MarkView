@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Research maps (feature mind-map, DEC-004, DEC-008): New Research creates a map file, opens its
 /// tab at once and runs one cancellable agent job that adds nodes to the open map as they are
@@ -16,7 +19,7 @@ extension ResearchJobs {
         let map = ResearchMap.new(id: id, question: question, created: FeatureStore.today, targets: [], attachments: [])
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(map.markdown().utf8).write(to: file, options: .withoutOverwriting)
+            try AtomicFile.create(map.markdown(), to: file)
         } catch {
             message = "Could not create the research map: \(error.localizedDescription)"
             return

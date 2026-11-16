@@ -122,6 +122,17 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let stored = await db.loadArchitecture()
         check(stored?.systemName == "Fresh" && stored?.view("modules")?.nodes.first?.anchor == "fresh" && stored?.view("modules")?.nodes.first?.endLine == 8,
               "an X-Ray snapshot round-trips through the new schema")
+
+        // A column that cannot be read is logged and read as absent; the row and the other rows are kept (AR-36).
+        raw(path, "UPDATE arch_nodes SET tags_json = '[ cut' WHERE id = 'm:'; "
+            + "INSERT INTO arch_coverage (node_id, status, docs_json) VALUES ('m:', 'covered', '{ cut'); "
+            + "INSERT INTO arch_metrics (node_id, json) VALUES ('m:', '{ cut');")
+        let damaged = await db.loadArchitecture()
+        check(damaged?.systemName == "Fresh" && damaged?.view("modules")?.nodes.first?.tags == nil && damaged?.view("modules")?.nodes.first?.anchor == "fresh"
+              && damaged?.coverage["m:"]?.status == "covered" && damaged?.coverage["m:"]?.docs == [] && damaged?.metrics["m:"] == nil,
+              "damaged JSON columns read as absent and the snapshot, its nodes and their other columns are kept")
+        check(scalar(path, "SELECT count(*) FROM arch_metrics WHERE json = '{ cut'") == 1 && scalar(path, "SELECT count(*) FROM arch_nodes WHERE tags_json = '[ cut'") == 1,
+              "reading leaves the damaged columns as they are stored")
     }
 
     // MARK: - A file written by release 6.26.x

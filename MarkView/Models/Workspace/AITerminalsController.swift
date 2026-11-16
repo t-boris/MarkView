@@ -25,6 +25,8 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     private weak var host: (any AITerminalsHost)?
     /// The folder, the project whose assistant choice applies and the folders linked to it.
     private let projectContext: any ProjectProviding
+    /// How the terminals tell the person that an assistant's policy blocks MarkView's tools (`AR-22`).
+    private let prompts: any UserPrompts
     /// What the assistants in the AI terminals are doing (the toolbar, the tabs).
     let activity: AgentActivityMonitor
 
@@ -50,9 +52,10 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
     /// Dev server terminals started by Preview Web App, by app folder path.
     private var previewTerminals: [String: UUID] = [:]
 
-    init(host: any AITerminalsHost, project: any ProjectProviding, tasks: TaskBag, polling: PollingScheduler) {
+    init(host: any AITerminalsHost, project: any ProjectProviding, tasks: TaskBag, polling: PollingScheduler, prompts: any UserPrompts) {
         self.host = host
         self.projectContext = project
+        self.prompts = prompts
         activity = AgentActivityMonitor(tasks: tasks, polling: polling)
         activity.provider = self
         activity.start()
@@ -128,12 +131,11 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
             DispatchQueue.main.async {
                 guard let self, let session, tool.agentToolsEnabled else { return }
                 Settings.standard.set(false, for: tool.agentToolsKey)
-                let alert = NSAlert()
-                alert.messageText = "\(name)'s policy blocks MarkView's browser tools"
-                alert.informativeText = "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working."
-                alert.addButton(withTitle: "Restart \(name) Without Them")
-                alert.addButton(withTitle: "Later")
-                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                let blocked = UserPrompt(
+                    title: "\(name)'s policy blocks MarkView's browser tools",
+                    detail: "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working.",
+                    buttons: ["Restart \(name) Without Them", "Later"])
+                guard self.prompts.confirm(blocked, proceedingWith: 0) else { return }
                 self.relaunch(session, as: session.profile, continuing: true)
             }
         }

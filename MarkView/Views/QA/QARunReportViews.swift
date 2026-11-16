@@ -1,5 +1,8 @@
 import AppKit
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, REQ-015): looking closer at a run and deciding what to do about what it found. The viewer shows a
 // player's picture or a screenshot at the size of the screen; the finding bar marks a finding (bug confirmed, not a bug, workaround, seen);
@@ -141,7 +144,7 @@ struct QAViewerBody: View {
         if let file = slide.file { NSWorkspace.shared.open(file); return }
         guard let image = slide.image(), let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("QA-\(UUID().uuidString.prefix(8)).png")
-        guard (try? png.write(to: url)) != nil else { return }
+        guard (try? AtomicFile.write(png, to: url)) != nil else { return }
         NSWorkspace.shared.open(url)
     }
 }

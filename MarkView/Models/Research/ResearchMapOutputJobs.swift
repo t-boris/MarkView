@@ -201,7 +201,7 @@ extension ResearchJobs {
                     let target = Self.freeFile(folder.appendingPathComponent(wantedName), root: root)
                     var copy = working
                     copy.id = ResearchDocument.id(forPath: target.path)
-                    try Data(copy.markdown().utf8).write(to: target, options: .withoutOverwriting)
+                    try AtomicFile.create(copy.markdown(), to: target)
                     host.refreshFileTree()
                     maps.jobNotice[target.standardizedFileURL.path] = notes.joined(separator: " ")
                     host.openFile(target)
@@ -212,7 +212,7 @@ extension ResearchJobs {
                     return "The map changed while it was being translated, so nothing was replaced. Translate it again."
                 }
                 let backup = Self.freeFile(folder.appendingPathComponent(ResearchMapTranslation.backupFileName(for: file.lastPathComponent)), root: root)
-                try Data(nowText.utf8).write(to: backup, options: .withoutOverwriting)
+                try AtomicFile.create(nowText, to: backup)
                 let result = maps.update(file) { $0 = working }
                 switch result {
                 case .rejected(let problem), .unreadable(let problem):

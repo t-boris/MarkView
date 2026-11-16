@@ -569,6 +569,23 @@ func diskChecks() async {
     try? FileManager.default.removeItem(at: bugs.appendingPathComponent(names[2]))
     let afterDelete = await QABugFiler(sink: DiskSink(folder: bugs)).file(list)
     check("a report that was deleted is filed again", afterDelete.filter(isCreated).count == 1 && afterDelete[2].key == deletedKey && isCreated(afterDelete[2]))
+
+    // A report is never written over a file, and a folder that refuses it keeps the files as they were with no partial file added.
+    func listing() -> [String] { ((try? FileManager.default.contentsOfDirectory(atPath: bugs.path)) ?? []).sorted() }
+    let existing = listing().first { $0.hasPrefix("BUG-001-") } ?? ""
+    let existingBytes = try? Data(contentsOf: bugs.appendingPathComponent(existing))
+    let slug = String(existing.dropFirst("BUG-001-".count).dropLast(".md".count))
+    let intruder = BugReportDraft(title: "Another report", body: "different", status: "open", severity: "high", reporter: "Tester", provenance: "test")
+    let beforeIntruder = listing()
+    check("a report with a taken id and name is refused, and the file keeps its bytes",
+          (try? BugReportWriter.write(intruder, id: "BUG-001", slug: slug, created: "2026-11-16", in: bugs)) == nil
+              && (try? Data(contentsOf: bugs.appendingPathComponent(existing))) == existingBytes && existingBytes != nil && listing() == beforeIntruder)
+    let beforeRefusal = listing()
+    let later = drafts(run(id: "20261116-090000-ff00", [failedMain]), findings: [])
+    chmod(bugs.path, 0o555)
+    let refused = await QABugFiler(sink: DiskSink(folder: bugs)).file(later)
+    chmod(bugs.path, 0o755)
+    check("a folder that refuses the file fails the filing, with nothing added", refused.allSatisfy(isFailed) && listing() == beforeRefusal)
 }
 
 func triageChecks() async {

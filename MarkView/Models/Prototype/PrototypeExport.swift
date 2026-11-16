@@ -62,7 +62,7 @@ enum PrototypeExport {
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging.deletingLastPathComponent()) }
         try fm.copyItem(at: PrototypeFiles.site(of: folder), to: staging.appendingPathComponent("prototype", isDirectory: true))
-        try spec.write(to: staging.appendingPathComponent("SPEC.md"), atomically: true, encoding: .utf8)
+        try AtomicFile.write(spec, to: staging.appendingPathComponent("SPEC.md"))
 
         let formatter = ISO8601DateFormatter()
         var changes = "# Review history: \(manifest.title)\n\n"
@@ -71,9 +71,9 @@ enum PrototypeExport {
             changes += entry.instruction.isEmpty ? "Initial build.\n\n" : "Request: \(entry.instruction)\n\n"
             changes += "\(entry.summary)\n\n"
         }
-        try changes.write(to: staging.appendingPathComponent("CHANGES.md"), atomically: true, encoding: .utf8)
+        try AtomicFile.write(changes, to: staging.appendingPathComponent("CHANGES.md"))
 
-        try readme(manifest: manifest).write(to: staging.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        try AtomicFile.write(readme(manifest: manifest), to: staging.appendingPathComponent("README.md"))
 
         try fm.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? fm.removeItem(at: archive)

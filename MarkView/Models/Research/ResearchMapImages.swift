@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Pictures that a research map node carries beside its icon (REQ-017, DEC-018).
 ///
@@ -77,7 +80,7 @@ enum ResearchMapImages {
                     attempt += 1
                     continue
                 }
-                try data.write(to: target, options: .withoutOverwriting)
+                try AtomicFile.create(data, to: target)
                 return .success("\(folder)/\(name)")
             }
             return .failure(Failure(message: "There are too many pictures with that name."))

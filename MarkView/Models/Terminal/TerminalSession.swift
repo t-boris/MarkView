@@ -546,7 +546,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 .appendingPathComponent("MarkView/pasted-images", isDirectory: true)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let file = folder.appendingPathComponent("image-\(Int(Date().timeIntervalSince1970 * 1000)).png")
-            guard (try? png.write(to: file)) != nil else { return }
+            guard (try? AtomicFile.write(png, to: file)) != nil else { return }
             paths = [file.path]
         }
         guard !paths.isEmpty else { return }

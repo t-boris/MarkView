@@ -121,8 +121,8 @@ final class StubWindow: BrowserHostWindow {
 struct Rig {
     let folder: URL
     let project = StubProject()
-    let tabs = TabsController(dialogs: TabDialogs(askToSave: { _, _ in .cancel }, confirmSave: { _, _ in false },
-                                                  reportFailedSave: { _ in }, offerDefaultApp: { _, _ in false }))
+    let prompts = ScriptedPrompts()
+    let tabs = TabsController(prompts: ScriptedPrompts())
     let layout = PanelLayout(defaults: defaults())
     let chrome = WindowChrome(defaults: defaults())
     let terminals = StubTerminals()
@@ -133,7 +133,7 @@ struct Rig {
         self.folder = folder
         if open { project.root = folder }
         window.tabs = tabs
-        browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: window)
+        browser = BrowserHost(tabs: tabs, layout: layout, chrome: chrome, project: project, terminals: terminals, window: window, prompts: prompts)
     }
 
     /// The browser tabs, in order.
@@ -161,6 +161,7 @@ func tabs() {
     rig.layout.workspaceArea = .work
     let first = rig.browser.open(nil)
     check(first.agentName == "T1" && first.host === rig.browser, "a new browser tab is named for agents and reaches its window through the host")
+    check(first.prompts as AnyObject === rig.prompts, "and asks the person, when its page does, through the prompter the window was given")
     check(rig.tabs.openTabs.count == 1 && rig.tabs.activeTabIndex == 0 && rig.chrome.showCenter && rig.layout.workspaceArea == .files,
           "it opens next to the files, active, with the center panel shown")
     if case .browser(let shown) = rig.tabs.openTabs[0].kind { check(shown === first, "the tab carries the session") } else { check(false, "the tab is a browser tab") }
@@ -177,7 +178,7 @@ func tabs() {
     rig.chrome.showCenter = false
     rig.browser.show(first)
     check(rig.tabs.activeTabIndex == 0 && rig.layout.workspaceArea == .files && rig.chrome.showCenter, "showing a session brings its tab forward")
-    rig.browser.show(BrowserSession(url: nil))
+    rig.browser.show(BrowserSession(url: nil, prompts: NoPrompts()))
     check(rig.tabs.activeTabIndex == 0, "a session that has no tab changes nothing")
 
     let quiet = Rig()

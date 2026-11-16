@@ -52,7 +52,7 @@ check("a deleted bug disappears from the directory index", statuses.status(kind:
 
 let first = service.apply(TransitionRequest(kind: .feature, issue: "demo", from: "draft", to: "review", actor: person))
 check("a specification step by a person is applied", first.isApplied)
-check("only the status line of the overview changed", read(demo) == "---\ntitle: Demo\nstatus: review\nowner: Boris\n---\n\nBody text.\n")
+check("only the status line of the overview changed, and the file got its schema", read(demo) == "---\ntitle: Demo\nstatus: review\nowner: Boris\nschema: 1\n---\n\nBody text.\n")
 check("the journal holds the begin and the applied record", journalLines() == 2)
 check("the history ends with the new status", service.history(.feature, "demo").expectedStatus == "review")
 
@@ -73,7 +73,7 @@ let started = service.apply(TransitionRequest(kind: .bug, issue: "BUG-001", from
                                               evidence: LifecycleEvidence(start: .handoff(tool: "Claude Code", at: Date()))))
 check("a hand-off starts a bug", started.isApplied)
 check("only that bug's report changed", read(crash).contains("status: fixing") && read(longer).contains("status: open"))
-check("the rest of the report is untouched", read(crash) == "---\ntype: bug\nid: BUG-001\ntitle: Crash\nstatus: fixing\nseverity: high\n---\n\n## Summary\n\nIt crashes.\n")
+check("the rest of the report is untouched", read(crash) == "---\ntype: bug\nid: BUG-001\ntitle: Crash\nstatus: fixing\nseverity: high\nschema: 1\n---\n\n## Summary\n\nIt crashes.\n")
 
 // MARK: A refused request changes nothing but the journal
 
@@ -89,6 +89,25 @@ check("a refused request leaves the report alone", read(crash) == beforeRefused)
 check("but it is kept so the person can inspect it", journalLines() == linesBefore + 1 && service.history(.bug, "BUG-001").rejections.count == 1)
 let forced = service.apply(TransitionRequest(kind: .bug, issue: "BUG-001", from: "fixing", to: "fixed", actor: agent, reason: "just do it", force: true))
 check("an AI cannot force it", !forced.isApplied && read(crash) == beforeRefused)
+
+// MARK: The schema of the files (AR-39)
+
+let legacyText = "---\ntitle: Legacy\nstatus: draft\n---\n\nOld.\n"
+write(legacyText, "docs/features/legacy/overview.md")
+check("a file written before the schema is read as it is: its status is known and its bytes stay",
+      statuses.status(kind: .feature, issue: "legacy") == "draft" && read("docs/features/legacy/overview.md") == legacyText)
+let legacyStep = service.apply(TransitionRequest(kind: .feature, issue: "legacy", from: "draft", to: "review", actor: person))
+check("its next write adds the schema and changes nothing else",
+      legacyStep.isApplied && read("docs/features/legacy/overview.md") == "---\ntitle: Legacy\nstatus: review\nschema: 1\n---\n\nOld.\n")
+let legacyAgain = service.apply(TransitionRequest(kind: .feature, issue: "legacy", from: "review", to: "ready", actor: person))
+check("a file that has the schema keeps one schema line",
+      legacyAgain.isApplied && read("docs/features/legacy/overview.md") == "---\ntitle: Legacy\nstatus: ready\nschema: 1\n---\n\nOld.\n")
+let futureText = "---\ntitle: Future\nstatus: draft\nschema: 99\nnew_field: kept\n---\n\nNew.\n"
+write(futureText, "docs/features/future/overview.md")
+check("a file of a newer schema is read: its status is known", statuses.status(kind: .feature, issue: "future") == "draft")
+let futureStep = service.apply(TransitionRequest(kind: .feature, issue: "future", from: "draft", to: "review", actor: person))
+check("a step on a file of a newer schema is not written and the file is untouched",
+      !futureStep.isApplied && read("docs/features/future/overview.md") == futureText)
 
 // MARK: What the files cannot take
 

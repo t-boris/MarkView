@@ -95,11 +95,12 @@ actor SpecificationHandoffStore {
         let shouldSetReady = ["idea", "exploring", "draft", "review", "resolving", ""].contains(currentStatus)
         if shouldSetReady {
             front.set("status", "ready")
+            // The live status is written through `FrontMatter.writeFile`, which stamps the schema; the snapshot holds the same bytes.
+            front.stampSchema()
         }
 
         let directory = try handoffDirectory(project: project, slug: slug)
-        let history = try revisions(project: project, slug: slug)
-        let number = (history.last?.number ?? 0) + 1
+        let number = try nextRevisionNumber(project: project, slug: slug)
         let name = String(format: "%06d", number)
         let target = directory.appendingPathComponent("revisions/" + name, isDirectory: true)
         let staging = directory.appendingPathComponent(".staging-" + UUID().uuidString, isDirectory: true)
@@ -113,14 +114,14 @@ actor SpecificationHandoffStore {
         if shouldSetReady {
             let updated = front.join(body: body)
             let snapshotOverview = files.appendingPathComponent("overview.md")
-            try updated.write(to: snapshotOverview, atomically: true, encoding: .utf8)
+            try AtomicFile.write(updated, to: snapshotOverview)
             manifest["overview.md"] = SHA256.hash(data: Data(updated.utf8))
                 .map { String(format: "%02x", $0) }.joined()
         }
         let revision = HandoffRevision(number: number, actor: actor, createdAt: Date(),
                                        linkedFiles: try currentLinks(folder: folder), hashes: manifest)
         let data = try JSONEncoder().encode(revision)
-        try data.write(to: staging.appendingPathComponent("record.json"), options: .atomic)
+        try AtomicFile.write(data, to: staging.appendingPathComponent("record.json"))
         guard try hashes(in: folder) == originalManifest else { throw HandoffError.changedDuringHandoff }
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Publish the revision first. If the live status write fails, remove the
@@ -148,7 +149,7 @@ actor SpecificationHandoffStore {
         guard front.isLossless else { throw HandoffError.uneditableOverview }
         let normalized = try Array(Set(links.map(validRelativePath))).sorted()
         front["handoff_files"] = .list(normalized.map { .string($0) })
-        try AtomicFile.write(front.join(body: body), to: overview)
+        try front.writeFile(body: body, to: overview)
     }
 
     func snapshotText(project: URL, slug: String, revision: Int, path: String) throws -> String? {
@@ -200,11 +201,23 @@ actor SpecificationHandoffStore {
 
     private func revisions(project: URL, slug: String) throws -> [HandoffRevision] {
         let directory = try handoffDirectory(project: project, slug: slug).appendingPathComponent("revisions", isDirectory: true)
-        let paths = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return paths.compactMap { url in
-            guard let data = try? Data(contentsOf: url.appendingPathComponent("record.json")) else { return nil }
-            return try? JSONDecoder().decode(HandoffRevision.self, from: data)
+        return try revisionFolders(in: directory).compactMap { url in
+            PlainJSONFile.read(HandoffRevision.self, from: url.appendingPathComponent("record.json"), owner: "handoff revision").value
         }.sorted { $0.number < $1.number }
+    }
+
+    private func revisionFolders(in directory: URL) throws -> [URL] {
+        guard fm.fileExists(atPath: directory.path) else { return [] }
+        return try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+    }
+
+    /// The number the next revision takes: after the highest revision folder, so a revision whose record cannot be read (logged, and
+    /// left in place) is never collided with or replaced.
+    private func nextRevisionNumber(project: URL, slug: String) throws -> Int {
+        let directory = try handoffDirectory(project: project, slug: slug).appendingPathComponent("revisions", isDirectory: true)
+        let named = try revisionFolders(in: directory).compactMap { Int($0.lastPathComponent) }
+        let readable = try revisions(project: project, slug: slug).map(\.number)
+        return (named + readable).max().map { $0 + 1 } ?? 1
     }
 
     private func hashes(in folder: URL) throws -> [String: String] {

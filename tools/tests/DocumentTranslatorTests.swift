@@ -64,7 +64,7 @@ enum DocumentTranslatorChecks {
 
         init(folder: URL) {
             self.folder = folder
-            let tabs = TabsController()
+            let tabs = TabsController(prompts: NoPrompts())
             self.tabs = tabs
             let assistant = self.assistant
             translator = DocumentTranslator(tabs: tabs, project: FakeProject(root: folder), tasks: tasks,

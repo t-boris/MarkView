@@ -270,24 +270,29 @@ enum PrototypeFiles {
 
     static func conversationURL(of folder: URL) -> URL { folder.appendingPathComponent("conversation.json") }
 
+    /// The saved conversation; nil when there is none or it cannot be read (logged; the next save copies it to a backup first).
     static func loadConversation(_ folder: URL) -> [StoredMessage]? {
-        guard let data = try? Data(contentsOf: conversationURL(of: folder)) else { return nil }
-        return try? JSONDecoder().decode([StoredMessage].self, from: data)
+        PlainJSONFile.read([StoredMessage].self, from: conversationURL(of: folder), owner: "prototype conversation").value
     }
 
     static func saveConversation(_ messages: [StoredMessage], in folder: URL) {
         guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
               let data = try? JSONEncoder().encode(messages) else { return }
-        try? AtomicFile.write(data, to: conversationURL(of: folder))
+        try? PlainJSONFile.write(data, replacing: [StoredMessage].self, at: conversationURL(of: folder), owner: "prototype conversation")
     }
 
     // MARK: - Manifest
 
-    static func loadManifest(_ folder: URL) -> Manifest? {
-        guard let data = try? Data(contentsOf: manifestURL(of: folder)) else { return nil }
+    private static var manifestDecoder: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(Manifest.self, from: data)
+        return decoder
+    }
+
+    /// The prototype's manifest; nil when there is none or it cannot be read (logged; the file stays and the next save copies it
+    /// to a backup first).
+    static func loadManifest(_ folder: URL) -> Manifest? {
+        PlainJSONFile.read(Manifest.self, from: manifestURL(of: folder), using: manifestDecoder, owner: "prototype manifest").value
     }
 
     static func saveManifest(_ manifest: Manifest, in folder: URL) throws {
@@ -295,7 +300,8 @@ enum PrototypeFiles {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        try AtomicFile.write(encoder.encode(manifest), to: manifestURL(of: folder))
+        try PlainJSONFile.write(encoder.encode(manifest), replacing: Manifest.self, at: manifestURL(of: folder),
+                                using: manifestDecoder, owner: "prototype manifest")
     }
 
     // MARK: - Scope (code mode)

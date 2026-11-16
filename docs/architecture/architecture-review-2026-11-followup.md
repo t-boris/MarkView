@@ -792,3 +792,31 @@ the slice's reading, not by the lint, and fixed. A scan for the shape found no o
 - **The 16-domain strongly connected group** of `Models/` stays joined through longer cycles; the tool counts named types only.
 - **The review items outside this slice, unchanged:** AR-22, AR-24, AR-04, AR-27, AR-29, AR-36, AR-39, AR-40 to AR-44, AR-47 to AR-49 (section 13.4),
   and the 19 tables of the semantic database that no code touches (counted, not dropped).
+
+## 16. The third remainder round (2026-11-16, version 6.27.3)
+
+Section 15.3 listed what 6.27.2 left. This round took the sweeps that need no new library, no new tool and no architecture decision (AR-22, AR-24,
+AR-36, AR-39, AR-49) on the branch `feat/architecture-review-remainder-3` (base `9dfeb7bd`, the merge of PR #420). Numbers are from the lint
+scripts and `git grep`; nothing here is `verified`.
+
+| Measure | 6.27.2 | Now | Source |
+|---|---|---|---|
+| `.write(to:` sites outside `AtomicFile` (AR-24) | 35 in 26 files | **3 in 3 files** (save-panel exports that are already atomic through `Data.write(.atomic)`; a reason on each line) | lint `atomic-write` |
+| `NSAlert` references in `Models/` (AR-22) | 25 in 11 files | **0** (one protocol `UserPrompts` in `Models/Shared`, answered by `AlertPrompts` in `Views/Shared`; `nsalert-in-models` is a lint rule with fixtures) | lint `nsalert-in-models` |
+| `try? decode` sites (AR-36) | 94 in 47 files | **59 in 22 files**, every persisted-state site converted (JSON-lines logs, preference records, committed plain files, caches, database columns, cockpit controls); the 59 left are tolerant parses of assistant, process, socket and page payloads, union and lenient decoders, each with a reason in `tools/lint/silent-decode-allowlist.txt` | lint `silent-decode` (new) |
+| Feature and bug files without a schema version (AR-39) | no version | `schema: 1`; a newer file is never overwritten, an unreadable one is not replaced; un-versioned files load unchanged and get the key on the next write | `feature-store-schema-tests` |
+| `tasks/lessons.md` (AR-49) | 2,046 lines, chronological | 395 lines in 13 topics; the chronological text is kept verbatim in `tasks/archive/lessons-2026-11-chronological.md` | `wc -l` |
+| Suites in the manifest | 222 | **228** | manifest |
+
+New in `AtomicFile`: `append` (one `O_APPEND` write that creates the folder and file) and `create` (publishes with `RENAME_EXCL`, never replaces a file), each with its first callers.
+CI of the 6.27.2 merge commit failed `deployment-task-ownership-tests` (a timing check); the check now waits for the previous task to leave the bag. The cause was inferred
+by reading and not reproduced on the CI machine.
+
+**Not done, and why.** These need your decision or a new tool or library, so they were not started:
+AR-29, AR-27, AR-04 (a bundler and `tsc --checkJs` for the page JavaScript), AR-47 (SwiftLint and SwiftFormat), AR-40 (what to do with the client-supplied
+`cwd`, `cwdTrusted` and `by_user`), AR-44 (an app-hosted test target in the Xcode project), AR-48 (deleting tracked `TestFiles/` and a 3.65 MB PDF), and the window
+protocol that would cut `AgentTools` <-> `Workspace`. Also open: 31 closure hooks and 4 back-references, 2 views on the manager, the 16-domain group, AR-41, AR-42, AR-43.
+
+**Not seen in the real app:** the real `NSAlert` presentation of `AlertPrompts` (an alert is app-modal and a hidden probe cannot reach it without blocking); the save-panel
+exports; the paste, element-pick, Preview and hand-off picture writers (covered by `AtomicFile` unit tests and the build); the sign-in scripts (`claude login`, `gh auth login`);
+`book-pdf-live` and `ui-studio-live-run`; the `silent-decode` fallbacks of the 59 allowed sites (the ratchet stops growth, it does not test them).

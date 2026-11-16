@@ -58,7 +58,7 @@ enum ProjectOperationHistory {
         var result: [String: ProjectOperationLastRun] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let id = sqlite3_column_text(stmt, 0), let raw = sqlite3_column_text(stmt, 1),
-                  let run = try? JSONDecoder().decode(ProjectOperationLastRun.self, from: Data(String(cString: raw).utf8)) else { continue }
+                  let run = StoredJSON.decode(ProjectOperationLastRun.self, from: Data(String(cString: raw).utf8), owner: "project operation history") else { continue }
             result[String(cString: id)] = run
         }
         return result

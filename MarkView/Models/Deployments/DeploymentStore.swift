@@ -151,21 +151,16 @@ final class DeploymentStore: ObservableObject {
     private func loadLog() {
         guard let logFile, let text = try? String(contentsOf: logFile, encoding: .utf8) else { return }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        log = text.split(separator: "\n").suffix(200).compactMap { try? decoder.decode(CommandLogEntry.self, from: Data($0.utf8)) }
+        log = JSONLinesFile.decode(CommandLogEntry.self, from: text, using: decoder, owner: "deployment command log", last: 200).records
     }
 
     func note(_ entry: CommandLogEntry) {
         log.append(entry)
         if log.count > 200 { log.removeFirst(log.count - 200) }
-        guard let folder, let logFile else { return }
+        guard let logFile else { return }
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(entry) else { return }
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        if let handle = try? FileHandle(forWritingTo: logFile) {
-            handle.seekToEndOfFile(); handle.write(data); handle.write(Data("\n".utf8)); try? handle.close()
-        } else {
-            try? (data + Data("\n".utf8)).write(to: logFile)
-        }
+        try? AtomicFile.append(data + Data("\n".utf8), to: logFile)
     }
 
     // MARK: Editing

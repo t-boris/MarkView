@@ -83,7 +83,7 @@ enum ToolTabsRouterChecks {
         let project: FakeProject
         let window = FakeWindow()
         let assistants = FakeAssistants()
-        let tabs = TabsController(dialogs: TabDialogs(askToSave: { _, _ in .cancel }, confirmSave: { _, _ in false }, reportFailedSave: { _ in }, offerDefaultApp: { _, _ in false }))
+        let tabs = TabsController(prompts: NoPrompts())
         let layout = PanelLayout(defaults: UserDefaults(suiteName: "tool-tabs-\(UUID().uuidString)")!)
         let chrome = WindowChrome(defaults: UserDefaults(suiteName: "tool-tabs-\(UUID().uuidString)")!)
         let requests = WindowRequests()

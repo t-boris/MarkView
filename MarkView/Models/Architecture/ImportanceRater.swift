@@ -25,7 +25,7 @@ enum ImportanceRater {
     /// code viewer across projects. Ratings stay per project.
     static var customFilters: [Filter] {
         get {
-            Settings.standard.stored(Setting.customFilters).flatMap { try? JSONDecoder().decode([Filter].self, from: $0) } ?? []
+            Settings.standard.stored(Setting.customFilters).flatMap { PreferenceRecord.decode([Filter].self, from: $0, name: "custom-filters") } ?? []
         }
         set {
             Settings.standard.set(try? JSONEncoder().encode(newValue), for: Setting.customFilters)

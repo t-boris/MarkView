@@ -128,6 +128,23 @@ check("unchanged file reuses saved outline",
 try (html + "\n").write(to: file, atomically: true, encoding: .utf8)
 check("changed file invalidates saved outline",
       XRayContent.loadFresh(root: root, paths: ["index.html"]).isEmpty)
+// A saved outline that cannot be read is a miss that is logged, not a crash and not a stale outline; the next save replaces it (AR-36).
+try html.write(to: file, atomically: true, encoding: .utf8)
+// The signature holds the modification time in milliseconds, so the rewrite above has a new one: the outline is made for it. A URL
+// value caches its resource values, so the signature is read through a new URL, as the store does for every file.
+let signatureNow = XRayContent.signature(of: root.appendingPathComponent("index.html"))!
+let cachedNow = XRayContent.localOutline(text: html, language: "html", signature: signatureNow)!
+XRayContent.save(cachedNow, root: root, path: "index.html")
+let cacheFolder = XRayContent.cacheDirectory(root: root)
+let cacheFiles = ((try? FileManager.default.contentsOfDirectory(atPath: cacheFolder.path)) ?? []).filter { $0.hasSuffix(".json") }
+check("the saved outline is one file of the cache", cacheFiles.count == 1)
+if let name = cacheFiles.first {
+    let outlineFile = cacheFolder.appendingPathComponent(name)
+    try Data("{ \"signature\": ".utf8).write(to: outlineFile)
+    check("a damaged saved outline is a miss", XRayContent.loadFresh(root: root, paths: ["index.html"]).isEmpty)
+    XRayContent.save(cachedNow, root: root, path: "index.html")
+    check("and the next save replaces it", XRayContent.loadFresh(root: root, paths: ["index.html"])["index.html"]?.signature == signatureNow)
+}
 
 struct TestTimeout: LocalizedError {
     var errorDescription: String? { "Codex did not finish within 60 s." }

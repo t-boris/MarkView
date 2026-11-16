@@ -17,7 +17,7 @@ enum SemanticDatabase {
 }
 SWIFT
 swiftc -parse-as-library -o "$out/workspace-redesign-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/Shared/FrontMatter.swift \
+    MarkView/Models/Shared/FrontMatter.swift MarkView/Models/Shared/FrontMatterFile.swift \
     MarkView/Models/Lifecycle/SpecificationHandoff.swift \
     MarkView/Models/Shared/ProjectSearch.swift \
     MarkView/Models/Shared/ArchiveSupport.swift \

@@ -123,9 +123,13 @@ final class BrowserSession: NSObject, ObservableObject {
     private let dataStore: WKWebsiteDataStore?
     /// Page channels the owner of the session adds to the tab's own (the QA player's fault counter).
     private let extraHandlers: [WebHost.Handler]
+    /// How a page's own `alert` and `confirm` reach the person (`AR-22`). A session nobody can be asked from (a QA player) has `NoPrompts`.
+    private let prompts: any UserPrompts
 
-    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = [], host: (any BrowserSessionHost)? = nil) {
+    init(url: URL?, dataStore: WKWebsiteDataStore? = nil, extraHandlers: [WebHost.Handler] = [], host: (any BrowserSessionHost)? = nil,
+         prompts: any UserPrompts) {
         self.host = host
+        self.prompts = prompts
         self.url = url
         self.dataStore = dataStore
         self.extraHandlers = extraHandlers
@@ -391,7 +395,7 @@ final class BrowserSession: NSObject, ObservableObject {
         guard let tiff = image?.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return nil }
         let file = BrowserElementPick.screenshotURL()
-        return (try? png.write(to: file)) != nil ? file : nil
+        return (try? AtomicFile.write(png, to: file)) != nil ? file : nil
     }
 
     /// The selection or the whole page as Markdown.
@@ -517,10 +521,7 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
             completionHandler()
             return
         }
-        let alert = NSAlert()
-        alert.messageText = frame.request.url?.host ?? "Page"
-        alert.informativeText = message
-        alert.runModal()
+        prompts.inform(frame.request.url?.host ?? "Page", message)
         completionHandler()
     }
 
@@ -531,12 +532,8 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
             completionHandler(true)
             return
         }
-        let alert = NSAlert()
-        alert.messageText = frame.request.url?.host ?? "Page"
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        completionHandler(alert.runModal() == .alertFirstButtonReturn)
+        let question = UserPrompt(title: frame.request.url?.host ?? "Page", detail: message, buttons: ["OK", "Cancel"])
+        completionHandler(prompts.confirm(question, proceedingWith: 0))
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,

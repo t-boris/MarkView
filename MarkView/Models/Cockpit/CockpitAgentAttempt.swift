@@ -57,7 +57,7 @@ final class CockpitAgentAttempt {
             return Self.failure("The step was interrupted.")
         }
         // The file audit holds the step to the controls with the cuts in force when it begins; a cut made during the step is the gate's.
-        audited = (before, Self.controls(of: task).narrowed(by: liveCuts()))
+        audited = (before, CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()))
         session = terminal
         progress = nil
         // One attempt object serves every step of the run: what a step asked the supervisor is not carried into the next.
@@ -88,7 +88,7 @@ final class CockpitAgentAttempt {
                     await self?.supervise(question, task: task) ?? CockpitSupervisor.failureReply("the step has ended")
                 }, waitForShutdown: { [weak self] in await self?.terminationTask?.value }) { [weak self] reply in self?.finish(reply) }
                 self.ticket = ticket
-                CockpitAgentRegistry.restrict(ticket, policy: CockpitStepPolicy(controls: Self.controls(of: task)),
+                CockpitAgentRegistry.restrict(ticket, policy: CockpitStepPolicy(controls: CockpitControls(storedJSON: task.controls)),
                                               cuts: { [weak self] in self?.liveCuts() ?? CockpitLiveSwitches() }, shell: pty.shell,
                                               onFixCycle: { [weak self] count in self?.onFixCycle(count) },
                                               onActivity: { [weak self] tool, refusal in self?.onGate(tool, refusal) })
@@ -103,7 +103,7 @@ final class CockpitAgentAttempt {
                     when fixes are disabled, report findings without changing source files; when deployment is disabled, do not deploy by any route;
                     when filing bugs is disabled, describe problems in your report instead. A refused call is not a puzzle to get around: report it as a blocker.
                     You cannot start or drive other agents through MarkView during a step.
-                    \(Self.controls(of: task).narrowed(by: liveCuts()).supervisor
+                    \(CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()).supervisor
                         ? "When you need a decision you cannot make from the assignment and the controls, call markview_cockpit_ask with project_folder \(root.path), ticket \(ticket.uuidString) and your question: the supervisor answers at once. Nobody else will be asked and nothing waits for a person, so do not print a question into the terminal and wait for it. If the answer says the matter is outside the plan, do not act on it: record it as a blocker."
                         : "There is no supervisor in this run and nobody to ask: decide conservatively inside the controls, say what you decided in your step report, or record a blocker.")
                     When building is disabled, do not claim checks against a newly built version were performed. Build and checks are instructions only: MarkView cannot check them.
@@ -196,7 +196,7 @@ final class CockpitAgentAttempt {
 
     /// The agent's question to the supervisor: asked once per distinct question, at most `questionsPerStep` of them, and never waited on.
     private func supervise(_ question: CockpitSupervisor.Question, task: CockpitHostTask) async -> String {
-        guard Self.controls(of: task).narrowed(by: liveCuts()).supervisor, let askSupervisor else { return CockpitSupervisor.disabledReply }
+        guard CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()).supervisor, let askSupervisor else { return CockpitSupervisor.disabledReply }
         switch ledger.admit(question.text) {
         case .repeated(let reply): return reply
         case .exhausted: return CockpitSupervisor.exhaustedReply
@@ -217,11 +217,6 @@ final class CockpitAgentAttempt {
         }
         onExchange(exchange)
         return reply
-    }
-
-    /// Controls that cannot be read are replaced by the defaults, which are the restrictive ones.
-    private static func controls(of task: CockpitHostTask) -> CockpitControls {
-        (try? JSONDecoder().decode(CockpitControls.self, from: Data(task.controls.utf8))) ?? CockpitControls()
     }
 
     /// The git-changed files with their content hashes (UI Studio's revision probe), and the QA scenarios that exist.

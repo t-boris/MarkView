@@ -6,7 +6,7 @@ enum TabClosingStoreTests {
         func tab(_ name: String, _ kind: TabKind) -> OpenTab {
             OpenTab(url: URL(fileURLWithPath: "/tmp/\(name)"), content: "", originalContent: "", kind: kind)
         }
-        let pdfTabs = TabsController()
+        let pdfTabs = TabsController(prompts: NoPrompts())
         pdfTabs.openDocument(URL(fileURLWithPath: "/tmp/doc.pdf"))
         let documents = [tab("a.md", .file), tab("b.png", .image), pdfTabs.openTabs[0], tab("c.zip", .archive), tab("d.csv", .data)]
         let tools = [tab("t", .terminal(UUID())), tab("x", .architecture(scope: "")), tab("pr", .architecture(scope: XRayScope.pullRequest)),
@@ -18,7 +18,7 @@ enum TabClosingStoreTests {
         precondition(tools.allSatisfy { !$0.isDocument }, "every tool tab stays when documents close")
 
         func store(_ list: [OpenTab], active: Int) -> TabsController {
-            let store = TabsController()
+            let store = TabsController(prompts: NoPrompts())
             list.forEach { store.appendTab($0, activate: false) }
             store.activeTabIndex = active
             return store

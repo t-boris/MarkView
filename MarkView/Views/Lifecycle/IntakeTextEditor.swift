@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 import ImageIO
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Text keeps normal paste/undo/selection behavior; copied images become attachments.
 struct IntakeTextEditor: NSViewRepresentable {
@@ -103,7 +106,7 @@ enum IntakeClipboard {
                 .appendingPathComponent("MarkView/pasted-images", isDirectory: true)
             try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
             let file = cache.appendingPathComponent("pasted-image-" + UUID().uuidString + ".png")
-            try png.write(to: file, options: .withoutOverwriting)
+            try AtomicFile.create(png, to: file)
             return [file]
         }
         return nil

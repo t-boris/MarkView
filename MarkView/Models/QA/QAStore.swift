@@ -101,11 +101,6 @@ enum QAStore {
         }
     }
 
-    static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? decoder.decode(type, from: data)
-    }
-
     static func save<T: Encodable>(_ value: T, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try AtomicFile.write(encoder.encode(value), to: url)

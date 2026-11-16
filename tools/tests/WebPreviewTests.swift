@@ -412,7 +412,8 @@ print(a)</code></pre>
 
 MainActor.assumeIsolated {
     BrowserSession.captureScriptURL = URL(fileURLWithPath: "MarkView/Resources/Editor/js/markview-page-markdown.js")
-    let session = BrowserSession(url: nil)
+    let prompts = ScriptedPrompts()
+    let session = BrowserSession(url: nil, prompts: prompts)
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
     window.contentView = session.webView
     session.webView.loadHTMLString(html, baseURL: URL(string: "https://example.com/post/")!)
@@ -456,6 +457,33 @@ MainActor.assumeIsolated {
     session.webView.evaluateJavaScript("typeof window.markviewPageMarkdown") { value, _ in pageSees = value; asked = true }
     spin(until: { asked })
     check("isolated from the page", (pageSees as? String) == "undefined", "\(String(describing: pageSees))")
+
+    // The page's own alert and confirm reach the person through the prompter the tab was given (AR-22), under the page's host.
+    @MainActor func pageAnswer(_ script: String) -> Any? {
+        var value: Any?
+        var answered = false
+        session.webView.evaluateJavaScript(script) { result, _ in value = result; answered = true }
+        spin(until: { answered })
+        return value
+    }
+    prompts.script = [.press("OK")]
+    let accepted = pageAnswer("confirm('Delete the draft?')") as? Bool
+    check("page confirm: OK answers true", accepted == true, "\(String(describing: accepted))")
+    check("page confirm: asked under the page's host, with its text and OK first",
+          prompts.asked.last == UserPrompt(title: "example.com", detail: "Delete the draft?", buttons: ["OK", "Cancel"]),
+          "\(String(describing: prompts.asked.last))")
+    prompts.script = [.press("Cancel")]
+    let declined = pageAnswer("confirm('Delete the draft?')") as? Bool
+    check("page confirm: Cancel answers false", declined == false, "\(String(describing: declined))")
+    prompts.script = [.dismiss]
+    let unanswered = pageAnswer("confirm('Delete the draft?')") as? Bool
+    check("page confirm: no answer is a refusal, and the page is not left waiting", unanswered == false, "\(String(describing: unanswered))")
+    prompts.script = [.press("OK")]
+    _ = pageAnswer("alert('Saved'); 1")
+    check("page alert: shown as a notice with the page's text",
+          prompts.asked.last == UserPrompt(title: "example.com", detail: "Saved", buttons: []), "\(String(describing: prompts.asked.last))")
+    prompts.script = []
+    check("page alert: a notice nobody answers does not hold the page", pageAnswer("alert('Again'); 2") as? Int == 2)
 }
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

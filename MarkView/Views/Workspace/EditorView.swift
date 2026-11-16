@@ -1083,7 +1083,7 @@ extension EditorView.Coordinator {
 }
 
 #Preview {
-    let workspace = WorkspaceManager()
+    let workspace = WorkspaceManager(prompts: AlertPrompts())
     EditorView()
         .environmentObject(workspace)
         .observingParts(of: workspace)

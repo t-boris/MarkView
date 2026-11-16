@@ -259,6 +259,7 @@ final class FeatureStore: ObservableObject {
 
     static var today: String { dateFormatter.string(from: Date()) }
 
+    /// Writes a plain text file of the feature (the discussion log), creating its folder.
     private func write(_ text: String, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try AtomicFile.write(text, to: url)
@@ -286,7 +287,7 @@ final class FeatureStore: ObservableObject {
         front["understanding"] = .map(FeatureVocabulary.understanding.map { ($0, YAMLValue.string("unknown")) })
         let body = "# \(title)\n\n## Idea\n\n\(idea.isEmpty ? "_Describe the idea._" : idea)\n\n## Problem\n\n## Scope\n"
         do {
-            try write(front.join(body: body), to: folder.appendingPathComponent(candidate).appendingPathComponent("overview.md"))
+            try front.writeFile(body: body, to: folder.appendingPathComponent(candidate).appendingPathComponent("overview.md"))
         } catch {
             lastError = "Could not create the feature: \(error.localizedDescription)"
             return nil
@@ -339,11 +340,12 @@ final class FeatureStore: ObservableObject {
         if [.question, .decision].contains(kind), front["owner"] == nil { front.set("owner", defaultOwner) }
         front.set("created", Self.today)
         front.set("provenance", provenance)
+        front.stampSchema()
         let url = dir.appendingPathComponent(id + ".md")
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            // withoutOverwriting: fails instead of replacing a file that appeared meanwhile.
-            try Data(front.join(body: body).utf8).write(to: url, options: .withoutOverwriting)
+            // `create` fails instead of replacing a file that appeared meanwhile.
+            try AtomicFile.create(front.join(body: body), to: url)
         } catch {
             lastError = "Could not write \(id): \(error.localizedDescription)"
             return nil
@@ -363,7 +365,7 @@ final class FeatureStore: ObservableObject {
         }
         change(&object.front, &object.body)
         object.front.set("updated", Self.today)
-        do { try write(object.text(), to: object.url) } catch {
+        do { try object.front.writeFile(body: object.body, to: object.url) } catch {
             lastError = "Could not save \(id): \(error.localizedDescription)"
         }
         reloadSync(slug)
@@ -526,7 +528,9 @@ final class FeatureStore: ObservableObject {
                   object.front.isLossless else { continue }
             change(id, &object.front, &object.body)
             object.front.set("updated", Self.today)
-            try? write(object.text(), to: object.url)
+            do { try object.front.writeFile(body: object.body, to: object.url) } catch {
+                lastError = "Could not save \(id): \(error.localizedDescription)"
+            }
         }
         reloadSync(slug)
     }
@@ -580,7 +584,7 @@ final class FeatureStore: ObservableObject {
             return
         }
         change(&front, &body)
-        do { try write(front.join(body: body), to: feature.overviewURL) } catch {
+        do { try front.writeFile(body: body, to: feature.overviewURL) } catch {
             lastError = "Could not save the overview: \(error.localizedDescription)"
         }
         reloadSync(slug)
@@ -600,7 +604,7 @@ final class FeatureStore: ObservableObject {
             return false
         }
         change(&front, &body)
-        do { try write(front.join(body: body), to: url) } catch {
+        do { try front.writeFile(body: body, to: url) } catch {
             lastError = "Could not save the bug report: \(error.localizedDescription)"
             return false
         }
@@ -682,7 +686,7 @@ final class FeatureStore: ObservableObject {
             if !issue.decisions.isEmpty { body += "Decisions: \(issue.decisions.joined(separator: ", "))\n" }
             body += "\n"
         }
-        do { try write(front.join(body: body), to: feature.planURL) } catch {
+        do { try front.writeFile(body: body, to: feature.planURL) } catch {
             lastError = "Could not save the plan: \(error.localizedDescription)"
         }
         reloadSync(slug)

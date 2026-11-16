@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 struct CockpitCriterionResult: Codable, Equatable, Sendable {
     var criterion: String
@@ -50,6 +53,12 @@ struct CockpitControls: Codable, Equatable {
     var supervisorModel: String?
 
     init() {}
+
+    /// The controls as a step carries them (JSON text). Controls that cannot be read are replaced by the defaults, which are the
+    /// restrictive ones, and the failure is logged.
+    init(storedJSON text: String) {
+        self = StoredJSON.decode(CockpitControls.self, from: Data(text.utf8), owner: "cockpit controls") ?? CockpitControls()
+    }
 
     /// Runs saved before the limits were enforced hold free text ("2h", "3") and a budget limit that no longer exists.
     /// Text that is not a clear amount is read as "no limit"; unknown keys are ignored.

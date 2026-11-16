@@ -7,5 +7,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/ResearchMapImagesTests.swift "$out/main.swift"
-swiftc -O -o "$out/research-map-images-tests" MarkView/Models/Research/ResearchMapImages.swift "$out/main.swift"
+swiftc -O -o "$out/research-map-images-tests" Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Research/ResearchMapImages.swift "$out/main.swift"
 "$out/research-map-images-tests"

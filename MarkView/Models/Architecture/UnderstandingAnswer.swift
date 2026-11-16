@@ -185,8 +185,8 @@ struct UnderstandingAnswer: Codable {
         while true {
             let id = String(format: "RES-%03d", number)
             let reservation = folder.appendingPathComponent(id + ".reserve")
-            do { try Data().write(to: reservation, options: .withoutOverwriting) }
-            catch let error as NSError where error.code == NSFileWriteFileExistsError { number += 1; continue }
+            do { try AtomicFile.create(Data(), to: reservation) }
+            catch let error as POSIXError where error.code == .EEXIST { number += 1; continue }
             defer { try? FileManager.default.removeItem(at: reservation) }
             let title = String(question.prefix(90)).replacingOccurrences(of: "\n", with: " ")
             let slug = String(title.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }).split(separator: "-").joined(separator: "-")
@@ -211,7 +211,7 @@ struct UnderstandingAnswer: Codable {
                         body += "\(image ? "!" : "")[\((path as NSString).lastPathComponent)](<\(relative)>)\n\n"
                     }
                 }
-                try Data(front.join(body: body).utf8).write(to: file, options: .withoutOverwriting)
+                try AtomicFile.create(front.join(body: body), to: file)
             } catch {
                 if !attachments.isEmpty { try? FileManager.default.removeItem(at: assets) }
                 throw error

@@ -240,7 +240,7 @@ struct ThemeSettingsStore {
     func startingSettings() -> WindowThemeSettings {
         let stored = Settings(defaults)
         if let data = stored.stored(Setting.themeLastChanged), Self.isReadable(data),
-           let settings = try? JSONDecoder().decode(WindowThemeSettings.self, from: data) {
+           let settings = PreferenceRecord.decode(WindowThemeSettings.self, from: data, name: "theme-last-changed") {
             return settings
         }
         return WindowThemeSettings(theme: Self.legacyTheme(stored.stored(Setting.legacyTheme)))

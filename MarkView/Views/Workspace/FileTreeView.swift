@@ -1366,7 +1366,7 @@ struct FileTreeView: View {
 }
 
 #Preview {
-    let workspace = WorkspaceManager()
+    let workspace = WorkspaceManager(prompts: AlertPrompts())
     FileTreeView().environmentObject(workspace).observingParts(of: workspace)
 }
 

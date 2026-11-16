@@ -192,7 +192,7 @@ final class CodeExplainStore: ObservableObject {
               let data = try? Data(contentsOf: fileURL(path, directory)) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let value = try? decoder.decode(CodeExplanation.self, from: data) {
+        if let value = StoredJSON.decode(CodeExplanation.self, from: data, using: decoder, owner: "code explanation cache") {
             explanations[path] = value
             revision += 1
         }

@@ -601,6 +601,48 @@ func scenarioChecks() {
     check("session data folder ignores itself in Git", (try? String(contentsOf: root.appendingPathComponent(".dde/studio/.gitignore"), encoding: .utf8))?.contains("*") == true)
     try! StudioStore.saveEnvironment(spec, root: root)
     check("environment round trip", StudioStore.loadEnvironment(root)?.rules == spec.rules && StudioStore.loadEnvironment(root)?.seed == spec.seed)
+
+    // Team-owned files that cannot be read, or that a newer MarkView wrote, are never replaced unseen (AR-36).
+    let scenarioFile = root.appendingPathComponent(".markview/studio/scenarios/long-names.json")
+    let cut = Data("{ \"id\": \"Long names!\", ".utf8)
+    try! cut.write(to: scenarioFile)
+    check("damaged scenario: it is left out of the list and left as it is",
+          StudioStore.loadScenarios(root).isEmpty && StoreFixture.bytes(scenarioFile) == cut)
+    try! StudioStore.saveScenario(scenario, root: root)
+    check("damaged scenario: a save keeps the old bytes in a dated backup",
+          StoreFixture.backups(of: scenarioFile).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: scenarioFile)[0]) == cut
+          && StudioStore.loadScenarios(root) == [scenario])
+    try! StudioStore.saveScenario(scenario, root: root)
+    check("a scenario that reads makes no further backup", StoreFixture.backups(of: scenarioFile).count == 1)
+
+    let environmentFile = StudioStore.environmentURL(root)
+    var future = spec
+    future.schemaVersion = StudioEnvironmentSpec.currentSchemaVersion + 1
+    try! StudioStore.save(future, to: environmentFile)
+    let futureBytes = StoreFixture.bytes(environmentFile)
+    var refused = false
+    do { try StudioStore.saveEnvironment(spec, root: root) } catch is PlainJSONFile.NewerVersion { refused = true } catch {}
+    check("newer environment: it is not read as the current one", StudioStore.loadEnvironment(root) == nil)
+    check("newer environment: a save is refused and the file stays as it is",
+          refused && StoreFixture.bytes(environmentFile) == futureBytes && StoreFixture.backups(of: environmentFile).isEmpty)
+    let halfEnvironment = Data(#"{"schemaVersion":1,"entities":["#.utf8)
+    try! halfEnvironment.write(to: environmentFile)
+    check("damaged environment: it reads as none and is left as it is",
+          StudioStore.loadEnvironment(root) == nil && StoreFixture.bytes(environmentFile) == halfEnvironment)
+    try! StudioStore.saveEnvironment(spec, root: root)
+    check("damaged environment: a save keeps the old bytes in a dated backup and replaces it",
+          StoreFixture.backups(of: environmentFile).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: environmentFile)[0]) == halfEnvironment
+          && StudioStore.loadEnvironment(root)?.rules == spec.rules)
+
+    var book = StudioScreenBook()
+    book.version = StudioScreenBook.currentVersion + 1
+    let bookFile = StudioStore.screensURL(root, appFolder: "")
+    try! StudioStore.save(book, to: bookFile, version: nil)
+    let bookBytes = StoreFixture.bytes(bookFile)
+    refused = false
+    do { try StudioStore.saveScreenBook(StudioScreenBook(), root: root) } catch is PlainJSONFile.NewerVersion { refused = true } catch {}
+    check("newer screen book: it is not read, a save is refused and the file stays as it is",
+          StudioStore.loadScreenBook(root, appFolder: "") == nil && refused && StoreFixture.bytes(bookFile) == bookBytes)
 }
 
 // MARK: - Browser features and kept browser data (REQ-008)

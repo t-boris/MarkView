@@ -34,8 +34,10 @@ enum WorkspaceAITool: String {
 /// remove the folder's metadata.
 @MainActor
 class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, ToolTabsWindow {
+    /// How this window and its parts ask the person a question or tell them something (`AR-22`): given by the app when the window is made.
+    let prompts: any UserPrompts
     /// The parts of this window. The one late binding of the window: each part is given this object through its own narrow protocol.
-    private(set) lazy var composition = WindowComposition(host: self)
+    private(set) lazy var composition = WindowComposition(host: self, prompts: prompts)
 
     var project: ProjectContext { composition.project }
     var layout: PanelLayout { composition.layout }
@@ -113,7 +115,8 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
 
     func reloadChangedOpenFiles(all: Bool) async { await tabs.reloadChangedOpenFiles(all: all) }
 
-    init() {
+    init(prompts: any UserPrompts) {
+        self.prompts = prompts
         Self.debugLog("WorkspaceManager init START")
         composition.connect()
         composition.changes
@@ -128,7 +131,7 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
     }
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
-        projectOperations = ProjectOperationsStore.forRoot(url)
+        projectOperations = ProjectOperationsStore.forRoot(url, prompts: prompts)
         project.beginOpening(url)
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
         // outside its terminals; the browser tools check the terminal-links setting themselves.
@@ -253,21 +256,19 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
     func removeMetadata(recreate: Bool) {
         guard let root = rootNode?.url else { return }
         let items = project.metadataItems()
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = recreate
-            ? "Rebuild MarkView data for “\(root.lastPathComponent)”?"
-            : "Remove MarkView data from “\(root.lastPathComponent)”?"
         let list = items.isEmpty ? "Nothing is stored yet." : items.map { "• " + $0.path.replacingOccurrences(of: root.path + "/", with: "") }.joined(separator: "\n")
-        alert.informativeText = """
-            \(list)
+        let removal = UserPrompt(
+            title: recreate
+                ? "Rebuild MarkView data for “\(root.lastPathComponent)”?"
+                : "Remove MarkView data from “\(root.lastPathComponent)”?",
+            detail: """
+                \(list)
 
-            The search index, architecture, AI descriptions, filters, file contents and Insight pages are deleted. \
-            Your documents and code are not touched.\(recreate ? " The folder is then indexed and scanned again." : "")
-            """
-        alert.addButton(withTitle: recreate ? "Rebuild" : "Remove")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+                The search index, architecture, AI descriptions, filters, file contents and Insight pages are deleted. \
+                Your documents and code are not touched.\(recreate ? " The folder is then indexed and scanned again." : "")
+                """,
+            buttons: [recreate ? "Rebuild" : "Remove", "Cancel"])
+        guard prompts.confirm(removal, proceedingWith: 0) else { return }
 
         // Stop everything that could still write into the folder.
         stopAllTerminals()
@@ -280,10 +281,7 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
 
         let failures = project.deleteMetadata(items)
         if !failures.isEmpty {
-            let error = NSAlert()
-            error.messageText = "Some items could not be deleted"
-            error.informativeText = failures.joined(separator: ", ")
-            error.runModal()
+            prompts.inform("Some items could not be deleted", failures.joined(separator: ", "))
         }
         Self.debugLog("removeMetadata: \(items.count) items removed from \(root.path), recreate=\(recreate)")
         if recreate {
@@ -465,13 +463,11 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
         if let operations = projectOperations {
             let active = operations.runs.values.filter(\.isActive)
             if !active.isEmpty {
-                let alert = NSAlert()
-                alert.messageText = "Stop running project operations before closing?"
-                alert.informativeText = active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }
-                    .joined(separator: "\n")
-                alert.addButton(withTitle: "Keep working")
-                alert.addButton(withTitle: "Stop operations and close")
-                guard alert.runModal() == .alertSecondButtonReturn else { return false }
+                let stop = UserPrompt(
+                    title: "Stop running project operations before closing?",
+                    detail: active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }.joined(separator: "\n"),
+                    buttons: ["Keep working", "Stop operations and close"])
+                guard prompts.confirm(stop, proceedingWith: 1) else { return false }
                 operations.cancelForClose()
                 taskBag.store(Task { [weak self] in
                     while operations.runs.values.contains(where: \.isActive), !Task.isCancelled {

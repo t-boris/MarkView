@@ -22,7 +22,7 @@ struct ProjectAIChoice: Codable, Equatable {
     static func load(_ project: URL?) -> ProjectAIChoice? {
         guard let project,
               let data = Settings.standard.value(Setting.projectAI)[key(project)] as? Data else { return nil }
-        return try? JSONDecoder().decode(ProjectAIChoice.self, from: data)
+        return PreferenceRecord.decode(ProjectAIChoice.self, from: data, name: "project-ai-choice")
     }
 
     /// Applies `change` to `project`'s choice (starting from none) and tells every window.
@@ -382,10 +382,6 @@ enum CLIToolLocator {
         guard let toolPath = resolve(tool) else {
             return "\(tool.binaryName) not found — set its path in Settings first."
         }
-        let fm = FileManager.default
-        let directory = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/MarkView", isDirectory: true)
-        let script = directory.appendingPathComponent("login-\(tool.rawValue).command")
         let body = """
             #!/bin/zsh
             export PATH="\(subprocessPath(toolPath: toolPath))"
@@ -395,13 +391,9 @@ enum CLIToolLocator {
             echo "Done. You can close this window."
 
             """
-        do {
-            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-            try body.write(to: script, atomically: true, encoding: .utf8)
-            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        } catch {
-            return "Could not prepare the login script: \(error.localizedDescription)"
-        }
+        let script: URL
+        do { script = try LoginScript.write(named: tool.rawValue, body: body) }
+        catch { return "Could not prepare the login script: \(error.localizedDescription)" }
         NSWorkspace.shared.open(script)
         return nil
     }

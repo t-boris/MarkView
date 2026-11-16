@@ -32,7 +32,7 @@ import MarkViewCore
 /// Typed errors emitted by `InsightArchiveExporter.bundle`.
 enum InsightArchiveExporterError: Error {
     /// `/usr/bin/zip` exited non-zero. Includes sanitized stderr (control chars
-    /// stripped, truncated to 256 chars) for surfacing in NSAlert without log
+    /// stripped, truncated to 256 chars) for showing in an alert without log
     /// forgery (CWE-117).
     case zipFailed(String)
     /// Export was cancelled mid-flight. `.zip.tmp` cleaned up before throwing.
@@ -136,7 +136,7 @@ struct InsightArchiveExporter {
     }
 
     /// Strip control characters (CR, LF, NUL, tab, other ASCII control) and
-    /// truncate to 256 chars before surfacing an error message via NSAlert or
+    /// truncate to 256 chars before surfacing an error message in an alert or
     /// NSLog. Defends against log forgery (CWE-117) and runaway output from
     /// adversarial filenames in `zip` stderr.
     private static func sanitizeForError(_ s: String) -> String {

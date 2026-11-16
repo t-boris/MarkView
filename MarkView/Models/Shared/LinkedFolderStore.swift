@@ -49,6 +49,6 @@ enum LinkedFolders {
     static func decode(_ data: Data) -> [LinkedFolder] {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([LinkedFolder].self, from: data)) ?? []
+        return PreferenceRecord.decode([LinkedFolder].self, from: data, name: "linked-folders", using: decoder) ?? []
     }
 }

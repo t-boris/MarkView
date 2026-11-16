@@ -38,6 +38,8 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     static let maxRecentFiles = 20
 
     private let recentFilesURL: URL
+    /// How the project tells the person that a folder could not be linked (`AR-22`).
+    private let prompts: any UserPrompts
     /// The project's own background work (`AR-19`): cancelled when the folder closes or the window does.
     private let tasks = TaskBag()
     /// The single-file workspace being opened: while its database is still being created, another Markdown file from the same
@@ -50,7 +52,8 @@ final class ProjectContext: ObservableObject, ProjectProviding {
 
 
     /// `recentFilesURL` is where the recently opened files are kept; the window uses the shared file in Application Support.
-    init(recentFilesURL: URL? = nil) {
+    init(prompts: any UserPrompts, recentFilesURL: URL? = nil) {
+        self.prompts = prompts
         self.recentFilesURL = recentFilesURL ?? Self.defaultRecentFilesURL
         let fileTree = WorkspaceFileTreeStore()
         self.fileTree = fileTree
@@ -330,14 +333,14 @@ final class ProjectContext: ObservableObject, ProjectProviding {
         panel.message = "Choose folders to link to this project. They are browsed and searched with it; the project's own files stay where they are."
         panel.prompt = "Link"
         guard panel.runModal() == .OK else { return }
-        let errors = linkFolders(panel.urls)
-        if !errors.isEmpty {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = errors.count == 1 ? "The folder was not linked." : "Some folders were not linked."
-            alert.informativeText = errors.joined(separator: "\n")
-            alert.runModal()
-        }
+        linkChosenFolders(panel.urls)
+    }
+
+    /// Links the folders the person chose; the ones that could not be linked are named in a notice.
+    func linkChosenFolders(_ urls: [URL]) {
+        let errors = linkFolders(urls)
+        guard !errors.isEmpty else { return }
+        prompts.inform(errors.count == 1 ? "The folder was not linked." : "Some folders were not linked.", errors.joined(separator: "\n"))
     }
 
     /// The linked folder that contains `url`, if any.

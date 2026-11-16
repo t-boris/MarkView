@@ -246,7 +246,7 @@ final class CockpitExecution: ObservableObject {
     private func stepBegan(_ task: CockpitHostTask) -> String? {
         limitWatch?.cancel(); limitWatch = nil
         guard let id = UUID(uuidString: task.step.id) else { return nil }
-        let controls = (try? JSONDecoder().decode(CockpitControls.self, from: Data(task.controls.utf8))) ?? CockpitControls()
+        let controls = CockpitControls(storedJSON: task.controls)
         meter = CockpitStepMeter(cycleLimit: controls.fixCycleLimit, cyclesBefore: record?.fixCyclesUsed ?? 0)
         if let minutes = controls.timeLimitMinutes, let remaining = CockpitStepMeter.remainingSeconds(limitMinutes: minutes, used: record?.activeSeconds ?? 0) {
             guard remaining > 0 else {

@@ -27,6 +27,6 @@ actor SemanticDatabase {
     }
 }
 SWIFT
-swiftc -o "$out/project-ai-choice-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/AI/AICallLog.swift \
+swiftc -o "$out/project-ai-choice-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/LoginScript.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/AI/AICallLog.swift \
     MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/AgentProcesses.swift "$out/Stub.swift" "$out/main.swift"
 "$out/project-ai-choice-tests"

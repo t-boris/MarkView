@@ -1,0 +1,28 @@
+# `try? ... decode(` (AR-36): a decode whose failure reads as "nothing". `<count> <path>  # why it stays`; a ratchet that only falls.
+# Data the app stored itself is never read this way: a document is a SchemaVersionedStore or a PlainJSONFile, a record in the
+# preferences is a PreferenceRecord, a cache or a column is read through StoredJSON.decode (a failure is logged) and a log is read
+# through JSONLinesFile. What may stay is a tolerant parse of data that other programs produce, with a fallback that the caller
+# chose: an assistant's answer, a process's output, a socket or a page's message, a union decoder that tries one case after the
+# other, and a probe whose failure the decode that follows reports. Each entry says which, after `#`.
+1 MarkView/Bridge/TypedWebBridge.swift  # a page message is validated against bridge-contract.json; a payload that does not decode is rejected and logged (reject)
+6 MarkView/Bridge/WebViewBridge.swift  # union decoder (AnyCodable): tries each JSON case in turn
+7 MarkView/Models/AI/AIOperation.swift  # an assistant's structured answer (falls back to text salvage, then throws decodingFailed) and the JSONValue union decoder
+2 MarkView/Models/AI/DiagramAI.swift  # an assistant's answer: structured output first, then the outermost JSON object of its text; nil is reported as a failed diagram
+2 MarkView/Models/Appearance/AppTheme.swift  # lenient decoder of the theme record (which is itself read as a PreferenceRecord): an unknown name or damaged accents read as the defaults
+1 MarkView/Models/Architecture/UnderstandingAnswer.swift  # an assistant's answer; an unusable one throws Failure.invalid
+2 MarkView/Models/Cockpit/CockpitHostBridge.swift  # a message of the private host socket: a request that does not decode is refused
+1 MarkView/Models/Cockpit/CockpitQAReview.swift  # the exact QA plan text shown to the person; text that is not in this shape is shown as it is
+3 MarkView/Models/Cockpit/CockpitRuntime.swift  # the runtime child's reply on its socket: an unusable reply stops the child and throws invalidResponse
+2 MarkView/Models/Git/GitHubClient.swift  # one comment per line of `gh` output: a line that is not a comment is skipped
+1 MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift  # an assistant's answer; an unusable one is reported to the person
+3 MarkView/Models/QA/QAStore.swift  # an envelope probe whose failure the decode that follows reports, and the comparison of a scenario with its normalized copy
+1 MarkView/Models/Remote/RemoteBrowserRelay.swift  # the tool's own reply, encoded one line above and read back as RemoteJSON; a failure returns an error result
+4 MarkView/Models/Remote/RemoteProtocol.swift  # union decoder (RemoteJSON): tries each JSON case in turn
+4 MarkView/Models/Remote/RemoteToolBridge.swift  # a line of the tool bridge socket or of the MCP child's input: a request that does not decode is refused or skipped; the guard fails closed
+1 MarkView/Models/Shared/SchemaVersionedStore.swift  # the probe for a schema number; a document it cannot read is reported by the decode that follows (.corrupted)
+5 MarkView/Models/Shared/SemanticModels.swift  # union decoder (AnyCodableValue): tries each JSON case in turn
+4 MarkView/Models/UIStudio/UIStudioJSON.swift  # union decoder (StudioJSON): tries each JSON case in turn
+5 MarkView/Models/UIStudio/UIStudioModels.swift  # lenient decoders of Studio records: a damaged part reads as its default so the rest of the file loads
+2 MarkView/Models/UIStudio/UIStudioRealtimePrompts.swift  # an assistant's answer read lossily, entry by entry
+1 MarkView/Models/UIStudio/UIStudioSession.swift  # a step reported by the page while recording: a detail that is not a step is ignored
+1 MarkView/Models/Workspace/WorkspaceManager+AIToolRuns.swift  # an assistant's answer salvaged from text; an unusable one fails the run with a message
