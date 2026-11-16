@@ -582,6 +582,7 @@
 		79CFBF599DB81A644A8F40ED /* SemanticDatabase+Architecture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E7B92D5AC1540B56D94175 /* SemanticDatabase+Architecture.swift */; };
 		2160A77CBC30DE1DF620DA38 /* QAWebFaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */; };
 		698EA768F99E5859772A9DB6 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */; };
+		F00000000000000000000101 /* EditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000102 /* EditorHostTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1279,6 +1280,7 @@
 		64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAWebFaultTests.swift; sourceTree = "<group>"; };
 		E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		FDC4E2EE931C68C12939307E /* MarkViewHostedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkViewHostedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000000102 /* EditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2489,6 +2491,7 @@
 			isa = PBXGroup;
 			children = (
 				64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */,
+				F00000000000000000000102 /* EditorHostTests.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3331,6 +3334,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2160A77CBC30DE1DF620DA38 /* QAWebFaultTests.swift in Sources */,
+				F00000000000000000000101 /* EditorHostTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3373,7 +3377,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.22;
+				CURRENT_PROJECT_VERSION = 6.30.23;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3388,7 +3392,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.22;
+				MARKETING_VERSION = 6.30.23;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3455,7 +3459,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.22;
+				CURRENT_PROJECT_VERSION = 6.30.23;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3476,7 +3480,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.22;
+				MARKETING_VERSION = 6.30.23;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3576,7 +3580,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.22;
+				CURRENT_PROJECT_VERSION = 6.30.23;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3597,7 +3601,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.22;
+				MARKETING_VERSION = 6.30.23;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

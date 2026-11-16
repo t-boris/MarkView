@@ -37,7 +37,8 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
     /// How this window and its parts ask the person a question or tell them something (`AR-22`): given by the app when the window is made.
     let prompts: any UserPrompts
     /// The parts of this window. The one late binding of the window: each part is given this object through its own narrow protocol.
-    private(set) lazy var composition = WindowComposition(host: self, prompts: prompts)
+    private let recentFilesURL: URL?
+    private(set) lazy var composition = WindowComposition(host: self, prompts: prompts, recentFilesURL: recentFilesURL)
 
     var project: ProjectContext { composition.project }
     var layout: PanelLayout { composition.layout }
@@ -109,8 +110,9 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
 
     func reloadChangedOpenFiles(all: Bool) async { await tabs.reloadChangedOpenFiles(all: all) }
 
-    init(prompts: any UserPrompts) {
+    init(prompts: any UserPrompts, recentFilesURL: URL? = nil) {
         self.prompts = prompts
+        self.recentFilesURL = recentFilesURL
         Self.debugLog("WorkspaceManager init START")
         composition.connect()
         composition.changes

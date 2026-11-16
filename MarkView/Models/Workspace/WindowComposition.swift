@@ -72,10 +72,10 @@ final class WindowComposition {
 
     /// Builds the plain parts. The other parts are made when first used, and `connect()` joins them; both come after the host is ready to
     /// answer, which is why the host's own init does not call them.
-    init(host: any WindowHost, prompts: any UserPrompts) {
+    init(host: any WindowHost, prompts: any UserPrompts, recentFilesURL: URL? = nil) {
         self.host = host
         self.prompts = prompts
-        project = ProjectContext(prompts: prompts)
+        project = ProjectContext(prompts: prompts, recentFilesURL: recentFilesURL)
         tabs = TabsController(prompts: prompts)
     }
 

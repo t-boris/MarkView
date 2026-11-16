@@ -210,7 +210,7 @@ itself (see the runbook, "Install"). The old `install.sh` (an `xcodebuild archiv
 
 Three kinds of tests exist:
 
-- **App-hosted tests.** `xcodebuild -project MarkView.xcodeproj -scheme MarkView test` runs `MarkViewHostedTests` in the isolated `HostedTests` configuration. The first migrated suite checks QA WebKit fault isolation using the shipping browser types; `qa-web-fault-tests` in the manifest invokes it.
+- **App-hosted tests.** `xcodebuild -project MarkView.xcodeproj -scheme MarkView test` runs `MarkViewHostedTests` in the isolated `HostedTests` configuration. The migrated suite checks QA WebKit fault isolation using the shipping browser types, and a second test verifies a temporary document in the real editor; `qa-web-fault-tests` in the manifest invokes both.
 
 - **Package tests.** `swift test --package-path Packages/MarkViewCore` runs `MarkViewCoreTests` (`JSCallTests`, `PollingSchedulerTests`,
   `SettingsTests`, `SQLiteSchemaTests`, `SubprocessProcessGroupTests`, `SubprocessStartTests`, `MarkViewCoreTests`).

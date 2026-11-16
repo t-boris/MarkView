@@ -39,7 +39,7 @@ struct GitHubRepo: Equatable { let slug: String }
     let fileTree = StandInFileTree()
     var rootNode: FileNode?
     let prompts: any UserPrompts
-    init(prompts: any UserPrompts) { self.prompts = prompts; Journal.built.append("project") }
+    init(prompts: any UserPrompts, recentFilesURL: URL? = nil) { self.prompts = prompts; Journal.built.append("project") }
     func close() { Journal.shutdown.append("project") }
 }
 
