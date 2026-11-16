@@ -38,7 +38,7 @@ struct ProjectChangeReviewBar: View {
 
 /// The review of observed file changes, as a tab: the changed files on the left; on the right the selected file's changes one by
 /// one, each with where it is, what lines it adds and removes, and, when asked, what it does, why and what it affects (BUG-109).
-/// Not private so that tools/tests/project-change-review-layout-tests.sh can host the shipping view.
+/// The app-hosted layout test exercises the shipping view and its real review model.
 struct ProjectChangeReviewTab: View {
     @Environment(\.palette) private var palette
     @ObservedObject var review: ProjectChangeReview

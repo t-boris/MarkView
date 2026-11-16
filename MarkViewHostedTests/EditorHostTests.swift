@@ -53,6 +53,64 @@ private actor DelayedSessionTestFactory: QADriverFactory {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    @MainActor
+    func testProjectChangeReviewLayoutUsesRealModels() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-review-layout-" + UUID().uuidString)
+        let changed = root.appendingPathComponent("apps/demo/ConfigurationWindowModel.swift")
+        let added = root.appendingPathComponent("docs/notes/another-file.md")
+        try FileManager.default.createDirectory(at: changed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let before = (1...120).map { "let value\($0) = compute(\($0))" }
+        var after = before
+        for index in stride(from: 5, to: 120, by: 15) { after[index] = "let value\(index + 1) = recomputed(\(index + 1))" }
+        after[50] = "let long = " + String(repeating: "a very long expression that has to wrap instead of widening the page + ", count: 12)
+        try (before.joined(separator: "\n") + "\n").write(to: changed, atomically: true, encoding: .utf8)
+        let review = ProjectChangeReview()
+        await review.open(root)
+        try (after.joined(separator: "\n") + "\n").write(to: changed, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: added.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "new\n".write(to: added, atomically: true, encoding: .utf8)
+        await review.refresh()
+        XCTAssertEqual(review.changes.count, 2)
+        let tree = WorkspaceFileTreeStore()
+        tree.rootNode = FileNode(url: root, isDirectory: true)
+        let hosting = NSHostingView(rootView: ProjectChangeReviewTab(review: review).environmentObject(tree))
+        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1000, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        defer { window.close() }
+
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        for (width, height) in [(CGFloat(400), CGFloat(500)), (800, 640), (1600, 900)] {
+            window.setContentSize(NSSize(width: width, height: height))
+            hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            for _ in 0..<30 {
+                hosting.layoutSubtreeIfNeeded()
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            let views = descendants(hosting)
+            func frame(_ view: NSView) -> CGRect { view.convert(view.bounds, to: hosting) }
+            let list = try XCTUnwrap(views.first { String(describing: type(of: $0)).hasPrefix("ListCoreScrollView") })
+            let diffView = try XCTUnwrap(views.filter { String(describing: type(of: $0)) == "HostingScrollView" }
+                .max { frame($0).height < frame($1).height })
+            let diff = frame(diffView)
+            let document = ((diffView as? NSScrollView)?.documentView).map(frame)
+                ?? views.first { String(describing: type(of: $0)) == "DocumentView" && abs(frame($0).minX - diff.minX) < 2 }.map(frame)
+            let clip = ((diffView as? NSScrollView)?.contentView).map(frame)
+                ?? views.first { (String(describing: type(of: $0)).contains("ClipView") || $0 is NSClipView) && abs(frame($0).minX - diff.minX) < 2 }.map(frame)
+            XCTAssertGreaterThanOrEqual(frame(list).width, 145)
+            XCTAssertLessThanOrEqual(frame(list).width, 265)
+            XCTAssertGreaterThanOrEqual(diff.minX, 0)
+            XCTAssertLessThanOrEqual(diff.maxX, width + 0.5)
+            XCTAssertGreaterThanOrEqual(diff.width, max(190, (width - 265) - 2))
+            let measuredDocument = try XCTUnwrap(document), measuredClip = try XCTUnwrap(clip)
+            XCTAssertLessThanOrEqual(measuredDocument.width, measuredClip.width + 0.5)
+            XCTAssertGreaterThan(measuredDocument.height, measuredClip.height)
+        }
+        await review.open(nil)
+    }
+
     private func waitForOpen(_ driver: SessionTestDriver) async throws {
         for _ in 0..<500 {
             if await driver.didStart { return }
