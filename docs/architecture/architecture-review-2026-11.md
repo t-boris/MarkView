@@ -152,6 +152,8 @@ Status (2026-11-15): partial. Direct `UserDefaults.standard` expressions 82 -> 0
 
 Fix: a per-window task bag cancelled on close; one visibility-aware scheduler for polling; move the Quick Action poll to the app delegate.
 
+Status (2026-11-15): partial, measured with `tools/lint/task-ownership.sh`. Unowned `Task {}` and `Task.detached` sites 263 in 70 files (391 in 87 at 6.26.2): `Task {}` 556 sites of which 250 unowned, `Task.detached` 225 of which 13 unowned. `Timer` 0 (the review: 9). `asyncAfter` 21 sites, each with a `// task:` reason (35 at 6.26.2). `TaskBag` is created in 18 places (1 use at 6.26.0) and `PollingScheduler` in `Packages/MarkViewCore` runs the polls, including the app-wide Quick Action poll. What remains unowned, by area: `Views/` 162 (Lifecycle 55, Workspace 43, Git 29, Deployments 14, Browser 5, the rest 16), X-Ray stores 37, UI Studio 19, Cockpit 8, project operations 8, the other 29.
+
 ## 4. Layering and module structure
 
 ### AR-20 One flat folder holds 22 domains and four layers (high, M)
