@@ -1111,7 +1111,8 @@ final class FakeDriver: QAActorDriver, @unchecked Sendable {
     func close() async { closed = true }
 }
 
-final class FakeFactory: QADriverFactory {
+// unchecked Sendable: the fixture is configured before one run and inspected only after that run finishes.
+final class FakeFactory: QADriverFactory, @unchecked Sendable {
     var drivers: [FakeDriver] = []
     var tagScopes = false
     var failFor: Set<String> = []

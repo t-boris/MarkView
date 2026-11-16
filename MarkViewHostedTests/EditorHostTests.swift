@@ -12,8 +12,123 @@ private actor DraftCheckpointRecorder {
     func snapshot() -> [ProjectDraft] { drafts }
 }
 
+private actor SessionTestDriver: QAActorDriver {
+    private var opening: CheckedContinuation<Void, Never>?
+    private(set) var didStart = false
+    private(set) var closeCount = 0
+    func open(_ address: String) async throws {
+        didStart = true
+        await withCheckedContinuation { opening = $0 }
+    }
+    func finishOpening() { opening?.resume(); opening = nil }
+    func observe() async throws -> QAObservation { throw CancellationError() }
+    func perform(_ action: QAAction) async throws -> String { throw CancellationError() }
+    func screenshot() async -> Data? { nil }
+    func arm(_ fault: QAFault) async throws {}
+    func faultHits() async -> Int { 0 }
+    func close() async { closeCount += 1 }
+}
+
+private actor SessionTestFactory: QADriverFactory {
+    private var drivers: [SessionTestDriver]
+    init(_ drivers: [SessionTestDriver]) { self.drivers = drivers }
+    func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver {
+        guard !drivers.isEmpty else { throw CancellationError() }
+        return drivers.removeFirst()
+    }
+}
+
+private actor DelayedSessionTestFactory: QADriverFactory {
+    let driver: SessionTestDriver
+    private var waiting: CheckedContinuation<Void, Never>?
+    private(set) var didStart = false
+    init(_ driver: SessionTestDriver) { self.driver = driver }
+    func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver {
+        didStart = true
+        await withCheckedContinuation { waiting = $0 }
+        return driver
+    }
+    func finishMaking() { waiting?.resume(); waiting = nil }
+}
+
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    private func waitForOpen(_ driver: SessionTestDriver) async throws {
+        for _ in 0..<500 {
+            if await driver.didStart { return }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTFail("Driver did not start opening")
+        throw CancellationError()
+    }
+
+    func testQASessionsCloseInvalidatesInFlightOpen() async throws {
+        for key in ["branch|player", "attach|player"] {
+            let sessions = QARunSessions(), driver = SessionTestDriver(), factory = SessionTestFactory([driver])
+            let request = QADriverRequest(actor: nil, app: QAApp(id: "app", name: "App"), address: "fixture", login: nil)
+            let opening = Task { try await sessions.session(key: key, request: request, factory: factory) }
+            try await waitForOpen(driver)
+            if key.hasPrefix("attach|") { await sessions.closeAttached() } else { await sessions.close() }
+            await driver.finishOpening()
+            do { _ = try await opening.value; XCTFail("An invalidated open must not return a session") }
+            catch is CancellationError {}
+            let closed = await driver.closeCount
+            XCTAssertEqual(closed, 1)
+        }
+    }
+
+    func testQASessionsCancelledOpenClosesDriver() async throws {
+        let sessions = QARunSessions(), driver = SessionTestDriver(), factory = SessionTestFactory([driver])
+        let request = QADriverRequest(actor: nil, app: QAApp(id: "app", name: "App"), address: "fixture", login: nil)
+        let opening = Task { try await sessions.session(key: "branch|player", request: request, factory: factory) }
+        try await waitForOpen(driver)
+        opening.cancel()
+        await driver.finishOpening()
+        do { _ = try await opening.value; XCTFail("A cancelled open must not return a session") }
+        catch is CancellationError {}
+        let closed = await driver.closeCount
+        XCTAssertEqual(closed, 1)
+    }
+
+    func testQASessionsCloseDuringFactoryDoesNotOpenDriver() async throws {
+        let sessions = QARunSessions(), driver = SessionTestDriver(), factory = DelayedSessionTestFactory(driver)
+        let request = QADriverRequest(actor: nil, app: QAApp(id: "app", name: "App"), address: "fixture", login: nil)
+        let opening = Task { try await sessions.session(key: "branch|player", request: request, factory: factory) }
+        for _ in 0..<500 {
+            if await factory.didStart { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let started = await factory.didStart
+        guard started else { opening.cancel(); XCTFail("Factory did not start"); return }
+        await sessions.close()
+        await factory.finishMaking()
+        do { _ = try await opening.value; XCTFail("A closed session must not open its newly created driver") }
+        catch is CancellationError {}
+        let didOpen = await driver.didStart, closed = await driver.closeCount
+        XCTAssertFalse(didOpen)
+        XCTAssertEqual(closed, 1)
+    }
+
+    func testQASessionsReuseOneDriverWhenOpensOverlap() async throws {
+        let sessions = QARunSessions(), first = SessionTestDriver(), second = SessionTestDriver()
+        let factory = SessionTestFactory([first, second])
+        let request = QADriverRequest(actor: nil, app: QAApp(id: "app", name: "App"), address: "fixture", login: nil)
+        let firstOpen = Task { try await sessions.session(key: "branch|player", request: request, factory: factory) }
+        try await waitForOpen(first)
+        let secondOpen = Task { try await sessions.session(key: "branch|player", request: request, factory: factory) }
+        try await waitForOpen(second)
+        await first.finishOpening()
+        let retained = try await firstOpen.value
+        await second.finishOpening()
+        let reused = try await secondOpen.value
+        XCTAssertTrue(retained === reused)
+        let duplicateCloses = await second.closeCount
+        XCTAssertEqual(duplicateCloses, 1)
+        await sessions.close()
+        let retainedCloses = await first.closeCount
+        XCTAssertEqual(retainedCloses, 1)
+    }
+
     @MainActor
     func testQAGraphWheelDetachesAndReleasesAfterWindowChanges() async {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: false)

@@ -30,7 +30,7 @@ extension QAActorDriver {
     func inputMark(for action: QAAction) async -> QAInputMark { QAInputMark(kind: action.kind, direction: action.direction) }
 }
 
-struct QADriverRequest {
+struct QADriverRequest: Sendable {
     /// Nil for the session that prepares data and is nobody's.
     var actor: QAActor?
     var app: QAApp
@@ -45,7 +45,7 @@ protocol QAAPIExecuting: AnyObject {
     func execute(_ request: QAAPIRequest) async throws -> QAAPIResult
 }
 
-protocol QADriverFactory: AnyObject {
+protocol QADriverFactory: AnyObject, Sendable {
     func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver
 }
 
@@ -134,21 +134,41 @@ final class QARunControl: @unchecked Sendable {
 }
 
 /// Live sessions are retained by the window for explicit retries. A branch never borrows another branch's cookies or native process.
-/// Access is sequential: the window starts another runner only after the previous runner has finished.
-final class QARunSessions {
+/// Closing invalidates in-flight opens, including when a window disappears during driver creation.
+actor QARunSessions {
     private var drivers: [String: QAActorDriver] = [:]
+    private var generation: UInt64 = 0
+    private var attachedGeneration: UInt64 = 0
     func session(key: String, request: QADriverRequest, factory: QADriverFactory) async throws -> QAActorDriver {
         if let driver = drivers[key] { return driver }
+        let expected = generation, expectedAttached = attachedGeneration
+        let attached = key.hasPrefix("attach|")
         let driver = try await factory.makeDriver(request)
+        guard generation == expected, !attached || attachedGeneration == expectedAttached, !Task.isCancelled else {
+            await driver.close()
+            throw CancellationError()
+        }
         do { try await driver.open(request.address) } catch { await driver.close(); throw error }
+        guard generation == expected, !attached || attachedGeneration == expectedAttached, !Task.isCancelled else {
+            await driver.close()
+            throw CancellationError()
+        }
+        if let existing = drivers[key] {
+            await driver.close()
+            guard generation == expected, !attached || attachedGeneration == expectedAttached,
+                  let retained = drivers[key], retained === existing, !Task.isCancelled else { throw CancellationError() }
+            return existing
+        }
         drivers[key] = driver
         return driver
     }
     func close() async {
+        generation &+= 1
         let open = Array(drivers.values); drivers = [:]
         for driver in open { await driver.close() }
     }
     func closeAttached() async {
+        attachedGeneration &+= 1
         let keys = drivers.keys.filter { $0.hasPrefix("attach|") }
         let open = keys.compactMap { drivers.removeValue(forKey: $0) }
         for driver in open { await driver.close() }

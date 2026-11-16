@@ -15,7 +15,7 @@ enum QATargetKind: String, Codable, CaseIterable {
     case production
 }
 
-enum QANativeStartupPolicy: String, Codable, CaseIterable {
+enum QANativeStartupPolicy: String, Codable, CaseIterable, Sendable {
     case launch, attach
     var title: String { self == .launch ? "Launch a new instance" : "Attach to a running application" }
 }
@@ -52,7 +52,7 @@ struct QATarget: Codable, Equatable, Identifiable {
 }
 
 /// What an application is judged by (DEC-019).
-enum QAReviewProfile: String, Codable, CaseIterable {
+enum QAReviewProfile: String, Codable, CaseIterable, Sendable {
     /// A product people choose to use: it has to look right and hold their attention.
     case userFacing
     /// A working tool for staff: it has to be fast, economical to operate and ready for automation.
@@ -96,7 +96,7 @@ enum QAReviewProfile: String, Codable, CaseIterable {
 
 /// One application of the product under test. A scenario lists the applications its players use (a user application, an
 /// administration application, a partner application); each is reviewed against its own requirements (REQ-007).
-struct QAApp: Codable, Equatable, Identifiable {
+struct QAApp: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var name: String
     var profile: QAReviewProfile = .userFacing
@@ -110,12 +110,12 @@ struct QAApp: Codable, Equatable, Identifiable {
 }
 
 /// A saved login in the macOS Keychain store of the browser (host and user name). A scenario never holds a password (DEC-014).
-struct QALoginReference: Codable, Equatable, Hashable {
+struct QALoginReference: Codable, Equatable, Hashable, Sendable {
     var host: String
     var username: String
 }
 
-struct QAActor: Codable, Equatable, Identifiable {
+struct QAActor: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var name: String
     /// The application this player uses, unless a step says otherwise.
