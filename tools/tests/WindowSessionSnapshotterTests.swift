@@ -22,7 +22,7 @@ enum WindowSessionSnapshotterChecks {
     /// A window as the snapshotter sees it.
     @MainActor
     final class FakeHost: WindowSessionHost {
-        let tabs = TabsController(dialogs: TabDialogs(askToSave: { _, _ in .cancel }, confirmSave: { _, _ in false }, reportFailedSave: { _ in }, offerDefaultApp: { _, _ in false }))
+        let tabs = TabsController(prompts: NoPrompts())
         let chrome = WindowChrome(defaults: UserDefaults(suiteName: "snapshotter-\(UUID().uuidString)")!)
         let layout = PanelLayout(defaults: UserDefaults(suiteName: "snapshotter-\(UUID().uuidString)")!)
         let windowUI = WindowUIState(defaults: UserDefaults(suiteName: "snapshotter-\(UUID().uuidString)")!)

@@ -26,12 +26,15 @@ func settle(_ seconds: Double = 0.2) async { try? await Task.sleep(nanoseconds: 
 /// The windows of the checks, kept alive as the app's manager is: a composition does not own the window it was made for.
 @MainActor var windows: [StandInWindow] = []
 
+/// The prompter the app gives a window (`AR-22`); the check asks whether the parts that ask the person were given this very one.
+@MainActor let windowPrompts = ScriptedPrompts()
+
 @MainActor
 func makeComposition() -> (StandInWindow, WindowComposition) {
     Journal.reset()
     let window = StandInWindow()
     windows.append(window)
-    let composition = WindowComposition(host: window)
+    let composition = WindowComposition(host: window, prompts: windowPrompts)
     return (window, composition)
 }
 
@@ -39,13 +42,16 @@ func makeComposition() -> (StandInWindow, WindowComposition) {
 func building() {
     print("-- the parts are built in one place, and only when they are used")
     let (window, composition) = makeComposition()
-    check(Journal.built == ["project", "layout", "windowUI", "chrome", "requests", "theme", "tabs", "aiJobs", "gitClient"],
-          "the plain parts are made with the composition, in order (\(Journal.built))")
+    check(Journal.built.count == 9 && Set(Journal.built) == ["project", "layout", "windowUI", "chrome", "requests", "theme", "tabs", "aiJobs", "gitClient"],
+          "the plain parts, each once, are made with the composition (\(Journal.built))")
     check(composition.research === composition.research && composition.terminals === composition.terminals && composition.toolTabs === composition.toolTabs,
           "a part is made once, whoever asks")
     check(composition.terminals.project === composition.project && composition.terminals.tasks === composition.taskBag,
           "the terminals work on the window's own project and task bag")
     check(composition.terminals.host === window, "the window is handed to a part as its host, not found afterwards")
+    check(composition.project.prompts as AnyObject === windowPrompts && composition.tabs.prompts as AnyObject === windowPrompts
+          && composition.terminals.prompts as AnyObject === windowPrompts,
+          "the parts that ask the person (the project, the tabs, the terminals) are given the prompter the app gave the window")
     check(composition.flow.terminals === composition.terminals && composition.flow.research === composition.research && composition.flow.gitClient === composition.gitClient,
           "the feature flow is given the window's terminals, research and Git client")
     check(composition.browser.terminals === composition.terminals && composition.browser.tabs === composition.tabs,

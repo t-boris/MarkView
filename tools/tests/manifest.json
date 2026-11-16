@@ -159,7 +159,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/AITerminalsControllerTests.swift",
-        "tools/tests/ai-terminals-controller-tests.sh"
+        "tools/tests/ai-terminals-controller-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -1082,7 +1084,8 @@
         "tools/tests/DocumentTranslatorTests.swift",
         "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/document-translator-tests.sh"
+        "tools/tests/document-translator-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -1186,7 +1189,8 @@
         "tools/tests/BrowserHostStubs.swift",
         "tools/tests/BrowserHostTests.swift",
         "tools/tests/browser-host-tests.sh",
-        "MarkView/Models/AgentTools/AgentToolWindow.swift"
+        "MarkView/Models/AgentTools/AgentToolWindow.swift",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -1329,7 +1333,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/FileOperationsTests.swift",
         "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/file-operations-tests.sh"
+        "tools/tests/file-operations-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -1792,7 +1797,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -3518,7 +3524,8 @@
         "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/TabsControllerTests.swift",
-        "tools/tests/tabs-controller-tests.sh"
+        "tools/tests/tabs-controller-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -4209,7 +4216,8 @@
         "tools/tests/ArchiveStub.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/WindowSessionSnapshotterTests.swift",
-        "tools/tests/window-session-snapshotter-tests.sh"
+        "tools/tests/window-session-snapshotter-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -4753,7 +4761,9 @@
         "tools/tests/DiagramCLIStub.swift",
         "tools/tests/ProjectContextTests.swift",
         "tools/tests/SemanticDatabaseTestSupport.swift",
-        "tools/tests/project-context-tests.sh"
+        "tools/tests/project-context-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {
@@ -4916,7 +4926,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ToolTabsRouterStubs.swift",
         "tools/tests/ToolTabsRouterTests.swift",
-        "tools/tests/tool-tabs-router-tests.sh"
+        "tools/tests/tool-tabs-router-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
@@ -4929,7 +4940,9 @@
         "MarkView/Models/Workspace/WindowComposition.swift",
         "tools/tests/WindowCompositionStubs.swift",
         "tools/tests/WindowCompositionTests.swift",
-        "tools/tests/window-composition-tests.sh"
+        "tools/tests/window-composition-tests.sh",
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {

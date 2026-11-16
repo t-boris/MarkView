@@ -38,7 +38,8 @@ struct GitHubRepo: Equatable { let slug: String }
 @MainActor final class ProjectContext: ObservableObject {
     let fileTree = StandInFileTree()
     var rootNode: FileNode?
-    init() { Journal.built.append("project") }
+    let prompts: any UserPrompts
+    init(prompts: any UserPrompts) { self.prompts = prompts; Journal.built.append("project") }
     func close() { Journal.shutdown.append("project") }
 }
 
@@ -60,7 +61,8 @@ enum TabsEvent {
     private let eventSubject = PassthroughSubject<TabsEvent, Never>()
     var events: AnyPublisher<TabsEvent, Never> { eventSubject.eraseToAnyPublisher() }
     var polling = PollingScheduler.app
-    init() { Journal.built.append("tabs") }
+    let prompts: any UserPrompts
+    init(prompts: any UserPrompts) { self.prompts = prompts; Journal.built.append("tabs") }
     func emit(_ event: TabsEvent) { eventSubject.send(event) }
     func shutdown() { Journal.shutdown.append("tabs") }
 }
@@ -90,9 +92,10 @@ enum TabsEvent {
     let project: ProjectContext
     let tasks: TaskBag
     let polling: PollingScheduler
+    let prompts: any UserPrompts
     var closedTabTerminals: [UUID] = []
-    init(host: any AITerminalsHost, project: ProjectContext, tasks: TaskBag, polling: PollingScheduler) {
-        self.host = host; self.project = project; self.tasks = tasks; self.polling = polling
+    init(host: any AITerminalsHost, project: ProjectContext, tasks: TaskBag, polling: PollingScheduler, prompts: any UserPrompts) {
+        self.host = host; self.project = project; self.tasks = tasks; self.polling = polling; self.prompts = prompts
         Journal.built.append("terminals")
     }
     func closeTabTerminal(_ id: UUID) { closedTabTerminals.append(id) }

@@ -479,7 +479,7 @@ enum DDESettingsWindow {
             bind(window, to: workspace)
         } else if shownWorkspace == nil {
             // No window has focus (the menu with only the Settings window open): no project.
-            bind(window, to: WorkspaceManager())
+            bind(window, to: WorkspaceManager(prompts: AlertPrompts()))
         }
         window.title = shownWorkspace?.projectFolder.map { "DDE Settings — \($0.lastPathComponent)" } ?? "DDE Settings"
         window.makeKeyAndOrderFront(nil)

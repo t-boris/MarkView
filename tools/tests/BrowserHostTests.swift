@@ -121,8 +121,7 @@ final class StubWindow: BrowserHostWindow {
 struct Rig {
     let folder: URL
     let project = StubProject()
-    let tabs = TabsController(dialogs: TabDialogs(askToSave: { _, _ in .cancel }, confirmSave: { _, _ in false },
-                                                  reportFailedSave: { _ in }, offerDefaultApp: { _, _ in false }))
+    let tabs = TabsController(prompts: NoPrompts())
     let layout = PanelLayout(defaults: defaults())
     let chrome = WindowChrome(defaults: defaults())
     let terminals = StubTerminals()

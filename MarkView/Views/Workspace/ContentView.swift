@@ -187,7 +187,7 @@ private struct RightPanelWidthKeeper: NSViewRepresentable {
 /// folder tree or Git state observes that part itself, so typing in the editor redraws what shows the tabs and nothing else (`AR-15`).
 struct ContentView: View {
     var windowSessionID = UUID()
-    @StateObject private var workspaceManager = WorkspaceManager()
+    @StateObject private var workspaceManager = WorkspaceManager(prompts: AlertPrompts())
 
     var body: some View {
         WorkspaceWindow(windowSessionID: windowSessionID, workspaceManager: workspaceManager)

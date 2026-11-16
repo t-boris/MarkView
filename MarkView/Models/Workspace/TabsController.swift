@@ -10,56 +10,6 @@ enum UnsavedChangesAnswer {
     case save, discard, cancel
 }
 
-/// The questions a window's tabs ask the person. A window shows alerts (`alerts`); a check passes fixed answers, so closing a modified
-/// document can be checked without a dialog on the screen.
-struct TabDialogs {
-    /// Save, Don't Save or Cancel, for the message and detail given.
-    var askToSave: @MainActor (_ message: String, _ detail: String) -> UnsavedChangesAnswer
-    /// Save or Cancel, before an AI job that reads the document from disk; true to save.
-    var confirmSave: @MainActor (_ message: String, _ detail: String) -> Bool
-    /// A save failed while tabs were closing: nothing was closed.
-    var reportFailedSave: @MainActor (_ name: String) -> Void
-    /// A file cannot be shown as text; true when the person wants it opened in the app the system picks.
-    var offerDefaultApp: @MainActor (_ url: URL, _ error: Error) -> Bool
-
-    static let alerts = TabDialogs(
-        askToSave: { message, detail in
-            let alert = NSAlert()
-            alert.messageText = message
-            alert.informativeText = detail
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Don't Save")
-            alert.addButton(withTitle: "Cancel")
-            switch alert.runModal() {
-            case .alertFirstButtonReturn: return .save
-            case .alertSecondButtonReturn: return .discard
-            default: return .cancel
-            }
-        },
-        confirmSave: { message, detail in
-            let alert = NSAlert()
-            alert.messageText = message
-            alert.informativeText = detail
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Cancel")
-            return alert.runModal() == .alertFirstButtonReturn
-        },
-        reportFailedSave: { name in
-            let alert = NSAlert()
-            alert.messageText = "Couldn't save \(name)"
-            alert.informativeText = "Nothing was closed, so no changes are lost."
-            alert.runModal()
-        },
-        offerDefaultApp: { url, error in
-            let alert = NSAlert()
-            alert.messageText = "Cannot show \(url.lastPathComponent) as text"
-            alert.informativeText = error.localizedDescription
-            alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Open in Default App")
-            return alert.runModal() == .alertSecondButtonReturn
-        })
-}
-
 /// What happened to the tabs that the rest of the window reacts to. The controller knows nothing of the window around it: it only says so.
 enum TabsEvent {
     /// A document was written to disk.
@@ -89,7 +39,8 @@ final class TabsController: ObservableObject {
     private let eventSubject = PassthroughSubject<TabsEvent, Never>()
     var events: AnyPublisher<TabsEvent, Never> { eventSubject.eraseToAnyPublisher() }
 
-    private let dialogs: TabDialogs
+    /// How the tabs ask the person about unsaved changes and files that cannot be shown (`AR-22`).
+    private let prompts: any UserPrompts
     /// Background work of the tabs: loading a document, the check for files that changed on disk, a data file's notes. Cancelled with
     /// the window (`shutdown`), keyed so a second request replaces the first.
     private let tasks = TaskBag()
@@ -101,8 +52,8 @@ final class TabsController: ObservableObject {
     private var generation = 0
 
 
-    init(dialogs: TabDialogs = .alerts) {
-        self.dialogs = dialogs
+    init(prompts: any UserPrompts) {
+        self.prompts = prompts
     }
 
     var activeTab: OpenTab? {
@@ -302,7 +253,7 @@ final class TabsController: ObservableObject {
 
     /// A file cannot be shown as text: offers to open it in the app the system picks.
     func showReadError(_ error: Error, url: URL) {
-        if dialogs.offerDefaultApp(url, error) { NSWorkspace.shared.open(url) }
+        if offerDefaultApp(url, error) { NSWorkspace.shared.open(url) }
     }
 
     /// The image viewer's arrows and slideshow: the image tab of `url` shows `target` instead.
@@ -482,7 +433,7 @@ final class TabsController: ObservableObject {
         }
 
         if tab.isModified {
-            switch dialogs.askToSave("Save changes?", "Do you want to save changes to \(tab.displayName)?") {
+            switch askToSave("Save changes?", "Do you want to save changes to \(tab.displayName)?") {
             case .save: saveFile(at: index)
             case .cancel: return
             case .discard: break
@@ -554,12 +505,12 @@ final class TabsController: ObservableObject {
         let message = unsaved.count == 1
             ? "Save changes to \(openTabs[unsaved[0]].displayName) before \(closing)?"
             : "Save changes to \(unsaved.count) documents before \(closing)?"
-        switch dialogs.askToSave(message, "Your changes will be lost if you don't save them.") {
+        switch askToSave(message, "Your changes will be lost if you don't save them.") {
         case .save:
             unsaved.forEach { saveFile(at: $0) }
             // saveFile only logs write errors — never close over unsaved work.
             if let failed = unsaved.compactMap({ openTabs.indices.contains($0) ? openTabs[$0] : nil }).first(where: { $0.isModified }) {
-                dialogs.reportFailedSave(failed.displayName)
+                reportFailedSave(failed.displayName)
                 return false
             }
             return true
@@ -570,6 +521,33 @@ final class TabsController: ObservableObject {
         }
     }
 
+    // MARK: - What the tabs ask the person
+
+    /// Save, Don't Save or Cancel, for the message and detail given.
+    private func askToSave(_ message: String, _ detail: String) -> UnsavedChangesAnswer {
+        switch prompts.ask(UserPrompt(title: message, detail: detail, buttons: ["Save", "Don't Save", "Cancel"])) {
+        case 0: return .save
+        case 1: return .discard
+        default: return .cancel
+        }
+    }
+
+    /// Save or Cancel, before an AI job that reads the document from disk; true to save.
+    private func confirmSave(_ message: String, _ detail: String) -> Bool {
+        prompts.confirm(UserPrompt(title: message, detail: detail, buttons: ["Save", "Cancel"]), proceedingWith: 0)
+    }
+
+    /// A save failed while tabs were closing: nothing was closed.
+    private func reportFailedSave(_ name: String) {
+        prompts.inform("Couldn't save \(name)", "Nothing was closed, so no changes are lost.")
+    }
+
+    /// A file cannot be shown as text; true when the person wants it opened in the app the system picks.
+    private func offerDefaultApp(_ url: URL, _ error: Error) -> Bool {
+        prompts.confirm(UserPrompt(title: "Cannot show \(url.lastPathComponent) as text", detail: error.localizedDescription,
+                                   buttons: ["OK", "Open in Default App"]), proceedingWith: 1)
+    }
+
     // MARK: - Before an AI job reads the disk
 
     /// Before a research job reads `file`: unsaved edits in its tab are saved, or the person cancels (DEC-014). True when the file on
@@ -577,8 +555,8 @@ final class TabsController: ObservableObject {
     func saveBeforeReading(_ file: URL, action: String) -> Bool {
         guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }),
               openTabs[index].isModified else { return true }
-        guard dialogs.confirmSave("Save changes to \(openTabs[index].displayName) before \(action)?",
-                                  "The AI works on the document as it is saved on disk.") else { return false }
+        guard confirmSave("Save changes to \(openTabs[index].displayName) before \(action)?",
+                          "The AI works on the document as it is saved on disk.") else { return false }
         saveFile(at: index)
         return !openTabs[index].isModified
     }
@@ -589,8 +567,8 @@ final class TabsController: ObservableObject {
         let prefix = folder.standardizedFileURL.path + "/"
         for index in openTabs.indices where openTabs[index].isFileBacked && openTabs[index].isModified &&
             openTabs[index].url.standardizedFileURL.path.hasPrefix(prefix) {
-            guard dialogs.confirmSave("Save changes to \(openTabs[index].displayName) before handoff?",
-                                      "The handoff captures files as saved on disk.") else { return false }
+            guard confirmSave("Save changes to \(openTabs[index].displayName) before handoff?",
+                              "The handoff captures files as saved on disk.") else { return false }
             saveFile(at: index)
             if openTabs[index].isModified { return false }
         }

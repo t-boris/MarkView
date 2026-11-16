@@ -7,15 +7,17 @@ struct WhisperClient {
     func transcribe(fileURL: URL) async -> String? { nil }
 }
 
+/// The person is never asked anything while a PDF opens: any question is a failure of the check.
+@MainActor
+struct NeverAsked: UserPrompts {
+    func ask(_ prompt: UserPrompt) -> Int? { preconditionFailure("A PDF tab asks nothing, but it asked: \(prompt.title)") }
+}
+
 /// A PDF opens in a tab of its own on the shipping `TabsController`: no text, no save, no watcher, one tab per file.
 enum PDFReaderRoutingTests {
     @MainActor static func run() {
         let file = URL(fileURLWithPath: "/tmp/Read only.PDF")
-        let tabs = TabsController(dialogs: TabDialogs(
-            askToSave: { _, _ in preconditionFailure("A PDF tab never asks about unsaved changes") },
-            confirmSave: { _, _ in preconditionFailure("A PDF tab never asks about unsaved changes") },
-            reportFailedSave: { _ in preconditionFailure("A PDF tab never saves") },
-            offerDefaultApp: { _, _ in preconditionFailure("A PDF is not read as text") }))
+        let tabs = TabsController(prompts: NeverAsked())
         tabs.openDocument(file)
         precondition(FileType.from(url: file) == .pdf && !FileType.hasTextSource(file))
         precondition(tabs.openTabs.count == 1 && tabs.activeTabIndex == 0)
