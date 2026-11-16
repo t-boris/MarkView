@@ -59,6 +59,14 @@ jobs:
           test -n "$suites"
           ./tools/tests/run.sh --tier pure $suites
 
+  hosted-tests:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run app-hosted WebKit regression suite
+        run: ./tools/tests/run.sh qa-web-fault-tests
+
   build:
     runs-on: macos-latest
     timeout-minutes: 20

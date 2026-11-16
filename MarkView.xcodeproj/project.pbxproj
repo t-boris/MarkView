@@ -580,6 +580,8 @@
 		1B46D4E785E0A6E4CE027DDB /* LinkedFolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */; };
 		5B72C033A148D35BAD39C366 /* GitHubClient+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3DC7970F1547304F5EC541 /* GitHubClient+Lifecycle.swift */; };
 		79CFBF599DB81A644A8F40ED /* SemanticDatabase+Architecture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E7B92D5AC1540B56D94175 /* SemanticDatabase+Architecture.swift */; };
+		2160A77CBC30DE1DF620DA38 /* QAWebFaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */; };
+		698EA768F99E5859772A9DB6 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1274,6 +1276,9 @@
 		C45064930C8A1B6E9C790215 /* LinkedFolderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolderStore.swift; sourceTree = "<group>"; };
 		1C3DC7970F1547304F5EC541 /* GitHubClient+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitHubClient+Lifecycle.swift"; sourceTree = "<group>"; };
 		B1E7B92D5AC1540B56D94175 /* SemanticDatabase+Architecture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SemanticDatabase+Architecture.swift"; sourceTree = "<group>"; };
+		64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAWebFaultTests.swift; sourceTree = "<group>"; };
+		E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		FDC4E2EE931C68C12939307E /* MarkViewHostedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkViewHostedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1285,6 +1290,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8C7E23BBA03580F62CD312E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				698EA768F99E5859772A9DB6 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -1292,6 +1305,7 @@
 			isa = PBXGroup;
 			children = (
 				E143C9957CEAB8D0014627D8 /* MarkView.app */,
+				FDC4E2EE931C68C12939307E /* MarkViewHostedTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -2172,6 +2186,8 @@
 			children = (
 				C6803BBF35EC0D9AE2B6D738 /* MarkView */,
 				00BD6F2ACF5BEABE50E3CF24 /* Products */,
+				AB3A0E603B6D00986B32DC76 /* Frameworks */,
+				66E170A02E249C6F2D387E33 /* MarkViewHostedTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -2432,6 +2448,123 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		5FA87AC475567006D2C137E6 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		64955AAAF582A77E3212EF93 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				99B28BB6B067ABDF9790DC2E /* AI */,
+				DFBA37D8711E8DD123723C16 /* AgentTools */,
+				EFB69DA16144BB91C67FAA78 /* Appearance */,
+				BCD45BC1D1C3CBDF80B3AE8E /* Architecture */,
+				3A5E7F93546B93D5B491B936 /* Book */,
+				A01B20F2140368B4BAA55187 /* Browser */,
+				9A3219122ECC7A1B6E98E40D /* Cockpit */,
+				D8D77289C9300AD97E1BB564 /* Deployments */,
+				518501D0C062F232F54C39D6 /* Dictation */,
+				E7E3F33F584507E51A973254 /* Discussion */,
+				0F647F69251A37E65D194757 /* Git */,
+				005695E6CDA6B5A99C61085E /* Insight */,
+				2A2F85A757B4ECEC4F0DC98F /* Lifecycle */,
+				52C67752B488EEAB3810C730 /* ProjectOps */,
+				12560983243315BD9D389C62 /* Prototype */,
+				E3C33B4566B65D46131F0EF7 /* QA */,
+				CAA4BC6FC508C8DB00F9FE7E /* Remote */,
+				D94805F6A12B330D8681359A /* Research */,
+				555AB02B54F3BE04747B1A1F /* Shared */,
+				73C47249F111F73FD9AF63C3 /* Terminal */,
+				E2ED46350A0C4FD2E4EC79B6 /* UIStudio */,
+				9D4B115B6E4E7A50B41A3404 /* Workspace */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		66E170A02E249C6F2D387E33 /* MarkViewHostedTests */ = {
+			isa = PBXGroup;
+			children = (
+				64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */,
+			);
+			name = MarkViewHostedTests;
+			path = MarkViewHostedTests;
+			sourceTree = "<group>";
+		};
+		6A2FEDD268AD8F78F008FAB0 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				D5797C0BEE5833F4CB72FB09 /* AI */,
+				A980438A73ABD46E751C54A1 /* Appearance */,
+				073B440149A866F42DBE0C52 /* Architecture */,
+				A58CE3E6C4F2E7FB8785E1C3 /* Book */,
+				0CB4D15F61F160E4895B6D87 /* Browser */,
+				A9C167BA19BE2E787871F3F6 /* Cockpit */,
+				D09FD920CB1408E7B699F412 /* Deployments */,
+				E6E22E4D88B93595FAD2F926 /* Dictation */,
+				A6B526C13C20372C499DD14E /* Discussion */,
+				9AECE77F259DD3B2F0BB4382 /* Git */,
+				2A467059A8BEE6A8ABCB31CF /* Lifecycle */,
+				BF72DDC6B49543A69925E568 /* ProjectOps */,
+				49C37AB4D0C3BB9B45128DFF /* Prototype */,
+				657EC311025C13DA25FD0688 /* QA */,
+				504EADC1F327AB8AD4C888A0 /* Remote */,
+				4E636FB8D563FEA24B0307BE /* Research */,
+				EDEB68C729DDFCA7DB072183 /* Shared */,
+				62E0EA34FBB3EEB06C1D39BB /* Terminal */,
+				7D1E9D1F835BF7EA0FE50C2D /* UIStudio */,
+				92E9F320F82573AFA3EFE642 /* Workspace */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		99B28BB6B067ABDF9790DC2E /* AI */ = {
+			isa = PBXGroup;
+			children = (
+				7EC1F9BA32F5B57727E0D268 /* ACPAssistant.swift */,
+				14DA99E32A3358E5851D585A /* AgentProcesses.swift */,
+				2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */,
+				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
+				F4700050C38EAE4C47A81DF3 /* AICallLog.swift */,
+				A6E0167483A13431C669BD05 /* AIOperation.swift */,
+				1A772D24F7564B57E808520A /* AIPrompts.swift */,
+				A6E0167483A13431C669BCFB /* AIToolRuns.swift */,
+				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
+				4E5C49BB3F8E4AF05F47765E /* CommandPolicy.swift */,
+				CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */,
+				9B6CBBB94264419CC8203BAD /* LoginScript.swift */,
+				2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */,
+				3C5186158816AE816A500A12 /* ProviderHints.swift */,
+				DAFD936599E6497BB1CC0AB4 /* Providers */,
+				710DA6A885E9635F708C4AF2 /* AgentToolsSetting.swift */,
+			);
+			path = AI;
+			sourceTree = "<group>";
+		};
+		AB3A0E603B6D00986B32DC76 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5FA87AC475567006D2C137E6 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D5797C0BEE5833F4CB72FB09 /* AI */ = {
+			isa = PBXGroup;
+			children = (
+				C5F677CB2D8103034083F8EF /* AgentActivityViews.swift */,
+				3F1056937343F57E558663BD /* AgentModelMenu.swift */,
+				2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */,
+				45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */,
+				C7F8B45DEA25A624579F00CB /* AIToolbarMenu.swift */,
+				A6E0167483A13431C669BCFC /* AIToolJobsBanner.swift */,
+			);
+			path = AI;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -2457,7 +2590,44 @@
 			productReference = E143C9957CEAB8D0014627D8 /* MarkView.app */;
 			productType = "com.apple.product-type.application";
 		};
+		99A69C9B1E619B8970DFCB4E /* MarkViewHostedTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E7ED3B4C184CF346E26657FD /* Build configuration list for PBXNativeTarget "MarkViewHostedTests" */;
+			buildPhases = (
+				EA1477EFB373071A28D38559 /* Sources */,
+				8C7E23BBA03580F62CD312E6 /* Frameworks */,
+				9DC95E32660AB3C28AAC6950 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FBB748F5F343C2D19D724652 /* PBXTargetDependency */,
+			);
+			name = MarkViewHostedTests;
+			productName = MarkViewHostedTests;
+			productReference = FDC4E2EE931C68C12939307E /* MarkViewHostedTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		D67893A1E1BD34654413DE7F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E4EE3E2F0713529DCE967F6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8606D7DFEB902E7FACBE043E;
+			remoteInfo = MarkView;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		FBB748F5F343C2D19D724652 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MarkView;
+			target = 8606D7DFEB902E7FACBE043E /* MarkView */;
+			targetProxy = D67893A1E1BD34654413DE7F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		3E4EE3E2F0713529DCE967F6 /* Project object */ = {
@@ -2489,6 +2659,7 @@
 			);
 			targets = (
 				8606D7DFEB902E7FACBE043E /* MarkView */,
+				99A69C9B1E619B8970DFCB4E /* MarkViewHostedTests */,
 			);
 		};
 /* End PBXProject section */
@@ -2501,6 +2672,13 @@
 				D7042AC7B61742EF5FAF04C6 /* Assets.xcassets in Resources */,
 				BD375AC847408FB729CCA3D8 /* Themes in Resources */,
 				33B12FE12086C36050EA5EC5 /* Layouts in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9DC95E32660AB3C28AAC6950 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3148,6 +3326,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA1477EFB373071A28D38559 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2160A77CBC30DE1DF620DA38 /* QAWebFaultTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -3187,7 +3373,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.15;
+				CURRENT_PROJECT_VERSION = 6.30.16;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3202,7 +3388,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.15;
+				MARKETING_VERSION = 6.30.16;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3269,7 +3455,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.15;
+				CURRENT_PROJECT_VERSION = 6.30.16;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3290,7 +3476,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.15;
+				MARKETING_VERSION = 6.30.16;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3322,6 +3508,144 @@
 			};
 			name = Debug;
 		};
+		62C60590A71760D2B0112086 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.markview.tests.hosted;
+				PRODUCT_MODULE_NAME = MarkViewHostedTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkView.app/Contents/MacOS/MarkView";
+			};
+			name = Release;
+		};
+		CE95C2A665DF4B3DD9F2A829 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.markview.tests.hosted;
+				PRODUCT_MODULE_NAME = MarkViewHostedTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkView.app/Contents/MacOS/MarkView";
+			};
+			name = Debug;
+		};
+		F00000000000000000000001 /* HostedTests */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 6.30.16;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MarkView/Info.plist;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 6.30.16;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = MarkView;
+				SDKROOT = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.9;
+			};
+			name = HostedTests;
+		};
+		F00000000000000000000002 /* HostedTests */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) MARKVIEW_HOSTED_TEST_HOST";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MarkView/MarkView.entitlements;
+				ENABLE_HARDENED_RUNTIME = YES;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = MarkView/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.markview.tests.apphost;
+				SDKROOT = macosx;
+			};
+			name = HostedTests;
+		};
+		F00000000000000000000003 /* HostedTests */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.markview.tests.hosted;
+				PRODUCT_MODULE_NAME = MarkViewHostedTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkView.app/Contents/MacOS/MarkView";
+			};
+			name = HostedTests;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -3329,6 +3653,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				E81450A8216CC07305353E62 /* Debug */,
+				F00000000000000000000001 /* HostedTests */,
 				11DDEC9F188F8CF43E7BED93 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
@@ -3338,7 +3663,18 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				EAA21A8D79555E322506E321 /* Debug */,
+				F00000000000000000000002 /* HostedTests */,
 				E040768621175AF18236B39A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E7ED3B4C184CF346E26657FD /* Build configuration list for PBXNativeTarget "MarkViewHostedTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				62C60590A71760D2B0112086 /* Release */,
+				CE95C2A665DF4B3DD9F2A829 /* Debug */,
+				F00000000000000000000003 /* HostedTests */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

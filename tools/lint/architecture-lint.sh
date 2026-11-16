@@ -183,8 +183,9 @@ if (root / "MarkView.xcodeproj" / "project.pbxproj").is_file():
             violations.append(("target-membership", f"{path}: on disk but not a file reference of MarkView.xcodeproj"))
         for path in sorted((on_disk & referenced) - built):
             violations.append(("target-membership", f"{path}: referenced by MarkView.xcodeproj but not in the target's Sources build phase"))
-        for path in sorted(referenced - on_disk):
-            violations.append(("target-membership", f"{path}: referenced by MarkView.xcodeproj but missing on disk"))
+        for path in sorted(referenced):
+            if not (root / path).is_file():
+                violations.append(("target-membership", f"{path}: referenced by MarkView.xcodeproj but missing on disk"))
         for path in sorted(built - referenced):
             violations.append(("target-membership", f"{path}: in the Sources build phase but not on disk"))
     except (RuntimeError, OSError, KeyError, ValueError) as error:

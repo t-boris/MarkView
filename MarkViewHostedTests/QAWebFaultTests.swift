@@ -2,25 +2,10 @@ import AppKit
 import ImageIO
 import WebKit
 import Network
+import XCTest
+@testable import MarkView
 
-// Only the unused browser-tool boundary and Keychain are stubbed. Faults are armed by
-// the production QAWebActor in real, independent WKWebViews against a loopback server.
-@MainActor final class BrowserSession {
-    let webView: WKWebView
-    let prompts: any UserPrompts
-    init(url: URL?, dataStore: WKWebsiteDataStore, extraHandlers: [WebHost.Handler] = [], prompts: any UserPrompts) {
-        self.prompts = prompts
-        let config = WebHost.makeConfiguration(dataStore: .store(dataStore), handlers: extraHandlers)
-        webView = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
-    }
-}
-enum BrowserAgentExecutor {
-    struct Reply { var isError = false; var text = ""; var pngBase64: String? }
-    @MainActor static func run(_ name: String, _ args: [String: Any], in session: BrowserSession) async -> Reply {
-        fatalError("This fixture never operates the browser through a tool")
-    }
-}
-
+// The shipping QA player, browser session and executor in real isolated WebKit views.
 final class FaultServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "qa-fault-fixture")
     private let lock = NSLock()
@@ -60,10 +45,9 @@ final class FaultServer: @unchecked Sendable {
     }
 }
 
-@main enum QAWebFaultChecks {
-    @MainActor static func main() async throws {
+final class QAWebFaultTests: XCTestCase {
+    @MainActor func testFaultIsolationAndFileChooser() async throws {
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
         let server = FaultServer()
         try server.start()
         defer { server.stop() }
@@ -71,8 +55,7 @@ final class FaultServer: @unchecked Sendable {
         while server.port == 0 && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
         precondition(server.port != 0, "Loopback server did not start")
         let address = "http://127.0.0.1:\(server.port)"
-        var failures = 0
-        func check(_ value: Bool, _ name: String) { print(value ? "PASS" : "FAIL", name); if !value { failures += 1 } }
+        func check(_ value: Bool, _ name: String) { XCTAssertTrue(value, name) }
         func player(_ id: String) async throws -> QAWebActor {
             let actor = QAWebActor(request: QADriverRequest(actor: QAActor(id: id, name: id), app: QAApp(id: "fixture", name: "Fixture"), address: address, login: nil),
                                    credentials: QACredentials(username: nil, password: nil))
@@ -116,18 +99,17 @@ final class FaultServer: @unchecked Sendable {
         let oldValues = try await evaluate(legacy, "return [(await fetch(base + '/messages')).status, (await fetch(base + '/messages', {method: 'POST'})).status];") as? [Int]
         check(oldValues == [503, 503], "Existing rules without a method still affect GET and POST")
         // A player answers a page's file chooser with its built-in picture: the production actor wires the chooser, the file is a real PNG.
-        let chosen = first.session.prompts.chooseFiles(allowsMultiple: false, allowsDirectories: false)
+        let prompts = QAPlayerPrompts()
+        let chosen = prompts.chooseFiles(allowsMultiple: false, allowsDirectories: false)
         check(chosen?.count == 1 && chosen?.first?.lastPathComponent == QATestImage.fileName, "A player answers a file chooser with one file named like the built-in picture")
-        check(first.session.prompts.ask(UserPrompt(title: "Delete?", buttons: ["OK", "Cancel"])) == nil, "and still answers no question to a person")
+        check(prompts.ask(UserPrompt(title: "Delete?", buttons: ["OK", "Cancel"])) == nil, "and still answers no question to a person")
         if let url = chosen?.first, let data = try? Data(contentsOf: url), let source = CGImageSourceCreateWithData(data as CFData, nil),
            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
             check(data.prefix(8) == Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), "The picture file is a PNG")
             check(properties[kCGImagePropertyPixelWidth] as? Int == QATestImage.width && properties[kCGImagePropertyPixelHeight] as? Int == QATestImage.height,
                   "The picture is \(QATestImage.width) by \(QATestImage.height) pixels")
         } else { check(false, "The chosen picture file can be read as an image") }
-        check(first.session.prompts.chooseFiles(allowsMultiple: true, allowsDirectories: false)?.first == chosen?.first, "A second answer is the same file, written whole again")
+        check(prompts.chooseFiles(allowsMultiple: true, allowsDirectories: false)?.first == chosen?.first, "A second answer is the same file, written whole again")
         await first.close(); await second.close(); await legacy.close()
-        print("\(failures) web fault failures")
-        exit(failures == 0 ? 0 : 1)
     }
 }

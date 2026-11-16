@@ -142,6 +142,11 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 @main
 enum DDEAppEntry {
     static func main() {
+        #if MARKVIEW_HOSTED_TEST_HOST
+        // The dedicated test build never starts windows, sockets or user session restoration.
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        NSApplication.shared.run()
+        #else
         let args = CommandLine.arguments
         if args.contains("--remote-workspace-mcp") { RemoteUnixRPC.runMCP(arguments: args) }
         if args.contains("--remote-workspace-guard") { RemoteUnixRPC.runGuard() }
@@ -161,6 +166,7 @@ enum DDEAppEntry {
             DDEIndexerRunner.run(folderPath: args[i + 1])  // never returns
         }
         MarkViewApp.main()
+        #endif
     }
 }
 

@@ -114,7 +114,9 @@ Move the commands to `WindowCommands` (`@Environment(\.windowCommands)`), as the
 - Measurement after C1–C3, 2026-11-16: `python3 tools/lint/domain-dependencies.py --layer Models` reports a largest strongly connected group of 10 domains (was 16) and 0 back-edges. The tool counts named types only; the remaining group is not claimed eliminated.
 Acceptance: the stated number of domains in the largest cycle, or a written decision that the remainder is accepted.
 
-**C5. AR-44 step 4: an app-hosted test target (D7).** Add a second product type to `MarkView.xcodeproj` that hosts the GUI and WebKit suites
+**C5. AR-44 step 4: an app-hosted test target (D7).**
+- Status 2026-11-16: `MarkViewHostedTests` hosts the migrated QA WebKit fault suite with the shipping `BrowserSession` and `BrowserAgentExecutor`; their two stand-in definitions and the old standalone suite were removed. `xcodebuild -list`, `xcodebuild test`, the manifest runner and architecture lint passed. The dedicated `HostedTests` build uses a separate bundle ID and compile-time startup isolation; the test bundle has no app `NSPrincipalClass`. The first experimental host crashed because it inherited that class; the installed app remained running, and the corrected host ran without another crash. A parallel CI job is added and awaits verification. Further stub migrations and app-hosted `EditorView` and control-runner coverage remain open.
+ Add a second product type to `MarkView.xcodeproj` that hosts the GUI and WebKit suites
 in the app process; live-assistant scripts stay manual. Acceptance: `xcodebuild -list` shows the test target and `xcodebuild test` runs
 the gui tier suites that today compile stand-ins of shipping types (the stub definitions are removed in the same pull request).
 Per CLAUDE.md rule 2, no target is added without a first real suite moved into it.

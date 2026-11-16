@@ -34,7 +34,7 @@ in `MarkView.xcodeproj`. The XcodeGen setup and the `EditorWeb/` folder were rem
 ## 2. Project structure (`MarkView.xcodeproj` + `Packages/MarkViewCore`)
 
 - `MarkView.xcodeproj/project.pbxproj` is the single source of truth (`CLAUDE.md` Working Rules).
-  It defines one application target, `MarkView`, and links `Packages/MarkViewCore`.
+  It defines the application target `MarkView` and the app-hosted XCTest target `MarkViewHostedTests`, and links `Packages/MarkViewCore`.
 - The scaffold documents of the old build setup were removed in 6.26.0, so they are no longer bundled into the app resources.
 - `Assets.xcassets`, `Resources/Editor/`, and Swift source memberships are maintained directly
   in `MarkView.xcodeproj` (no generated-pbxproj drift from XcodeGen).
@@ -54,8 +54,7 @@ Bundle identifier: `com.markview.MarkView`.
 | Debug info | `dwarf` | `dwarf-with-dsym` |
 | Other | `ONLY_ACTIVE_ARCH YES`, `ENABLE_TESTABILITY YES` | `ENABLE_NS_ASSERTIONS NO` |
 
-Not set in `project.pbxproj`: `ENABLE_HARDENED_RUNTIME`, `DEVELOPMENT_TEAM` (`SWIFT_STRICT_CONCURRENCY = targeted` is set in both configurations).
-The hardened runtime is applied only by `release.sh` at signing time (`release.sh`).
+`ENABLE_HARDENED_RUNTIME` is set in Debug and Release; `DEVELOPMENT_TEAM` is not set. The `HostedTests` configuration uses a separate bundle ID and a compile-time test-host entry point that does not start the user’s session, sockets or windows.
 
 `Info.plist` highlights:
 - Versions come from build settings (`MarkView/Info.plist`).
@@ -176,7 +175,7 @@ as an unsigned pre-release that is never marked Latest — only a signed, notari
 - `ci.yml` (`CI`): on pull requests and pushes to `main` that change more than documentation; a newer run on the same ref cancels
   the older one. Three `pure-tests` jobs run the architecture lint, SwiftLint ratchet and manifest-selected pure suites. `tools/ci/pure-test-shards.py` balances suites by the measured seconds in `tools/ci/pure-suite-seconds.json` (run 43887926164); new suites use the median, and the measurements can be refreshed from a completed run. Job `build`
   runs `swift test --package-path Packages/MarkViewCore`, compiles the app with a shared DerivedData cache
-  (`tools/ci/build-cache-mtimes.py`) and feeds both logs to `tools/lint/build-warnings.sh`.
+  (`tools/ci/build-cache-mtimes.py`) and feeds both logs to `tools/lint/build-warnings.sh`. A separate `hosted-tests` job runs the app-hosted QA WebKit suite.
 - `build-release.yml` (`Build & Release`): on pushes to `main` that change more than documentation. It compiles the Release
   configuration and publishes nothing; the signed DMG is the only installer on GitHub (until 5.10.0 it also kept an unsigned
   pre-release zip). It runs no tests, and it does not bump or check the version.
@@ -209,13 +208,15 @@ itself (see the runbook, "Install"). The old `install.sh` (an `xcodebuild archiv
 
 ## 11. Test strategy
 
-There is no XCTest target for the app. Two kinds of tests exist:
+Three kinds of tests exist:
+
+- **App-hosted tests.** `xcodebuild -project MarkView.xcodeproj -scheme MarkView test` runs `MarkViewHostedTests` in the isolated `HostedTests` configuration. The first migrated suite checks QA WebKit fault isolation using the shipping browser types; `qa-web-fault-tests` in the manifest invokes it.
 
 - **Package tests.** `swift test --package-path Packages/MarkViewCore` runs `MarkViewCoreTests` (`JSCallTests`, `PollingSchedulerTests`,
   `SettingsTests`, `SQLiteSchemaTests`, `SubprocessProcessGroupTests`, `SubprocessStartTests`, `MarkViewCoreTests`).
 - **Standalone suites.** Each is a script in `tools/tests/` that compiles selected app source files together with a test `main`
   with `swiftc` (or runs a script, a probe app or a web page) and runs the result. They are cataloged in
-  `tools/tests/manifest.json` (schema 1, 211 suites at ac3001ba: 136 `pure`, 70 `gui`, 5 `live`; each entry has `name`, `script`,
+  `tools/tests/manifest.json` (schema 1, 227 suites: 149 `pure`, 73 `gui`, 5 `live`; each entry has `name`, `script`,
   `tier` and the `sources` it compiles) and run by `tools/tests/run.sh`:
 
 | Command | What it does |

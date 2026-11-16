@@ -170,6 +170,16 @@ try:
     check(code == 1 and "[target-membership] MarkView/Models/Git/Gone.swift: referenced by MarkView.xcodeproj but missing on disk" in out,
           "a Swift file the project references but that is gone from disk fails")
     root = fresh()
+    hosted = "MarkViewHostedTests/Hosted.swift"
+    write(root, hosted, "struct Hosted {}\n")
+    project(root, app_swift(root), extra_refs=[hosted])
+    code, out = run(root)
+    check(code == 0, "a referenced hosted-test Swift file outside MarkView exists")
+    (root / hosted).unlink()
+    code, out = run(root)
+    check(code == 1 and f"[target-membership] {hosted}: referenced by MarkView.xcodeproj but missing on disk" in out,
+          "a missing hosted-test Swift file still fails")
+    root = fresh()
     files = app_swift(root)
     project(root, files, build_files=[f for f in files if not f.endswith("Ask.swift")])
     code, out = run(root)
