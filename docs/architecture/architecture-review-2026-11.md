@@ -429,6 +429,8 @@ Status (2026-11-15): done by reading. `SemanticDatabase` is an `actor` (lint `se
 
 Fix: an ordered migration list keyed by `user_version`; key the fallback by a hash of the path.
 
+Status (2026-11-15): done by reading. `SemanticSchema.migrations` is an ordered list (version 1 `docId scheme`, version 2 `table set of release 6.26`) applied by `SQLiteSchema.open` against `PRAGMA user_version`; a newer or failed schema is left untouched and the session uses an in-memory database; the unused `applied_migrations` table is dropped; the read-only fallback location uses `projectCacheIdentifier`, not the folder's last path component. `Packages/MarkViewCore` has `SQLiteSchemaTests.swift` (not run by this pass).
+
 ### AR-39 Domain model quality varies; copy the best (medium, L)
 
 Best: `ProjectWorkflow` + `ProjectWorkflowStore`, then `QAStore` and `CockpitRunStore`. Middle: `FeatureStore` (pure parsing, a lossless-rewrite guard, but synchronous I/O and git on main). Worst: `ArchitectureStore`. New feature work should follow the first three: pure values and rules, a small store with typed results, the observable object last.
