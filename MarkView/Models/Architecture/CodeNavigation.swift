@@ -241,15 +241,18 @@ final class CodeNavigationStore {
 
     private(set) var back: [Place] = []
     private(set) var forward: [Place] = []
-    private var answers: [String: Task<Void, Never>] = [:]
+    /// The work this store starts (`AR-19`): "lookup" (the symbol search behind go to definition and find usages: the latest wins) and
+    /// "answer:<id>" (the AI's answer about a selection). `reset` (a project switch, the window's close) ends them all.
+    private let tasks = TaskBag()
 
     // MARK: - Symbols
 
     /// ⌘-click / F12: the definition of `name`; several → a list to choose from. On a
     /// declaration itself, its usages (as in other editors).
     func goToDefinition(name: String, line: Int, url: URL, path: String, root: URL, open: @escaping (URL, Int) -> Void) {
-        Task {
+        tasks.store(Task {
             let found = await Task.detached(priority: .userInitiated) { CodeNavigator.find(name, root: root) }.value
+            guard !Task.isCancelled else { return }
             let ranked = CodeNavigator.rank(found.definitions, from: path)
             let onDeclaration = ranked.contains { $0.path == path && $0.line == line && $0.kind == "definition" }
             if onDeclaration || ranked.isEmpty {
@@ -268,16 +271,17 @@ final class CodeNavigationStore {
                 return
             }
             send(url: url, ["type": "definitions", "name": name, "results": encode(ranked), "truncated": found.truncated])
-        }
+        }, for: "lookup")
     }
 
     /// ⌥⌘-click / ⇧F12: every usage of `name`, definitions listed first.
     func findUsages(name: String, url: URL, path: String, root: URL) {
-        Task {
+        tasks.store(Task {
             let found = await Task.detached(priority: .userInitiated) { CodeNavigator.find(name, root: root) }.value
+            guard !Task.isCancelled else { return }
             let results = CodeNavigator.rank(found.definitions, from: path) + CodeNavigator.sortUsages(found.usages, from: path)
             send(url: url, ["type": "usages", "name": name, "results": encode(results), "truncated": found.truncated, "note": ""])
-        }
+        }, for: "lookup")
     }
 
     /// Open a result from the viewer's list, remembering where the user was.
@@ -311,8 +315,7 @@ final class CodeNavigationStore {
     func reset() {
         back.removeAll()
         forward.removeAll()
-        answers.values.forEach { $0.cancel() }
-        answers.removeAll()
+        tasks.cancelAll()
     }
 
     // MARK: - AI on a selection
@@ -321,7 +324,6 @@ final class CodeNavigationStore {
     /// questions and answers of the same conversation. The answer streams to the viewer.
     func ask(id: String, question: String, snippet: String, start: Int, end: Int, path: String, language: String?,
              history: [[String: String]], url: URL, root: URL, db: SemanticDatabase?) {
-        answers[id]?.cancel()
         let conversation = history.suffix(6).map { turn in
             "Q: \(turn["q"] ?? "")\nA: \(turn["a"] ?? "")"
         }.joined(separator: "\n\n")
@@ -346,7 +348,7 @@ final class CodeNavigationStore {
             readableFolder: root)
         request.timeout = 600
         send(url: url, ["type": "answer", "id": id, "text": "", "done": false, "activity": "Thinking…"])
-        answers[id] = Task { [weak self] in
+        tasks.store(Task { [weak self] in
             let buffer = AnswerBuffer()
             do {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "code-question").execute(request, onDelta: { delta in
@@ -377,12 +379,11 @@ final class CodeNavigationStore {
                 self?.send(url: url, ["type": "answer", "id": id, "text": buffer.text, "done": true,
                                       "error": error.localizedDescription])
             }
-            self?.answers[id] = nil
-        }
+        }, for: "answer:" + id)
     }
 
     func stopAnswer(id: String) {
-        answers[id]?.cancel()
+        tasks.cancel(key: "answer:" + id)
     }
 
     // MARK: - To the viewer

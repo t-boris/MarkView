@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		50C9BABF352FCD933830CB16 /* StreamedRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73078578268A7E8632AC82F /* StreamedRefresh.swift */; };
 		6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39AAA206B981629959A05EF /* ToolOpener.swift */; };
 		06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */; };
 		B3B98FCD9E746AE775C917BC /* CockpitHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED50FEDD6B6073D0783735F /* CockpitHost.swift */; };
@@ -575,6 +576,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F73078578268A7E8632AC82F /* StreamedRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamedRefresh.swift; sourceTree = "<group>"; };
 		D39AAA206B981629959A05EF /* ToolOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolOpener.swift; sourceTree = "<group>"; };
 		862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStudioHost.swift; sourceTree = "<group>"; };
 		5ED50FEDD6B6073D0783735F /* CockpitHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHost.swift; sourceTree = "<group>"; };
@@ -1392,6 +1394,7 @@
 				D001177FB31E944E039375B0 /* BookAnnotator.swift */,
 				1024FF456031B1D1BC834778 /* BookBuilder.swift */,
 				4A903B7EB574BDD8969788FE /* FilterSearch.swift */,
+				F73078578268A7E8632AC82F /* StreamedRefresh.swift */,
 				5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */,
 				C00CC5262ACFE91F4EE22174 /* XRayFilterStore.swift */,
 				3BFFF8C26811A3A21DDC827E /* LogicalView.swift */,
@@ -3098,6 +3101,7 @@
 				B3B98FCD9E746AE775C917BC /* CockpitHost.swift in Sources */,
 				06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */,
 				6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */,
+				50C9BABF352FCD933830CB16 /* StreamedRefresh.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,
