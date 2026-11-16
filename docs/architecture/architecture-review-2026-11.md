@@ -469,6 +469,8 @@ Status (2026-11-15): partial, by reading; nothing was profiled. Done: all SQL is
 
 Path: set `targeted` per module as each becomes a package and fix warnings there; convert lock-plus-unchecked services to actors (AR-25 and AR-26 remove most of them); then `complete`.
 
+Status (2026-11-15): partial. `SWIFT_STRICT_CONCURRENCY = targeted` is set in both app configurations (0 before) and `Packages/MarkViewCore` is built with the `StrictConcurrency` feature. `@unchecked Sendable` 33 -> 34 and `nonisolated(unsafe)` 8 -> 6 sites, 40 in all, each with a one-line justification (lint `unchecked-sendable`: exit 0). The build-warning ratchet `tools/lint/build-warnings.sh` runs in CI against an empty allow-list; the branch's commit messages say app-target warnings fell from 105 to 0, but no build was run in this pass, so the warning count is unverified (189 distinct at 6.26.2). Not done: `complete` checking for the app target.
+
 ## 11. Tests, CI, build, repository
 
 ### AR-44 Tests are many scripts, not a system (high, M)
