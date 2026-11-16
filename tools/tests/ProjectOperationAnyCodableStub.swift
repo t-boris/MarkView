@@ -3,7 +3,7 @@
 // cases and the coding rules below follow the original exactly. Keep the two in step.
 import Foundation
 
-enum AnyCodable: Codable {
+enum AnyCodable: Codable, Sendable {
     case null
     case bool(Bool)
     case int(Int)

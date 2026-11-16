@@ -3,100 +3,8 @@ import Combine
 import CryptoKit
 import Darwin
 import Foundation
-import SQLite3
 import UserNotifications
 import MarkViewCore
-
-private let projectSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
-struct ProjectOperationLastRun: Codable {
-    var id: String
-    var label: String
-    var environment: String?
-    var command: String
-    var cwd: String
-    var started: Date
-    var ended: Date?
-    var state: String
-    var exitCode: Int32?
-}
-
-/// This is deliberately separate from the shared operations file: output and run history
-/// can contain secrets or machine-specific details and never enter version control.
-private enum ProjectOperationHistory {
-    static func open(root: URL) throws -> OpaquePointer {
-        let folder = ProjectPaths.localFolder(root)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        var db: OpaquePointer?
-        let path = folder.appendingPathComponent("state.db").path
-        guard sqlite3_open(path, &db) == SQLITE_OK, let db else {
-            throw ProjectOperationError.invalid("Cannot open local run history at \(path)")
-        }
-        sqlite3_busy_timeout(db, 5000)
-        let sql = """
-            CREATE TABLE IF NOT EXISTS project_operation_runs (
-                id TEXT PRIMARY KEY, json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS project_operation_run_events (
-                id TEXT NOT NULL, started REAL NOT NULL, json TEXT NOT NULL,
-                PRIMARY KEY (id, started)
-            );
-            """
-        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
-            let error = String(cString: sqlite3_errmsg(db))
-            sqlite3_close(db)
-            throw ProjectOperationError.invalid("Cannot prepare local run history: \(error)")
-        }
-        return db
-    }
-
-    static func load(root: URL) throws -> [String: ProjectOperationLastRun] {
-        let db = try open(root: root)
-        defer { sqlite3_close(db) }
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT id, json FROM project_operation_runs", -1, &stmt, nil) == SQLITE_OK else {
-            throw ProjectOperationError.invalid("Cannot read local run history")
-        }
-        var result: [String: ProjectOperationLastRun] = [:]
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            guard let id = sqlite3_column_text(stmt, 0), let raw = sqlite3_column_text(stmt, 1),
-                  let run = try? JSONDecoder().decode(ProjectOperationLastRun.self, from: Data(String(cString: raw).utf8)) else { continue }
-            result[String(cString: id)] = run
-        }
-        return result
-    }
-
-    static func save(_ run: ProjectOperationLastRun, root: URL) throws {
-        let db = try open(root: root)
-        defer { sqlite3_close(db) }
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "INSERT OR REPLACE INTO project_operation_runs(id, json) VALUES(?, ?)"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            throw ProjectOperationError.invalid("Cannot write local run history")
-        }
-        let data = try JSONEncoder().encode(run)
-        let json = String(decoding: data, as: UTF8.self)
-        sqlite3_bind_text(stmt, 1, run.id, -1, projectSQLiteTransient)
-        sqlite3_bind_text(stmt, 2, json, -1, projectSQLiteTransient)
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw ProjectOperationError.invalid("Cannot write local run history: \(String(cString: sqlite3_errmsg(db)))")
-        }
-        sqlite3_finalize(stmt)
-        stmt = nil
-        guard sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO project_operation_run_events(id, started, json) VALUES(?, ?, ?)",
-                                 -1, &stmt, nil) == SQLITE_OK else {
-            throw ProjectOperationError.invalid("Cannot write operation run event")
-        }
-        sqlite3_bind_text(stmt, 1, run.id, -1, projectSQLiteTransient)
-        sqlite3_bind_double(stmt, 2, run.started.timeIntervalSince1970)
-        sqlite3_bind_text(stmt, 3, json, -1, projectSQLiteTransient)
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw ProjectOperationError.invalid("Cannot write operation run event")
-        }
-    }
-}
 
 @MainActor
 final class ProjectOperationRun: ObservableObject, Identifiable {
@@ -191,7 +99,7 @@ final class ProjectOperationsStore: ObservableObject {
 
     static func stopAllBeforeQuit() async -> Bool {
         let active = stores.values.flatMap { $0.runs.values }.filter(\.isActive)
-        guard !active.isEmpty else { return true }
+        guard !active.isEmpty else { await finishWritesBeforeQuit(); return true }
         let alert = NSAlert()
         alert.messageText = "Stop running project operations before quitting?"
         alert.informativeText = active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }
@@ -203,7 +111,18 @@ final class ProjectOperationsStore: ObservableObject {
         while stores.values.contains(where: { $0.runs.values.contains(where: \.isActive) }) {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
+        await finishWritesBeforeQuit()
         return true
+    }
+
+    /// The edits and run records the person's last actions started are on disk before the application ends, and the reads and the
+    /// discovery that were running stop.
+    private static func finishWritesBeforeQuit() async {
+        for store in stores.values {
+            store.discoveryTask?.cancel()
+            store.tasks.cancelAll()
+            await store.writes.drain()
+        }
     }
 
     let root: URL
@@ -220,6 +139,11 @@ final class ProjectOperationsStore: ObservableObject {
     @Published private(set) var discoveryReport: ProjectOperationDiscoveryReport?
     @Published private(set) var sourcesChanged = false
     private var discoveryTask: Task<Void, Never>?
+    /// The reads this store starts (the history, the operations file, the sources' signature) and the start of a run: they end with the
+    /// store, which is one per project folder for as long as the application runs, and a second start of one kind replaces the first.
+    private let tasks = TaskBag()
+    /// The edits and the run records, written in the order they were asked for (see `ProjectOperationWrites`).
+    private let writes: ProjectOperationWrites
     /// The poll that reads the definition file again, a job of the app's scheduler (`AR-19`): paused while the app is in the background.
     private var pollKey: String { "project-operations-" + root.path }
     private var lastFileData: Data?
@@ -230,21 +154,22 @@ final class ProjectOperationsStore: ObservableObject {
 
     private init(root: URL) {
         self.root = root
+        writes = ProjectOperationWrites(root: root)
         if UNUserNotificationCenter.current().delegate == nil {
             UNUserNotificationCenter.current().delegate = ProjectOperationNotificationRouter.shared
         }
         refresh()
-        Task {
+        tasks.store(Task {
             let previous = (try? await Task.detached { try ProjectOperationHistory.load(root: root) }.value) ?? [:]
             for (id, var record) in previous where record.state == "running" || record.state == "cancelling" {
                 record.state = "interrupted"
                 record.ended = Date()
-                Task.detached { try? ProjectOperationHistory.save(record, root: root) }
+                writes.record(record)
                 lastRuns[id] = record
             }
             for (id, record) in previous where lastRuns[id] == nil { lastRuns[id] = record }
             revision += 1
-        }
+        }, for: "history")
         let key = pollKey
         PollingScheduler.app.every(1.5, key: key) { [weak self] in
             guard let self else { PollingScheduler.app.stop(key: key); return }
@@ -323,7 +248,7 @@ final class ProjectOperationsStore: ObservableObject {
         guard !refreshInFlight else { return }
         refreshInFlight = true
         let root = self.root
-        Task {
+        tasks.store(Task {
             let result = await Task.detached { () -> (ProjectOperationsDocument?, Data?, Bool, String?) in
                 let file = ProjectOperationsFile.url(root: root)
                 let exists = FileManager.default.fileExists(atPath: file.path)
@@ -354,21 +279,20 @@ final class ProjectOperationsStore: ObservableObject {
                 }
                 revision += 1
             }
-        }
+        }, for: "refresh")
     }
 
-    /// Reload before applying one UI action so a hand edit or git update is not lost.
+    /// Applies one UI action to the operations file. The edits are written one at a time in the order they were asked for, each on
+    /// top of the file as the one before it left it (`ProjectOperationWrites`), so none is dropped by another; it reloads first, so a
+    /// hand edit or git update is not lost either.
     func change(_ edit: @escaping (inout ProjectOperationsDocument) throws -> Void) {
-        let root = self.root
-        Task {
-            do {
-                let next = try await Task.detached { () -> ProjectOperationsDocument in
-                    try ProjectOperationsFile.mutate(root: root, edit)
-                }.value
+        writes.edit(edit) { [self] result in
+            switch result {
+            case .success(let next):
                 document = next
                 fileError = nil
                 refresh()
-            } catch {
+            case .failure(let error):
                 fileError = error.localizedDescription
                 revision += 1
             }
@@ -413,7 +337,7 @@ final class ProjectOperationsStore: ObservableObject {
         let paths = Set(operations.filter { $0.origin == "discovered" }.flatMap { operation in
             operation.provenance.filter { $0.kind == "project" || $0.kind == "external" }.map(\.location)
         }).intersection(saved.keys)
-        Task {
+        tasks.store(Task {
             let changed = await Task.detached { () -> Bool in
                 for path in paths {
                     let url = ProjectOperationsStore.resolve(path, root: root)
@@ -425,7 +349,7 @@ final class ProjectOperationsStore: ObservableObject {
             }.value
             stalenessInFlight = false
             if sourcesChanged != changed { sourcesChanged = changed; revision += 1 }
-        }
+        }, for: "staleness")
     }
 
     func discover(nodes: [ProjectOperation.Node]) {
@@ -561,7 +485,10 @@ final class ProjectOperationsStore: ObservableObject {
         guard !id.isEmpty, id.count <= 100, id.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression) != nil else { return }
         guard runs[id]?.isActive != true else { openPanel(id: id); return }
         let root = self.root
-        Task { await confirmAndRun(id: id, root: root) }
+        // One start per operation at a time: the confirmation of the first is on the screen until it is answered.
+        let key = "run-" + id
+        guard !tasks.contains(key: key) else { return }
+        tasks.store(Task { await confirmAndRun(id: id, root: root) }, for: key)
     }
 
     /// Reads the operation fresh from disk, asks for confirmation and starts it. A method of its own
@@ -599,7 +526,7 @@ final class ProjectOperationsStore: ObservableObject {
         let history = ProjectOperationLastRun(id: id, label: snapshot.label, environment: snapshot.environment,
             command: snapshot.command, cwd: snapshot.cwd, started: run.started, ended: nil, state: "running", exitCode: nil)
         lastRuns[id] = history
-        Task.detached { try? ProjectOperationHistory.save(history, root: root) }
+        writes.record(history)
         // task: asks the system once for notification permission; it holds nothing of its own and ends with the answer
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
         run.session.onExit = { [weak self, weak run] code in
@@ -659,8 +586,7 @@ final class ProjectOperationsStore: ObservableObject {
             cwd: run.snapshot.cwd, started: run.started, ended: run.ended,
             state: run.state, exitCode: run.exitCode)
         lastRuns[run.id] = summary
-        let root = self.root
-        Task.detached { try? ProjectOperationHistory.save(summary, root: root) }
+        writes.record(summary)
         revision += 1
         guard !suppressNotifications, !NSApp.isActive else { return }
         let content = UNMutableNotificationContent()

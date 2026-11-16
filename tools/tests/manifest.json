@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 219,
+  "suiteCount": 220,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4888,6 +4888,21 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ArchiveModelTests.swift",
         "tools/tests/archive-model-tests.sh"
+      ]
+    },
+    {
+      "name": "project-operation-writes-tests",
+      "script": "tools/tests/project-operation-writes-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationHistory.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/OrderedWork.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ProjectOperationWritesTests.swift",
+        "tools/tests/project-operation-writes-tests.sh"
       ]
     }
   ]
