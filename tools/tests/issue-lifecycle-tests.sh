@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 M=MarkView/Models
-base=("$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift)
+base=("$M/Lifecycle/FeatureVocabulary.swift" "$M/Lifecycle/IssueListing.swift" "$M/Lifecycle/ProjectWorkflow.swift" "$M/Lifecycle/IssueLifecycle.swift" tools/tests/IssueChecksSupport.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift)
 
 run() {  # name, checks file, extra sources...
     local name=$1 checks=$2; shift 2

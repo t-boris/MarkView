@@ -7,5 +7,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/HandoffPromptTests.swift "$out/main.swift"
-swiftc -O -o "$out/handoff-prompt-tests" Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Lifecycle/HandoffPrompt.swift MarkView/Models/Lifecycle/DefinitionOfDone.swift MarkView/Models/Shared/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/AI/Providers/*.swift "$out/main.swift"
+swiftc -O -o "$out/handoff-prompt-tests" Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Lifecycle/HandoffPrompt.swift MarkView/Models/Lifecycle/DefinitionOfDone.swift MarkView/Models/Shared/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/AI/Providers/*.swift "$out/main.swift"
 "$out/handoff-prompt-tests"

@@ -168,7 +168,7 @@ struct SchemaVersionedStore<T: Codable> {
                 let envelope = try decoder(dates).decode(VersionedEnvelope<T>.self, from: raw)
                 return .loaded(envelope.data, schemaVersion: envelope.schema)
             } catch {
-                return .corrupted(url, Self.describe(error))
+                return .corrupted(url, StoredJSON.describe(error))
             }
         }
 
@@ -181,7 +181,7 @@ struct SchemaVersionedStore<T: Codable> {
                 firstFailure = firstFailure ?? error
             }
         }
-        return .corrupted(url, Self.describe(firstFailure ?? CocoaError(.fileReadCorruptFile)))
+        return .corrupted(url, StoredJSON.describe(firstFailure ?? CocoaError(.fileReadCorruptFile)))
     }
 
     /// Saves `value` in the envelope. Throws `SchemaStoreError.newerSchemaVersion` and leaves the file alone when it was written by
@@ -210,17 +210,5 @@ struct SchemaVersionedStore<T: Codable> {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let envelope = VersionedEnvelope(schema: currentSchemaVersion, updatedAt: Date(), data: value)
         try AtomicFile.write(try encoder.encode(envelope), to: url, permissions: permissions)
-    }
-
-    /// What is wrong with a document, in words a notice can show.
-    private static func describe(_ error: Error) -> String {
-        guard let decoding = error as? DecodingError else { return error.localizedDescription }
-        switch decoding {
-        case .keyNotFound(let key, _): return "\"\(key.stringValue)\" is missing"
-        case .typeMismatch(_, let context), .valueNotFound(_, let context), .dataCorrupted(let context):
-            let path = context.codingPath.map(\.stringValue).joined(separator: ".")
-            return path.isEmpty ? context.debugDescription : "\(path): \(context.debugDescription)"
-        @unknown default: return error.localizedDescription
-        }
     }
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One line per CLI completion, appended to `Application Support/MarkView/ai-calls.jsonl`: what
 /// was asked (the caller's label), which assistant and model answered, the effort, how long it
@@ -54,6 +57,6 @@ enum AICallLog {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return text.split(separator: "\n").compactMap { try? decoder.decode(Entry.self, from: Data($0.utf8)) }
+        return JSONLinesFile.decode(Entry.self, from: text, using: decoder, owner: "AI call log").records
     }
 }

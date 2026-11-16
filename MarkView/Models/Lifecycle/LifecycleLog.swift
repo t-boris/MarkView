@@ -47,7 +47,7 @@ final class LifecycleLog: ObservableObject {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return text.split(separator: "\n").compactMap { try? decoder.decode(LifecycleEvent.self, from: Data($0.utf8)) }.filter(\.isEvidence)
+        return JSONLinesFile.decode(LifecycleEvent.self, from: text, using: decoder, owner: "delivery evidence").records.filter(\.isEvidence)
     }
 
     // MARK: Recording
@@ -93,8 +93,8 @@ final class LifecycleLog: ObservableObject {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 let kept = text.split(separator: "\n").filter { line in
-                    guard let event = try? decoder.decode(LifecycleEvent.self, from: Data(line.utf8)) else { return true }
-                    return event.project != project
+                    // A line this version cannot read is not known to be this project's: it is kept as written.
+                    do { return try decoder.decode(LifecycleEvent.self, from: Data(line.utf8)).project != project } catch { return true }
                 }
                 try AtomicFile.write(kept.map(String.init).joined(separator: "\n") + (kept.isEmpty ? "" : "\n"), to: url)
             } catch {

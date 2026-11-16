@@ -151,7 +151,7 @@ final class DeploymentStore: ObservableObject {
     private func loadLog() {
         guard let logFile, let text = try? String(contentsOf: logFile, encoding: .utf8) else { return }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        log = text.split(separator: "\n").suffix(200).compactMap { try? decoder.decode(CommandLogEntry.self, from: Data($0.utf8)) }
+        log = JSONLinesFile.decode(CommandLogEntry.self, from: text, using: decoder, owner: "deployment command log", last: 200).records
     }
 
     func note(_ entry: CommandLogEntry) {
