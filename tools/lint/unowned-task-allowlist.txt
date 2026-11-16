@@ -36,7 +36,6 @@
 1 MarkView/Models/Workspace/ProjectDraftStore.swift
 3 MarkView/Views/Architecture/ProjectChangeReviewView.swift
 1 MarkView/Views/Book/PDFReaderView.swift
-5 MarkView/Views/Browser/BrowserTabView.swift
 3 MarkView/Views/Deployments/CloudServicesView.swift
 3 MarkView/Views/Deployments/DatabaseCardView.swift
 8 MarkView/Views/Deployments/DeploymentsView.swift

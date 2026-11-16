@@ -749,7 +749,7 @@ private struct WorkspaceWindow: View {
                         ArchiveTabView(url: activeTab.url)
                             .id(activeTab.id)
                     } else if case .browser(let session) = activeTab.kind {
-                        BrowserTabView(session: session)
+                        BrowserTabView(session: session, browser: workspaceManager.browser)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
                     } else if case .prototype(let session) = activeTab.kind {
