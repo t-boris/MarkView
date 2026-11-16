@@ -26,9 +26,9 @@ func freshDefaults() -> (UserDefaults, () -> Void) {
     return (defaults, { defaults.removePersistentDomain(forName: suite) })
 }
 
-// MARK: Two windows
+// MARK: Two windows (WindowUIState belongs to the main actor, as the views that read it do)
 
-do {
+@MainActor func twoWindows() {
     let (defaults, cleanup) = freshDefaults()
     defer { cleanup() }
     let a = WindowUIState(defaults: defaults), b = WindowUIState(defaults: defaults)
@@ -60,10 +60,11 @@ do {
     a.set("Documents", for: modeKey)
     check(later.value(modeKeyX) == "Project", "and from then on follows nobody")
 }
+MainActor.assumeIsolated { twoWindows() }
 
 // MARK: The session
 
-do {
+@MainActor func theSession() {
     let (defaults, cleanup) = freshDefaults()
     let (emptyDefaults, emptyCleanup) = freshDefaults()
     defer { cleanup(); emptyCleanup() }
@@ -92,6 +93,7 @@ do {
     check(wrongType.value(countKey7) == 7, "a restored value of the wrong type falls back")
     check(wrongType.existing(countKey7) == 7 && wrongType.existing(countAsText) == nil, "the fallback replaces it, and existing() reads only the stored type")
 }
+MainActor.assumeIsolated { theSession() }
 
 // MARK: The editor page's own choices
 

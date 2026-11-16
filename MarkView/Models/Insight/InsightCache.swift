@@ -4,8 +4,8 @@
 // Per-session disk cache for the v2 Recursive Insight feature.
 // Each `InsightSession` owns one `InsightCache` instance rooted at
 // `<workspace>/.insight-cache/<sessionUUID>/`. The cache stores:
-//   - `manifest.json`            — session metadata + node index
-//   - `nodes/<nodeUUID>.html`    — per-node rendered HTML
+//   - `manifest.json`            — session metadata + node index + the key of the policy the pages were written under
+//   - `nodes/<nodeUUID>.html`    — per-node rendered HTML (kept only while the manifest names the policy in force)
 //   - `_assets/`                 — copies of vendored libs (Mermaid, Chart.js,
 //                                  KaTeX, Prism …) so the ZIP export is
 //                                  self-contained and offline-renderable.
@@ -53,6 +53,9 @@ struct InsightManifest: Codable {
     let folderName: String
     let createdAt: Date
     var nodes: [NodeManifestEntry]
+    /// `InsightHTMLTemplate.policyKey` of the pages in `nodes/`. A manifest from before the key existed has none, and its pages
+    /// are dropped like those of any other key.
+    var pagePolicy: String?
 
     struct NodeManifestEntry: Codable {
         let nodeId: UUID
@@ -77,6 +80,11 @@ struct InsightCache {
     let assetsDirectory: URL  // <root>/_assets/
     private let nodesDirectory: URL   // <root>/nodes/
     private let manifestURL: URL      // <root>/manifest.json
+    /// The policy key the pages of this cache are written under; the manifest records it.
+    let pagePolicy: String
+    /// True when opening the cache found pages written under another policy (or none recorded) and removed them. The pages are a
+    /// pure function of the saved tree, so the session writes them again from the tree it restores.
+    let droppedStalePages: Bool
 
     // MARK: - Init
 
@@ -90,9 +98,14 @@ struct InsightCache {
     /// present files are skipped without error. The `sessionId` parameter
     /// is retained for source compatibility but no longer participates in
     /// the path.
-    init(workspaceURL: URL, sessionId: UUID) throws {
+    ///
+    /// `pagePolicy` is the key of the Content-Security-Policy the pages are written under (`InsightHTMLTemplate.policyKey`).
+    /// A page is served from the cache only while the manifest names this key: a cache written under another policy loses its
+    /// pages here, before anything is read or written, so an older page never comes back with the policy it was written under.
+    init(workspaceURL: URL, sessionId: UUID, pagePolicy: String) throws {
         _ = sessionId
         let root = ProjectPaths.insightFolder(workspaceURL)
+        self.pagePolicy = pagePolicy
         self.rootDirectory = root
         self.assetsDirectory = root.appendingPathComponent("_assets", isDirectory: true)
         self.nodesDirectory = root.appendingPathComponent("nodes", isDirectory: true)
@@ -109,6 +122,8 @@ struct InsightCache {
         // (`../_assets/<file>`) and matches Decision 4's staging shape.
         try Self.copyVendoredLibs(from: "Editor/vendor/js", into: assetsDirectory)
         try Self.copyVendoredLibs(from: "Editor/vendor/css", into: assetsDirectory)
+
+        self.droppedStalePages = try Self.dropPages(in: nodesDirectory, manifestURL: manifestURL, notWrittenUnder: pagePolicy)
     }
 
     // MARK: - Node CRUD
@@ -136,12 +151,15 @@ struct InsightCache {
     /// human-readable dates inside the on-disk JSON.
     func updateManifest(_ manifest: InsightManifest) throws {
         try Self.assertContained(manifestURL, in: rootDirectory)
+        try Self.writeManifest(manifest, to: manifestURL)
+    }
 
+    private static func writeManifest(_ manifest: InsightManifest, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
 
-        try AtomicFile.write(try encoder.encode(manifest), to: manifestURL)
+        try AtomicFile.write(try encoder.encode(manifest), to: url)
     }
 
     // MARK: - Cross-session snapshot (skeleton + per-section content)
@@ -275,6 +293,32 @@ struct InsightCache {
     }
 
     // MARK: - Private helpers
+
+    /// Removes every `nodes/*.html` unless the manifest names `policy`, then records `policy` in the manifest (when there is a
+    /// readable one). Returns whether a page was removed. A missing or unreadable manifest names no policy.
+    private static func dropPages(in nodesDirectory: URL, manifestURL: URL, notWrittenUnder policy: String) throws -> Bool {
+        var manifest: InsightManifest?
+        if let data = try? Data(contentsOf: manifestURL) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            manifest = try? decoder.decode(InsightManifest.self, from: data)
+        }
+        if manifest?.pagePolicy == policy { return false }
+
+        let fm = FileManager.default
+        var dropped = false
+        let entries = try fm.contentsOfDirectory(at: nodesDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        for page in entries where page.pathExtension.lowercased() == "html" {
+            try assertContained(page, in: nodesDirectory)
+            try fm.removeItem(at: page)
+            dropped = true
+        }
+        if var manifest {
+            manifest.pagePolicy = policy
+            try writeManifest(manifest, to: manifestURL)
+        }
+        return dropped
+    }
 
     /// Iterates the subdirectory of the running app bundle and copies every
     /// file inside into `dest`. Idempotent: pre-existing files are skipped.

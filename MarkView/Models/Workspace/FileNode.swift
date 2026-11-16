@@ -99,7 +99,9 @@ struct FileTree: Sendable {
     }
 }
 
-/// Represents a file or folder in the workspace tree
+/// Represents a file or folder in the workspace tree. SwiftUI observes a node and an expansion or a reload changes it, so it belongs
+/// to the main actor. What a background scan builds is a `FileTree` value; `FileNode(tree)` makes the nodes from it on the main actor.
+@MainActor
 class FileNode: Identifiable, ObservableObject, Hashable {
     let id: String
     let url: URL
@@ -158,11 +160,11 @@ class FileNode: Identifiable, ObservableObject, Hashable {
 
     // MARK: - Hashable Conformance
 
-    func hash(into hasher: inout Hasher) {
+    nonisolated func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
 
-    static func == (lhs: FileNode, rhs: FileNode) -> Bool {
+    nonisolated static func == (lhs: FileNode, rhs: FileNode) -> Bool {
         lhs.id == rhs.id
     }
 }

@@ -89,6 +89,13 @@ final class NewProjectFlow: ObservableObject {
 
     // MARK: Steps
 
+    /// The sheet closed: the step in flight and the assistant's jobs end. The draft stays as it was last saved, so a step that is cut off
+    /// leaves what was saved, and the welcome screen resumes from there.
+    func close() {
+        tasks.cancelAll()
+        store.reset()
+    }
+
     /// Starts the first idea (see `start`).
     func startIdea(_ idea: String, attachments: [URL]) {
         tasks.store(Task { [weak self] in await self?.start(idea: idea, attachments: attachments) }, for: "step")

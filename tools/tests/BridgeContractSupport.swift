@@ -16,14 +16,12 @@ final class RecordingDelegate: WebViewBridgeDelegate {
     var lastDepth: Int?
     var lastQuestion: String?
     var lastHeadings: [HeadingItem] = []
-    var lastDelta: BlocksDelta?
     var lastPayload: [String: Any] = [:]
     var lastContent: String?
     func bridge(_ bridge: WebViewBridge, didUpdateContent content: String, documentID: UUID?) { calls.append("didUpdateContent"); documentIDs.append(documentID); lastContent = content }
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem]) { calls.append("didExtractHeadings"); lastHeadings = headings }
     func bridge(_ bridge: WebViewBridge, didSelectHeading headingId: String) { calls.append("didSelectHeading") }
     func bridge(_ bridge: WebViewBridge, didClickLink href: String) { calls.append("didClickLink") }
-    func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta) { calls.append("didReceiveBlocksDelta"); lastDelta = delta }
     func bridgeEditorReady(_ bridge: WebViewBridge) { calls.append("bridgeEditorReady") }
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double) { calls.append("didChangeEditorFontSize") }
     func bridge(_ bridge: WebViewBridge, didSetWindowPref key: String, value: String) { calls.append("didSetWindowPref") }

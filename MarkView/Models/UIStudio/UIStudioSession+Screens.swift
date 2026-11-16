@@ -18,7 +18,7 @@ extension StudioSession {
         screenBook.appFolder = relativeAppFolder
         screenBook.merge(found: found)
         persistScreenBook()
-        Task { [weak self] in await self?.refreshScreenHashes() }
+        startPartTask { session in await session.refreshScreenHashes() }
     }
 
     /// Reads the current hashes of the files the screens name as evidence, so that a changed file shows as "needs refresh".
@@ -221,23 +221,22 @@ extension StudioSession {
     }
 
     private func openPrepared(_ entry: StudioScreenBook.Entry, scenario saved: StudioScenario) {
-        Task { [weak self] in
-            guard let self else { return }
+        startPartTask { session in
             let box = OpenBox()
-            runWork("Opening \(entry.screen.name)") { session in
+            session.runWork("Opening \(entry.screen.name)") { session in
                 box.ran = true
                 box.problem = await session.activateReturningProblem(saved)
             }
-            await awaitWork()
-            guard box.ran, !closed else { return }
+            await session.awaitWork()
+            guard box.ran, !session.closed else { return }
             guard let problem = box.problem else {
-                screenBook.markVerified(entry.id)
-                persistScreenBook()
+                session.screenBook.markVerified(entry.id)
+                session.persistScreenBook()
                 return
             }
-            sessionLog.add(.preparation, problem: true,
-                           "The prepared scenario for \(entry.screen.name) did not reach the screen: \(problem) The assistant opens it instead.")
-            openThroughAssistant(entry)
+            session.sessionLog.add(.preparation, problem: true,
+                                   "The prepared scenario for \(entry.screen.name) did not reach the screen: \(problem) The assistant opens it instead.")
+            session.openThroughAssistant(entry)
         }
     }
 
@@ -245,13 +244,12 @@ extension StudioSession {
     private func openThroughAssistant(_ entry: StudioScreenBook.Entry) {
         guard busy == nil else { return }
         change(entry.screen.request, destination: entry.screen)
-        Task { [weak self] in
-            guard let self else { return }
-            await awaitWork()
-            guard !closed, let operation = history.last, operation.destinationScreen?.id == entry.id, operation.kind == .context,
+        startPartTask { session in
+            await session.awaitWork()
+            guard !session.closed, let operation = session.history.last, operation.destinationScreen?.id == entry.id, operation.kind == .context,
                   [.applied, .kept].contains(operation.status), let id = operation.context?.scenarioId, !id.isEmpty else { return }
-            screenBook.markVerified(entry.id, scenarioID: id, sources: await sourceHashes(of: entry.screen))
-            persistScreenBook()
+            session.screenBook.markVerified(entry.id, scenarioID: id, sources: await session.sourceHashes(of: entry.screen))
+            session.persistScreenBook()
         }
     }
 

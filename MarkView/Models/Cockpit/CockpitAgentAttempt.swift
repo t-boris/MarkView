@@ -121,6 +121,7 @@ final class CockpitAgentAttempt {
                     watchdogTask = Task { [weak self, weak terminal] in
                         do {
                             let watcher = try await CockpitService.forProject(root).watchdog(ptyDescriptor: pty.descriptor, shell: pty.shell,
+                                                                                          // task: a non-async callback tells the exit signal once; the actor call ends at once and touches nothing of this step
                                                                                           onExit: { Task { await exited.finish() } })
                             guard let self, let terminal, self.ticket == ticket, terminal.shellPID == pty.shell, !Task.isCancelled else {
                                 watcher.stop(); return
@@ -131,6 +132,7 @@ final class CockpitAgentAttempt {
                     }
                 } catch {
                     close(pty.descriptor)
+                    // task: tells the exit signal once, so that nothing waits for a watchdog that never started; the actor call ends at once
                     Task { await exited.finish() }
                     cancel(reason: "The step assignment could not be prepared.")
                 }

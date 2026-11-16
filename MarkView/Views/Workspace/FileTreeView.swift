@@ -381,19 +381,20 @@ struct FileTreeView: View {
         if git.isGitRepo {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(palette.blue)
-                GitBranchMenu(git: git, workspaceManager: workspaceManager, fontSize: 10)
+                GitBranchMenu(git: git, flow: workspaceManager.flow, codeXRay: workspaceManager.codeXRay,
+                              openFolder: { workspaceManager.openFolder($0) }, fontSize: 10)
                 Spacer()
                 if let activity = git.activity {
                     ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
                     Text(activity).uiFont(size: 9).foregroundColor(palette.textDim).lineLimit(1)
                 } else if git.isOperating { ProgressView().scaleEffect(0.3) }
-                Button(action: { Task { await git.pull() } }) {
+                Button(action: { git.startPull() }) {
                     Image(systemName: "arrow.down").uiFont(size: 9).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Pull")
-                Button(action: { Task { await git.push() } }) {
+                Button(action: { git.startPush() }) {
                     Image(systemName: "arrow.up").uiFont(size: 9).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Push")
-                Button(action: { Task { await git.refresh() } }) {
+                Button(action: { git.startRefresh() }) {
                     Image(systemName: "arrow.clockwise").uiFont(size: 9).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Refresh")
             }

@@ -41,11 +41,14 @@ final class ArchitectureStore: ObservableObject {
     /// Live progress of the AI analysis. Sent to the web view on its own (throttled),
     /// so the large snapshot payload is not re-sent for every file the assistant reads.
     @Published private(set) var progress: AnalysisProgress?
-    private var analysisTask: Task<Void, Never>?
-    /// The local scan started by `scan`, cancelled by `reset` like an analysis.
-    private var scanTask: Task<Void, Never>?
-    /// Identifies the run that owns `busy`, `progress`, `analysisTask` and `scanTask`, so the
-    /// cleanup of a run cancelled by `reset` cannot clear the state of the run that replaced it.
+    /// The work this store starts (`AR-19`), one key per kind: "open" (the stored snapshot, then a scan), "scan", "analysis" (every AI
+    /// pass that holds the run flag), "refresh" (the wait of the automatic refresh), "outline" (the local file outlines), and per item
+    /// "outline:<path>", "edge:<key>" with its "edge-refresh:<key>", "describe:<node>". A new start of a key replaces the work of the
+    /// old one, `cancelAnalysis` ends the "analysis" key, and `reset` (a project switch, the window's close) ends them all, so nothing
+    /// is committed after it.
+    private let tasks = TaskBag()
+    /// The lease on `busy`, `progress` and the run's own state: `beginRun` gives it out, `endRun` of a run that no longer holds it does
+    /// nothing. A run cancelled by `reset` finishes after the flags were cleared, and the run that replaced it may own them by then.
     private var runToken = 0
 
     /// What the automatic code analysis of the project is doing (REQ-002 of
@@ -73,8 +76,6 @@ final class ArchitectureStore: ObservableObject {
     /// Where the automatic analysis runs, set by `startAutomaticCodeAnalysis`; nil until then,
     /// so file changes of a project it never started for are ignored.
     private var automaticContext: (root: URL, db: SemanticDatabase?)?
-    /// Sleeps until the scheduler's next decision.
-    private var refreshTask: Task<Void, Never>?
     /// Reports changes below the project root (the file tree only sees its top level);
     /// started with `automaticContext`, stopped by `reset`.
     private var changeWatcher: ProjectChangeWatcher?
@@ -124,16 +125,11 @@ final class ArchitectureStore: ObservableObject {
     private var outlines: [String: XRayContent.Outline] = [:]
     /// Files the assistant is outlining right now.
     private var outlining: Set<String> = []
-    private var outlineTask: Task<Void, Never>?
+    /// A new workspace, or the window's close: everything this store and its parts started stops and nothing of it is committed
+    /// after this. A scan or analysis of the old workspace must neither commit nor clear the flags of the next run (R11): its work is
+    /// cancelled and the run lease moves past its cleanup.
     func reset() {
-        // A scan or analysis of the old workspace must neither commit nor clear the flags of
-        // the next run (R11): cancel it and move the run token past its cleanup.
-        analysisTask?.cancel()
-        analysisTask = nil
-        scanTask?.cancel()
-        scanTask = nil
-        refreshTask?.cancel()
-        refreshTask = nil
+        tasks.cancelAll()
         runToken += 1
         busy = false
         progress = nil
@@ -147,10 +143,10 @@ final class ArchitectureStore: ObservableObject {
         filters.reset()
         rootPath = nil
         snapshot = nil
-        outlineTask?.cancel()
-        outlineTask = nil
         outlines = [:]
         outlining = []
+        describing = []
+        edgeNotes = [:]
         status = nil
         error = nil
         revision += 1
@@ -163,24 +159,24 @@ final class ArchitectureStore: ObservableObject {
     /// AI descriptions are kept and only changed modules are re-described later.
     func open(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        Task {
+        tasks.store(Task {
             // The scan keeps the AI descriptions of the stored snapshot, so it starts once that is loaded.
             await loadStoredSnapshot(db: db, root: root)
-            guard rootPath == root.standardizedFileURL.path else { return }
+            guard !Task.isCancelled, rootPath == root.standardizedFileURL.path else { return }
             scan(root: root, db: db)
             review.refreshPRSources(root: root)
-        }
+        }, for: "open")
     }
 
     /// Window restoration displays the previous view without starting new AI work.
     func restoreCached(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        Task {
+        tasks.store(Task {
             await loadStoredSnapshot(db: db, root: root)
-            guard rootPath == root.standardizedFileURL.path else { return }
+            guard !Task.isCancelled, rootPath == root.standardizedFileURL.path else { return }
             // Local cached/declaration outlines restore drill-down without starting AI.
             outlineContents(root: root)
-        }
+        }, for: "open")
     }
 
     /// The saved architecture, when nothing is loaded yet. The database is read on its own actor, so a slow read
@@ -188,7 +184,7 @@ final class ArchitectureStore: ObservableObject {
     private func loadStoredSnapshot(db: SemanticDatabase?, root: URL) async {
         guard snapshot == nil else { return }
         let stored = await db?.loadArchitecture()
-        guard snapshot == nil, rootPath == root.standardizedFileURL.path, let found = stored ?? loadPersisted() else { return }
+        guard !Task.isCancelled, snapshot == nil, rootPath == root.standardizedFileURL.path, let found = stored ?? loadPersisted() else { return }
         snapshot = found
         revision += 1
     }
@@ -206,8 +202,6 @@ final class ArchitectureStore: ObservableObject {
         guard token == runToken else { return }
         busy = false
         progress = nil
-        analysisTask = nil
-        scanTask = nil
         answerByCall = [:]
         setStatus(nil)
         // A file change that arrived during the run waits for its end (`.waitForRun`).
@@ -219,13 +213,13 @@ final class ArchitectureStore: ObservableObject {
     func scan(root: URL, db: SemanticDatabase?) {
         guard !busy else { return }
         let token = beginRun()
-        scanTask = Task {
+        tasks.store(Task {
             _ = await performScan(root: root, db: db)
             // Explicit, not deferred: the outlines below run after the flag is released.
             endRun(token)
             // Contents: stored outlines at once, then new or changed files.
             if token == runToken { outlineContents(root: root) }
-        }
+        }, for: "scan")
     }
 
     /// The scan itself, shared by `scan` and the automatic pipeline. Returns the scanner's
@@ -329,6 +323,7 @@ final class ArchitectureStore: ObservableObject {
         var stored = snapshot
         stored.ratings = stored.ratings.filter { !ImportanceRater.isTemporary($0.key) }
         guard let data = try? Self.snapshotEncoder.encode(stored) else { return }
+        // task: writes the bytes already encoded; it ends on its own and must reach the disk even when the window closes meanwhile
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? AtomicFile.write(data, to: file)
@@ -363,7 +358,7 @@ final class ArchitectureStore: ObservableObject {
         guard !busy, let current = snapshot, let modules = current.view("modules") else { return }
         let token = beginRun()
         let started = Date()
-        analysisTask = Task {
+        tasks.store(Task {
             defer { endRun(token) }
             var next = current
             do {
@@ -407,21 +402,23 @@ final class ArchitectureStore: ObservableObject {
                 try await annotateBook(root: root, db: db, only: nil)
 
                 beginStep(5, "Indexing file contents", started: started)
-                await outlineTask?.value
+                // The outlines of the scan's own build are superseded by this one, which shows its progress.
+                tasks.cancel(key: "outline")
                 await buildOutlines(root: root)
             } catch is CancellationError {
                 // Keep the structure found so far (shown live, not yet saved).
-                if let found = snapshot, found.components.map(\.id) != next.components.map(\.id) { commit(found, db: db) }
+                // Not after `reset`: what the store shows then is another workspace's.
+                if token == runToken, let found = snapshot, found.components.map(\.id) != next.components.map(\.id) { commit(found, db: db) }
             } catch {
                 self.error = "Analysis failed: \(error.localizedDescription)"
             }
             setStatus(nil)
-        }
+        }, for: "analysis")
     }
 
     /// Stop a running analysis; the assistant's process is terminated.
     func cancelAnalysis() {
-        analysisTask?.cancel()
+        tasks.cancel(key: "analysis")
     }
 
     private func beginStep(_ step: Int, _ title: String, started: Date, steps: Int = 5) {
@@ -674,6 +671,7 @@ final class ArchitectureStore: ObservableObject {
 
     nonisolated private static func cache<T: Encodable>(_ value: T, at file: URL) {
         guard let data = try? JSONEncoder().encode(value) else { return }
+        // task: writes the bytes already encoded; it ends on its own and must reach the disk even when the window closes meanwhile
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? AtomicFile.write(data, to: file)
@@ -817,10 +815,10 @@ final class ArchitectureStore: ObservableObject {
     func analyzeCode(root: URL, db: SemanticDatabase?) {
         guard !busy, Self.codeFiles(in: snapshot) != nil else { return }
         let token = beginRun()
-        analysisTask = Task {
+        tasks.store(Task {
             defer { endRun(token) }
             _ = await performCodeAnalysis(root: root, db: db)
-        }
+        }, for: "analysis")
     }
 
     /// Source files of the Modules view, for the code analysis; nil without a scan or code.
@@ -964,7 +962,7 @@ final class ArchitectureStore: ObservableObject {
         let started = Date()
         beginStep(1, "Tracing " + selected.name, started: started, steps: 1)
         setProgressScope(question)
-        analysisTask = Task {
+        tasks.store(Task {
             defer { endRun(token) }
             do {
                 let diagram = try await traceSequence(name: selected.name, question: question, paths: paths,
@@ -981,7 +979,7 @@ final class ArchitectureStore: ObservableObject {
             } catch {
                 self.error = "Could not trace the scenario: \(error.localizedDescription)"
             }
-        }
+        }, for: "analysis")
     }
 
     /// Manual traces kept per project; automatic ones are bounded by `CodeArchitecture.maxScenarios`.
@@ -1127,10 +1125,10 @@ final class ArchitectureStore: ObservableObject {
         guard rootPath == root.standardizedFileURL.path else { return }
         scheduler.lastChange = nil
         let token = beginRun()
-        analysisTask = Task {
+        tasks.store(Task {
             defer { endRun(token) }
             await runAutomaticPipeline(root: root, db: db, force: force, token: token)
-        }
+        }, for: "analysis")
     }
 
     /// Changes below the project root reach `noteProjectChanged` through an FSEvents
@@ -1241,8 +1239,7 @@ final class ArchitectureStore: ObservableObject {
 
     /// Act on the scheduler's decision now, or sleep until it can decide.
     private func armAutomaticRefresh() {
-        refreshTask?.cancel()
-        refreshTask = nil
+        tasks.cancel(key: "refresh")
         guard let context = automaticContext else { return }
         scheduler.enabled = AIAssistantPreferences.autoAnalyze
         scheduler.runActive = busy
@@ -1264,11 +1261,11 @@ final class ArchitectureStore: ObservableObject {
 
     private func sleepUntil(_ date: Date) {
         let seconds = max(0, date.timeIntervalSinceNow)
-        refreshTask = Task { [weak self] in
+        tasks.store(Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self?.armAutomaticRefresh()
-        }
+        }, for: "refresh")
     }
 
     // MARK: - Contents
@@ -1306,8 +1303,7 @@ final class ArchitectureStore: ObservableObject {
 
     /// Load stored outlines, then build local outlines for new or changed files.
     func outlineContents(root: URL) {
-        outlineTask?.cancel()
-        outlineTask = Task { await buildOutlines(root: root) }
+        tasks.store(Task { await buildOutlines(root: root) }, for: "outline")
     }
 
     /// Use a fast local pass for every file without a reusable outline. Deeper AI
@@ -1353,18 +1349,20 @@ final class ArchitectureStore: ObservableObject {
         if error?.hasPrefix("Could not outline ") == true { error = nil }
         outlining.insert(path)
         revision += 1
-        Task { await outlineWithAssistant(path, language: language, root: root, db: db) }
+        tasks.store(Task { await outlineWithAssistant(path, language: language, root: root, db: db) }, for: "outline:" + path)
     }
 
     private func outlineWithAssistant(_ path: String, language: String?, root: URL, db: SemanticDatabase?) async {
-        defer { outlining.remove(path); revision += 1 }
+        // A task cancelled by `reset` finds `outlining` cleared and leaves it alone: it may hold another workspace's file by now.
+        defer { if !Task.isCancelled { outlining.remove(path); revision += 1 } }
         let url = root.appendingPathComponent(path)
         guard let signature = XRayContent.signature(of: url),
               let text = await Task.detached(priority: .utility, operation: { try? String(contentsOf: url, encoding: .utf8) }).value
         else {
-            self.error = "Could not read \((path as NSString).lastPathComponent)."
+            if !Task.isCancelled { self.error = "Could not read \((path as NSString).lastPathComponent)." }
             return
         }
+        guard !Task.isCancelled else { return }
         let outputLanguage = ActionOutputLanguage.current
         let languageLine = XRayContent.languageLine(summaries: outputLanguage == ActionOutputLanguage.documentLanguage
                                                     ? "the language of the file" : outputLanguage)
@@ -1381,7 +1379,7 @@ final class ArchitectureStore: ObservableObject {
         do {
             let object = try await xrayCall(request, root: root, db: db, call: 99, trackProgress: false)
             let outline = XRayContent.assistantOutline(from: object, text: text, signature: signature, language: outputLanguage)
-            guard !outline.collections.isEmpty else { return }
+            guard !Task.isCancelled, !outline.collections.isEmpty else { return }
             outlines[path] = outline
             XRayContent.save(outline, root: root, path: path)
         } catch is CancellationError {
@@ -1440,8 +1438,9 @@ final class ArchitectureStore: ObservableObject {
             if let summary = node.summary { line += " — \(summary)" }
             return line
         }
-        Task {
+        tasks.store(Task {
             let evidence = await Task.detached { Self.linkEvidence(from: aFiles, to: bFiles, root: root) }.value
+            guard !Task.isCancelled else { return }
             edgeNotes[key]?.evidence = evidence
             revision += 1
             var request = CLICompletion.Request(
@@ -1468,28 +1467,26 @@ final class ArchitectureStore: ObservableObject {
             request.effort = "low"
             request.timeout = 300
             var streamed = ""
-            var pendingRefresh = false
             do {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-link").execute(request, onDelta: { text in
                     Task { @MainActor in
                         streamed += text
                         self.edgeNotes[key]?.text = streamed
-                        guard !pendingRefresh else { return }
-                        pendingRefresh = true
-                        try? await Task.sleep(nanoseconds: 300_000_000)
-                        pendingRefresh = false
-                        self.revision += 1
+                        self.tasks.coalesce(key: "edge-refresh:" + key) { self.revision += 1 }
                     }
                 })
                 result.record(in: db)
+                guard !Task.isCancelled else { return }
                 edgeNotes[key]?.text = answer.isEmpty ? streamed : answer
             } catch is CancellationError {
+                // `reset` or a fresh question for this link ended it: the note is not this task's any more.
+                return
             } catch {
                 edgeNotes[key]?.text = "Failed: \(error.localizedDescription)"
             }
             edgeNotes[key]?.pending = false
             revision += 1
-        }
+        }, for: "edge:" + key)
     }
 
     /// Lines in the source files that name one of the target files (by module name), at most 20.
@@ -1519,8 +1516,9 @@ final class ArchitectureStore: ObservableObject {
               !describing.contains(nodeId) else { return }
         describing.insert(nodeId)
         revision += 1
-        Task {
-            defer { describing.remove(nodeId); revision += 1 }
+        tasks.store(Task {
+            // A task cancelled by `reset` finds `describing` cleared and leaves it alone.
+            defer { if !Task.isCancelled { describing.remove(nodeId); revision += 1 } }
             let children = view.nodes.filter { $0.parent == nodeId }.prefix(30).map(\.name).joined(separator: ", ")
             var request = CLICompletion.Request(
                 project: project,
@@ -1538,7 +1536,7 @@ final class ArchitectureStore: ObservableObject {
                 let (answer, result) = try await AIOperation<CLICompletion.Request, String>.text(name: "xray-describe").execute(request)
                 result.record(in: db)
                 let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard var next = snapshot, !text.isEmpty else { return }
+                guard !Task.isCancelled, var next = snapshot, !text.isEmpty else { return }
                 // Store on the Modules node (the source of truth) and re-derive the Logical view.
                 let path = node.path
                 if let m = next.views.firstIndex(where: { $0.id == "modules" }),
@@ -1548,10 +1546,11 @@ final class ArchitectureStore: ObservableObject {
                 }
                 next = LogicalView.apply(next)
                 commit(next, db: db)
+            } catch is CancellationError {
             } catch {
                 self.error = "Could not describe \(node.name): \(error.localizedDescription)"
             }
-        }
+        }, for: "describe:" + nodeId)
     }
 
     // MARK: - Web view payload
@@ -1857,7 +1856,7 @@ final class ArchitectureStore: ObservableObject {
         guard !busy, snapshot?.view("docs") != nil else { return }
         let token = beginRun()
         let started = Date()
-        analysisTask = Task {
+        tasks.store(Task {
             defer { endRun(token) }
             beginStep(1, "Annotating the book", started: started, steps: 1)
             do {
@@ -1867,7 +1866,7 @@ final class ArchitectureStore: ObservableObject {
                 self.error = "Annotating the book failed: \(error.localizedDescription)"
             }
             setStatus(nil)
-        }
+        }, for: "analysis")
     }
 }
 

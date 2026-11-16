@@ -719,3 +719,76 @@ views found no missing provider.
 UI Studio tab by keyboard (the lifetime suite covers the model path), drag and drop, the trash dialog, a window close with
 work running, a real assistant in any panel, the Search navigator tab (no code path selects it; `WorkspaceSearchView` has one
 caller, which is that unreachable branch).
+
+## 15. The second remainder round (2026-11-16, version 6.27.2)
+
+Section 14.3 listed what 6.27.1 left. This round took all of it down except the two items named in 15.3, on the branch
+`feat/architecture-review-remainder-2` (base `54970234`, the merge of PR #419) in three slices. Numbers are from
+`tools/lint/architecture-lint.sh`, `tools/lint/task-ownership.sh` and `tools/lint/domain-dependencies.py`; nothing here is `verified`.
+
+### 15.1 The measures, 6.27.1 against this round
+
+| Measure | 6.27.1 | Now | Source |
+|---|---|---|---|
+| Unowned `Task {}` / `Task.detached` sites | 70 in 16 files | **0** (the allowlist is empty; every one-shot site that stays carries a `// task:` reason or is a hop with no `await`) | `task-ownership.sh` |
+| Views taking the whole manager | 6 | **2** (`EditorView`, `FileTreeView`; each reason names the commands it issues, in `workspace-manager-views.txt`) | lint `workspace-manager` |
+| Closure hooks, back-references to the manager | 33 in 12 files; 4 | **31 in 11 files; 4** | lint `window-wiring` |
+| `'unsafe-inline'` in `script-src` of cached or exported Insight pages (FU-25) | 1 | **0** (`style-src` keeps it on purpose: Mermaid and the assistant's HTML need inline styles) | `git grep` |
+| `FileNode` and `WindowUIState` | non-isolated observable classes | **`@MainActor`** | by reading, build 0 warnings |
+| The `blocks` write path (JS extractor, bridge message, `ProjectContext.saveBlocks`, `SemanticDatabase` methods) | written, never read | **deleted**; tables `blocks`, `claims` and `block_compilation_cache` dropped by migration step 3; bridge messages 28 -> 27 | `git grep` (50 lines -> 0), `semantic-database-tests` |
+| Suites in the manifest | 219 | **223** | `tools/tests/manifest.json` |
+| Domain pairs in cycles | 1 (Models), 0 (Views) | 1, 0 (`AgentTools` <-> `Workspace`, unchanged) | `domain-dependencies.py` |
+| Compiler warnings, app target | 0 | **0** | `build-warnings.sh` |
+
+What moved:
+
+- **X-Ray stores (AR-19).** The 37 tasks of `ArchitectureStore`, `ChangeReviewStore`, `XRayFilterStore`, `CodeExplainStore` and
+  `CodeNavigationStore` are owned by `TaskBag` keys; the hand-rolled run counters stay only as a documented run lease on the shared
+  `busy`/`progress` flags (`beginRun`/`endRun`). A project switch or `reset()` cancels the call in flight and nothing is saved to the
+  old project's database; `CodeAndXRayCoordinator.reset()` now also resets the folder X-Rays, the navigator and the explainer.
+  The behaviour suite `xray-task-ownership-tests` (103 checks, real stores over temporary git projects with stand-ins) gave 88 ok and 15 FAIL on the
+  old sources, all of them the cancel, restart and latest-wins checks.
+- **Other owners.** UI Studio's six session tasks go through `StudioSession.startPartTask`; Cockpit record writes belong to a `TaskBag`
+  that `shutdown()` cancels; `ProjectOperationsStore.change(_:)` no longer loses edits (serial lanes, a new Core class `OrderedWork`, drained on
+  quit; `project-operation-writes-tests` keeps 40 concurrent edits in order); the new-project sheet starts its AI steps through
+  `FeatureAssistant.start(key)` and cancels them when it closes. `FeatureAssistant.start` keeps its store alive for the length of the job,
+  because the assistant holds it `unowned` (the FU-31 hazard again).
+- **Views.** `TOCView`, `SharedSearchView`, `DeploymentsView` and the operations console read only the window parts they use; `WindowCommands`
+  gained `openFolder`, `openTerminal(in:)` and `showSettings`; `WorkspaceManager.dismissOperationRun` became
+  `WindowRequests.operationRunDismissed`.
+- **FU-25.** The bootstrap script of an Insight page is allowed by hash, and the cache is keyed by a hash of the policy text, so a cached page of an
+  older policy regenerates. The gui suite `insight-page-web-tests` loads the real page in hidden WebKit: an injected script, an `onerror` handler, an
+  `svg` `onload` and a `javascript:` link do not run; the bootstrap, Mermaid, Chart.js and the lightbox do; a control page with the old policy runs all
+  of the injected ones, so "did not run" means something.
+- **Hooks.** `ACPConnection` takes its permission rule and update handler at construction (33 -> 31); the `acp-continuation-tests` fixture checks the rule.
+
+### 15.2 What was run, and what was not
+
+Run on the merged tip: Debug build (0 warnings), `swift test --package-path Packages/MarkViewCore` (86), `architecture-lint.sh` (exit 0), the pure tier
+(145 passed, 1 failed: `qa-native-tests`, whose demo applications are not installed on the machine), the gui tier (71 passed, 1 failed:
+`ui-studio-web-tests` failed one timing check, "a message of an earlier generation", under `--jobs 2`; it passed on its own four times in a row, so it is
+recorded as a load flake, not as a pass of that check under load), and four hidden app-probe runs by the slices (X-Ray tab in two project windows,
+the new-project sheet from a project-less window, Files tree, Contents, Git, Deployments, search sheet): no crash report.
+
+**Not seen:** the real AI chain of X-Ray, where stage N feeds stage N+1 (only run with a stand-in assistant; in the probe the assistant was unavailable);
+the PR X-Ray overlay, the filters and the code explainer and navigator in the real app; the Dismiss button of an operation run; the Pull and Push arrows
+of the file tree (no accessibility label, so the probe could not click them); `ui-studio-live-run` (needs a real assistant); the Insight frame in the
+running app (only in the WebKit suite); a window close with work running.
+
+**Behaviour changes to know about:** a `gh` action, comment or issue in flight when its window closes is now cancelled (it used to run to completion);
+folder X-Rays are now reset on a project switch; step 5 of the analysis cancels the scan's outline build and runs its own instead of waiting for it;
+closing the new-project sheet cancels an in-flight AI step (the draft is saved before the first call).
+
+**A lint limit:** `task-ownership.sh` reads a `Task {` on the line after a line that ends in `=`; one site of that shape (`CodeExplainStore.explain`) was found by
+the slice's reading, not by the lint, and fixed. A scan for the shape found no other. The count above is a lint count, not a proof.
+
+### 15.3 What is still not finished
+
+- **`AgentTools` <-> `Workspace`:** the MCP control tools name `WorkspaceManager` and `WindowSessionController`. Cutting it needs a window protocol of
+  about fifteen members and a way to open a window, which is an architectural decision, not a sweep.
+- **31 closure hooks and 4 back-references** (each is in `tools/lint/window-wiring-hooks.txt` and `window-wiring-backrefs.txt`): the remaining ones
+  are redesigns (for example `ResearchMapStream.onReady` needs a relay object).
+- **2 views on the manager** (`EditorView`, `FileTreeView`), each for window commands.
+- **The 16-domain strongly connected group** of `Models/` stays joined through longer cycles; the tool counts named types only.
+- **The review items outside this slice, unchanged:** AR-22, AR-24, AR-04, AR-27, AR-29, AR-36, AR-39, AR-40 to AR-44, AR-47 to AR-49 (section 13.4),
+  and the 19 tables of the semantic database that no code touches (counted, not dropped).

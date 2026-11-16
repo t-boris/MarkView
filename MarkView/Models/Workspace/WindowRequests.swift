@@ -30,4 +30,11 @@ final class WindowRequests: ObservableObject {
     @Published var operationConsoleVisible = false
     @Published var operationSelectedRunID: String?
     @Published var operationEditRequest: ProjectOperationEditRequest?
+
+    /// A finished run was dismissed from the store: this window's console moves on to another of the runs left when it showed the dismissed
+    /// one, and closes when none is left.
+    func operationRunDismissed(_ id: String, remaining ids: [String]) {
+        if operationSelectedRunID == id { operationSelectedRunID = ids.first }
+        if ids.isEmpty { operationConsoleVisible = false }
+    }
 }

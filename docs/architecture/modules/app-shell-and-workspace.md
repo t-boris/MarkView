@@ -306,7 +306,6 @@ the shortest path), beeps when nothing is found, and scrolls to the heading.
 - Cmd-S: `saveActiveFile` then `saveFile(at:)`: `AtomicFile.write`, then `isModified = false`, a new `originalContent`, and a
   `.saved(url)` event (which refreshes the code analysis for files under the root). A failure sets `lastSaveError` (a banner in the window) and logs through
   `AppLog.workspace`.
-- Block deltas are stored by `ProjectContext.saveBlocks` (a serialized chain of database writes on the actor).
 
 ### 5.6 File watching
 

@@ -110,7 +110,10 @@ final class CodeExplainStore: ObservableObject {
     private var activity: [String: String] = [:]
     /// Answer text streamed so far per path, to show sections while they are written.
     private var liveAnswers: [String: String] = [:]
-    private var liveRefreshPending: Set<String> = []
+    /// The work this store starts (`AR-19`), per file path: "freshness:<path>", "explain:<path>", "rate:<path>" and "live:<path>" (the
+    /// wait that shows the sections of an answer as they are written). A new start of a key replaces the old one, and `reset` (a
+    /// project switch, the window's close) ends them all, after which nothing is written.
+    private let tasks = TaskBag()
 
     /// Lines longer than this (minified code) are clipped in prompts.
     static let maxLineLength = 400
@@ -125,7 +128,7 @@ final class CodeExplainStore: ObservableObject {
         guard var explanation = explanations[path], explanation.freshness == nil else { return }
         let file = root.appendingPathComponent(path)
         let sections = explanation.sections
-        Task {
+        tasks.store(Task {
             let times: [Int] = await Task.detached {
                 guard let blame = ArchitectureScanner.runTool("/usr/bin/env",
                         ["git", "-C", root.path, "blame", "--line-porcelain", "--", path]) else { return [] }
@@ -133,6 +136,7 @@ final class CodeExplainStore: ObservableObject {
                     line.hasPrefix("author-time ") ? Int(line.dropFirst("author-time ".count)) : nil
                 }
             }.value
+            guard !Task.isCancelled else { return }
             let fallback = Int((try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?
                 .timeIntervalSince1970) ?? 0)
             var result: [String: Int] = [:]
@@ -145,14 +149,17 @@ final class CodeExplainStore: ObservableObject {
             explanations[path] = explanation
             save(explanation, directory: directory)
             revision += 1
-        }
+        }, for: "freshness:" + path)
     }
 
+    /// A new workspace, or the window's close: the explanations of the old one go and so does the work on them.
     func reset() {
+        tasks.cancelAll()
         explanations = [:]
         working = []
         activity = [:]
         errors = [:]
+        liveAnswers = [:]
         revision += 1
     }
 
@@ -213,8 +220,9 @@ final class CodeExplainStore: ObservableObject {
         let clipped = lines.count > Self.maxLines ? "\n[file continues to line \(lines.count); explain the part shown]" : ""
         let task = FileExplanationPrompt.instructions(path: path)
         liveAnswers[path] = ""
-        Task { [self] in
-            defer { working.remove(path); activity[path] = nil; liveAnswers[path] = nil; revision += 1 }
+        tasks.store(Task { [self] in
+            // A task cancelled by `reset` finds this state cleared and leaves it alone: it may be another workspace's by now.
+            defer { if !Task.isCancelled { working.remove(path); activity[path] = nil; liveAnswers[path] = nil; revision += 1 } }
             // One pass over the file itself: no tools, the fast model at low effort.
             var request = CLICompletion.Request(
                 project: root,
@@ -232,6 +240,7 @@ final class CodeExplainStore: ObservableObject {
                     Task { @MainActor in self?.receive(text, path: path, contentHash: contentHash, lineCount: lineCount) }
                 })
                 result.record(in: db)
+                guard !Task.isCancelled else { return }
                 let sections = (object["sections"] as? [[String: Any]] ?? []).compactMap { raw -> CodeSection? in
                     guard let start = raw["startLine"] as? Int, let end = raw["endLine"] as? Int else { return nil }
                     let level = raw["importance"] as? String ?? "normal"
@@ -253,17 +262,14 @@ final class CodeExplainStore: ObservableObject {
             } catch {
                 errors[path] = "Explain failed: \(error.localizedDescription)"
             }
-        }
+        }, for: "explain:" + path)
     }
 
     /// Show the sections finished so far while the answer is still being written.
     private func receive(_ text: String, path: String, contentHash: String, lineCount: Int) {
         guard liveAnswers[path] != nil else { return }
         liveAnswers[path]? += text
-        guard liveRefreshPending.insert(path).inserted else { return }
-        Task {
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            liveRefreshPending.remove(path)
+        tasks.coalesce(key: "live:" + path, after: 700_000_000) { [self] in
             guard let answer = liveAnswers[path], working.contains(path) else { return }
             let sections = XRayDigest.completedObjects(in: answer, key: "sections").compactMap { raw -> CodeSection? in
                 guard let start = raw["startLine"] as? Int, let end = raw["endLine"] as? Int else { return nil }
@@ -302,8 +308,9 @@ final class CodeExplainStore: ObservableObject {
         let texts = explanation.sections.map { section in
             lines[(section.startLine - 1)..<min(section.endLine, lines.count)].joined(separator: "\n")
         }
-        Task {
-            defer { working.remove(path); activity[path] = nil; revision += 1 }
+        tasks.store(Task {
+            // A task cancelled by `reset` finds this state cleared and leaves it alone.
+            defer { if !Task.isCancelled { working.remove(path); activity[path] = nil; revision += 1 } }
             // A topic filter: sections get a provisional level from a keyword search at once,
             // then the AI confirms them (Importance comes with the explanation itself).
             if filter.id != ImportanceRater.importance.id,
@@ -334,7 +341,7 @@ final class CodeExplainStore: ObservableObject {
             do {
                 let (ratings, result) = try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
                 result.record(in: db)
-                guard var current = explanations[path] else { return }
+                guard !Task.isCancelled, var current = explanations[path] else { return }
                 current.ratings[filter.id] = ratings
                 explanations[path] = current
                 save(current, directory: directory)
@@ -342,7 +349,7 @@ final class CodeExplainStore: ObservableObject {
             } catch {
                 errors[path] = "\(filter.name) rating failed: \(error.localizedDescription)"
             }
-        }
+        }, for: "rate:" + path)
     }
 
     /// State of `path` for the code viewer's margin panel, as a JSON object literal.

@@ -18,13 +18,22 @@ final class XRayFilterStore {
 
     /// Containers whose children are being rated for importance, and filters being searched.
     private var rating: Set<String> = []
+    /// The work this store starts (`AR-19`), one key per job: "rate:<filter>|<view>|<parent>", "search:<filter>" (the keyword search and
+    /// the AI's confirmation), "ai-search:<filter>", "understand:<filter>" (an "I need to understand" answer), and the waits that
+    /// show a streamed answer as it grows: "live-search:<filter>" and "live-ratings:<filter>". A new start of a key replaces the old
+    /// one, deleting a filter ends its jobs, and `reset` (a project switch, the window's close) ends them all.
+    private let tasks = TaskBag()
 
-    /// A new workspace: answers, ratings and live text of the old one are dropped and their jobs stopped. The window's one-off filter,
-    /// the code elements of a search and the filter to switch to belong to the window, not to the workspace, and stay.
+    /// A new workspace, or the window's close: answers, ratings and live text of the old one are dropped and their jobs stopped, and
+    /// nothing of them is written after. The window's one-off filter, the code elements of a search and the filter to switch to belong
+    /// to the window, not to the workspace, and stay.
     func reset() {
         clearUnderstandingAttachments()
-        understandingTasks.values.forEach { $0.cancel() }
-        understandingTasks = [:]
+        tasks.cancelAll()
+        rating = []
+        liveSearchPending = []
+        liveRatingsPending = []
+        liveRatings = [:]
         understandingTokens = [:]
         understandingAnswers = [:]
         understandingInputAttachments = [:]
@@ -118,8 +127,9 @@ final class XRayFilterStore {
         rating.insert(key)
         let progress = "Rating \(filter.name.lowercased())…"
         host.setStatus(progress)
-        Task {
-            defer { rating.remove(key); if host.status == progress { host.setStatus(nil) } }
+        tasks.store(Task {
+            // A task cancelled by `reset` finds `rating` cleared and the status reset, and leaves them alone.
+            defer { if !Task.isCancelled { rating.remove(key); if host.status == progress { host.setStatus(nil) } } }
             let request = ImportanceRater.request(subject: isDocs ? .documentation : .code, filter: filter,
                                                   context: context, items: items,
                                                   language: ArchitectureStore.reasonLanguage, project: host.project)
@@ -132,10 +142,11 @@ final class XRayFilterStore {
                     next.ratings[filterId, default: [:]][k] = value
                 }
                 host.commit(next, db: db)
+            } catch is CancellationError {
             } catch {
                 host.setError("\(filter.name) rating failed: \(error.localizedDescription)")
             }
-        }
+        }, for: "rate:" + key)
     }
 
     /// A user (or quick) filter over the whole project at once. A keyword search gives
@@ -159,8 +170,8 @@ final class XRayFilterStore {
         host.setStatus(label)
         let cache = host.answerCache(root)
         let context = "System: \(current.systemName ?? root.lastPathComponent)" + (current.systemPurpose.map { " — " + $0 } ?? "")
-        Task { [self] in
-            defer { rating.remove("search|" + filterId); if host.status?.hasPrefix("Finding") == true || host.status?.hasPrefix("Checking") == true { host.setStatus(nil) } }
+        tasks.store(Task { [self] in
+            defer { if !Task.isCancelled { rating.remove("search|" + filterId); if host.status?.hasPrefix("Finding") == true || host.status?.hasPrefix("Checking") == true { host.setStatus(nil) } } }
             do {
                 let terms = try await FilterSearch.terms(for: filter, cache: cache, project: host.project)
                 let found = await Task.detached(priority: .userInitiated) { () -> ([String: FilterSearch.Match], [String: FilterSearch.Match]) in
@@ -221,7 +232,7 @@ final class XRayFilterStore {
             } catch {
                 host.setError("\(filter.name) filter failed: \(error.localizedDescription)")
             }
-        }
+        }, for: "search:" + filterId)
     }
 
     // MARK: - ⚡ Search filter
@@ -236,7 +247,6 @@ final class XRayFilterStore {
     }
     private(set) var understandingAnswers: [String: UnderstandingState] = [:]
     private var understandingRatings: [String: [String: ImportanceRater.Rating]] = [:]
-    private var understandingTasks: [String: Task<Void, Never>] = [:]
     private var understandingTokens: [String: UUID] = [:]
     private var understandingAttachmentFolders: [String: URL] = [:]
     private var understandingInputAttachments: [String: [URL]] = [:]
@@ -245,6 +255,7 @@ final class XRayFilterStore {
         let folders: [URL]
         if let filterId { folders = understandingAttachmentFolders.removeValue(forKey: filterId).map { [$0] } ?? [] }
         else { folders = Array(understandingAttachmentFolders.values); understandingAttachmentFolders = [:] }
+        // task: deletes folders nothing refers to any more; it ends on its own and must finish even when the window closes meanwhile
         Task.detached { for folder in folders { try? FileManager.default.removeItem(at: folder) } }
     }
 
@@ -252,7 +263,7 @@ final class XRayFilterStore {
     /// and retains provisional/streamed evidence when generation or validation fails.
     func understand(filter: ImportanceRater.Filter, root: URL, db: SemanticDatabase?, attachments: [URL]? = nil) {
         let id = filter.id
-        understandingTasks[id]?.cancel()
+        tasks.cancel(key: "understand:" + id)
         let previousAttachments = understandingAnswers[id]?.attachments ?? []
         if let attachments {
             clearUnderstandingAttachments(filterId: id)
@@ -277,15 +288,13 @@ final class XRayFilterStore {
         let sections = ArchitectureStore.bookSections(in: current)
         let files = Array(Set((current?.view("modules")?.nodes.compactMap(\.path) ?? [])
                              + (current?.view("docs")?.nodes.compactMap(\.path) ?? [])))
-        understandingTasks[id] = Task {
+        tasks.store(Task {
             defer {
                 if understandingTokens[id] != token, let attachmentFolder {
+                    // task: deletes the folder of a run that was replaced or reset; it ends on its own and must finish when the window closes
                     Task.detached { try? FileManager.default.removeItem(at: attachmentFolder) }
                 }
-                if understandingTokens[id] == token {
-                    understandingTasks[id] = nil
-                    liveSearch[id] = nil
-                }
+                if understandingTokens[id] == token { liveSearch[id] = nil }
             }
             do {
                 if let attachmentFolder, let attachments {
@@ -415,7 +424,7 @@ final class XRayFilterStore {
                 understandingAnswers[id]?.message = error is CancellationError ? "Answer generation was cancelled." : error.localizedDescription
                 host.bump()
             }
-        }
+        }, for: "understand:" + id)
     }
 
     /// The window's one-off filter (`WorkspaceManager.setTemporaryFilter` hands it to every store of the window).
@@ -480,8 +489,8 @@ final class XRayFilterStore {
         let symbol = searchSymbols[filter.criterion]
         host.setStatus(symbol != nil ? "Finding everything related to \(symbol!.name)…" : "Searching “\(filter.criterion)”…")
         let cache = host.answerCache(root)
-        Task {
-            defer { rating.remove("search|" + filterId); if host.status?.hasPrefix("Search") == true || host.status?.hasPrefix("Finding") == true || host.status?.hasPrefix("AI") == true { host.setStatus(nil) } }
+        tasks.store(Task {
+            defer { if !Task.isCancelled { rating.remove("search|" + filterId); if host.status?.hasPrefix("Search") == true || host.status?.hasPrefix("Finding") == true || host.status?.hasPrefix("AI") == true { host.setStatus(nil) } } }
             do {
                 // 1. Candidates in seconds: keyword hits, or where the element is defined and used.
                 var hints: [String]
@@ -550,7 +559,7 @@ final class XRayFilterStore {
             } catch {
                 host.setError("Search failed: \(error.localizedDescription)")
             }
-        }
+        }, for: "ai-search:" + filterId)
     }
 
     /// What the AI said about the search as a whole, by filter id (shown in the details panel).
@@ -637,14 +646,14 @@ final class XRayFilterStore {
             liveSearch[filterId, default: ""] += text
             guard liveSearchPending.insert(filterId).inserted else { return }
             let token = understandingTokens[filterId]
-            Task {
+            tasks.store(Task {
                 try? await Task.sleep(nanoseconds: 700_000_000)
                 liveSearchPending.remove(filterId)
-                guard understandingTokens[filterId] == token, let answer = liveSearch[filterId] else { return }
+                guard !Task.isCancelled, understandingTokens[filterId] == token, let answer = liveSearch[filterId] else { return }
                 let places = await Task.detached {
                     XRaySearch.places(from: XRayDigest.completedObjects(in: answer, key: "steps"), root: root)
                 }.value
-                guard !places.isEmpty, var next = host.snapshot, liveSearch[filterId] != nil, understandingTokens[filterId] == token else { return }
+                guard !Task.isCancelled, !places.isEmpty, var next = host.snapshot, liveSearch[filterId] != nil, understandingTokens[filterId] == token else { return }
                 // Keyword candidates stay dashed until the answer is complete.
                 var table = next.ratings[filterId] ?? [:]
                 for (key, value) in XRayFilterStore.searchTable(places, sections: sections, confirmed: true) where value.level == "strong" {
@@ -654,7 +663,7 @@ final class XRayFilterStore {
                 if understandingAnswers[filterId] != nil { understandingRatings[filterId] = table }
                 host.show(next)     // live; saved when the answer is complete
                 host.bump()
-            }
+            }, for: "live-search:" + filterId)
         default:
             break
         }
@@ -689,17 +698,17 @@ final class XRayFilterStore {
     private func receiveRatings(_ text: String, filterId: String, filter: ImportanceRater.Filter, keys: Set<String>) {
         liveRatings[filterId, default: ""] += text
         guard liveRatingsPending.insert(filterId).inserted else { return }
-        Task {
+        tasks.store(Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
             liveRatingsPending.remove(filterId)
-            guard let answer = liveRatings[filterId], var next = host.snapshot else { return }
+            guard !Task.isCancelled, let answer = liveRatings[filterId], var next = host.snapshot else { return }
             let rows = XRayDigest.completedObjects(in: answer, key: "ratings")
             let parsed = ImportanceRater.parse(["ratings": rows], keys: keys, filter: filter)
             guard !parsed.isEmpty else { return }
             for (k, value) in parsed { next.ratings[filterId, default: [:]][k] = value }
             host.show(next)     // live; saved when the answer is complete
             host.bump()
-        }
+        }, for: "live-ratings:" + filterId)
     }
 
     /// Filters changed elsewhere (created in the code viewer); re-render.
@@ -709,7 +718,8 @@ final class XRayFilterStore {
     func forgetRatings(filterId: String, db: SemanticDatabase?) {
         clearUnderstandingAttachments(filterId: filterId)
         understandingTokens[filterId] = nil
-        understandingTasks.removeValue(forKey: filterId)?.cancel()
+        for kind in ["understand:", "search:", "ai-search:", "live-search:", "live-ratings:"] { tasks.cancel(key: kind + filterId) }
+        rating.remove("search|" + filterId)
         understandingAnswers[filterId] = nil
         understandingInputAttachments[filterId] = nil
         understandingRatings[filterId] = nil

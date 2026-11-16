@@ -53,7 +53,7 @@ It does **not** own:
   [feature-workflow](feature-workflow.md)).
 - X-Ray data model and `arch` action semantics
   ([architecture-and-xray](architecture-and-xray.md)); only the transport is here.
-- Insight session generation and `blocksChanged` indexing
+- Insight session generation
   ([semantic-index-and-insight](semantic-index-and-insight.md)).
 - The PTY / process side of the terminal, and the GitHub HTML view
   (`GitHubViews.swift`, JavaScript disabled there).
@@ -172,7 +172,6 @@ It does **not** own:
 | `state` | `markview-state.js` | `mode` (`source`/`preview`/`structured`/`structured-source`/`insight`/`code`; `arch-mode` is a body class), `theme`, `markdown`, `headings`, `activeHeadingId`, `isRendering`, `documentBaseURL`, `fileType` (`markdown`/`json`/`xml`/`yaml`/`canvas`/`code`), insight fields (`insightIframe`, `insightSessionId`, `insightCurrentNodeId`, `insightSkeleton`, `insightSectionLibsNeeded`, `insightBlobURLs`, `insightLibBytes`, `insightLoadTimer`, `insightIframeReady`, `insightPendingChunks`) |
 | `DOM` | `markview-state.js` | Cached element refs (`editor` textarea, `rendered` contentEditable, panes, status, insight chrome) |
 | `md` | `markview-state.js` | markdown-it instance (`html: true, breaks, linkify, typographer`) + footnote, task-lists, admonition containers (`info/warning/tip/danger`), image renderer override |
-| `previousBlocks` | `markview-render.js` | Last extracted semantic blocks for diffing |
 | `wysiwygDirty`, `turndownService` | `markview-edit.js` | Whether WYSIWYG DOM was edited; Turndown instance |
 | `formatBarSelectedText`, `featureText` | `markview-edit.js`, `markview-find.js` | Captured selection for RU/EN/?/✦ buttons |
 | `findState` | `markview-find.js` | Find bar state and `<mark>` highlights |
@@ -227,7 +226,7 @@ Insight iframe `<script src>` for prism/mermaid/chart/katex (`markview-insight-s
 **Out of this subsystem** (all through `EditorView.Coordinator` → `WorkspaceManager`, main actor):
 `updateActiveTabContent` (`WorkspaceManager.swift`), `updateActiveTabHeadings`,
 `updateActiveHeading`, `updateActiveTabScrollPosition` (never reached, see §10),
-`handleBlocksDelta`, `handleCursorBlockChange`, `saveActiveFile`,
+`handleCursorBlockChange`, `saveActiveFile`,
 `reloadActiveTabFromDisk`, `translateDocument`, `handleSelectionAction`, `runFeatureAction`, `runGraphEdit`, `presentGraphCreator`,
 `openCanvasFileReference`, `handleCodeAction`, `setNotesView`,
 `handleArchitectureAction`, `openFile(_:lineFragment:)`, `openWikiLink`, `prepareCodeNotes`/`codeNotesJSON`, `xrayStore(for:)`,
@@ -241,7 +240,7 @@ Also `NSWorkspace.shared.open` for external URLs and non-openable local files.
 Transport: the page calls `window.mvBridge.send(type, payload, channel)` (`mv-kit.js`; the editor's helper is `sendToSwift` in
 `markview-bridge.js`, which uses channel `bridge`), which validates the message against `window.mvBridgeContract` (the text of
 `bridge-contract.json`) and then posts `{type, payload, doc}` to `window.webkit.messageHandlers.<channel>`. Swift checks the same
-message again in `TypedWebBridge.receive` (section 9). There are three channels: `bridge` (28 messages, below), `discussion` (3: `copy`,
+message again in `TypedWebBridge.receive` (section 9). There are three channels: `bridge` (27 messages, below), `discussion` (3: `copy`,
 `ready`, `save`) and `terminal` (6, section 5.4). The tables below are generated from the contract and from `WebViewBridge.registerHandlers`;
 the per-field detail (enums, bounds, which fields are optional) is in the contract.
 
@@ -256,7 +255,6 @@ the per-field detail (enums, bounds, which fields are optional) is in the contra
 | `linkClicked` | `href: string` | `markview-canvas.js`, `markview-init.js`, `markview-mdext.js` | `bridge(didClickLink)` |  |
 | `editorFontSize` | `size: number` | `markview-edit.js` | `bridge(didChangeEditorFontSize)` |  |
 | `editorWindowPref` | `key: string`, `value: string` | `EditorWindowPrefs.swift` | `bridge(didSetWindowPref)` |  |
-| `blocksChanged` | `added: [block]`, `removed: [string]`, `changed: [block]`, `unchanged: [string]` | `markview-render.js` | `bridge(didReceiveBlocksDelta)` |  |
 | `canvasOpenFile` | `path: string non-empty` | `markview-canvas.js`, `markview-d3-mermaid.js` | `bridge(didRequestCanvasOpenFile)` |  |
 | `saveRequested` | `{}` | `markview-edit.js` | `bridgeSaveRequested` |  |
 | `translateRequested` | `markdown: string`, `targetLang: string` | `markview-edit.js` | `bridge(didRequestTranslation)` |  |
@@ -396,8 +394,7 @@ Theme: HTML string rewrite of the `<html>` attributes at load (editor); discussi
 4. `switchToPreview` → `renderMarkdown()` (`markview-edit.js`):
    frontmatter extraction (`markview-render.js`), markdown-it parse with `data-line`
    attributes, `innerHTML`, `resolveLocalURLs`, Mermaid block
-   conversion, async Prism, async `mermaid.run` + expand buttons, `extractHeadings` → `headingsUpdated`, `extractBlocks`/`diffBlocks`
-   → `blocksChanged`, `contentChanged {markdown, html}`.
+   conversion, async Prism, async `mermaid.run` + expand buttons, `extractHeadings` → `headingsUpdated`, `contentChanged {markdown, html}`.
 5. `setupHeadingObserver` posts `scrollPosition` as headings cross the viewport.
 
 ### 6.3 Edit → save round trip
@@ -526,7 +523,6 @@ the editor never writes files itself.
 - `WKScriptMessageHandler` callbacks arrive on the main thread; `TypedWebBridge.receive` runs the handler with
   `MainActor.assumeIsolated`, and `WebViewBridge` is not annotated `@MainActor`. Every delegate method in `EditorView.Coordinator` wraps its
   work in `Task { @MainActor in … }` (`EditorView.swift`), so ordering relative to other main-actor tasks is by enqueue order.
-  `blocksChanged` adds an extra `DispatchQueue.main.async` hop before the delegate call (`WebViewBridge.swift`).
 - `EditorView.Coordinator` is not `@MainActor` either; it is driven from `updateNSView`, main-queue
   notification observers (`queue: .main`) and Combine sinks with `.receive(on: DispatchQueue.main)`
   or main-scheduler `debounce`/`throttle` (`EditorView.swift`).
@@ -734,8 +730,6 @@ scope, so names must be unique across modules.
 - **WYSIWYG / preview mode** — `#editor-rendered` contentEditable view; **source mode** — the
   `#editor-input` textarea.
 - **`wysiwygDirty`** — the WYSIWYG DOM was edited; Turndown runs only on save or switch to source.
-- **Semantic block** — paragraph/section/list/table/quote/codeBlock unit with FNV-1a id and hash,
-  diffed into `blocksChanged`.
 - **Notes view** — a markdown tab shown in the code viewer with AI margin notes (`tab.notesView`).
 - **X-Ray** — the Architecture tab (`TabKind.architecture`), rendered by `markview-architecture-*.js`.
 - **Recursive Insight** — LLM-generated multi-section pages in a sandboxed iframe; skeleton =

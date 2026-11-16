@@ -38,16 +38,17 @@ struct GitView: View {
     /// This window's Git section (BUG-004: not shared between windows).
     @ObservedObject var layout: PanelLayout
 
-    /// Takes the parts of `workspaceManager` the tab uses and keeps nothing else of it.
-    init(git: GitClient, workspaceManager: WorkspaceManager) {
+    /// Takes the parts of the window the tab uses and the window's commands (`nil` outside a window: they do nothing).
+    init(git: GitClient, flow: FeatureFlowCoordinator, codeXRay: CodeAndXRayCoordinator, requests: WindowRequests, layout: PanelLayout,
+         window: (any WindowCommands)?) {
         self.git = git
-        flow = workspaceManager.flow
-        codeXRay = workspaceManager.codeXRay
-        requests = workspaceManager.requests
-        gitHub = workspaceManager.flow.gitHub
-        layout = workspaceManager.layout
-        openFile = { workspaceManager.openFile($0) }
-        openFolder = { workspaceManager.openFolder($0) }
+        self.flow = flow
+        self.codeXRay = codeXRay
+        self.requests = requests
+        gitHub = flow.gitHub
+        self.layout = layout
+        openFile = { [weak window] in window?.openFile($0) }
+        openFolder = { [weak window] in window?.openFolder($0) }
     }
 
     var body: some View {
@@ -799,12 +800,6 @@ struct GitBranchMenu: View {
         self.codeXRay = codeXRay
         self.openFolder = openFolder
         self.fontSize = fontSize
-    }
-
-    /// Takes the parts of `workspaceManager` the menu uses and keeps nothing else of it.
-    init(git: GitClient, workspaceManager: WorkspaceManager, fontSize: CGFloat = 11) {
-        self.init(git: git, flow: workspaceManager.flow, codeXRay: workspaceManager.codeXRay,
-                  openFolder: { workspaceManager.openFolder($0) }, fontSize: fontSize)
     }
 
     var body: some View {

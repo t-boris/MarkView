@@ -83,6 +83,8 @@ final class CodeAndXRayCoordinator: ObservableObject {
     func reset() {
         tasks.cancelAll()
         architecture.reset()
+        // The folders' X-Rays go with the project, and so does what each of them was still doing.
+        folderXRays.values.forEach { $0.reset() }
         folderXRays = [:]
         codeNav.reset()
         codeExplain.reset()

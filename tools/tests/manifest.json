@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 219,
+  "suiteCount": 223,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -641,6 +641,7 @@
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/CockpitRuntimeChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
@@ -2376,6 +2377,63 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift"
+      ]
+    },
+    {
+      "name": "xray-task-ownership-tests",
+      "script": "tools/tests/xray-task-ownership-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Architecture/ArchitectureHost.swift",
+        "MarkView/Models/Architecture/ArchitectureModel.swift",
+        "MarkView/Models/Architecture/ArchitectureScanner.swift",
+        "MarkView/Models/Architecture/ArchitectureStore.swift",
+        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "MarkView/Models/Architecture/BookAnnotator.swift",
+        "MarkView/Models/Architecture/BookBuilder.swift",
+        "MarkView/Models/Architecture/ChangeDiff.swift",
+        "MarkView/Models/Architecture/ChangeExplanation.swift",
+        "MarkView/Models/Architecture/ChangeReviewModel.swift",
+        "MarkView/Models/Architecture/ChangeReviewStore.swift",
+        "MarkView/Models/Architecture/ChangeSource.swift",
+        "MarkView/Models/Architecture/CodeArchitecture.swift",
+        "MarkView/Models/Architecture/CodeExplainer.swift",
+        "MarkView/Models/Architecture/CodeNavigation.swift",
+        "MarkView/Models/Architecture/CodePathTags.swift",
+        "MarkView/Models/Architecture/FilterSearch.swift",
+        "MarkView/Models/Architecture/HistoricalBaseline.swift",
+        "MarkView/Models/Architecture/ImportanceRater.swift",
+        "MarkView/Models/Architecture/LogicalView.swift",
+        "MarkView/Models/Architecture/ProjectChangeWatcher.swift",
+        "MarkView/Models/Architecture/StreamedRefresh.swift",
+        "MarkView/Models/Architecture/TextDiff.swift",
+        "MarkView/Models/Architecture/UnderstandingAnswer.swift",
+        "MarkView/Models/Architecture/XRayCluster.swift",
+        "MarkView/Models/Architecture/XRayCommand.swift",
+        "MarkView/Models/Architecture/XRayContent.swift",
+        "MarkView/Models/Architecture/XRayDigest.swift",
+        "MarkView/Models/Architecture/XRayFilterStore.swift",
+        "MarkView/Models/Architecture/XRayScope.swift",
+        "MarkView/Models/Architecture/XRaySearch.swift",
+        "MarkView/Models/AI/AIOperation.swift",
+        "MarkView/Models/AI/OutputLanguage.swift",
+        "MarkView/Models/Insight/SemanticUsage.swift",
+        "MarkView/Models/Git/GitHubClient.swift",
+        "MarkView/Models/Git/PullRequestHistory.swift",
+        "MarkView/Models/AI/DiagramAI.swift",
+        "MarkView/Models/Shared/FileType.swift",
+        "MarkView/Models/Shared/FrontMatter.swift",
+        "MarkView/Models/Shared/WikiLinkResolver.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift",
+        "tools/tests/ArchiveStub.swift",
+        "tools/tests/XRayStoreStubs.swift",
+        "tools/tests/XRayOwnershipTests.swift",
+        "tools/tests/xray-task-ownership-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift"
       ]
     },
@@ -4887,6 +4945,57 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ArchiveModelTests.swift",
         "tools/tests/archive-model-tests.sh"
+      ]
+    },
+    {
+      "name": "project-operation-writes-tests",
+      "script": "tools/tests/project-operation-writes-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationHistory.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/OrderedWork.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/ProjectOperationWritesTests.swift",
+        "tools/tests/project-operation-writes-tests.sh"
+      ]
+    },
+    {
+      "name": "new-project-close-tests",
+      "script": "tools/tests/new-project-close-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Models/Workspace/NewProjectFlow.swift",
+        "MarkView/Models/Workspace/ProjectDraftStore.swift",
+        "MarkView/Models/Lifecycle/FeatureStore.swift",
+        "MarkView/Models/Lifecycle/FeatureAI.swift",
+        "MarkView/Models/Lifecycle/FeatureJobs.swift",
+        "MarkView/Models/Lifecycle/FeatureIntake.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
+        "tools/tests/NewProjectCloseChecks.swift",
+        "tools/tests/new-project-close-tests.sh"
+      ]
+    },
+    {
+      "name": "insight-page-web-tests",
+      "script": "tools/tests/insight-page-web-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkView/Models/Insight/InsightCache.swift",
+        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
+        "tools/tests/InsightPageWebTests.swift",
+        "tools/tests/ProjectOperationAnyCodableStub.swift",
+        "tools/tests/insight-page-web-tests.sh"
       ]
     }
   ]

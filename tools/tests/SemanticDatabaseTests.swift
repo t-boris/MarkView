@@ -17,6 +17,8 @@ let sandbox = fm.temporaryDirectory.appendingPathComponent("mv-semantic-db-" + U
 try fm.createDirectory(at: sandbox, withIntermediateDirectories: true)
 defer { try? fm.removeItem(at: sandbox) }
 let release626 = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
+/// The version the last step of `SemanticSchema.migrations` stamps.
+let latest: Int64 = 3
 
 // MARK: - Raw access (a connection of the test's own, never the app's)
 
@@ -49,6 +51,10 @@ func names(_ path: String, _ sql: String) -> Set<String> {
     while sqlite3_step(statement) == SQLITE_ROW { if let text = sqlite3_column_text(statement, 0) { found.insert(String(cString: text)) } }
     return found
 }
+/// Which of the tables the editor's block extractor used to fill (step 3 drops them) the file still has.
+func blockTables(_ path: String) -> Set<String> {
+    names(path, "SELECT name FROM sqlite_master WHERE type = 'table'").intersection(["blocks", "claims", "block_compilation_cache"])
+}
 func digest(_ path: String) -> String {
     SHA256.hash(data: (try? Data(contentsOf: URL(fileURLWithPath: path))) ?? Data()).map { String(format: "%02x", $0) }.joined()
 }
@@ -72,6 +78,8 @@ INSERT INTO documents (document_id, project_id, file_path, file_name, file_ext, 
     VALUES ('docs/alpha.md', 'p', '/p/docs/alpha.md', 'alpha.md', 'md', 'h1', 1, 1);
 INSERT INTO blocks (block_id, document_id, block_kind, heading_path_json, order_index, raw_markdown, text_hash, created_at, updated_at)
     VALUES ('b1', 'docs/alpha.md', 'paragraph', '[]', 0, 'text', 'th', 1, 1);
+INSERT INTO claims (claim_id, type, source_file, source_block_id, created_at, updated_at) VALUES ('c1', 'fact', 'docs/alpha.md', 'b1', 1, 1);
+INSERT INTO block_compilation_cache (block_id, text_hash, cache_created_at, cache_updated_at) VALUES ('b1', 'th', 1, 1);
 INSERT INTO modules (module_id, name, path, level) VALUES ('mod_docs', 'docs', '/p/docs', 1);
 INSERT INTO symbols (symbol_id, module_id, document_id, name, kind) VALUES ('s1', 'mod_docs', 'docs/alpha.md', 'Alpha', 'heading');
 INSERT INTO fts_documents (document_id, title, content) VALUES ('docs/alpha.md', 'alpha', 'zebra crossing in the alpha document');
@@ -91,9 +99,10 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let db = try await SemanticDatabase.open(workspacePath: root)
         let path = root.appendingPathComponent(".dde/state.db").path
         check(db.dbPath == path, "a new project gets .dde/state.db")
-        check(scalar(path, "PRAGMA user_version") == 2, "a new file is stamped with the latest schema version")
+        check(scalar(path, "PRAGMA user_version") == latest, "a new file is stamped with the latest schema version")
         let tables = names(path, "SELECT name FROM sqlite_master WHERE type = 'table'")
-        check(["projects", "documents", "blocks", "symbols", "modules", "fts_documents", "arch_nodes", "arch_edges", "arch_meta",
+        check(blockTables(path).isEmpty, "a new file has none of the block tables (step 2 creates them, step 3 drops them)")
+        check(["projects", "documents", "symbols", "modules", "fts_documents", "arch_nodes", "arch_edges", "arch_meta",
                "arch_reviews", "usage_stats", "chunks", "citations"].allSatisfy(tables.contains), "every table of the index exists")
         check(!tables.contains("applied_migrations"), "the unused applied_migrations table is not created")
         check(["line", "end_line", "anchor", "signature", "tags_json"].allSatisfy(
@@ -126,10 +135,10 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         check(db.dbPath == path, "the file is opened in place")
         check(inode(path) == before, "the database file is not replaced")
         check(listing(root.appendingPathComponent(".dde")).filter { $0.contains("corrupt") }.isEmpty, "no backup was needed")
-        check(scalar(path, "PRAGMA user_version") == 2, "the file is stamped with the new version")
-        check(scalar(path, "SELECT count(*) FROM documents") == 1 && scalar(path, "SELECT count(*) FROM blocks") == 1
-              && scalar(path, "SELECT count(*) FROM symbols") == 1 && scalar(path, "SELECT count(*) FROM modules") == 1,
-              "documents, blocks, modules and symbols are kept")
+        check(scalar(path, "PRAGMA user_version") == latest, "the file is stamped with the new version")
+        check(scalar(path, "SELECT count(*) FROM documents") == 1 && scalar(path, "SELECT count(*) FROM symbols") == 1
+              && scalar(path, "SELECT count(*) FROM modules") == 1, "documents, modules and symbols are kept")
+        check(blockTables(path).isEmpty, "the block tables of that release are dropped")
         let found = await db.search(query: "zebra").map(\.documentId)
         check(found == ["docs/alpha.md"], "the full-text index is kept")
         let snapshot = await db.loadArchitecture()
@@ -139,6 +148,42 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let usage = await db.getUsageStats()
         check(usage.totalInputTokens == 77 && usage.totalJobs == 2, "the usage totals are kept")
         check(!names(path, "SELECT name FROM sqlite_master").contains("applied_migrations"), "the never-written applied_migrations table is dropped")
+    }
+
+    // MARK: - A file written by release 6.27 (version 2, the block tables filled)
+
+    do {
+        let (root, path) = project("release-627", sql: release626 + usedRows + "PRAGMA journal_mode = WAL; PRAGMA user_version = 2;")
+        check(scalar(path, "PRAGMA user_version") == 2 && blockTables(path) == ["blocks", "claims", "block_compilation_cache"]
+              && scalar(path, "SELECT count(*) FROM blocks") == 1 && scalar(path, "SELECT count(*) FROM claims") == 1
+              && scalar(path, "SELECT count(*) FROM block_compilation_cache") == 1,
+              "the fixture is a version 2 file with a block, a claim and a compilation cache row")
+        let before = inode(path)
+        let db = try await SemanticDatabase.open(workspacePath: root)
+        check(db.dbPath == path && inode(path) == before, "the file is migrated in place")
+        check(scalar(path, "PRAGMA user_version") == latest, "step 3 stamps the file with the latest version")
+        check(blockTables(path).isEmpty, "blocks and its two child tables are gone")
+        check(scalar(path, "SELECT count(*) FROM sqlite_master WHERE sql LIKE '%REFERENCES blocks%'") == 0,
+              "no table is left with a foreign key to the dropped table")
+        check(scalar(path, "SELECT count(*) FROM sqlite_master WHERE name LIKE 'idx_blocks%' OR name LIKE 'idx_claims%'") == 0,
+              "the indexes of the dropped tables are gone")
+        check(scalar(path, "SELECT count(*) FROM pragma_foreign_key_check") == 0, "no row of any table points at a missing row")
+        check(scalar(path, "SELECT count(*) FROM documents") == 1 && scalar(path, "SELECT count(*) FROM symbols") == 1
+              && scalar(path, "SELECT count(*) FROM modules") == 1 && scalar(path, "SELECT count(*) FROM projects") == 1,
+              "documents, modules, symbols and the project are kept")
+        let found = await db.search(query: "zebra").map(\.documentId)
+        check(found == ["docs/alpha.md"], "the full-text index is kept")
+        let snapshot = await db.loadArchitecture()
+        check(snapshot?.systemName == "Shop" && snapshot?.view("modules")?.nodes.first?.anchor == "shop", "the stored X-Ray is kept")
+        let usage = await db.getUsageStats()
+        check(usage.totalInputTokens == 77 && usage.totalJobs == 2, "the usage totals are kept")
+        await db.forgetDocuments(["docs/alpha.md"])
+        let forgotten = await db.search(query: "zebra")
+        check(scalar(path, "SELECT count(*) FROM symbols") == 0 && forgotten.isEmpty, "forgetting a document still clears its symbols and search text")
+        // A delete on the app's own connection (foreign keys on) no longer reaches for a table that is gone.
+        var deleted = true
+        do { try await db.execute("DELETE FROM documents WHERE document_id = ?", params: [.text("docs/alpha.md")]) } catch { deleted = false }
+        check(deleted && scalar(path, "SELECT count(*) FROM documents") == 0, "a document can be deleted: its cascades have no block table left to reach")
     }
 
     // MARK: - A file of an older release (fewer tables and columns, same version stamp)
@@ -177,9 +222,8 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
         let before = inode(path)
         let db = try await SemanticDatabase.open(workspacePath: root)
         check(db.dbPath == path && inode(path) == before, "the file is migrated in place, not deleted")
-        check(scalar(path, "PRAGMA user_version") == 2, "it reaches the latest version")
-        check(scalar(path, "SELECT count(*) FROM documents") == 0 && scalar(path, "SELECT count(*) FROM blocks") == 0
-              && scalar(path, "SELECT count(*) FROM modules") == 0 && scalar(path, "SELECT count(*) FROM fts_documents") == 0,
+        check(scalar(path, "PRAGMA user_version") == latest, "it reaches the latest version")
+        check(scalar(path, "SELECT count(*) FROM documents") == 0 && scalar(path, "SELECT count(*) FROM modules") == 0 && scalar(path, "SELECT count(*) FROM fts_documents") == 0,
               "rows keyed by the old document ids are cleared for the next index run")
         let systemName = await db.loadArchitecture()?.systemName
         let review = await db.loadArchitectureReview(key: "abc")
@@ -224,7 +268,7 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
             check(fm.contents(atPath: dde.appendingPathComponent(backup).path) == garbage, "the backup is the original, byte for byte")
             check(fm.contents(atPath: dde.appendingPathComponent(backup + "-wal").path) == Data("stale log".utf8), "its write-ahead log went with it")
         }
-        check(db.dbPath == path && scalar(path, "PRAGMA user_version") == 2, "a new database is created at the old path")
+        check(db.dbPath == path && scalar(path, "PRAGMA user_version") == latest, "a new database is created at the old path")
         await db.indexDocumentFTS(documentId: "c.md", title: "c", content: "okapi")
         let okapi = await db.search(query: "okapi").count
         check(okapi == 1, "the rebuilt database works")

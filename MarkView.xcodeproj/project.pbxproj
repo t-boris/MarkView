@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		50C9BABF352FCD933830CB16 /* StreamedRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73078578268A7E8632AC82F /* StreamedRefresh.swift */; };
 		6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39AAA206B981629959A05EF /* ToolOpener.swift */; };
 		06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */; };
 		B3B98FCD9E746AE775C917BC /* CockpitHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED50FEDD6B6073D0783735F /* CockpitHost.swift */; };
@@ -387,6 +388,8 @@
 		C49808DDF55EA4CFAE1DF0D3 /* WelcomeBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0BA904D56E2EC5A116AF06 /* WelcomeBackdrop.swift */; };
 		94B0CE18854EE1CAA250F6F0 /* BackdropRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F8B96DC7472F6EF102D485 /* BackdropRegistry.swift */; };
 		C5A3AF560E0A3F1732079F2A /* ProjectOperationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */; };
+		DB97C0E3FB857F42C4753A74 /* ProjectOperationWrites.swift in Sources */ = {isa = PBXBuildFile; fileRef = B57BC486DAC6AC6F6A65B946 /* ProjectOperationWrites.swift */; };
+		49F60198EF83B25D44B6DFA8 /* ProjectOperationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 897E69D94534732853F44EBD /* ProjectOperationHistory.swift */; };
 		C5D230483D49D5FBD8D6A0AE /* ProjectBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFEA342845F3A1FEE82AFF9 /* ProjectBackdrop.swift */; };
 		C736E5E1FFFB0156CDA82E01 /* AgentUsageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */; };
 		C78F412DCE44DBB2D9137206 /* FeatureAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E031440F6D9721BE887B99 /* FeatureAI.swift */; };
@@ -575,6 +578,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F73078578268A7E8632AC82F /* StreamedRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamedRefresh.swift; sourceTree = "<group>"; };
 		D39AAA206B981629959A05EF /* ToolOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolOpener.swift; sourceTree = "<group>"; };
 		862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStudioHost.swift; sourceTree = "<group>"; };
 		5ED50FEDD6B6073D0783735F /* CockpitHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHost.swift; sourceTree = "<group>"; };
@@ -893,6 +897,8 @@
 		822BBB9906718BE7001F081A /* DatabaseKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseKeychain.swift; sourceTree = "<group>"; };
 		823643E6B47C049231687A8C /* QAActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAActions.swift; sourceTree = "<group>"; };
 		8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsStore.swift; sourceTree = "<group>"; };
+		B57BC486DAC6AC6F6A65B946 /* ProjectOperationWrites.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationWrites.swift; sourceTree = "<group>"; };
+		897E69D94534732853F44EBD /* ProjectOperationHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationHistory.swift; sourceTree = "<group>"; };
 		83713ABBC45576A41F1E8B61 /* WorkflowFlowPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowFlowPicker.swift; sourceTree = "<group>"; };
 		83829D1752CE48AE3223142A /* UIStudioEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioEvidence.swift; sourceTree = "<group>"; };
 		83A467FF2FEC9862D7D5B972 /* markview-init.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-init.js"; sourceTree = "<group>"; };
@@ -1392,6 +1398,7 @@
 				D001177FB31E944E039375B0 /* BookAnnotator.swift */,
 				1024FF456031B1D1BC834778 /* BookBuilder.swift */,
 				4A903B7EB574BDD8969788FE /* FilterSearch.swift */,
+				F73078578268A7E8632AC82F /* StreamedRefresh.swift */,
 				5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */,
 				C00CC5262ACFE91F4EE22174 /* XRayFilterStore.swift */,
 				3BFFF8C26811A3A21DDC827E /* LogicalView.swift */,
@@ -1619,6 +1626,8 @@
 				4D31981A7FD238AE190DF1A6 /* ProjectOperationDiscovery.swift */,
 				54B88089F2E7416767D42721 /* ProjectOperationDiscoveryService.swift */,
 				8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */,
+				B57BC486DAC6AC6F6A65B946 /* ProjectOperationWrites.swift */,
+				897E69D94534732853F44EBD /* ProjectOperationHistory.swift */,
 			);
 			path = ProjectOps;
 			sourceTree = "<group>";
@@ -2863,6 +2872,8 @@
 				F28AF769263218ADD75A290F /* ProjectOperationDiscovery.swift in Sources */,
 				EEF940F8CC7452E5B0D011FD /* ProjectOperationDiscoveryService.swift in Sources */,
 				C5A3AF560E0A3F1732079F2A /* ProjectOperationsStore.swift in Sources */,
+				DB97C0E3FB857F42C4753A74 /* ProjectOperationWrites.swift in Sources */,
+				49F60198EF83B25D44B6DFA8 /* ProjectOperationHistory.swift in Sources */,
 				F278A31184C35394A15B7F96 /* ProjectOperationsView.swift in Sources */,
 				83916360DABE7547F3F6D441 /* ProjectSearch.swift in Sources */,
 				6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */,
@@ -3098,6 +3109,7 @@
 				B3B98FCD9E746AE775C917BC /* CockpitHost.swift in Sources */,
 				06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */,
 				6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */,
+				50C9BABF352FCD933830CB16 /* StreamedRefresh.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,
@@ -3155,7 +3167,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.27.1;
+				CURRENT_PROJECT_VERSION = 6.27.2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3170,7 +3182,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.27.1;
+				MARKETING_VERSION = 6.27.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3235,7 +3247,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.27.1;
+				CURRENT_PROJECT_VERSION = 6.27.2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3256,7 +3268,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.27.1;
+				MARKETING_VERSION = 6.27.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

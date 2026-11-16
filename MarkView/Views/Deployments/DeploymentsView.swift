@@ -3,11 +3,15 @@ import SwiftUI
 /// Deployments: the places the project runs, and how each one is doing.
 struct DeploymentsView: View {
     @Environment(\.palette) private var palette
-    /// The one declaration the tab keeps: the project's operations are a published part that only the manager offers (the bar above the
-    /// tab redraws when the folder's operations change), and "Open a terminal" for the provider sign-in is a window command.
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    /// "Open a terminal" for the provider sign-in is a command of the window.
+    @Environment(\.windowCommands) private var window
+    /// The deployment nodes the code analysis found, offered to the scan of the project's commands.
+    @EnvironmentObject private var codeXRay: CodeAndXRayCoordinator
     let host: DeploymentsHost
     @ObservedObject var store: DeploymentStore
+    /// The project's operations (build, test, deploy commands) the bar above the tab runs; nil while no folder is open. The window gives
+    /// them when it makes the tab's view.
+    let operations: ProjectOperationsStore?
     @State private var editing: DeploymentEnvironment?
     @State private var adding = false
 
@@ -16,14 +20,14 @@ struct DeploymentsView: View {
             sidebar.frame(width: 214)
             Divider().background(palette.border)
             VStack(spacing: 0) {
-                if let operations = workspaceManager.projectOperations {
+                if let operations {
                     BuildDeploymentOperationBar(operations: operations, scan: scan)
                     Divider().background(palette.border)
                 }
                 Group {
                 if let id = store.selected, let env = store.environment(id) {
                     EnvironmentDetail(host: host, store: store, env: env, edit: { editing = env },
-                                      openTerminal: { workspaceManager.openTerminal(in: $0) })
+                                      openTerminal: { window?.openTerminal(in: $0) })
                         .id(id)
                 } else {
                     emptyState
@@ -43,10 +47,10 @@ struct DeploymentsView: View {
 
     private func scan() {
         store.scan()
-        let nodes = workspaceManager.codeXRay.architecture.snapshot?.view("deployment")?.nodes
+        let nodes = codeXRay.architecture.snapshot?.view("deployment")?.nodes
             .filter { $0.kind != "root" && $0.kind != "moduleRef" }
             .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
-        workspaceManager.projectOperations?.discover(nodes: nodes)
+        operations?.discover(nodes: nodes)
     }
 
     // MARK: Sidebar
