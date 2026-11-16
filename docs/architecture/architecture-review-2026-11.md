@@ -529,6 +529,8 @@ Status (2026-11-15): partial. Absent: `EditorWeb/`, `QUICKSTART.md`, `EDITOR_IMP
 
 Fix: cite symbols, not lines; stamp each architecture document with the commit it was checked against; rotate `todo.md` by month into `tasks/archive/`; distil lessons into a short rule list by topic; reconcile `CLAUDE.md` with practice.
 
+Status (2026-11-15): partial. Done: `CLAUDE.md` is reconciled with the code (Repository Map, the `Packages/MarkViewCore` list including `TaskBag` and `PollingScheduler`, a How to Add section, no XcodeGen or `EditorWeb`); the 21 files of `docs/architecture/` were rewritten against `ac3001ba` and each says which commit it was checked against, with no line numbers in its citations (stale-reference counts in `architecture-review-2026-11-followup.md` section 13); `tasks/todo.md` is 250 lines (5,961) with the month in `tasks/archive/todo-archive-2026-11.md`. Not done: `tasks/lessons.md` is 2,036 lines (2,024) and was not distilled; the agent memory that contradicts `CLAUDE.md` is outside the repository and was not checked.
+
 ## 12. Roadmap
 
 Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly independent; the later ones change architecture and need approval per the project rules.
