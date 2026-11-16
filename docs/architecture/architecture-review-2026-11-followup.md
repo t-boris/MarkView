@@ -609,7 +609,7 @@ backticked path or `Type.member` that no tracked file or type matches), living d
 |---|---|---|---|---|
 | 21 living documents, 6.26.2 | 157 | 1,382 | 181 | 55 |
 | 21 living documents, now | 30 | 0 | 0 | 5 |
-| the two review documents, now (historical records) | 80 | 118 | 15 | 63 |
+| the two review documents, now (historical records) | 83 | 119 | 15 | 64 |
 
 Of the 35 tokens still flagged in the living documents, 9 are deliberate mentions of removed files or types and 26 are false
 positives of the checker (generic names and file patterns). `Type.member` pairs whose type exists but whose member does not:
