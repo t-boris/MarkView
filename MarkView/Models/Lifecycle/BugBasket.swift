@@ -218,7 +218,7 @@ enum SimilarBugs {
         """
     }
 
-    static let schema: [String: Any] = [
+    static var schema: [String: Any] { [
         "type": "object",
         "properties": [
             "suggestions": [
@@ -233,7 +233,7 @@ enum SimilarBugs {
         ],
         "required": ["suggestions"],
         "additionalProperties": false,
-    ]
+    ] }
 
     /// The answer, kept to known candidates, without repeats, at most `limit`.
     static func parse(_ answer: [String: Any], candidates: [BasketBug]) -> [Suggestion] {

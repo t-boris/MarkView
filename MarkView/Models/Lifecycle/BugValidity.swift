@@ -180,14 +180,14 @@ enum BugValidity {
 
     // MARK: - The verification request
 
-    static let schema: [String: Any] = ["type": "object", "properties": [
+    static var schema: [String: Any] { ["type": "object", "properties": [
         "outcome": ["type": "string", "enum": Outcome.allCases.map(\.rawValue)],
         "reason": ["type": "string"],
         "basis": ["type": "string", "enum": Basis.allCases.map(\.rawValue)],
         "evidence": ["type": "array", "items": ["type": "object",
             "properties": ["path": ["type": "string"], "finding": ["type": "string"]], "required": ["path", "finding"]]],
         "explanation": ["type": "string"],
-    ], "required": ["outcome", "reason", "basis", "evidence", "explanation"]]
+    ], "required": ["outcome", "reason", "basis", "evidence", "explanation"]] }
 
     /// The prompt of the verification. The assistant reads only the export of `baseline` (its working folder), and `report` is the report text.
     static func prompt(reportPath: String, report: String, baseline: Baseline, hints: [String]) -> String {
