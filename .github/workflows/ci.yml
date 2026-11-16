@@ -61,12 +61,15 @@ jobs:
           fetch-depth: 0
 
       - name: Architecture lint
+        if: matrix.shard == 0
         run: ./tools/lint/architecture-lint.sh
 
       - name: Install SwiftLint
+        if: matrix.shard == 0
         run: brew install swiftlint
 
       - name: Run SwiftLint ratchet
+        if: matrix.shard == 0
         run: ./tools/lint/swiftlint-ratchet.py
 
       - name: Run pure regression test suite

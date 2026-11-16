@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+UI Studio scenario saving is being changed to capture its Sendable scenario by value; verification is in progress.
+
 QA generation callbacks and their immutable captured values are Sendable. All 18 changed-file pure and two gui suites passed; the QA suite was rerun after its attempt recorder was made lock-owned. Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `QAModel.swift` (two before).
 
 An app-hosted test ran real project bootstrap in a temporary folder: specification copying, README, local Git initialization and all three draft checkpoints passed. All 15 hosted tests passed.
@@ -245,3 +247,5 @@ A later [push run 43887926164](https://github.com/t-boris/MarkView/actions/runs/
 In [run 43887926164](https://github.com/t-boris/MarkView/actions/runs/43887926164), the slowest pure shard took 6m05s and a runner waited about 2 minutes; per-suite durations summed to 491s, 764s and 1,032s by shard. CI now assigns all 149 suites exactly once using measured durations and longest-first balancing (historical sums approximately 762s per shard); [Run 43891177394](https://github.com/t-boris/MarkView/actions/runs/43891177394) passed with pure steps 3m20s, 4m57s and 5m12s, and a total duration of 6m22s. Runs also differ in runner load and cache state.
 
 CI follow-up: run 43907177685 queued one pure shard for about 4m14s while four macOS jobs were already running. The hosted test job now has a separate content-checked DerivedData cache, including `MarkViewHostedTests` inputs. The first cold-cache run 43909736387 spent 4m46s in the hosted test step; a subsequent cache-hit [run 43911142405](https://github.com/t-boris/MarkView/actions/runs/43911142405) passed in 5m27s overall and spent 44s in the hosted test step (source and runner state also changed).
+
+2026-11-16 CI investigation: run 43935757915 repeated architecture lint, SwiftLint installation and the ratchet on all three pure shards, costing approximately 23–26 seconds per shard. These identical checks now run only on shard 0. The workflow YAML parsed and both architecture-lint and manifest validation suites passed; a CI run must verify the updated workflow. This reduces duplicated runner work; wall-time savings depend on which shard finishes last.
