@@ -700,16 +700,15 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private func refreshServerLog() {
         guard !serverLogRefreshPending else { return }
         serverLogRefreshPending = true
-        Task { [weak self] in
+        startPartTask { session in
             try? await Task.sleep(nanoseconds: Self.serverLogInterval)
-            guard let self else { return }
-            self.serverLogRefreshPending = false
-            guard let server = self.server else { return }
-            let tail = String(server.output.suffix(12_000)), redactor = self.redactor
+            session.serverLogRefreshPending = false
+            guard let server = session.server else { return }
+            let tail = String(server.output.suffix(12_000)), redactor = session.redactor
             let text = await Task.detached(priority: .utility) { redactor.redact(text: tail) }.value
             // A server stopped or replaced meanwhile keeps its log out of the current one.
-            guard !self.closed, self.server === server else { return }
-            self.serverLog = text
+            guard !session.closed, session.server === server else { return }
+            session.serverLog = text
         }
     }
 
@@ -1265,7 +1264,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         sessionLog.add(.navigation, "Loading \(url.absoluteString) again")
         var page = URLRequest(url: url)
         StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
-        Task { [weak self] in await self?.loadDocument(page) }
+        startPartTask { session in await session.loadDocument(page) }
     }
 
     /// Registers a proposal atomically and keeps it for later sessions (rules are reusable: SIM-05).
@@ -1721,7 +1720,7 @@ extension StudioSession {
         let serial = simulatedNavigation.serial
         let method = request.httpMethod ?? "GET", headers = request.allHTTPHeaderFields ?? [:]
         let body = request.httpBody.map { String(decoding: $0, as: UTF8.self) }
-        Task { [weak self] in await self?.followNavigation(method: method, url: url, headers: headers, body: body, serial: serial) }
+        startPartTask { session in await session.followNavigation(method: method, url: url, headers: headers, body: body, serial: serial) }
         return true
     }
 

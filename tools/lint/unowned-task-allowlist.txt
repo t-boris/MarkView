@@ -13,8 +13,6 @@
 2 MarkView/Models/Cockpit/CockpitAgentAttempt.swift
 6 MarkView/Models/Cockpit/CockpitExecution.swift
 8 MarkView/Models/ProjectOps/ProjectOperationsStore.swift
-3 MarkView/Models/UIStudio/UIStudioSession+Screens.swift
-3 MarkView/Models/UIStudio/UIStudioSession.swift
 3 MarkView/Views/Workspace/FileTreeView.swift
 3 MarkView/Views/Workspace/NewProjectSheet.swift
 2 MarkView/Views/Workspace/SharedSearchView.swift
