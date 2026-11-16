@@ -1283,20 +1283,20 @@ struct FileTreeView: View {
     private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
         guard let fileOperations = window?.fileOperations else { return false }
         let copyRequested = NSEvent.modifierFlags.contains(.option)
-        var urls: [URL] = []
+        let collected = DroppedFileURLs()
         let group = DispatchGroup()
         for provider in providers where provider.canLoadObject(ofClass: URL.self) {
             group.enter()
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 DispatchQueue.main.async {
-                    if let url, url.isFileURL { urls.append(url) }
+                    if let url, url.isFileURL { collected.urls.append(url) }
                     group.leave()
                 }
             }
         }
         group.notify(queue: .main) {
-            guard !urls.isEmpty else { return }
-            let errors = fileOperations.drop(urls, into: folder, copyRequested: copyRequested)
+            guard !collected.urls.isEmpty else { return }
+            let errors = fileOperations.drop(collected.urls, into: folder, copyRequested: copyRequested)
             listVersion += 1
             dropTarget = nil
             if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
@@ -1374,6 +1374,11 @@ struct FileTreeView: View {
             listVersion += 1
         }
     }
+}
+
+/// Provider completions can arrive on arbitrary queues; only their main-queue handoffs mutate this collection.
+@MainActor private final class DroppedFileURLs {
+    var urls: [URL] = []
 }
 
 #Preview {
