@@ -342,8 +342,8 @@ final class FeatureStore: ObservableObject {
         let url = dir.appendingPathComponent(id + ".md")
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            // withoutOverwriting: fails instead of replacing a file that appeared meanwhile.
-            try Data(front.join(body: body).utf8).write(to: url, options: .withoutOverwriting)
+            // `create` fails instead of replacing a file that appeared meanwhile.
+            try AtomicFile.create(front.join(body: body), to: url)
         } catch {
             lastError = "Could not write \(id): \(error.localizedDescription)"
             return nil

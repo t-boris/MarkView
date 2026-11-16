@@ -57,5 +57,15 @@ check("a hostile name stays inside images/", stored(gif, "../../../outside.gif")
 check("nothing was written outside images/", { let files = (try? FileManager.default.contentsOfDirectory(atPath: map.deletingLastPathComponent().path)) ?? []; return files == ["images"] }())
 check("a refused picture writes nothing", { if case .failure = I.store(base64: svg.base64EncodedString(), suggestedName: "x.svg", besideMap: map) { return !FileManager.default.fileExists(atPath: map.deletingLastPathComponent().appendingPathComponent("images/x.svg").path) } else { return false } }())
 
+// A folder that refuses the file: the picture is not stored, nothing partial stays and the earlier pictures keep their bytes.
+let imagesFolder = map.deletingLastPathComponent().appendingPathComponent("images")
+let imagesBefore = ((try? FileManager.default.contentsOfDirectory(atPath: imagesFolder.path)) ?? []).sorted()
+chmod(imagesFolder.path, 0o555)
+let refused = I.store(base64: png2.base64EncodedString(), suggestedName: "Refused.png", besideMap: map)
+chmod(imagesFolder.path, 0o755)
+check("a folder that refuses the file gives no picture", { if case .failure(let f) = refused { return f.message == "The picture could not be saved next to the map." } else { return false } }())
+check("…and keeps what it held", ((try? FileManager.default.contentsOfDirectory(atPath: imagesFolder.path)) ?? []).sorted() == imagesBefore
+      && (try? Data(contentsOf: map.deletingLastPathComponent().appendingPathComponent(first))) == png)
+
 if failures > 0 { print("\(failures) FAILED"); exit(1) }
 print("all ok")

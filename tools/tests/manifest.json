@@ -1569,7 +1569,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
@@ -3331,7 +3332,8 @@
       "sources": [
         "MarkView/Models/Research/ResearchMapImages.swift",
         "tools/tests/ResearchMapImagesTests.swift",
-        "tools/tests/research-map-images-tests.sh"
+        "tools/tests/research-map-images-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {

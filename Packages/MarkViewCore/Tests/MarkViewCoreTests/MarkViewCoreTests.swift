@@ -280,6 +280,84 @@ final class MarkViewCoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: document).count, payload.count)
     }
 
+    // MARK: AtomicFile.create (AR-24)
+
+    func testAtomicFileCreateWritesANewFileAndNeverReplacesOne() throws {
+        let root = try makeScratchFolder()
+        let document = root.appendingPathComponent("notes/RES-001.md")
+        try AtomicFile.create("first", to: document)
+        XCTAssertEqual(try String(contentsOf: document, encoding: .utf8), "first")
+        XCTAssertEqual(try mode(of: document) & 0o777, 0o644, "a new file gets the default mode, not the temporary file's")
+
+        XCTAssertThrowsError(try AtomicFile.create("second", to: document)) { error in
+            XCTAssertEqual((error as? POSIXError)?.code, .EEXIST, "the refusal says the file exists")
+        }
+        XCTAssertEqual(try String(contentsOf: document, encoding: .utf8), "first", "the file that was there keeps its bytes")
+        XCTAssertEqual(try entries(in: document.deletingLastPathComponent()), ["RES-001.md"], "a refused create leaves nothing next to it")
+
+        let secret = root.appendingPathComponent("secret.json")
+        try AtomicFile.create(Data("token".utf8), to: secret, permissions: 0o600)
+        XCTAssertEqual(try mode(of: secret) & 0o777, 0o600)
+    }
+
+    func testAtomicFileCreateRefusesAFileBehindALink() throws {
+        let root = try makeScratchFolder()
+        let real = root.appendingPathComponent("real.md")
+        try AtomicFile.write("real", to: real)
+        let link = root.appendingPathComponent("link.md")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        XCTAssertThrowsError(try AtomicFile.create("other", to: link), "a link to an existing file is that file")
+        XCTAssertEqual(try String(contentsOf: real, encoding: .utf8), "real")
+
+        let dangling = root.appendingPathComponent("dangling.md")
+        let missing = root.appendingPathComponent("created-through-the-link.md")
+        try FileManager.default.createSymbolicLink(at: dangling, withDestinationURL: missing)
+        try AtomicFile.create("through", to: dangling)
+        XCTAssertTrue(isSymbolicLink(dangling), "the link stays a link")
+        XCTAssertEqual(try String(contentsOf: missing, encoding: .utf8), "through")
+    }
+
+    func testAtomicFileCreateThatCannotWriteLeavesNothingBehind() throws {
+        try XCTSkipIf(geteuid() == 0, "root writes into a folder the owner cannot")
+        let root = try makeScratchFolder()
+        let locked = root.appendingPathComponent("locked", isDirectory: true)
+        try AtomicFile.create("kept", to: locked.appendingPathComponent("kept.md"))
+        XCTAssertEqual(chmod(locked.path, 0o555), 0)
+        defer { _ = chmod(locked.path, 0o755) }
+        let before = try replacementFolderCount(near: root)
+        XCTAssertThrowsError(try AtomicFile.create("lost", to: locked.appendingPathComponent("new.md")))
+        XCTAssertEqual(try entries(in: locked), ["kept.md"], "no partial file in the folder that refused it")
+        XCTAssertEqual(try String(contentsOf: locked.appendingPathComponent("kept.md"), encoding: .utf8), "kept")
+        XCTAssertLessThanOrEqual(try replacementFolderCount(near: root), before, "and nothing in the replacement folder")
+    }
+
+    func testAtomicFileCreateHasExactlyOneWinnerPerName() throws {
+        let root = try makeScratchFolder()
+        let document = root.appendingPathComponent("race.md")
+        final class Tally: @unchecked Sendable { // unchecked Sendable: every access is under `lock`
+            let lock = NSLock()
+            var winners: [Int] = []
+            var refusals = 0
+            var others: [Error] = []
+        }
+        let tally = Tally()
+        DispatchQueue.concurrentPerform(iterations: 16) { writer in
+            do {
+                try AtomicFile.create("writer \(writer)", to: document)
+                tally.lock.lock(); tally.winners.append(writer); tally.lock.unlock()
+            } catch let error as POSIXError where error.code == .EEXIST {
+                tally.lock.lock(); tally.refusals += 1; tally.lock.unlock()
+            } catch {
+                tally.lock.lock(); tally.others.append(error); tally.lock.unlock()
+            }
+        }
+        XCTAssertEqual(tally.winners.count, 1, "one writer creates the file")
+        XCTAssertEqual(tally.refusals, 15, "the others are told it exists")
+        XCTAssertTrue(tally.others.isEmpty, "\(tally.others)")
+        XCTAssertEqual(try String(contentsOf: document, encoding: .utf8), "writer \(tally.winners[0])", "and the file holds that writer's whole text")
+        XCTAssertEqual(try entries(in: root), ["race.md"])
+    }
+
     // MARK: AtomicFile.append (AR-24)
 
     func testAtomicFileAppendCreatesTheFileAndItsFolderThenAddsToIt() throws {
