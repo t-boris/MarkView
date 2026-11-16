@@ -537,6 +537,8 @@ Fix: cite symbols, not lines; stamp each architecture document with the commit i
 
 Status (2026-11-15): partial. Done: `CLAUDE.md` is reconciled with the code (Repository Map, the `Packages/MarkViewCore` list including `TaskBag` and `PollingScheduler`, a How to Add section, no XcodeGen or `EditorWeb`); the 21 files of `docs/architecture/` were rewritten against `ac3001ba` and each says which commit it was checked against, with no line numbers in its citations (stale-reference counts in `architecture-review-2026-11-followup.md` section 13); `tasks/todo.md` is 250 lines (5,961) with the month in `tasks/archive/todo-archive-2026-11.md`. Not done: `tasks/lessons.md` is 2,036 lines (2,024) and was not distilled; the agent memory that contradicts `CLAUDE.md` is outside the repository and was not checked.
 
+Status (2026-11-16): the lessons item is done. `tasks/lessons.md` is a 395-line rule book in 13 topics (each rule states its why and ends with a pointer to the archive heading it came from; 201 archive entries became 156 rules), and the 2,046 lines of the chronological text are kept verbatim in `tasks/archive/lessons-2026-11-chronological.md` (commit `704fa7a6`). The older figure of 2,036 lines in sections 13.4 and 13.6 of the follow-up document is the 2026-11-15 count and is left as written. Not done: the rest of this finding as listed in the 2026-11-15 status above.
+
 ## 12. Roadmap
 
 Each phase leaves the app shippable. Phases 0 and 1 are low risk and mostly independent; the later ones change architecture and need approval per the project rules.
