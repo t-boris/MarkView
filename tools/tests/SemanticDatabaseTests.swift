@@ -109,6 +109,23 @@ UPDATE usage_stats SET total_input_tokens = 77, total_output_tokens = 5, total_j
             names(path, "SELECT name FROM pragma_table_info('arch_nodes')").contains), "arch_nodes has the Book and X-Ray columns")
         check(scalar(path, "SELECT count(*) FROM usage_stats WHERE id = 1") == 1, "the single usage row is seeded")
         check(names(path, "PRAGMA journal_mode") == ["wal"], "the journal mode is WAL")
+        raw(path, "INSERT INTO temporal_contexts (temporal_context_id, label, kind) VALUES ('t', 'test', 'test')")
+        var inspection: OpaquePointer?
+        if sqlite3_open_v2(path, &inspection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let inspection {
+            let counts = SemanticDatabase.unusedTableRowCounts(inspection)
+            check(counts.count == 19 && counts["temporal_contexts"] == 1 && counts["entities"] == 0,
+                  "the unused-table inspection reports all 19 counts, distinguishing rows from empty tables")
+            sqlite3_close(inspection)
+        } else { check(false, "open the database for unused-table inspection") }
+        var incomplete: OpaquePointer?
+        if sqlite3_open(":memory:", &incomplete) == SQLITE_OK, let incomplete {
+            sqlite3_exec(incomplete, "CREATE TABLE entities (id TEXT)", nil, nil, nil)
+            let counts = SemanticDatabase.unusedTableRowCounts(incomplete)
+            check(counts.count == 1 && counts["entities"] == 0 && counts["temporal_contexts"] == nil,
+                  "missing tables are omitted instead of being counted as empty")
+            sqlite3_close(incomplete)
+        } else { check(false, "open an incomplete database for unused-table inspection") }
+
 
         try await db.ensureProject(id: "fresh", name: "fresh", rootPath: root.path)
         await db.upsertModule(id: "mod_a", name: "a", path: root.path, parentId: nil, level: 0, fileCount: 1)
