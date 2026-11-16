@@ -515,6 +515,8 @@ Status (2026-11-15): done. `project.yml` and `setup.sh` are absent (0 of 2); `pr
 - No compiler or lint policy: no warnings-as-errors, no SwiftLint or SwiftFormat, no `.editorconfig`.
 - `vendor/MANIFEST.txt` lists none of the newer bundles and still says `html: false`. The DMG bundles PostgreSQL 16, the Temporal server and embedded-postgres with no third-party notices file.
 
+Status (2026-11-15): partial. Done: `install.sh`, `setup.sh` and `tools/importance-check.sh` are absent (0 of 3); `bump-version.sh` verifies its edits; `THIRD_PARTY_NOTICES.md` exists and `vendor/MANIFEST.txt` now says that markdown-it runs with `html: true` and that the rendered HTML is sanitised (it no longer says `html: false`); `.editorconfig` exists; the Cockpit runtime build phase declares input paths. Not done: no SwiftLint or SwiftFormat (0 files) and no warnings-as-errors (`SWIFT_TREAT_WARNINGS_AS_ERRORS` 0 matches; the warning ratchet replaces it). Not verified without a build: that the editor assets ship once and that the Cockpit phase is skipped when its inputs are unchanged.
+
 ### AR-48 Dead code and clutter (low, S)
 
 `EmbeddingClient` is still constructed (`WorkspaceManager.swift:462`); `IncrementalCompiler`, `DependencyGraphScheduler` and a two-line `SemanticModel.swift` remain; the dead bridge code of AR-28. At the top level: `QUICKSTART.md` and `EDITOR_IMPLEMENTATION.md` (stale), `EditorWeb/`, a 3.5 MB presentation PDF, `work/` (123 tracked spec files), ad-hoc `TestFiles/`, an empty `lsd/`. Locally: 3.4 GB in `build/` with 12 old installers, 13 worktrees, 48 local and 35 remote branches almost all merged.
