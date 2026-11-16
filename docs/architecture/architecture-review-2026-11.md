@@ -189,6 +189,8 @@ Domains by size:
 
 Moving files is mechanical but wide: 211 test scripts hard-code paths to 238 distinct model files, and the architecture docs carry more than a thousand `file:line` citations. Each move must update the scripts in the same change (which is one more reason for AR-33).
 
+Status (2026-11-15): partial. Folders: `Models/` has 21 domain folders and 0 top-level files, `Views/` 19 folders (the review: 323 of 338 `Models/` files at one level), and `Packages/MarkViewCore` is the shared layer (12 source files). The folders are still peers in one module: `tools/lint/domain-dependencies.py` reports for `Models/` 22 domain pairs in cycles (168 type edges, 91 of them in the back-edges) and 19 of 21 domains in one strongly connected group; the `domain-cycles` lint holds 104 type references in 29 pairs (Models and Views) from rising. Not done: the Platform/Features layers of the target structure and a layer rule (`Features -> Platform -> Core`); the lint is a ratchet, not a layer rule.
+
 ### AR-21 Dependency cycles between domains (high, M-L)
 
 Measured by type-name references across domain files (generic names may inflate a few edges):
