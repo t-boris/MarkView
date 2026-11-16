@@ -124,13 +124,13 @@ final class PrivateSocketTests: XCTestCase {
         // A poller watches the final path while sockets are opened and stopped on it: whatever it ever sees there must be
         // 0600 already (the socket is bound in a private staging folder and only renamed into place once it is).
         let watched = sockPath("watched")
-        let stop = DispatchSemaphore(value: 0)
-        let started = DispatchSemaphore(value: 0)
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
         let poller = Task.detached {
             var seen = 0
             var wrongMode = 0
-            started.signal()
-            while stop.wait(timeout: .now()) != .success {
+            startedContinuation.yield(())
+            startedContinuation.finish()
+            while !Task.isCancelled {
                 var info = stat()
                 if lstat(watched, &info) == 0 {
                     seen += 1
@@ -139,13 +139,13 @@ final class PrivateSocketTests: XCTestCase {
             }
             return (seen, wrongMode)
         }
-        started.wait()
-        defer { stop.signal() }
+        defer { poller.cancel() }
+        for await _ in started { break }
         for _ in 0..<300 {
             let l = try PrivateSocket.open(at: watched)
             l.stop()
         }
-        stop.signal()
+        poller.cancel()
         let (seen, wrongMode) = await poller.value
         check(wrongMode == 0 && seen > 0, "a socket is never seen at its path with a mode other than 0600 (seen \(seen) times)")
     }
