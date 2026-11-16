@@ -27,6 +27,7 @@ enum SemanticSchema {
     static let migrations: [SQLiteMigration] = [
         SQLiteMigration(version: 1, name: "docId scheme") { try clearRowsKeyedByTheOldDocumentIds($0) },
         SQLiteMigration(version: 2, name: "table set of release 6.26") { try createCurrentTables($0) },
+        SQLiteMigration(version: 3, name: "drop the never-read block tables") { try dropBlockTables($0) },
     ]
 
     /// A file with a `documents` table and no version predates the docId scheme (path relative to the root): its document,
@@ -37,6 +38,16 @@ enum SemanticSchema {
         for table in ["fts_documents", "struct_relations", "entity_relations", "claims", "entities", "documents", "modules"]
         where SQLiteSchema.tableExists(db, table) {
             try SQLiteSchema.execute(db, "DELETE FROM \(table)")
+        }
+    }
+
+    /// The editor's block extractor wrote `blocks` and no code ever read it, so the extractor and the table are gone. `claims` and
+    /// `block_compilation_cache` are children of `blocks` (`ON DELETE CASCADE`); no code reads or writes them either. With foreign keys
+    /// on, dropping the parent alone would delete their rows and leave their foreign keys naming a table that no longer exists, so
+    /// the three go in one step, children first. The indexes of the three go with them.
+    private static func dropBlockTables(_ db: OpaquePointer) throws {
+        for table in ["block_compilation_cache", "claims", "blocks"] {
+            try SQLiteSchema.execute(db, "DROP TABLE IF EXISTS \(table)")
         }
     }
 

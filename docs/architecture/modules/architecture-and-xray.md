@@ -322,11 +322,11 @@ Main methods:
 - **`XRaySearch.places`** (`XRaySearch.swift`) accepts only paths inside `root`,
   clamps line ranges to the file and removes duplicates.
 
-### 3.5 Editor block deltas (removed types)
+### 3.5 Removed types
 
-`IncrementalCompiler` and `DependencyGraphScheduler` described in the 2.17.0 audit were deleted. Editor block deltas are now stored by
-`ProjectContext.saveBlocks`, which chains the writes to `SemanticDatabase.applyBlockDelta` on the database actor. Nothing in this
-section's subject (the X-Ray) uses them.
+`IncrementalCompiler` and `DependencyGraphScheduler` described in the 2.17.0 audit were deleted. The editor's block deltas, which
+a later release wrote into the `blocks` table, are gone too: the page no longer extracts blocks and `SemanticSchema` step 3 drops the
+table. Nothing in this section's subject (the X-Ray) used them.
 
 ### 3.6 Web (`markview-architecture-*.js`)
 
@@ -360,7 +360,6 @@ other content leaves the X-Ray.
 | Workspace switch | `architecture.reset()`, `folderXRays = [:]` | `WorkspaceManager.swift` |
 | `EditorView.routeArchitecture` | Subscribes to `$revision` (full payload) and `$progress` (250 ms throttle) | `EditorView.swift` |
 | (the PR list of the 2.17.0 terminal picker) | `ArchitectureStore.openPullRequests` no longer exists; PR sources are listed by `ChangeSource` through `gh pr list` | `Models/Architecture/ChangeSource.swift` |
-| `EditorView.Coordinator` (block deltas) | `project.saveBlocks` | `Views/Workspace/EditorView.swift` |
 | `ContentView` | Presents `GraphCreatorSheet` | `ContentView.swift` |
 | `TOCView` | Terminal tab shows `ModuleExplorerView` | `TOCView.swift` |
 
@@ -778,7 +777,6 @@ There is no file watcher in this subsystem. Updates happen like this:
   an AI call.
 - Outlines are refreshed per file by signature (§5.4).
 - The Deployment view is remapped only when its config files change.
-- Editor block deltas (`ProjectContext.saveBlocks`) go to the semantic DB and do not touch the X-Ray.
 
 ### 5.10 Canvas, Mermaid full screen and Graph Creator
 

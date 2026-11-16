@@ -110,15 +110,6 @@ class WebViewBridge: NSObject {
             guard let self, EditorWindowPrefs.accepts(key: message.payload.key, value: message.payload.value) else { return }
             self.delegate?.bridge(self, didSetWindowPref: message.payload.key, value: message.payload.value)
         }
-        // Can be large: the delegate is told on the next run loop so the page's message returns first.
-        messages.on(EditorMessage.BlocksChanged.self) { [weak self] message in
-            let delta = BlocksDelta(added: message.payload.added.map(SemanticBlock.init), removed: message.payload.removed,
-                                    changed: message.payload.changed.map(SemanticBlock.init), unchanged: message.payload.unchanged)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.delegate?.bridge(self, didReceiveBlocksDelta: delta)
-            }
-        }
         messages.on(EditorMessage.CanvasOpenFile.self) { [weak self] message in
             guard let self else { return }
             self.delegate?.bridge(self, didRequestCanvasOpenFile: message.payload.path)
@@ -447,27 +438,6 @@ class WebViewBridge: NSObject {
     }
 }
 
-extension SemanticBlock {
-    /// A block of a `blocksChanged` message. An unknown block type is a paragraph.
-    init(_ block: EditorMessage.BlocksChanged.Block) {
-        id = block.id
-        documentId = block.documentId ?? ""
-        type = BlockType(rawValue: block.type) ?? .paragraph
-        level = block.level
-        content = block.content
-        plainText = block.plainText ?? block.content
-        contentHash = block.contentHash
-        semanticHash = block.semanticHash
-        headingPath = block.headingPath ?? []
-        parentBlockId = block.parentBlockId
-        lineStart = block.lineStart
-        lineEnd = block.lineEnd
-        position = block.position
-        language = block.language
-        anchor = block.anchor
-    }
-}
-
 // MARK: - Bridge Delegate Protocol
 
 protocol WebViewBridgeDelegate: AnyObject {
@@ -475,7 +445,6 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem])
     func bridge(_ bridge: WebViewBridge, didSelectHeading headingId: String)
     func bridge(_ bridge: WebViewBridge, didClickLink href: String)
-    func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta)
     func bridgeEditorReady(_ bridge: WebViewBridge)
     /// The document text size the page's slider shows, for the document text this window hosts natively.
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double)

@@ -161,44 +161,6 @@ actor SemanticDatabase {
         return results
     }
 
-    // MARK: - Blocks
-
-    private func upsertBlock(_ block: SemanticBlock, documentId: String) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        let headingPathJSON = (try? JSONEncoder().encode(block.headingPath))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-
-        try execute("""
-            INSERT INTO blocks (block_id, document_id, parent_block_id, block_kind, heading_path_json,
-                anchor, order_index, line_start, line_end, raw_markdown, plain_text, text_hash,
-                semantic_hash, compile_status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stale', ?, ?)
-            ON CONFLICT(block_id) DO UPDATE SET
-                raw_markdown = ?, plain_text = ?, text_hash = ?, compile_status = 'stale', updated_at = ?
-        """, params: [
-            .text(block.id), .text(documentId), .textOrNull(block.parentBlockId),
-            .text(block.type.rawValue), .text(headingPathJSON), .textOrNull(block.anchor),
-            .int(block.position), .int(block.lineStart), .int(block.lineEnd),
-            .text(block.content), .text(block.plainText), .text(block.contentHash),
-            .textOrNull(block.semanticHash), .int(now), .int(now),
-            .text(block.content), .text(block.plainText), .text(block.contentHash), .int(now)
-        ])
-    }
-
-    /// One block delta of an open document: the added and changed blocks are written, the removed ones are deleted with
-    /// their claims, relations and diagnostics. Each statement stands alone and a failed one is skipped, as before.
-    func applyBlockDelta(documentId: String, upserts: [SemanticBlock], removed: [String]) {
-        for block in upserts {
-            try? upsertBlock(block, documentId: documentId)
-        }
-        for id in removed {
-            try? execute("DELETE FROM blocks WHERE block_id = ?", params: [.text(id)])
-            try? execute("DELETE FROM claims WHERE source_block_id = ?", params: [.text(id)])
-            try? execute("DELETE FROM entity_relations WHERE source_block_id = ?", params: [.text(id)])
-            try? execute("DELETE FROM diagnostics WHERE block_id = ?", params: [.text(id)])
-        }
-    }
-
     // MARK: - Usage Stats (persisted across sessions)
 
     struct UsageStats {

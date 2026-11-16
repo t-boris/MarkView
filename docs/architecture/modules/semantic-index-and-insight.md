@@ -23,7 +23,7 @@ What this subsystem owns:
 
 - **Workspace database engine.** `SemanticDatabase` is an `actor` over the system `SQLite3` C API (`AR-37`): the connection
   belongs to the actor, so no statement runs on the main thread. It opens `.dde/state.db` through `SQLiteSchema` and
-  `SemanticSchema.migrations` (`AR-38`), which create 35 tables, and gives typed helpers to the rest of the app
+  `SemanticSchema.migrations` (`AR-38`), which leave 32 tables, and gives typed helpers to the rest of the app
   (`MarkView/Models/Shared/SemanticDatabase.swift`, `SemanticSchema.swift`; the architecture snapshot helpers are in
   `MarkView/Models/Architecture/SemanticDatabase+Architecture.swift`).
 - **Structural (no-LLM) indexing.** `StructuralIndexer` walks the folder once. It records directories as `modules`, each `.md`
@@ -67,10 +67,9 @@ What it does **not** own:
 | Path | Role |
 |---|---|
 | `MarkView/Models/Shared/SemanticDatabase.swift` | The `actor`: open, typed helpers for documents, blocks, modules, symbols, relations, FTS, usage stats |
-| `MarkView/Models/Shared/SemanticSchema.swift` | The ordered `SemanticSchema.migrations` (version 1 = docId scheme, version 2 = the 6.26 table set), the pragmas and the busy timeout |
+| `MarkView/Models/Shared/SemanticSchema.swift` | The ordered `SemanticSchema.migrations` (version 1 = docId scheme, version 2 = the 6.26 table set, version 3 = drop the never-read block tables), the pragmas and the busy timeout |
 | `Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift` | `SQLiteMigration`, `SQLiteSchema.open`: version check, migration steps in one transaction each, backup of an unreadable file |
 | `MarkView/Models/Architecture/SemanticDatabase+Architecture.swift` | `saveArchitecture` / `loadArchitecture` and the review cache over the `arch_*` tables |
-| `MarkView/Models/Shared/SemanticModels.swift` | `SemanticBlock` and `BlocksDelta` (the editor's block deltas) |
 | `MarkView/Models/Insight/SemanticUsage.swift` | `CLICompletion.Result.record(in:)`: queues `addUsage` on the database actor |
 | `MarkView/Models/Architecture/StructuralIndexer.swift` | Deterministic tree walk + Markdown parse → modules, documents, symbols, relations, FTS |
 | `MarkView/Models/Insight/GraphRAG.swift` | Insight prompt builder: Phase 0 classifier, Phase 1 skeleton (structured JSON call), Phase 2 per-section prompts, catalog mode, prompt-injection escaping |
@@ -92,7 +91,7 @@ All three JS files are plain globals loaded by `index.html`. They rely on `state
 
 | Type | Isolation | Responsibilities / important members |
 |---|---|---|
-| `SemanticDatabase` | `actor` (`SemanticDatabase.swift`) | `static open(workspacePath:dbName:) async throws` (off-main open and migration); `ensureProject`, `upsertDocument`, `allDocumentMeta`, `forgetDocuments`; `applyBlockDelta` (block upserts and deletes of one delta); `upsertModule`, `allModules`, `insertSymbol`, `insertRelation`, `indexDocumentFTS`, `search`; `getUsageStats`, `addUsage`; `execute(_:params:)`. The architecture helpers are in `SemanticDatabase+Architecture.swift` |
+| `SemanticDatabase` | `actor` (`SemanticDatabase.swift`) | `static open(workspacePath:dbName:) async throws` (off-main open and migration); `ensureProject`, `upsertDocument`, `allDocumentMeta`, `forgetDocuments`; `upsertModule`, `allModules`, `insertSymbol`, `insertRelation`, `indexDocumentFTS`, `search`; `getUsageStats`, `addUsage`; `execute(_:params:)`. The architecture helpers are in `SemanticDatabase+Architecture.swift` |
 | `SQLiteSchemaError` | enum (`SQLiteSchema.swift` in `MarkViewCore`) | `openFailed`, `newerSchema(found:supported:)`, `migrationFailed(version:name:message:)`, `statementFailed`, `invalidMigrations` |
 | `SemanticDBError` | enum (`SemanticDatabase.swift`) | `openFailed` / `prepareFailed` / `executeFailed` wrapping `sqlite3_errmsg` |
 | `StructuralIndexer` | `@unchecked Sendable` class (`StructuralIndexer.swift`) | `indexAll()`; private `scanTree` (utility queue), `writeModules`, `writeChangedDocs` (`await` on the database actor, 50 documents per chunk); `progress` callback |
@@ -114,7 +113,7 @@ All three JS files are plain globals loaded by `index.html`. They rely on `state
 | `InsightManifest` | Codable (`InsightCache.swift`) | `sessionId`, `folderName`, `createdAt`, `nodes[]` |
 | `InsightArchiveExporter` | stateless struct (`InsightArchiveExporter.swift`) | `bundle(stagingURL:to:) async throws` |
 
-Model types in `SemanticModels.swift`: only `SemanticBlock` and `BlocksDelta` (the editor's block deltas) are used at runtime.
+Model types in `SemanticModels.swift`: the editor's block types (`SemanticBlock`, `BlocksDelta`) are gone with the block tables.
 `SemanticEntity`, `SemanticClaim`, `SemanticRelation`, `TemporalContext`, `Transition`, `EvidenceLink`, `AIJob` with its enums,
 `BlockExtractionResult`, `Diagnostic`, `DocumentTemplate`, `CompletenessEvaluation` and `AnyCodableValue` are legacy "semantic
 compiler" types: `git grep` finds no use of them outside that file at 585cfc9d.
@@ -129,7 +128,6 @@ compiler" types: `git grep` finds no use of them outside that file at 585cfc9d.
 | `ProjectContext.openSingleFile` | `SemanticDatabase.open(workspacePath: parentDir, dbName: "file_<name>.db")`, then `indexSingleFile`, which writes one module, one FTS row, one document and the heading symbols inline |
 | `DDEIndexerRunner.run` (`MarkViewApp.swift`), child process `--dde-index <folder>` | `SemanticDatabase.open`, `ensureProject`, `StructuralIndexer.indexAll()`; progress goes to stderr as `[mvindexer] N/M`. It exits 1 without indexing when the index file is left untouched (newer schema or failed migration) |
 | `ProjectContext.runStructuralIndex` | Starts the child with `Subprocess.start`; stderr ticks become `structuralIndexProgress`; on exit the views that read the database refresh (`refreshSemanticViews()`) |
-| `EditorView.Coordinator.bridge(_:didReceiveBlocksDelta:)` → `ProjectContext.saveBlocks` | Queues `applyBlockDelta` on the database actor; each delta waits for the one before it. A delta for a tab that is not a file is dropped |
 | `ProjectContext.excludeFolder` | `forgetDocuments(ids)` for the Markdown files under the folder, from a detached task |
 | `TOCView.performSearch` (`MarkView/Views/Workspace/TOCView.swift`) | `await db.search(query:)` with the raw user text |
 | `FeatureAssistant.relatedDocuments` (`MarkView/Models/Lifecycle/FeatureAI.swift`) | `db.search` with up to 6 terms of more than 3 characters joined by `OR` |
@@ -229,14 +227,11 @@ Steps, grounded in the code:
 7. Documents are written in chunks of 50, each statement an `await` on the database actor, with `Task.yield()` between chunks.
    `dispatchMain()` keeps the child process alive while the indexing task runs.
 
-### 5.2 Editor block deltas
+### 5.2 Editor block deltas (removed)
 
-The JS block extractor sends `blocksChanged` deltas (`markview-render.js`). `WebViewBridge` decodes them into a `BlocksDelta` and
-`EditorView.Coordinator` passes the delta of a file-backed active tab to `ProjectContext.saveBlocks`. That queues
-`SemanticDatabase.applyBlockDelta(documentId:upserts:removed:)` on the database actor: it upserts added and changed blocks
-(docId = workspace-relative path) and deletes removed blocks with their claims, relations and diagnostics. Each delta waits for the
-write before it, so deltas land in the order the editor sent them. A delta that arrives while no database is open is dropped.
-No AI extraction runs, and nothing reads the `blocks` table back.
+The page's block extractor sent `blocksChanged` deltas that `ProjectContext.saveBlocks` and `SemanticDatabase.applyBlockDelta` wrote
+into the `blocks` table. Nothing ever read the table back, so the extractor, the message, the Swift handlers and the write path are
+removed, and `SemanticSchema` step 3 drops `blocks` with its two child tables `claims` and `block_compilation_cache`.
 
 ### 5.3 Search (retrieval)
 
@@ -465,26 +460,26 @@ action and session):
     Foreign keys cascade the dependent tables.
   - Step 2 "table set of release 6.26" creates every table that is missing and the `arch_nodes` columns later releases added, and
     drops the never-written `applied_migrations` table.
+  - Step 3 "drop the never-read block tables" drops `block_compilation_cache`, `claims` and `blocks` (children first). With
+    foreign keys on, dropping `blocks` alone would delete the rows of the two children and leave their foreign keys naming a
+    table that is gone. `claims` had no writer, `block_compilation_cache` never had one, and no code read any of the three.
   - A file with a newer version, or a step that fails (and rolls back), is left untouched: the session uses an in-memory index
     (`dbPath == nil`). An unreadable file is moved to a dated backup and rebuilt.
 
 ### 6.2 Tables
 
 Timestamps are Unix seconds (`INTEGER`). "Used" means some code outside
-`SemanticDatabase.swift` reads or writes the table at runtime. The 35 tables are the ones `SemanticSchema` step 2 creates.
+`SemanticDatabase.swift` reads or writes the table at runtime. The 32 tables are the ones that remain after `SemanticSchema` step 3 (step 2 creates 35; step 3 drops `blocks`, `claims` and `block_compilation_cache`).
 
 | Table | Columns (PK first) | Indexes / FKs | Used? |
 |---|---|---|---|
 | `projects` | `project_id` TEXT PK, `project_name` NN, `root_path` NN UNIQUE, `created_at` NN, `updated_at` NN, `dde_version`, `schema_version` NN, `config_json` | – | yes (`ensureProject`, schema_version `'1.0'`) |
 | `documents` | `document_id` PK, `project_id` NN, `file_path` NN, `file_name` NN, `file_ext` NN, `file_mtime`, `file_size_bytes`, `content_hash` NN, `frontmatter_json`, `language`, `status` DEFAULT 'active', `created_at`, `updated_at`; UNIQUE(project_id, file_path) | `idx_documents_project`; FK project_id→projects CASCADE | yes |
-| `blocks` | `block_id` PK, `document_id` NN, `parent_block_id`, `block_kind` NN, `heading_path_json` NN, `anchor`, `order_index` NN, `line_start`, `line_end`, `raw_markdown` NN, `plain_text`, `text_hash` NN, `semantic_hash`, `compile_status` DEFAULT 'stale', `last_compiled_at`, `created_at`, `updated_at` | `idx_blocks_document`, `idx_blocks_doc_order`, `idx_blocks_text_hash`; FK document→documents CASCADE, parent→blocks CASCADE | yes (editor deltas) |
-| `block_compilation_cache` | `block_id` PK, `text_hash` NN, `semantic_hash`, `extracted_{entities,claims,relations}_json`, `cache_created_at`, `cache_updated_at` | FK block→blocks CASCADE | no |
 | `entities` | `entity_id` PK, `name`, `type`, `canonical_name` (NN), `aliases_json`, `attributes_json`, `description`, `status` DEFAULT 'active', `source_file`, `source_block_id`, `created_at`, `updated_at` | `idx_entities_canonical`, `idx_entities_type` | no (no writer) |
-| `claims` | `claim_id` PK, `type` NN, `subject_entity_id`, `predicate`, `object`, `object_entity_id`, `source_file` NN, `source_block_id` NN, `raw_text`, `status` DEFAULT 'proposed', `confidence` REAL 0.5, `authority_level`, `superseded_by`, `scope_kind` DEFAULT 'global', `scope_value`, `temporal_context_id`, `effective_from`, `effective_to`, `evidence_block_ids_json`, `created_at`, `updated_at` | `idx_claims_block`, `idx_claims_entity`; FK subject→entities SET NULL, source_block→blocks CASCADE, temporal→temporal_contexts SET NULL | delete-only (`applyBlockDelta`) |
-| `entity_relations` | `relation_id` PK, `source_id` NN, `target_id` NN, `type` NN, `source_file`, `source_block_id`, `confidence` 0.5, `created_at` | `idx_relations_source`, `idx_relations_target` | delete-only |
+| `entity_relations` | `relation_id` PK, `source_id` NN, `target_id` NN, `type` NN, `source_file`, `source_block_id`, `confidence` 0.5, `created_at` | `idx_relations_source`, `idx_relations_target` | no |
 | `temporal_contexts` | `temporal_context_id` PK, `label` NN, `kind` NN, `order_index` 0, `start_time`, `end_time`, `parent_temporal_context_id` | self-FK SET NULL | no |
 | `transitions` | `transition_id` PK, `entity_id` NN, `from_state`, `to_state` NN, `from/to_temporal_context_id`, `preconditions_json`, `postconditions_json`, `rollback_strategy`, `trigger`, `evidence_block_ids_json` | FK entity→entities CASCADE | no |
-| `diagnostics` | `diagnostic_id` PK, `type`, `severity`, `message` NN, `explanation`, `document_id` NN, `block_id`, `claim_ids_json`, `entity_ids_json`, `suggested_fix`, `is_suppressed` 0, `created_at` | `idx_diagnostics_doc`; FK document CASCADE | delete-only |
+| `diagnostics` | `diagnostic_id` PK, `type`, `severity`, `message` NN, `explanation`, `document_id` NN, `block_id`, `claim_ids_json`, `entity_ids_json`, `suggested_fix`, `is_suppressed` 0, `created_at` | `idx_diagnostics_doc`; FK document CASCADE | no |
 | `ai_jobs` | `job_id` PK, `job_type`, `priority`, `status` DEFAULT 'pending', `document_id`, `block_ids_json`, `input_hash` NN, `model_policy`, `privacy_mode` NN, `result_ref`, `error_state`, `created_at`, `started_at`, `completed_at`, `retry_count` 0, `cost_tokens` | `idx_ai_jobs_hash`, `idx_ai_jobs_status` | no |
 | `compile_profiles` | `profile_id` PK, `name`, `description`, `audience`, `required_claim_types_json`, `required_entity_types_json`, `section_order_json`, `strictness` 'moderate', `language` 'en' | – | no |
 | `compile_jobs` | `compile_job_id` PK, `profile_id` NN, `status`, `created_at`, `completed_at` | FK profile CASCADE | no |
@@ -695,9 +690,9 @@ Concurrency and resources:
 
 Dead code and drift:
 
-12. **Most of the schema is dead.** 18 of the 35 tables have no writer anywhere in `MarkView/` or `Packages/` (the "no" rows of
-    §6.2; checked with `git grep` for `INSERT`/`UPDATE`/`REPLACE` per table). Three more (`claims`, `entity_relations`,
-    `diagnostics`) are only deleted from, and `struct_relations` is only written.
+12. **Most of the schema is dead.** 19 of the 32 tables are not touched by any code in `MarkView/` or `Packages/` outside the
+    migrations (the "no" rows of §6.2; checked with `git grep` for `INSERT`/`UPDATE`/`REPLACE`/`DELETE` per table), and
+    `struct_relations` is only written. Step 3 already dropped the three block tables for that reason.
 13. **Stray and misleading fields.**
     - `InsightNode.model = "claude-sonnet-4-6"` is never read.
     - The v1 shims `streamingBuffer` / `isStreaming` and the convenience init have no callers in `MarkView/` outside the session.
