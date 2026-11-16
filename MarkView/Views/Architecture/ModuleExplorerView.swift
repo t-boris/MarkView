@@ -4,7 +4,9 @@ import SwiftUI
 /// the removed Modules tab.
 struct ModuleExplorerView: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var project: ProjectContext
+    /// The window's assistant terminals, which the panel shows.
+    let terminals: AITerminalsController
     @Environment(\.appFontScale) private var fontScale
     /// AI spend of the project in dollars, read from the database actor; nil until the first answer or when nothing was spent.
     @State private var costDollars: Double?
@@ -24,7 +26,7 @@ struct ModuleExplorerView: View {
                             Text("$\(String(format: "%.2f", costDollars))")
                                 .uiFont(size: 9, weight: .bold).foregroundColor(palette.textDim)
                         }
-                        if let progress = workspaceManager.project.indexingProgress {
+                        if let progress = project.indexingProgress {
                             ProgressView().scaleEffect(0.4)
                             Text(progress).uiFont(size: 8).foregroundColor(palette.blue).lineLimit(1)
                         }
@@ -38,14 +40,14 @@ struct ModuleExplorerView: View {
             .background(palette.bg)
             Divider().background(palette.border)
 
-            AITerminalPanel(terminals: workspaceManager.terminals, folderOpen: workspaceManager.rootNode != nil)
+            AITerminalPanel(terminals: terminals, folderOpen: project.rootNode != nil)
         }
-        .task(id: workspaceManager.semanticDatabase.map(ObjectIdentifier.init)) { await refreshCost() }
+        .task(id: project.database.map(ObjectIdentifier.init)) { await refreshCost() }
     }
 
     /// Re-read the spend every few seconds while the panel is on screen (the task ends with the view).
     private func refreshCost() async {
-        guard let db = workspaceManager.semanticDatabase else { costDollars = nil; return }
+        guard let db = project.database else { costDollars = nil; return }
         while !Task.isCancelled {
             let stats = await db.getUsageStats()
             costDollars = stats.totalJobs > 0 ? stats.totalCostDollars : nil

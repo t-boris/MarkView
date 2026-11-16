@@ -763,7 +763,7 @@ private struct WorkspaceWindow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                DiagnosticsBarView().environmentObject(workspaceManager)
+                DiagnosticsBarView()
             } else {
                 welcomeView.environment(\.palette, workspaceManager.theme.palette)
             }
@@ -1251,8 +1251,7 @@ private struct FloatingAgentsView: View {
         let height = maximized ? available.height : (minimized ? min(headerHeight, available.height) : normalHeight)
         let x = maximized ? 0 : min(max(0, available.width - width), max(0, baseX - moveTranslation.width))
         let y = maximized ? 0 : min(max(0, available.height - height), max(0, baseY - moveTranslation.height))
-        return ModuleExplorerView()
-            .environmentObject(workspaceManager)
+        return ModuleExplorerView(terminals: workspaceManager.terminals)
             .accessibilityHidden(minimized)
             .allowsHitTesting(!minimized)
             .opacity(minimized ? 0 : 1)

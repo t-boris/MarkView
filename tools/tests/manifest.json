@@ -2061,7 +2061,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
+        "MarkView/Models/Appearance/WebThemeArguments.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
       ]
     },
     {
@@ -3236,7 +3237,8 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
       ]
     },
     {

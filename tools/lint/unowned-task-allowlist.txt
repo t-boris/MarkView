@@ -24,8 +24,6 @@
 3 MarkView/Models/Prototype/PrototypeSession.swift
 1 MarkView/Models/QA/QAModel.swift
 1 MarkView/Models/QA/QARunModel.swift
-4 MarkView/Models/Remote/RemoteHostController.swift
-2 MarkView/Models/Terminal/TerminalSession.swift
 1 MarkView/Models/UIStudio/UIStudioCaptures.swift
 6 MarkView/Models/UIStudio/UIStudioElementPicker.swift
 2 MarkView/Models/UIStudio/UIStudioRepairing.swift
@@ -34,8 +32,6 @@
 3 MarkView/Models/UIStudio/UIStudioSession.swift
 1 MarkView/Models/Workspace/LayoutCatalog.swift
 1 MarkView/Models/Workspace/ProjectDraftStore.swift
-3 MarkView/Views/Architecture/ProjectChangeReviewView.swift
-1 MarkView/Views/Book/PDFReaderView.swift
 3 MarkView/Views/Deployments/CloudServicesView.swift
 3 MarkView/Views/Deployments/DatabaseCardView.swift
 8 MarkView/Views/Deployments/DeploymentsView.swift
@@ -59,8 +55,6 @@
 2 MarkView/Views/Prototype/PrototypeStudioView.swift
 2 MarkView/Views/QA/QARunReportViews.swift
 1 MarkView/Views/QA/QAViews.swift
-5 MarkView/Views/Remote/RemoteConnectionsView.swift
-1 MarkView/Views/Terminal/TerminalView.swift
 3 MarkView/Views/Workspace/ContentView.swift
 3 MarkView/Views/Workspace/FileTreeView.swift
 15 MarkView/Views/Workspace/NewProjectSheet.swift
