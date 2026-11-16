@@ -1,17 +1,8 @@
-# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay: a user's own
-# export or download (PDF, picture, HTML export), a scratch file in the temporary folder or a staging folder that is published by one
-# move, a file that must never replace an existing one (`.withoutOverwriting`), and an append-only log. Everything else, every file
-# of app or project state, goes through AtomicFile.write. Run tools/lint/architecture-lint.sh --tighten after converting a site.
-1 MarkView/Bridge/PDFExporter.swift
-1 MarkView/Models/AI/Providers/CodexProvider.swift
-1 MarkView/Models/Book/BookPDFExportModel.swift
-1 MarkView/Models/Browser/BrowserSession.swift
-2 MarkView/Models/Lifecycle/SpecificationHandoff.swift
-3 MarkView/Models/Prototype/PrototypeExport.swift
-1 MarkView/Models/Prototype/PrototypeHandoffRun.swift
-1 MarkView/Models/Terminal/TerminalSession.swift
-5 MarkView/Models/UIStudio/UIStudioChanges.swift
-1 MarkView/Models/UIStudio/UIStudioSession.swift
-1 MarkView/Views/Browser/BrowserTabView.swift
-1 MarkView/Views/Discussion/DiscussionThreadView.swift
-1 MarkView/Views/QA/QARunReportViews.swift
+# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay, with its
+# reason on the line (`  # why`): a user's own export to a place chosen in a save panel (the volume is the person's, and the
+# write is already atomic: `Data.write(.atomic)`). Everything else (app or project state, documents, caches, scripts, scratch and
+# staging files, logs) goes through AtomicFile: `write`, `create` (never replaces) or `append`. Run tools/lint/architecture-lint.sh
+# --tighten after converting a site.
+1 MarkView/Bridge/PDFExporter.swift  # the PDF the person names in a save panel; already atomic (`.atomic`, beside the chosen file), and the volume is theirs: AtomicFile keeps its temporary file at the volume root, which a share or card may not let the app write
+1 MarkView/Models/Book/BookPDFExportModel.swift  # the PDF book the person names in a save panel; already atomic (`.atomic`, beside the chosen file), and the volume is theirs: AtomicFile keeps its temporary file at the volume root, which a share or card may not let the app write
+1 MarkView/Views/Discussion/DiscussionThreadView.swift  # a file the person names in the discussion's save panel; already atomic (`.atomic`, beside the chosen file), and the volume is theirs: AtomicFile keeps its temporary file at the volume root, which a share or card may not let the app write

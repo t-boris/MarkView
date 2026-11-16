@@ -308,10 +308,11 @@ ratchet("assistant-switch", "assistant-switch-allowlist.txt", "assistant literal
 ratchet("atomic-write", "atomic-write-allowlist.txt", "direct file write(s)",
         count_sites(app_swift + package_swift, re.compile(r"\.write\((?:to|toFile):"),
                     exclude=lambda p: "/Tests/" in rel(p) or "/.build/" in rel(p) or rel(p) == "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"),
-        "# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay: a user's own\n"
-        "# export or download (PDF, picture, HTML export), a scratch file in the temporary folder or a staging folder that is published by one\n"
-        "# move, a file that must never replace an existing one (`.withoutOverwriting`), and an append-only log. Everything else, every file\n"
-        "# of app or project state, goes through AtomicFile.write. Run tools/lint/architecture-lint.sh --tighten after converting a site.")
+        "# `.write(to:` / `.write(toFile:` outside AtomicFile (AR-24). `<count> <path>`; a ratchet that only falls. What may stay, with its\n"
+        "# reason on the line (`  # why`): a user's own export to a place chosen in a save panel (the volume is the person's, and the\n"
+        "# write is already atomic: `Data.write(.atomic)`). Everything else (app or project state, documents, caches, scripts, scratch and\n"
+        "# staging files, logs) goes through AtomicFile: `write`, `create` (never replaces) or `append`. Run tools/lint/architecture-lint.sh\n"
+        "# --tighten after converting a site.")
 
 ratchet("project-paths", "project-paths-allowlist.txt", "path literal(s)",
         count_sites(app_swift + package_swift, re.compile(r'"\.(?:dde|markview-)'),

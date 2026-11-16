@@ -391,7 +391,7 @@ final class BrowserSession: NSObject, ObservableObject {
         guard let tiff = image?.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return nil }
         let file = BrowserElementPick.screenshotURL()
-        return (try? png.write(to: file)) != nil ? file : nil
+        return (try? AtomicFile.write(png, to: file)) != nil ? file : nil
     }
 
     /// The selection or the whole page as Markdown.

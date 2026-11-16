@@ -5,7 +5,7 @@ out=$(mktemp -d)
 test_service="MarkView saved connection tests $(uuidgen)"
 trap 'if [[ -x "$out/saved-remote-connections-tests" ]]; then "$out/saved-remote-connections-tests" --clear "$test_service"; fi; rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/saved-remote-connections-tests" \
-    Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Terminal/RemoteConnectionState.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Terminal/RemoteConnectionState.swift \
     MarkView/Models/Remote/RemoteChannel.swift MarkView/Models/Remote/RemoteFraming.swift \
     MarkView/Models/Remote/RemoteRelaySettings.swift MarkView/Models/Remote/RemoteConnectionsStore.swift \
     MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/AI/Providers/*.swift tools/tests/SavedRemoteConnectionsTests.swift
