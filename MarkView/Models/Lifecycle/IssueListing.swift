@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Filtering and sorting of the Issues list (issue #24): features and bugs by status, type and
 // implementation, ordered by date or priority. Foundation only, so
@@ -268,14 +269,14 @@ struct IssueSort: Equatable {
             let back = calendar.dateComponents([.year, .month, .day], from: date)
             return back.year == year && back.month == month && back.day == day ? date : nil
         }
-        return isoFormatter.date(from: text) ?? isoFractionalFormatter.date(from: text)
+        return isoFormatters.withLock { $0.regular.date(from: text) ?? $0.fractional.date(from: text) }
     }
 
-    private static let isoFormatter = ISO8601DateFormatter()
-    private static let isoFractionalFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
+    private static let isoFormatters: OSAllocatedUnfairLock<(regular: ISO8601DateFormatter, fractional: ISO8601DateFormatter)> = {
+        let regular = ISO8601DateFormatter()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return OSAllocatedUnfairLock(uncheckedState: (regular, fractional))
     }()
 
     /// critical 4 > high 3 > medium 2 > low 1; nil when absent or unknown (DEC-007).

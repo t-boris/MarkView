@@ -1,6 +1,7 @@
 // Checks the Issues list filter and sort (MarkView/Models/Lifecycle/IssueListing.swift) against the
 // acceptance criteria of REQ-001, REQ-002 and REQ-005 and decisions DEC-006…DEC-015.
 import Foundation
+import os
 
 var failures = 0
 func check(_ name: String, _ condition: Bool) {
@@ -79,6 +80,15 @@ check("YYYY-MM-DD parses", IssueSort.parseDate("2026-09-27") != nil)
 check("ISO date-time parses", IssueSort.parseDate("2026-09-27T10:00:00Z") != nil)
 check("ISO fractional parses", IssueSort.parseDate("2026-09-27T10:00:00.123+02:00") != nil)
 check("quoted date parses", IssueSort.parseDate("\"2026-09-27\"") != nil)
+let isoValues = ["2026-09-27T10:00:00Z", "2026-09-27T10:00:00.123+02:00"]
+let expectedDates = isoValues.map { IssueSort.parseDate($0)! }
+let dateMismatches = OSAllocatedUnfairLock(initialState: 0)
+DispatchQueue.concurrentPerform(iterations: 200) { index in
+    if IssueSort.parseDate(isoValues[index % 2]) != expectedDates[index % 2] {
+        dateMismatches.withLock { $0 += 1 }
+    }
+}
+check("concurrent ISO date parsing remains stable", dateMismatches.withLock { $0 == 0 })
 check("invalid day rejected", IssueSort.parseDate("2026-02-31") == nil)
 check("garbage rejected", IssueSort.parseDate("yesterday") == nil && IssueSort.parseDate("") == nil)
 let mtime = day("2020-01-01")
