@@ -2038,6 +2038,7 @@
       "script": "tools/tests/phase5-ai-tests.sh",
       "tier": "pure",
       "sources": [
+        "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AIOperation.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",

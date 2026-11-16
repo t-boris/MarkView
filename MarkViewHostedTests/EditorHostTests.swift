@@ -14,6 +14,19 @@ private actor DraftCheckpointRecorder {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    func testAssistantResultOwnsValidatedJSON() throws {
+        let original = NSMutableDictionary(dictionary: ["items": [1, 2, 3], "flag": true, "label": "Пример"])
+        let result = try CLICompletion.Result(text: "answer", structured: original, inputTokens: 3, outputTokens: 4, costUSD: nil)
+        original["label"] = "changed"
+        let object = try XCTUnwrap(result.structured as? [String: Any])
+        XCTAssertEqual(object["label"] as? String, "Пример")
+        XCTAssertEqual(object["items"] as? [Int], [1, 2, 3])
+        XCTAssertEqual(object["flag"] as? Bool, true)
+        let fragment = try CLICompletion.Result(text: "", structured: "value", inputTokens: 0, outputTokens: 0, costUSD: nil)
+        XCTAssertEqual(fragment.structured as? String, "value")
+        XCTAssertThrowsError(try CLICompletion.Result(text: "", structured: Date(), inputTokens: 0, outputTokens: 0, costUSD: nil))
+    }
+
     func testProjectBootstrapPersistsEachStage() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-bootstrap-" + UUID().uuidString)
         let specification = folder.appendingPathComponent("specification")

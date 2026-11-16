@@ -118,7 +118,7 @@ func runPhase5Tests() async {
             onActivity?(.read("README.md"))
             if attempts == 1 {
                 // First attempt returns invalid nodeCount = 0 -> triggers repair retry
-                return CLICompletion.Result(
+                return try CLICompletion.Result(
                     text: #"{"title": "Draft", "nodeCount": 0}"#,
                     structured: nil,
                     inputTokens: 100,
@@ -127,7 +127,7 @@ func runPhase5Tests() async {
                 )
             }
             check(req.prompt.contains("Your previous response failed validation"), "AR-26: Repair retry includes validation failure context")
-            return CLICompletion.Result(
+            return try CLICompletion.Result(
                 text: #"{"title": "Repaired Architecture", "nodeCount": 5}"#,
                 structured: nil,
                 inputTokens: 120,
@@ -150,7 +150,7 @@ func runPhase5Tests() async {
             CLICompletion.Request(project: nil, prompt: "Generate strict JSON for \(topic)")
         },
         runner: { _, _, _ in
-            CLICompletion.Result(
+            try CLICompletion.Result(
                 text: #"Here is your JSON: {"title": "Salvaged", "nodeCount": 2}"#,
                 structured: nil,
                 inputTokens: 10,
@@ -196,7 +196,7 @@ final class ScriptedRunner: @unchecked Sendable {
 }
 
 func answer(_ text: String = "", structured: Any? = nil, cost: Double? = nil) -> Result<CLICompletion.Result, Error> {
-    .success(CLICompletion.Result(text: text, structured: structured, inputTokens: 10, outputTokens: 5, costUSD: cost))
+    Result { try CLICompletion.Result(text: text, structured: structured, inputTokens: 10, outputTokens: 5, costUSD: cost) }
 }
 
 struct Rejected: LocalizedError {

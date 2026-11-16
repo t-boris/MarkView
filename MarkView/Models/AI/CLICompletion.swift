@@ -75,15 +75,38 @@ enum CLICompletion {
         var xrayModel: String? { AIAssistantPreferences.xrayModel(for: tool, project: project) }
     }
 
-    struct Result {
+    struct Result: Sendable {
+        private struct InvalidStructuredOutput: LocalizedError {
+            var errorDescription: String? { "The assistant's structured answer is not valid JSON." }
+        }
         let text: String
-        let structured: Any?
+        private let structuredJSON: Data?
+        /// Decode a fresh value for each caller so mutable Foundation objects never cross executors.
+        var structured: Any? {
+            guard let structuredJSON else { return nil }
+            return try? JSONSerialization.jsonObject(with: structuredJSON, options: [.fragmentsAllowed])
+        }
         let inputTokens: Int
         let outputTokens: Int
         /// Claude reports the cost of a run; Codex reports tokens only.
         let costUSD: Double?
         /// Tool calls the CLI refused (Claude `permission_denials`): the tool and its query or URL.
         var refused: [(tool: String, input: String)] = []
+
+        init(text: String, structured: Any?, inputTokens: Int, outputTokens: Int, costUSD: Double?) throws {
+            self.text = text
+            if let structured {
+                guard JSONSerialization.isValidJSONObject([structured]) else {
+                    throw InvalidStructuredOutput()
+                }
+                structuredJSON = try JSONSerialization.data(withJSONObject: structured, options: [.fragmentsAllowed])
+            } else {
+                structuredJSON = nil
+            }
+            self.inputTokens = inputTokens
+            self.outputTokens = outputTokens
+            self.costUSD = costUSD
+        }
     }
 
     enum Failure: LocalizedError {
@@ -183,7 +206,7 @@ enum CLICompletion {
             }
             structured = object
         }
-        var result = Result(text: raw.text, structured: structured, inputTokens: raw.inputTokens,
+        var result = try Result(text: raw.text, structured: structured, inputTokens: raw.inputTokens,
                             outputTokens: raw.outputTokens, costUSD: raw.costUSD)
         result.refused = raw.refused
         return result

@@ -127,7 +127,7 @@ enum ACPAssistant {
             guard !text.isEmpty || structured != nil else {
                 throw CLICompletion.Failure.invalidOutput(tool, "empty answer")
             }
-            return CLICompletion.Result(text: text, structured: structured, inputTokens: state.inputTokens,
+            return try CLICompletion.Result(text: text, structured: structured, inputTokens: state.inputTokens,
                                         outputTokens: state.outputTokens, costUSD: nil)
         } onCancel: {
             connection.cancel()

@@ -47,7 +47,7 @@ enum DocumentTranslatorChecks {
             sent.append(request.prompt)
             systemPrompts.append(request.systemPrompt ?? "")
             let reply = try await answer(request.prompt, sent.count)
-            return CLICompletion.Result(text: reply, structured: nil, inputTokens: 1, outputTokens: 1, costUSD: nil)
+            return try CLICompletion.Result(text: reply, structured: nil, inputTokens: 1, outputTokens: 1, costUSD: nil)
         }
     }
 
