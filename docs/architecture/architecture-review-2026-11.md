@@ -219,6 +219,8 @@ Status (2026-11-15): partial. `TOCView.Tab` in `Models/` 0 (replaced by `Navigat
 
 Convention to adopt: `*Store` = persistence, `*ViewModel` = observable UI state, `*Client` = stateless I/O, `*Coordinator` = cross-feature flow, plain nouns = values.
 
+Status (2026-11-15): partial. The three grab-bag files named in REQ-008 (`WorkspaceControllers.swift`, `AILayer.swift`, `StorageAndSecurity.swift`) are split; the others the finding lists (`UIStudioModels`, `SemanticModels`, `GitHubClient`, `QAScenario`) were not re-counted. Observable classes in `Models/` by suffix (a regex count, 60 -> 78 classes): `*Store` 12 -> 11, `*Model` 8 -> 8, `*Session` 6 -> 6, `*Controller` 3 -> 5, `*Coordinator` 0 -> 2, `*ViewModel` 0 -> 0. The proposed `*ViewModel` convention was not adopted.
+
 ### Target structure
 
 ```
