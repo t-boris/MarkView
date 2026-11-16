@@ -7,6 +7,7 @@ import MarkViewCore
 /// code change with its checks, kept in `.dde/studio/history`; and which of them the thread shows (BUG-075).
 @MainActor
 final class StudioHistory: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     @Published private(set) var history: [StudioOperation] = []

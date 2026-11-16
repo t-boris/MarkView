@@ -21,10 +21,6 @@
 1 MarkView/Models/QA/QARunModel.swift
 4 MarkView/Models/Remote/RemoteHostController.swift
 2 MarkView/Models/Terminal/TerminalSession.swift
-1 MarkView/Models/UIStudio/UIStudioCaptures.swift
-6 MarkView/Models/UIStudio/UIStudioElementPicker.swift
-2 MarkView/Models/UIStudio/UIStudioRepairing.swift
-4 MarkView/Models/UIStudio/UIStudioRequestPath.swift
 3 MarkView/Models/UIStudio/UIStudioSession+Screens.swift
 3 MarkView/Models/UIStudio/UIStudioSession.swift
 1 MarkView/Models/Workspace/LayoutCatalog.swift

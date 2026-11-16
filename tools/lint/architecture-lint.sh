@@ -36,6 +36,12 @@
 #   unchecked-sendable   (AR-43) every `@unchecked Sendable` and `nonisolated(unsafe)` in MarkView/ and Packages/ says what guards it, in a
 #                        `// unchecked Sendable: <what guards it>` comment on the same or the previous line; a type that can be
 #                        checked says `Sendable` and a value behind a lock is an OSAllocatedUnfairLock, so the escape hatch stays rare
+#   studio-part-tasks    (AR-16) a part of a UI Studio session (a file under MarkView/Models/UIStudio with `unowned let session: StudioSession`)
+#                        starts no `Task { }`, `Timer`, `.asyncAfter` or `DispatchQueue.main` of its own, and says why its `unowned` is safe:
+#                        the task it starts holds the part but not the session, and a read of `session` after an `await` traps once the
+#                        session is released, so a part starts every task with `session.startPartTask { session in ... }` (the task holds the
+#                        session until it ends and `close()` cancels it). A site that needs none says `// task: <why>` on the same or the
+#                        previous line; each `unowned let session` has a `/// Unowned: ...` line above it
 # Ratchets: a count that may fall and never rise. Today's sites are listed per file in an allow-list; a new site or a higher
 # count fails, and so does a lower count that the list does not yet say (run `--tighten`), so that the allowance never has slack.
 #   process              Process() outside Packages/MarkViewCore Subprocess.swift     tools/lint/process-allowlist.txt
@@ -675,6 +681,25 @@ for path in app_swift + package_swift:
             continue
         violations.append(("unchecked-sendable", f"{rel(path)}:{number}: `@unchecked Sendable` or `nonisolated(unsafe)` without a `// unchecked Sendable: <what guards it>` comment on the same or the previous line"))
 
+# --- studio-part-tasks (AR-16)
+part_session = re.compile(r"\bunowned\s+let\s+session\s*:\s*StudioSession\b")
+part_task = re.compile(r"(?<![A-Za-z0-9_.])Task\s*(?:\(\s*priority[^)]*\)\s*)?(?:@\w+\s*)?\{|(?<![A-Za-z0-9_.])Timer\s*(?:\.|\()|\.asyncAfter\s*\(|DispatchQueue\.main\b")
+part_reason = re.compile(r"//\s*task:\s*\S")
+for path in swift_files("MarkView/Models/UIStudio"):
+    source = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not any(part_session.search(line) for line in source):
+        continue
+    for number, line in code_lines(path):
+        text = re.split(r"\s//", re.sub(r'"(?:[^"\\]|\\.)*"', '""', line))[0]
+        before = source[number - 2].strip() if number >= 2 else ""
+        if part_session.search(text):
+            if not before.startswith("///") or "Unowned:" not in before:
+                violations.append(("studio-part-tasks", f"{rel(path)}:{number}: `unowned let session` without a `/// Unowned: <why it is safe>` line above it"))
+        elif part_task.search(text):
+            if part_reason.search(line) or (before.startswith("//") and part_reason.search(before)):
+                continue
+            violations.append(("studio-part-tasks", f"{rel(path)}:{number}: a part starts a task that holds it but not its session; use `session.startPartTask {{ session in ... }}`, or say `// task: <why>`"))
+
 # --- tabs-direct
 tab_read = re.compile(r"\b(?:workspaceManager|manager|workspace|wm)\??\.(?:openTabs|activeTab|activeTabIndex|lastSaveError)\b")
 for path in swift_files("MarkView/Views"):
@@ -689,7 +714,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

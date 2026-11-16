@@ -17,6 +17,55 @@ enum StudioRuntime {
     }
 }
 
+/// One call into the page that a task waits for (`StudioSession.call`). WebKit does not resume the completion of an async JavaScript
+/// call whose Promise the page destroys (the session replaced the page, or closed it), so a task that waits for such a call would wait
+/// for ever, and keep what it holds (the session, by the lifetime rule of its tasks) alive. The call is retired the moment its task is
+/// cancelled: the continuation is resumed with `CancellationError` exactly once, by whichever of the page's answer and the
+/// cancellation comes first.
+// unchecked Sendable: `lock` guards every field.
+final class StudioPageCall: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiting: CheckedContinuation<Any?, Error>?
+    private var cancelled = false
+    private var ended = false
+
+    /// Starts waiting. False when the task was cancelled before the call began: nothing is waiting any more and the call must not be made.
+    func begin(_ continuation: CheckedContinuation<Any?, Error>) -> Bool {
+        let refused = lock.withLock { () -> Bool in
+            if cancelled { ended = true; return true }
+            waiting = continuation
+            return false
+        }
+        if refused { continuation.resume(throwing: CancellationError()) }
+        return !refused
+    }
+
+    /// The page answered, or its call failed. A script that returns nothing answers with a nil boxed in `Any`, which every caller reads
+    /// through a cast (`as? [String: Any]`, `as? Bool`, `is NSNull`).
+    func finish(_ result: Result<Any, Error>) {
+        guard let continuation = retire() else { return }
+        continuation.resume(with: result.map { $0 as Any? })
+    }
+
+    /// The task was cancelled: whoever waits stops waiting, whether or not the page ever answers.
+    func cancel() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Any?, Error>? in
+            cancelled = true
+            return retireLocked()
+        }
+        continuation?.resume(throwing: CancellationError())
+    }
+
+    private func retire() -> CheckedContinuation<Any?, Error>? { lock.withLock { retireLocked() } }
+
+    private func retireLocked() -> CheckedContinuation<Any?, Error>? {
+        guard !ended, let continuation = waiting else { return nil }
+        ended = true
+        waiting = nil
+        return continuation
+    }
+}
+
 /// Messages the page runtime (`markview-ui-studio-*.js`) sends to the session, checked at the boundary (REQ-006, §7): the
 /// frame, the origin, the session, its generation and the payload's schema. A message that fails a check is dropped and
 /// counted; it never reaches the simulation or the history.

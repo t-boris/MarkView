@@ -339,6 +339,9 @@ try:
         "        Task { await Shared.open(url) }\n"
         "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Shared.tick() } // task: process-wide, no window state\n"
         "    }\n"
+        "    func started() -> Task<Void, Never> {\n"                              # a return type is not a start; the returned task is owned
+        "        return Task { await work() }\n"
+        "    }\n"
         "    func hops() {\n"
         "        Task { @MainActor in self.apply(data) }\n"                              # no await: it finishes in one turn
         "        Task { [weak self] in self?.apply() }\n"
@@ -641,6 +644,54 @@ try:
           | {"Packages/MarkViewCore/Sources/MarkViewCore/BadBox.swift:1:"},
           "an @unchecked Sendable or nonisolated(unsafe) with no `// unchecked Sendable: <reason>` on the same or the previous line fails unchecked-sendable with file and line")
     check("GoodBoxes.swift" not in out and "GoodBox.swift" not in out, "the justified file is not reported")
+
+    # --- studio-part-tasks (AR-16)
+    root = fresh()
+    write(root, "MarkView/Models/UIStudio/UIStudioGoodPart.swift", (
+        "@MainActor\n"
+        "final class StudioGoodPart {\n"
+        "    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`.\n"
+        "    unowned let session: StudioSession\n"
+        "    private(set) var pickTask: Task<Void, Never>?\n"                                      # a property type is not a start
+        "    func start() {\n"
+        "        pickTask = session.startPartTask { session in await session.awaitWork() }\n"
+        "        let hashes = await Task.detached { heavy() }.value\n"                              # detached work holds values only
+        "        Task { @MainActor in lastError = message } // task: one hop that never suspends and holds nothing of the session\n"
+        "        // task: a callback's hop onto the main actor; it finishes in one turn\n"
+        "        Task { @MainActor in session.progress(activity) }\n"
+        "        // Task { await self.work() } in a comment, and \"Task { }\" in a string, are not code\n"
+        "        let text = \"Task { await work() } DispatchQueue.main.asyncAfter(\"\n"
+        "    }\n"
+        "}\n"))
+    write(root, "MarkView/Models/UIStudio/UIStudioNotAPart.swift", (
+        "final class StudioNotAPart {\n"
+        "    private var run: Task<Void, Never>?\n"
+        "    func start() { run = Task { await work() } }\n"                                        # no `unowned let session`: not a part
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0 and "studio-part-tasks" in out,
+          "a part that starts its tasks with session.startPartTask, a justified hop, a detached task and a property type, and a file that is not a part, pass studio-part-tasks")
+    write(root, "MarkView/Models/UIStudio/UIStudioBadPart.swift", (
+        "@MainActor\n"
+        "final class StudioBadPart {\n"
+        "    unowned let session: StudioSession\n"                                                  # 3: no `/// Unowned:` line above
+        "    func start() {\n"
+        "        Task { [weak self] in await self?.run() }\n"                                       # 5: holds the part, not the session
+        "        Task(priority: .utility) { await self.run() }\n"                                   # 6
+        "        Task @MainActor { self.apply() }\n"                                                # 7
+        "        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.tick() }\n"             # 8
+        "        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in self.tick() }\n"   # 9
+        "        // task:\n"
+        "        Task { await self.run() }\n"                                                       # 11: a reason is required
+        "    }\n"
+        "}\n"))
+    project(root, app_swift(root))
+    code, out = run(root)
+    reported = {line.split(" ")[3] for line in out.splitlines() if line.startswith("  [studio-part-tasks]")}
+    check(code == 1 and reported == {f"MarkView/Models/UIStudio/UIStudioBadPart.swift:{n}:" for n in (3, 5, 6, 7, 8, 9, 11)},
+          "a part with a bare Task, Timer, asyncAfter or DispatchQueue.main start, an empty `// task:` and an `unowned let session` without its `/// Unowned:` line fails studio-part-tasks with file and line")
+    check("GoodPart.swift" not in out and "NotAPart.swift" not in out, "the good part and the file that is not a part are not reported")
 
     # --- domain-cycles ratchet (AR-21)
     def domain_files(root, models=None, views=None):

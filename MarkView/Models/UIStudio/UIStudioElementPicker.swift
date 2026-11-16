@@ -10,6 +10,7 @@ import MarkViewCore
 /// loop that waits for the next pick.
 @MainActor
 final class StudioElementPicker: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     @Published var mode: StudioSession.Mode = .interact {
@@ -30,11 +31,11 @@ final class StudioElementPicker: ObservableObject {
         }
         let previous = mode
         mode = next
-        if previous == .record { Task { _ = try? await session.call("return window.__markviewStudio.setRecording(false);") } }
+        if previous == .record { session.startPartTask { session in _ = try? await session.call("return window.__markviewStudio.setRecording(false);") } }
         switch next {
         case .interact:
             pickTask?.cancel()
-            Task { _ = try? await session.call("return window.__markviewStudio && window.__markviewStudio.setSelecting(false);") }
+            session.startPartTask { session in _ = try? await session.call("return window.__markviewStudio && window.__markviewStudio.setSelecting(false);") }
         case .select:
             startPicking()
         case .record:
@@ -51,9 +52,9 @@ final class StudioElementPicker: ObservableObject {
 
     func startPicking() {
         pickTask?.cancel()
-        // The loop outlives no session: it ends at the first turn after the session is gone (close() cancels it earlier).
-        pickTask = Task { [weak self, weak session = self.session] in
-            while let self, let session, self.mode == .select, !Task.isCancelled {
+        // The loop ends with the mode (Escape in the page, or another mode) or when the session closes (close() cancels it).
+        pickTask = session.startPartTask { session in
+            while self.mode == .select, !Task.isCancelled {
                 do {
                     let result = try await session.call("return window.__markviewStudio ? await window.__markviewStudio.pick() : undefined;")
                     guard self.mode == .select, !Task.isCancelled else { return }
@@ -75,22 +76,22 @@ final class StudioElementPicker: ObservableObject {
     }
 
     func selectParent() {
-        Task {
+        session.startPartTask { session in
             guard let object = try? await session.call("return window.__markviewStudio.parent();") as? [String: Any] else { return }
-            await adopt(object)
+            await self.adopt(object)
         }
     }
 
     func selectChild() {
-        Task {
+        session.startPartTask { session in
             guard let object = try? await session.call("return window.__markviewStudio.child();") as? [String: Any] else { return }
-            await adopt(object)
+            await self.adopt(object)
         }
     }
 
     func clearSelection() {
         selection = nil
-        Task { _ = try? await session.call("return window.__markviewStudio.clear();") }
+        session.startPartTask { session in _ = try? await session.call("return window.__markviewStudio.clear();") }
     }
 
     /// The selection as the session keeps it (PRE-06…PRE-08): the source path checked against the project, the source
@@ -124,7 +125,7 @@ final class StudioElementPicker: ObservableObject {
         _ = try? await session.call("return window.__markviewStudio.prepareCapture();")
         let rect = CGRect(x: context.rect.x, y: context.rect.y, width: context.rect.width, height: context.rect.height)
             .intersection(session.webView.bounds)
-        defer { Task { _ = try? await self.session.call("return window.__markviewStudio.finishCapture();") } }
+        defer { session.startPartTask { session in _ = try? await session.call("return window.__markviewStudio.finishCapture();") } }
         guard !rect.isNull, rect.width >= 1, rect.height >= 1, let image = await session.snapshot(rect) else { return nil }
         let folder = StudioStore.selectionFolder(session.root)
         StudioStore.prepareLocalFolder(session.root)

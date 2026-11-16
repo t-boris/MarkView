@@ -280,6 +280,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func awaitWork() async { await workStore.awaitWork() }
     func showBusyDetail(_ text: String) { workStore.showBusyDetail(text) }
     func cancelWork() { workStore.cancelWork() }
+    /// The one way a part starts a task that goes on after its call: the task holds this session until it ends (see `StudioWork.startPartTask`).
+    @discardableResult
+    func startPartTask(_ body: @escaping @MainActor (StudioSession) async -> Void) -> Task<Void, Never> { workStore.startPartTask(body) }
     func progress(_ activity: CLICompletion.Activity) { workStore.progress(activity) }
 
     /// The operations of the session and the conversation the assistant remembers.
@@ -724,12 +727,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func close() async {
         guard !closed else { return }
         closed = true
-        elementPicker.pickTask?.cancel()
-        workStore.workTask?.cancel()
+        workStore.cancelPartTasks()
         startTask?.cancel()
         screenTask?.cancel()
         reviewTask?.cancel()
-        repair.autoRepairTask?.cancel()
         preparation.cancelEverything()
         mapping.close()
         resumeLoadWaiters(false)
@@ -751,6 +752,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             await Task.detached { try? FileManager.default.removeItem(at: folder) }.value
         }
         set(.stopped, ownsServer ? "The development server MarkView started was stopped." : "Closed. The development server was already running and was left running.")
+        sessionLog.seal()
     }
 
     private static var terminationObserver: NSObjectProtocol?
@@ -889,9 +891,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         if webView.frame.size != size { webView.setFrameSize(size) }
     }
 
+    /// Calls a script in the page. A cancelled task stops waiting for the page's answer at once (`StudioPageCall`), so that a call whose
+    /// Promise never settles, as the picker's `pick()` while the person has not clicked, cannot keep the task and the session it holds alive.
     @discardableResult
     func call(_ script: String, _ arguments: [String: Any] = [:]) async throws -> Any? {
-        try await webView.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page)
+        let pending = StudioPageCall()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any?, Error>) in
+                guard pending.begin(continuation) else { return }
+                webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page) { pending.finish($0) }
+            }
+        } onCancel: { pending.cancel() }
     }
 
     /// Back to the scenario's baseline (SIM-04, AC-04): a new generation (late answers of the old one are dropped), empty

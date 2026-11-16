@@ -8,6 +8,7 @@ import MarkViewCore
 /// Owns the captures and the comparison the Evidence panel and the chat show.
 @MainActor
 final class StudioCaptures: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     @Published private(set) var captures: [StudioCapture] = []
@@ -29,10 +30,13 @@ final class StudioCaptures: ObservableObject {
         let info = (try? await session.call("return await window.__markviewStudio.prepareCapture();")) as? [String: Any] ?? [:]
         let image = await session.snapshot(nil)
         _ = try? await session.call("return window.__markviewStudio.finishCapture();")
-        guard let image else { return nil }
+        guard let image, !session.closed else { return nil }
         let id = "cap-" + ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "") + "-" + UUID().uuidString.prefix(4).lowercased()
         let relative = ProjectPaths.studioCaptureRelativePath(id: id)
         let file = session.root.appendingPathComponent(relative)
+        let revision = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers()).0
+        // Nothing of a capture is kept once the session has closed: the picture is written last, with what describes it.
+        guard !session.closed else { return nil }
         StudioStore.prepareLocalFolder(session.root)
         guard await Task.detached(operation: { StudioImageDiff.writePNG(image, to: file) }).value else { return nil }
         let os = ProcessInfo.processInfo.operatingSystemVersion
@@ -46,7 +50,6 @@ final class StudioCaptures: ObservableObject {
             locale: info["locale"] as? String ?? session.scenario.locale,
             timeZone: info["timeZone"] as? String ?? TimeZone.current.identifier,
             colorScheme: info["colorScheme"] as? String ?? session.scenario.theme.rawValue)
-        let revision = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers()).0
         let capture = StudioCapture(id: id, label: label, file: relative, revision: revision, scenarioId: session.scenario.id,
                                     scenarioRevision: session.scenario.revision,
                                     contractFingerprint: StudioScenarioCompatibility.fingerprint(session.scenario, spec: session.spec),
@@ -74,14 +77,14 @@ final class StudioCaptures: ObservableObject {
         let reasons = StudioImageDiff.incomparability(before, after)
         let a = url(of: before), b = url(of: after)
         let output = StudioStore.capturesFolder(session.root).appendingPathComponent("diff-\(before.id)-\(after.id).png")
-        Task {
+        session.startPartTask { _ in
             let result = await Task.detached { () -> (URL?, Double?, CGRect?) in
                 guard let first = StudioImageDiff.load(a), let second = StudioImageDiff.load(b),
                       let diff = StudioImageDiff.compare(first, second) else { return (nil, nil, nil) }
                 return (StudioImageDiff.writePNG(diff.image, to: output) ? output : nil, diff.ratio, diff.bounds)
             }.value
-            comparison = StudioSession.Comparison(before: before, after: after, diffFile: result.0, changedRatio: result.1, changedBounds: result.2, reasons: reasons)
-            comparisonEnlarged = enlarge
+            self.comparison = StudioSession.Comparison(before: before, after: after, diffFile: result.0, changedRatio: result.1, changedBounds: result.2, reasons: reasons)
+            self.comparisonEnlarged = enlarge
         }
     }
 }

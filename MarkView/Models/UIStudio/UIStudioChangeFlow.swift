@@ -8,6 +8,7 @@ import MarkViewCore
 /// application; and the undo of what a request did. Owns the undo conflicts waiting for the person and the trial of a requested scenario.
 @MainActor
 final class StudioChangeFlow: ObservableObject {
+    /// Unowned: the session owns this part. A task of this part starts through `session.startPartTask`, which holds the session until it ends.
     unowned let session: StudioSession
 
     private(set) var tryingScenario = false
@@ -103,6 +104,7 @@ final class StudioChangeFlow: ObservableObject {
                         parse: { StudioPrompts.editPlan(from: $0.structured) },
                         onResult: { [weak session] result in session?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
                     let (answered, _) = try await asking.execute(call, onActivity: { activity in
+                        // task: a hop onto the main actor from the assistant's callback; it never suspends and holds the session itself
                         Task { @MainActor in session.progress(activity) }
                     })
                     guard let parsed = answered else {
