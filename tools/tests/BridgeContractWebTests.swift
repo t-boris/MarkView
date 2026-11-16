@@ -10,6 +10,7 @@ import WebKit
 //   - The discussion page (discussion.html) with the real coordinator: the page's own `ready` message reaches its typed handler,
 //     which sends the turns, and they appear in the page.
 // Run through tools/tests/bridge-contract-web-tests.sh (argument 1: the bundled editor folder).
+MainActor.assumeIsolated {
 setvbuf(stdout, nil, _IONBF, 0)
 let editor = CommandLine.arguments[1]
 var failures = 0
@@ -50,7 +51,7 @@ final class Page {
         window.alphaValue = 0
         window.contentView = web
         web.navigationDelegate = loaded
-        web.loadFileURL(URL(fileURLWithPath: editor + "/" + file), allowingReadAccessTo: URL(fileURLWithPath: editor))
+        web.loadFileURL(URL(fileURLWithPath: CommandLine.arguments[1] + "/" + file), allowingReadAccessTo: URL(fileURLWithPath: CommandLine.arguments[1]))
     }
     func js(_ body: String, timeout: TimeInterval = 20) -> String {
         var out: String?
@@ -176,3 +177,5 @@ check(hostileResult["text"] as? String == hostileQuestion && hostileResult["imgs
 
 print("\(failures) failures")
 exit(failures == 0 ? 0 : 1)
+
+}

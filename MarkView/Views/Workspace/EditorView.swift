@@ -189,7 +189,7 @@ struct EditorView: NSViewRepresentable {
                       let url = (notification.userInfo?["url"] as? URL)?.standardizedFileURL, url == self.currentLineRevealURL,
                       let path = notification.userInfo?["path"] as? String,
                       let line = notification.userInfo?["line"] as? Int else { return }
-                self.bridge.revealStructure(pathJSON: path, line: line, in: webView)
+                MainActor.assumeIsolated { self.bridge.revealStructure(pathJSON: path, line: line, in: webView) }
             }
 
             // Navigation results and AI answers for the file in the code viewer.
@@ -203,7 +203,7 @@ struct EditorView: NSViewRepresentable {
                       let webView = self.webView,
                       let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
                       let json = notification.userInfo?["json"] as? String else { return }
-                self.bridge.sendCodeNavEvent(json, in: webView)
+                MainActor.assumeIsolated { self.bridge.sendCodeNavEvent(json, in: webView) }
             }
 
             // Listen for scroll-to-text requests (from Semantic Panel)
@@ -317,7 +317,7 @@ struct EditorView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView,
                       decidePolicyFor navigationAction: WKNavigationAction,
-                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
             guard let url = navigationAction.request.url else {
                 decisionHandler(.allow)
                 return

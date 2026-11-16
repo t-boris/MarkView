@@ -7,7 +7,7 @@ final class StudioMessageHandler: NSObject, WKScriptMessageHandlerWithReply {
     weak var session: StudioSession?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
-                               replyHandler: @escaping (Any?, String?) -> Void) {
+                               replyHandler: @escaping @MainActor (Any?, String?) -> Void) {
         guard let session else {
             replyHandler(nil, "The UI Studio session is closed.")
             return

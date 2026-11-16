@@ -12,6 +12,7 @@ import SwiftUI
 // collaborators of the last two are replaced by the small stand-ins in BridgeContractSupport.swift. Run through tools/tests/bridge-contract-tests.sh
 // (argument 1: the bundled editor folder).
 
+MainActor.assumeIsolated {
 var failures = 0
 func check(_ ok: Bool, _ message: String, _ detail: String = "") {
     if !ok { failures += 1 }
@@ -345,3 +346,5 @@ check(jsPosted.isEmpty && jsErrors.count == 1 && jsErrors[0].contains("no bridge
 
 print("\(failures) failures")
 exit(failures == 0 ? 0 : 1)
+
+}

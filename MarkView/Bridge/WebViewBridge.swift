@@ -64,6 +64,7 @@ enum AnyCodable: Codable, Sendable {
 /// The page's messages are declared in `Editor/js/bridge-contract.json` (channel "bridge"). `messages` checks each one against
 /// the contract, decodes its payload into one of the `EditorMessage` types and calls the handler registered below, which passes
 /// it to the delegate. A message that is not declared, or does not match its declaration, never reaches the delegate.
+@MainActor
 class WebViewBridge: NSObject {
     weak var delegate: WebViewBridgeDelegate?
 
@@ -440,6 +441,7 @@ class WebViewBridge: NSObject {
 
 // MARK: - Bridge Delegate Protocol
 
+@MainActor
 protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didUpdateContent content: String, documentID: UUID?)
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem])
