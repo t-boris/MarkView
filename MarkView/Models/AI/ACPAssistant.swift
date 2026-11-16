@@ -59,6 +59,7 @@ enum ACPAssistant {
             try await connection.start()
             defer { connection.close() }
             let timeout = request.timeout.map { seconds in
+                // task: this request's own timer; the `defer` right below cancels it when the request ends, however it ends
                 Task.detached {
                     try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                     if !Task.isCancelled { connection.fail(.timedOut(tool, seconds)) }

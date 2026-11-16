@@ -123,6 +123,7 @@ enum PDFExporter {
             guard response == .OK, let url = panel.url else { return }
             let style = accessory.style
             style.remember()
+            // task: the one export the person confirmed in the save panel; it ends on its own and its result (the file, a notice) belongs to no window
             Task { @MainActor in
                 do {
                     let chapter = try await load()

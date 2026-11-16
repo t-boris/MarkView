@@ -87,6 +87,8 @@ final class AgentUsageTracker: ObservableObject {
     private var appActive = true
     /// The 15 s refresh is a job of the app's scheduler (`AR-19`), which also pauses it while the app is in the background.
     private static let pollKey = "agent-usage"
+    /// The official fetches under way, one per agent (`AR-19`). They end with the polling: nothing is asked while no indicator shows (DEC-010).
+    private let tasks = TaskBag()
     private var eventStream: FSEventStreamRef?
 
     private init() {
@@ -130,6 +132,10 @@ final class AgentUsageTracker: ObservableObject {
         } else if !shouldRun && isRunning {
             PollingScheduler.app.stop(key: Self.pollKey)
             stopWatching()
+            // A fetch that has not answered yet is dropped, so it must not stay marked as under way.
+            tasks.cancelAll()
+            for agent in official.keys { official[agent]?.inFlight = false }
+            refreshing = []
         }
     }
 
@@ -207,10 +213,11 @@ final class AgentUsageTracker: ObservableObject {
     private func fetchOfficial(_ agent: CLITool) {
         official[agent, default: OfficialState()].inFlight = true
         refreshing.insert(agent)
-        Task {
+        tasks.store(Task { [weak self] in
             let result = await OfficialUsageClient.fetch(agent)
-            self.applyOfficial(result, for: agent)
-        }
+            guard !Task.isCancelled else { return }
+            self?.applyOfficial(result, for: agent)
+        }, for: "official:" + agent.rawValue)
     }
 
     private func applyOfficial(_ result: UsageFetchResult, for agent: CLITool) {
