@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1DC2CABF98519D58B8245905 /* LoginScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B6CBBB94264419CC8203BAD /* LoginScript.swift */; };
 		50C9BABF352FCD933830CB16 /* StreamedRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73078578268A7E8632AC82F /* StreamedRefresh.swift */; };
 		6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39AAA206B981629959A05EF /* ToolOpener.swift */; };
 		06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */; };
@@ -578,6 +579,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		9B6CBBB94264419CC8203BAD /* LoginScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginScript.swift; sourceTree = "<group>"; };
 		F73078578268A7E8632AC82F /* StreamedRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamedRefresh.swift; sourceTree = "<group>"; };
 		D39AAA206B981629959A05EF /* ToolOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolOpener.swift; sourceTree = "<group>"; };
 		862321C68A3C85F6ACC3EF95 /* PrototypeStudioHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStudioHost.swift; sourceTree = "<group>"; };
@@ -1342,6 +1344,7 @@
 				8617D6996AEA0B711F366A7C /* CLICompletion.swift */,
 				4E5C49BB3F8E4AF05F47765E /* CommandPolicy.swift */,
 				CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */,
+				9B6CBBB94264419CC8203BAD /* LoginScript.swift */,
 				2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */,
 				3C5186158816AE816A500A12 /* ProviderHints.swift */,
 				DAFD936599E6497BB1CC0AB4 /* Providers */,
@@ -3110,6 +3113,7 @@
 				06D9791421FE64C166AF8B4B /* PrototypeStudioHost.swift in Sources */,
 				6B3BFF95DB1F6DF858DD70A3 /* ToolOpener.swift in Sources */,
 				50C9BABF352FCD933830CB16 /* StreamedRefresh.swift in Sources */,
+				1DC2CABF98519D58B8245905 /* LoginScript.swift in Sources */,
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */,
 				4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */,

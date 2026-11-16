@@ -1654,9 +1654,6 @@ struct GitHubSettingsSection: View {
             showError("GitHub CLI not found", "Install it with `brew install gh`, then sign in.")
             return
         }
-        let directory = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/MarkView", isDirectory: true)
-        let script = directory.appendingPathComponent("login-github.command")
         let profile = GitHubProfile.resolve(root: root)
         let configLine = profile.directory.map { "export GH_CONFIG_DIR=\"\($0.path)\"\nunset GITHUB_TOKEN" } ?? ""
         let body = """
@@ -1670,10 +1667,7 @@ struct GitHubSettingsSection: View {
 
             """
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try body.write(to: script, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-            NSWorkspace.shared.open(script)
+            NSWorkspace.shared.open(try LoginScript.write(named: "github", body: body))
         } catch {
             showError("Could not prepare the login script", error.localizedDescription)
         }

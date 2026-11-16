@@ -3,7 +3,6 @@
 # move, a file that must never replace an existing one (`.withoutOverwriting`), and an append-only log. Everything else, every file
 # of app or project state, goes through AtomicFile.write. Run tools/lint/architecture-lint.sh --tighten after converting a site.
 1 MarkView/Bridge/PDFExporter.swift
-1 MarkView/Models/AI/AIAssistants.swift
 1 MarkView/Models/AI/Providers/CodexProvider.swift
 1 MarkView/Models/Book/BookPDFExportModel.swift
 1 MarkView/Models/Browser/BrowserSession.swift
@@ -15,5 +14,4 @@
 1 MarkView/Models/UIStudio/UIStudioSession.swift
 1 MarkView/Views/Browser/BrowserTabView.swift
 1 MarkView/Views/Discussion/DiscussionThreadView.swift
-1 MarkView/Views/Git/GitHubViews.swift
 1 MarkView/Views/QA/QARunReportViews.swift

@@ -31,7 +31,7 @@ swiftc -o "$out/insight-coordinator-tests" -target "$(uname -m)-apple-macos13.0"
     MarkView/Models/Insight/GraphRAG.swift MarkView/Models/Insight/EmbeddingClient.swift \
     MarkView/Models/Shared/SemanticDatabase.swift MarkView/Models/Insight/SemanticUsage.swift MarkView/Models/Shared/SemanticSchema.swift MarkView/Models/Shared/SemanticModels.swift \
     MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/Appearance/ProjectColor.swift \
-    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
+    MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/LoginScript.swift MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/AIOperation.swift \
     MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/DiagramAI.swift \
     MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \
