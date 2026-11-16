@@ -2,10 +2,10 @@ import Foundation
 
 /// A replayable HTTP step. Empty path checks the player's previous response without sending another request.
 /// JSON values in assertions use JSON literals; paths use RFC 6901 JSON Pointers (empty means the whole document).
-struct QAAPIRequest: Codable, Equatable {
-    struct Header: Codable, Equatable { var name: String; var value: String }
-    struct Assertion: Codable, Equatable { var pointer: String; var equals: String }
-    struct Capture: Codable, Equatable { var name: String; var pointer: String; var secret: Bool = false }
+struct QAAPIRequest: Codable, Equatable, Sendable {
+    struct Header: Codable, Equatable, Sendable { var name: String; var value: String }
+    struct Assertion: Codable, Equatable, Sendable { var pointer: String; var equals: String }
+    struct Capture: Codable, Equatable, Sendable { var name: String; var pointer: String; var secret: Bool = false }
 
     var method: String = "GET"
     var path: String = "/"
@@ -71,7 +71,7 @@ struct QAAPIRequest: Codable, Equatable {
     }
 }
 
-struct QAAPIResult {
+struct QAAPIResult: Sendable {
     var passed: Bool
     /// Safe evidence for the live feed, archived run and bug reports. Request headers and bodies are never included.
     var evidence: String

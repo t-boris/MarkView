@@ -5,7 +5,7 @@ import Foundation
 // from the page or a request is scrubbed of the password before the assistant, the feed or the run record can see it. Foundation only;
 // checked by tools/tests/qa-tests.sh.
 
-struct QACredentials: Equatable {
+struct QACredentials: Equatable, Sendable {
     static let usernamePlaceholder = "{{username}}"
     static let passwordPlaceholder = "{{password}}"
     static let mask = "••••"

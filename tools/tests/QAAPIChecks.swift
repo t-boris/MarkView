@@ -118,6 +118,24 @@ struct QAAPIChecks {
         catch is CancellationError { check("cancellation interrupts pending request", true) }
         catch { check("cancellation interrupts pending request", false) }
 
+        func slowRequests() async throws -> Int {
+            let (data, _) = try await URLSession.shared.data(from: URL(string: url + "/stats")!)
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return (object?["requests"] as? [[String]] ?? []).filter { $0.last == "/slow" }.count
+        }
+        let beforeSlow = try await slowRequests()
+        let overlapping = Task { try await client.execute(.init(path: "/slow")) }
+        var observedSlow = false
+        for _ in 0..<100 {
+            if try await slowRequests() > beforeSlow { observedSlow = true; break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        check("the first request reached the server before overlap", observedSlow)
+        await rejects("a second request cannot overwrite an in-flight continuation") { _ = try await client.execute(.init(path: "/types")) }
+        overlapping.cancel()
+        _ = try? await overlapping.value
+        check("a request can run after the cancelled one finishes", try await client.execute(.init(path: "/types")).passed)
+
         for index in 0..<50 {
             let race = Task { try await client.execute(.init(path: "/types")) }
             if index % 2 == 0 { try await Task.sleep(nanoseconds: 1) }

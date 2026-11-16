@@ -1,19 +1,18 @@
 import Foundation
+import os
 
 /// Per-player, per-service state. Captures and cookies live only for one branch; tokens never enter the scenario or logs.
-final class QAAPIClient: NSObject, URLSessionDataDelegate {
+actor QAAPIClient {
     static let responseLimit = 2 * 1024 * 1024
-    private let origin: URL
+    private nonisolated let origin: URL
     private let credentials: QACredentials
     private var variables: [String: String] = [:]
     private var jsonVariables: [String: String] = [:]
     private var secrets: Set<String> = []
     private var last: (status: Int, data: Data, milliseconds: Int)?
-    private var session: URLSession!
-    private var pending: CheckedContinuation<(Data, URLResponse), Error>?
-    private var response: URLResponse?
-    private var received = Data()
-    private let queue = OperationQueue()
+    private nonisolated let session: URLSession
+    private let transport: QAAPITransport
+    private var executing = false
 
     init(address: String, credentials: QACredentials = QACredentials()) throws {
         guard let url = URL(string: address), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil,
@@ -21,17 +20,17 @@ final class QAAPIClient: NSObject, URLSessionDataDelegate {
         origin = url
         self.credentials = credentials
         if let password = credentials.password, !password.isEmpty { secrets.insert(password) }
-        super.init()
-        queue.maxConcurrentOperationCount = 1
+        let transport = QAAPITransport()
+        self.transport = transport
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
-        session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
+        session = URLSession(configuration: config, delegate: transport, delegateQueue: transport.queue)
     }
 
-    func close() { session.invalidateAndCancel() }
+    nonisolated func close() { session.invalidateAndCancel() }
 
     /// Requests stay inside the service selected in Setup. Redirects are returned as responses without following them.
-    func resolved(_ path: String) throws -> URL {
+    nonisolated func resolved(_ path: String) throws -> URL {
         guard let url = URL(string: path, relativeTo: origin)?.absoluteURL,
               url.scheme?.lowercased() == origin.scheme?.lowercased(), url.host?.lowercased() == origin.host?.lowercased(),
               (url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)) == (origin.port ?? (origin.scheme?.lowercased() == "https" ? 443 : 80)),
@@ -59,6 +58,9 @@ final class QAAPIClient: NSObject, URLSessionDataDelegate {
     }
 
     func execute(_ step: QAAPIRequest) async throws -> QAAPIResult {
+        guard !executing else { throw QAAPIError.invalid("A request is already running for this player and service.") }
+        executing = true
+        defer { executing = false }
         guard step.problems.isEmpty else { throw QAAPIError.invalid(step.problems.joined(separator: " ")) }
         try Task.checkCancellation()
         var label = "Previous response"
@@ -157,14 +159,14 @@ final class QAAPIClient: NSObject, URLSessionDataDelegate {
     }
 
     private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        let transfer = Transfer(session.dataTask(with: request))
+        let task = session.dataTask(with: request)
+        let transfer = Transfer(task)
+        let transport = self.transport
         do {
             return try await withTaskCancellationHandler(operation: {
                 try await withCheckedThrowingContinuation { continuation in
-                    queue.addOperation {
-                        self.pending = continuation
-                        self.response = nil
-                        self.received = Data()
+                    transport.queue.addOperation {
+                        transport.begin(task: task, continuation: continuation)
                         transfer.start()
                     }
                 }
@@ -174,21 +176,50 @@ final class QAAPIClient: NSObject, URLSessionDataDelegate {
             throw error
         }
     }
+}
+
+/// URLSession callbacks run on a serial delegate queue; the lock owns each task's response and continuation.
+private final class QAAPITransport: NSObject, URLSessionDataDelegate {
+    private struct Pending: Sendable {
+        let continuation: CheckedContinuation<(Data, URLResponse), Error>
+        var response: URLResponse?
+        var received = Data()
+    }
+
+    let queue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        return queue
+    }()
+    private let pending = OSAllocatedUnfairLock(initialState: [Int: Pending]())
+
+    func begin(task: URLSessionDataTask, continuation: CheckedContinuation<(Data, URLResponse), Error>) {
+        pending.withLock { $0[task.taskIdentifier] = Pending(continuation: continuation) }
+    }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        self.response = response
-        completionHandler(response.expectedContentLength > Int64(Self.responseLimit) ? .cancel : .allow)
+        pending.withLock { $0[dataTask.taskIdentifier]?.response = response }
+        completionHandler(response.expectedContentLength > Int64(QAAPIClient.responseLimit) ? .cancel : .allow)
     }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        if received.count + data.count > Self.responseLimit { dataTask.cancel() } else { received.append(data) }
+        let overLimit = pending.withLock { state -> Bool in
+            guard var item = state[dataTask.taskIdentifier] else { return false }
+            guard item.received.count + data.count <= QAAPIClient.responseLimit else { return true }
+            item.received.append(data)
+            state[dataTask.taskIdentifier] = item
+            return false
+        }
+        if overLimit { dataTask.cancel() }
     }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let continuation = pending; pending = nil
-        if error != nil {
-            continuation?.resume(throwing: QAAPIError.transport)
-        } else if let response { continuation?.resume(returning: (received, response)) }
-        else { continuation?.resume(throwing: QAAPIError.transport) }
+        guard let item = pending.withLock({ $0.removeValue(forKey: task.taskIdentifier) }) else { return }
+        if error != nil { item.continuation.resume(throwing: QAAPIError.transport) }
+        else if let response = item.response { item.continuation.resume(returning: (item.received, response)) }
+        else { item.continuation.resume(throwing: QAAPIError.transport) }
     }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         // A redirect is a response under test. Never replay a mutating request or forward credentials to another address.
         completionHandler(nil)

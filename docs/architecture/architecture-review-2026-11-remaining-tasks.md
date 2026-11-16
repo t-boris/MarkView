@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+QA API scenario state is actor-isolated and network callback state is lock-owned per task. A second overlapping request to the same player/service now returns an explicit error rather than overwrite the first continuation. The local-server suite passed 93 checks, including overlap, cancellation and a subsequent request; all seven changed-file pure suites, the affected gui suite, Debug build, warning ratchet and architecture lint passed. Complete checking reports no warnings in `QAAPIClient.swift` (one before).
+
 Cluster naming schemas are constructed independently inside each parallel request. An app-hosted test checked the single- and multi-batch schemas; all 21 hosted tests, X-Ray ownership suite, Debug build, warning ratchet and architecture lint passed. The shared-dictionary diagnostic disappeared, but the compiler still reports an unrecognized task-group isolation pattern at that call; acceptance remains open.
 
 ACP response continuations transfer JSON data and decode it at the receiver rather than send mutable dictionaries. The three ACP/provider/timeout suites, Debug build, warning ratchet and architecture lint passed; complete checking reports no warnings in `ACPAssistant.swift` (one before). Live provider calls were not run per DEC-013.
