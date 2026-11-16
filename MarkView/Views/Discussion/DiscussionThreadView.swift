@@ -110,7 +110,8 @@ struct DiscussionThreadView: NSViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                     decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
             if action.navigationType == .linkActivated, let url = action.request.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
                 NSWorkspace.shared.open(url)
                 decisionHandler(.cancel)

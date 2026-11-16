@@ -88,4 +88,11 @@ final class EditorHostTests: XCTestCase {
         XCTAssertTrue(coordinator.responds(to: selector), "WebKit must be able to call the navigation policy handler")
     }
 
+    @MainActor
+    func testDiscussionNavigationDelegateExposesPolicyCallback() {
+        let coordinator = DiscussionThreadView.Coordinator()
+        let selector = NSSelectorFromString("webView:decidePolicyForNavigationAction:decisionHandler:")
+        XCTAssertTrue(coordinator.responds(to: selector), "WebKit must be able to call the navigation policy handler")
+    }
+
 }
