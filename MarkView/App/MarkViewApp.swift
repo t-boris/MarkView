@@ -68,6 +68,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // task: the quit itself: it answers `.terminateLater` and replies when the stores have saved; nothing may cancel it
         Task { @MainActor in
             guard await ProjectOperationsStore.stopAllBeforeQuit() else {
                 sender.reply(toApplicationShouldTerminate: false)
@@ -174,6 +175,7 @@ enum DDEIndexerRunner {
     static func run(folderPath: String) -> Never {
         let url = URL(fileURLWithPath: folderPath)
         err("start \(folderPath)")
+        // task: the child process is this task: it ends the process with exit(), and nothing in a headless run can cancel it
         Task {
             do {
                 let db = try await SemanticDatabase.open(workspacePath: url)
@@ -352,7 +354,7 @@ struct MarkViewApp: App {
 
                 Menu("Layout") {
                     LayoutMenuItems(library: layouts.library, enabled: activeWorkspaceHasFolder == true,
-                                    apply: { activeWorkspace?.applyLayoutPreset($0) }, reload: { Task { await layouts.reload() } })
+                                    apply: { activeWorkspace?.applyLayoutPreset($0) }, reload: { layouts.startReload() })
                 }
             }
 

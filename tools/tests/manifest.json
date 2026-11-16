@@ -1562,6 +1562,7 @@
         "MarkView/Models/Workspace/LayoutPreset.swift",
         "MarkView/Models/Workspace/LayoutCatalog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",

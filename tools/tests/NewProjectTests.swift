@@ -177,6 +177,25 @@ MainActor.assumeIsolated {
     _ = rewritten
     check("damaged draft: a save over it keeps the old bytes in a dated backup", settle { StoreFixture.envelope(brokenDraft)?.schema == 1 }
           && StoreFixture.backups(of: brokenDraft).count == 1 && StoreFixture.bytes(StoreFixture.backups(of: brokenDraft)[0]) == Data("{ \"id\": ".utf8))
+
+    // The folder is read again on request; asking twice at once is one read that ends with the folder as it is (the second replaces the first).
+    let extraID = UUID()
+    StoreFixture.write("""
+    {
+      "created" : "2026-11-03T09:00:00Z",
+      "filesWritten" : false,
+      "gitInitialized" : false,
+      "id" : "\(extraID.uuidString)",
+      "idea" : "A budget tracker",
+      "stage" : "clarifying",
+      "title" : "Budget",
+      "updated" : "2026-11-03T09:00:00Z"
+    }
+    """, to: draftsFolder.appendingPathComponent("\(extraID.uuidString)/draft.json"))
+    check("reload: a draft written to the folder is not listed before the folder is read again", drafts.draft(extraID) == nil)
+    drafts.reload()
+    drafts.reload()
+    check("reload: two requests at once end with the new draft listed", settle { drafts.draft(extraID)?.title == "Budget" })
 }
 
 print(failures == 0 ? "All checks passed." : "\(failures) check(s) failed.")
