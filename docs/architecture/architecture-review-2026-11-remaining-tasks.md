@@ -107,11 +107,11 @@ replace the closure by a protocol the owner conforms to, or by an event on an ex
 Acceptance: `architecture-lint.sh` `window-wiring (hooks)` 31 -> a lower stated number and `(back-references)` 4 -> 0, each by `--tighten`.
 
 **C3. 2 views on the manager.**
-- Status 2026-11-16: `FileTreeView` uses `ProjectContext`, its existing scoped coordinators, and `WindowCommands` instead of observing `WorkspaceManager`; the ratchet fell from 2 views to 1 (`EditorView`). Debug build succeeded with no warnings, and file-browser, file-operations and window-composition suites passed (3/3); architecture lint passed after tightening. A hidden scratch-app probe opened the project, but the simulated Show Files click did not switch views, so opening a file was not verified; no new crash report appeared. `EditorView` remains open.
+- Status 2026-11-16: `FileTreeView` uses `ProjectContext`, its existing scoped coordinators, and `WindowCommands` instead of observing `WorkspaceManager`; the ratchet fell from 2 views to 1 (`EditorView`). Debug build succeeded with no warnings, and file-browser, file-operations and window-composition suites passed (3/3); architecture lint passed after tightening. A hidden scratch-app probe opened the project, but the simulated Show Files click did not switch views, so opening a file was not verified; no new crash report appeared. `EditorView` now receives the existing scoped parts and window commands. The view ratchet is 0; Debug build, warning ratchet, architecture lint and six bridge/WebKit/window suites passed. Those standalone suites exercise the bridge and window composition, not `EditorView` hosted in the application; app-hosted coverage remains open under C5.
 Move the commands to `WindowCommands` (`@Environment(\.windowCommands)`), as the other views did. Acceptance: `workspace-manager` rule 2 -> 0.
 
 **C4. The 16-domain strongly connected group of `Models/`.** After C1-C3 re-run `domain-dependencies.py`; the tool counts named types only.
-- Interim measurement 2026-11-16: `python3 tools/lint/domain-dependencies.py --layer Models` reports a largest strongly connected group of 10 domains and 0 back-edges. C2 and C3 are still open, so the required final measurement is pending.
+- Measurement after C1–C3, 2026-11-16: `python3 tools/lint/domain-dependencies.py --layer Models` reports a largest strongly connected group of 10 domains (was 16) and 0 back-edges. The tool counts named types only; the remaining group is not claimed eliminated.
 Acceptance: the stated number of domains in the largest cycle, or a written decision that the remainder is accepted.
 
 **C5. AR-44 step 4: an app-hosted test target (D7).** Add a second product type to `MarkView.xcodeproj` that hosts the GUI and WebKit suites

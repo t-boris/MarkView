@@ -7,12 +7,20 @@ import MarkViewCore
 
 /// NSViewRepresentable wrapper for WKWebView markdown editor
 struct EditorView: NSViewRepresentable {
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.windowCommands) private var window
+    @EnvironmentObject private var project: ProjectContext
+    @EnvironmentObject private var codeXRay: CodeAndXRayCoordinator
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var translator: DocumentTranslator
+    @EnvironmentObject private var windowUI: WindowUIState
+    let research: ResearchMapController
+    let insight: InsightCoordinator
+    let taskBag: TaskBag
     @EnvironmentObject var tabs: TabsController
     @EnvironmentObject var windowTheme: WindowTheme
     @Environment(\.appFontScale) private var fontScale
     @ObservedObject private var transparencyStore = ProjectTransparencyStore.shared
-    private var workspaceTransparency: Double { transparencyStore.value(for: workspaceManager.projectFolder) }
+    private var workspaceTransparency: Double { transparencyStore.value(for: project.projectFolder) }
 
     func makeNSView(context: Context) -> WKWebView {
         // Data viewers read their file through `markview-data:` (only files open in a data tab).
@@ -27,10 +35,10 @@ struct EditorView: NSViewRepresentable {
         }
         // The pictures a document refers to by a relative path (BUG-061): the project folder and the folder of each open document.
         let documentFiles = context.coordinator.documentFiles
-        documentFiles.allowedRoots = { [weak workspaceManager, weak tabs] in
+        documentFiles.allowedRoots = { [weak project, weak tabs] in
             MainActor.assumeIsolated {
-                guard let workspaceManager, let tabs else { return [] }
-                return DocumentFiles.roots(project: workspaceManager.project.root,
+                guard let project, let tabs else { return [] }
+                return DocumentFiles.roots(project: project.root,
                                            documents: tabs.openTabs.filter(\.isFileBacked).map(\.url))
             }
         }
@@ -152,7 +160,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .performPDFExport,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.isFor(self.parent.workspaceManager) else { return }
+                guard let self, self.parent.window.map({ notification.isFor($0) }) == true else { return }
                 let fileName = notification.object as? String ?? "document.pdf"
                 self.exportPDF(fileName: fileName)
             }
@@ -162,7 +170,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .scrollToHeading,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.isFor(self.parent.workspaceManager) else { return }
+                guard let self, self.parent.window.map({ notification.isFor($0) }) == true else { return }
                 if let headingId = notification.object as? String {
                     self.scrollToHeading(headingId)
                 }
@@ -173,7 +181,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .revealCodeLine,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.isFor(self.parent.workspaceManager),
+                guard let self, self.parent.window.map({ notification.isFor($0) }) == true,
                       let url = notification.userInfo?["url"] as? URL,
                       let line = notification.userInfo?["line"] as? Int else { return }
                 self.pendingCodeReveal = (url.standardizedFileURL, line, notification.userInfo?["endLine"] as? Int)
@@ -185,7 +193,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .revealStructure,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.isFor(self.parent.workspaceManager), let webView = self.webView,
+                guard let self, self.parent.window.map({ notification.isFor($0) }) == true, let webView = self.webView,
                       let url = (notification.userInfo?["url"] as? URL)?.standardizedFileURL, url == self.currentLineRevealURL,
                       let path = notification.userInfo?["path"] as? String,
                       let line = notification.userInfo?["line"] as? Int else { return }
@@ -199,7 +207,7 @@ struct EditorView: NSViewRepresentable {
             ) { [weak self] notification in
                 // Delivered on the main queue, where the window's models live.
                 guard let self,
-                      MainActor.assumeIsolated({ notification.object as AnyObject? === self.parent.workspaceManager.codeXRay.codeNav }),
+                      MainActor.assumeIsolated({ notification.object as AnyObject? === self.parent.codeXRay.codeNav }),
                       let webView = self.webView,
                       let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
                       let json = notification.userInfo?["json"] as? String else { return }
@@ -211,7 +219,7 @@ struct EditorView: NSViewRepresentable {
                 forName: .scrollToText,
                 object: nil, queue: .main
             ) { [weak self] notification in
-                guard let self, notification.isFor(self.parent.workspaceManager) else { return }
+                guard let self, self.parent.window.map({ notification.isFor($0) }) == true else { return }
                 if let text = notification.object as? String {
                     self.scrollToText(text, heading: notification.userInfo?["heading"] as? Bool ?? false)
                 }
@@ -242,7 +250,7 @@ struct EditorView: NSViewRepresentable {
                 .replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
             // This window's own text size and panel widths injected at documentStart via WKUserScript (`EditorWindowPrefs`, `FU-10`)
             // so index.html needs no inline <script> injection.
-            let windowUI = parent.workspaceManager.windowUI
+            let windowUI = parent.windowUI
             var own: [String: String] = [:]
             for key in EditorWindowPrefs.keys {
                 if let value = windowUI.existing(Setting.editorPref(key)) { own[key] = value }
@@ -342,7 +350,7 @@ struct EditorView: NSViewRepresentable {
                 if FileType.isOpenable(url) {
                     decisionHandler(.cancel)
                     Task { @MainActor in
-                        self.parent.workspaceManager.openFile(url, lineFragment: url.fragment)
+                        self.parent.window?.openFile(url, lineFragment: url.fragment)
                     }
                     return
                 }
@@ -455,7 +463,7 @@ struct EditorView: NSViewRepresentable {
                documentURL?.standardizedFileURL == lastLoadedDocumentURL,
                ResearchMap.isMap(lastLoadedContent), ResearchMap.isMap(markdown) {
                 lastLoadedContent = loadKey
-                bridge.setResearchMap(parent.workspaceManager.research.snapshotJSON(text: markdown, file: tab.url),
+                bridge.setResearchMap(parent.research.snapshotJSON(text: markdown, file: tab.url),
                                       documentID: tab.id, in: webView)
                 followResearchMapJobs()
                 return
@@ -493,7 +501,7 @@ struct EditorView: NSViewRepresentable {
         /// without the file changing, and the map view shows it.
         func followResearchMapJobs() {
             guard researchMapJobsCancellable == nil else { return }
-            researchMapJobsCancellable = parent.workspaceManager.research.jobs.$jobs
+            researchMapJobsCancellable = parent.research.jobs.$jobs
                 .throttle(for: .milliseconds(500), scheduler: DispatchQueue.main, latest: true)
                 .sink { [weak self] _ in
                     guard let self, let webView = self.webView, let id = self.lastLoadedTabID,
@@ -501,25 +509,25 @@ struct EditorView: NSViewRepresentable {
                           let current = self.parent.tabs.openTabs.first(where: { $0.id == id }) else { return }
                     // The text of the map reaches the page when the file changes; this push is for the job's own
                     // progress (its step and start), so it is sent only when that changed.
-                    let info = self.parent.workspaceManager.research.jobs.mapJobInfo(for: current.url)
+                    let info = self.parent.research.jobs.mapJobInfo(for: current.url)
                     guard self.lastPushedJob?.tab != id || self.lastPushedJob?.info != info else { return }
                     self.lastPushedJob = (id, info)
-                    self.bridge.setResearchMap(self.parent.workspaceManager.research.snapshotJSON(text: current.content, file: current.url),
+                    self.bridge.setResearchMap(self.parent.research.snapshotJSON(text: current.content, file: current.url),
                                                documentID: id, in: webView)
                 }
         }
 
         /// Load cached notes for the code file and keep the margin panel in sync.
         private func routeCodeNotes(url: URL, webView: WKWebView) {
-            let wm = parent.workspaceManager
-            wm.codeXRay.prepareCodeNotes(for: url)
+            let codeXRay = parent.codeXRay
+            codeXRay.prepareCodeNotes(for: url)
             // Notes change with the explanation and with the selected pull request (X-Ray).
-            codeNotesCancellable = wm.codeXRay.codeExplain.$revision.map { _ in () }
-                .merge(with: wm.codeXRay.architecture.$revision.map { _ in () })
+            codeNotesCancellable = codeXRay.codeExplain.$revision.map { _ in () }
+                .merge(with: codeXRay.architecture.$revision.map { _ in () })
                 .debounce(for: .milliseconds(120), scheduler: DispatchQueue.main)
                 .sink { [weak self, weak webView] _ in
                     guard let self, let webView, let current = self.currentCodeURL else { return }
-                    self.bridge.setCodeNotes(self.parent.workspaceManager.codeXRay.codeNotesJSON(for: current), in: webView)
+                    self.bridge.setCodeNotes(self.parent.codeXRay.codeNotesJSON(for: current), in: webView)
                 }
         }
 
@@ -527,8 +535,8 @@ struct EditorView: NSViewRepresentable {
         private func routeArchitecture(scope: String, webView: WKWebView) {
             currentCodeURL = nil
             lastLoadedContent = ""   // a file opened afterwards must reload into the editor
-            let store = parent.workspaceManager.codeXRay.xrayStore(for: scope)
-            let operations = scope.isEmpty ? parent.workspaceManager.projectOperations : nil
+            let store = parent.codeXRay.xrayStore(for: scope)
+            let operations = scope.isEmpty ? parent.window?.projectOperations : nil
             if architectureCancellable == nil || architectureScope != scope || architectureOperationsRoot != operations?.root.path {
                 architectureScope = scope
                 architectureOperationsRoot = operations?.root.path
@@ -605,7 +613,7 @@ struct EditorView: NSViewRepresentable {
             // The coordinator's ordered close (Decision 11 §4, step 1) asks this page to revoke the session's blob URLs
             // BEFORE `await session.cancel()` allows new Combine emissions. The page listens until it is gone; once its web view
             // is gone, closing the tab frees the blobs anyway.
-            insightBlobRelease = self.parent.workspaceManager.insight.blobReleases.sink { [weak self] in self?.releaseInsightBlobs() }
+            insightBlobRelease = self.parent.insight.blobReleases.sink { [weak self] in self?.releaseInsightBlobs() }
 
             // Skeleton paint. compactMap drops the initial `nil` (T6 init) so the
             // iframe srcdoc is built only when a real skeleton is available. Reset
@@ -849,12 +857,12 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridge(_ bridge: WebViewBridge, didReceiveCodeAction action: String, payload: [String: Any]) {
         Task { @MainActor in
             if action == "notesView" {
-                self.parent.workspaceManager.setNotesView(payload["show"] as? Bool ?? false,
+                self.parent.window?.setNotesView(payload["show"] as? Bool ?? false,
                                                          explain: payload["explain"] as? Bool ?? false)
                 return
             }
             guard let url = self.currentCodeURL else { return }
-            self.parent.workspaceManager.codeXRay.handleCodeAction(action, payload: payload, url: url)
+            self.parent.codeXRay.handleCodeAction(action, payload: payload, url: url)
         }
     }
 
@@ -863,7 +871,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     private func startReply(_ kind: String, _ work: @escaping @MainActor () async -> Void) {
         // task: hops onto the main actor to put the run in the window's bag; this task itself never suspends
         Task { @MainActor in
-            self.parent.workspaceManager.taskBag.store(Task { await work() }, for: "editor-\(kind):\(UUID().uuidString)")
+            self.parent.taskBag.store(Task { await work() }, for: "editor-\(kind):\(UUID().uuidString)")
         }
     }
 
@@ -874,10 +882,10 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             var carried = ""
             var handled = action
             if action == "attachImage" {
-                carried = await self.parent.workspaceManager.research.attachImage(payload, documentID: documentID)
+                carried = await self.parent.research.attachImage(payload, documentID: documentID)
                 handled = "snapshot"
             }
-            guard let reply = self.parent.workspaceManager.research.handleAction(handled, payload: payload, documentID: documentID, carriedNotice: carried),
+            guard let reply = self.parent.research.handleAction(handled, payload: payload, documentID: documentID, carriedNotice: carried),
                   let webView = self.webView else { return }
             // The tab now holds the new text: the page already has it, so the editor must not reload it (DEC-009).
             if let content = reply.content, EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {
@@ -890,7 +898,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any]) {
         Task { @MainActor in
-            self.parent.workspaceManager.codeXRay.handleArchitectureAction(action, payload: payload)
+            self.parent.codeXRay.handleArchitectureAction(action, payload: payload)
         }
     }
 
@@ -901,7 +909,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
             if scheme == "file" {
                 if FileType.isOpenable(url) {
-                    self.parent.workspaceManager.openFile(url, lineFragment: url.fragment)
+                    self.parent.window?.openFile(url, lineFragment: url.fragment)
                 } else {
                     NSWorkspace.shared.open(url)
                 }
@@ -911,17 +919,17 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
                 // [[Note#Heading]] — find the note in the open folder.
                 let body = String(href.dropFirst("markview-wikilink:".count))
                 let parts = body.split(separator: "#", maxSplits: 1).map { String($0).removingPercentEncoding ?? String($0) }
-                self.parent.workspaceManager.openWikiLink(note: parts.first ?? "", heading: parts.count > 1 ? parts[1] : nil)
+                self.parent.window?.openWikiLink(note: parts.first ?? "", heading: parts.count > 1 ? parts[1] : nil)
             }
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didChangeEditorFontSize size: Double) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(size, for: Setting.editorTextSizeMirror) }
+        Task { @MainActor in self.parent.windowUI.set(size, for: Setting.editorTextSizeMirror) }
     }
 
     func bridge(_ bridge: WebViewBridge, didSetWindowPref key: String, value: String) {
-        Task { @MainActor in self.parent.workspaceManager.windowUI.set(value, for: Setting.editorPref(key)) }
+        Task { @MainActor in self.parent.windowUI.set(value, for: Setting.editorPref(key)) }
     }
 
     func bridgeEditorReady(_ bridge: WebViewBridge) {
@@ -950,7 +958,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String) {
         startReply("translation") { [weak self] in
             guard let self else { return }
-            let error = await self.parent.workspaceManager.translator.translate(markdown: markdown, targetLang: targetLang)
+            let error = await self.parent.translator.translate(markdown: markdown, targetLang: targetLang)
             // Only failures need reporting — success is visible as a new tab
             // filling in progressively.
             if let error, let webView = self.webView,
@@ -962,15 +970,14 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didRequestFeatureAction action: String, text: String, question: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.flow.runFeatureAction(action, text: text, question: question)
+            self.parent.flow.runFeatureAction(action, text: text, question: question)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String) {
         startReply("selection-action") { [weak self] in
             guard let self else { return }
-            let wm = self.parent.workspaceManager
-            await wm.codeXRay.handleSelectionAction(action: action, text: text) { [weak self] title, result in
+            await self.parent.codeXRay.handleSelectionAction(action: action, text: text) { [weak self] title, result in
                 if let webView = self?.webView,
                    let script = JS.call("window.showSelectionResult", args: [title, result]) {
                     webView.evaluateJavaScript(script) { _, _ in }
@@ -981,18 +988,17 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String) {
         Task { @MainActor in
-            let wm = self.parent.workspaceManager
             if type == "edit" {
-                wm.runGraphEdit(instruction: prompt, currentMermaid: content)
+                self.parent.window?.runGraphEdit(instruction: prompt, currentMermaid: content)
             } else {
-                wm.presentGraphCreator(for: type)
+                self.parent.window?.presentGraphCreator(for: type)
             }
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.openCanvasFileReference(path)
+            self.parent.window?.openCanvasFileReference(path)
         }
     }
 
@@ -1021,55 +1027,55 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didReceiveInsightIframeReady sessionId: String, nodeId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didReceiveInsightIframeReady(sessionId: sessionId, nodeId: nodeId)
+            self.parent.insight.didReceiveInsightIframeReady(sessionId: sessionId, nodeId: nodeId)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, sectionId: String, topicIndex: Int) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightDeepDive(sessionId: sessionId, sectionId: sectionId, topicIndex: topicIndex)
+            self.parent.insight.didRequestInsightDeepDive(sessionId: sessionId, sectionId: sectionId, topicIndex: topicIndex)
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightBreadcrumb(sessionId: sessionId, nodeId: nodeId)
+            self.parent.insight.didRequestInsightBreadcrumb(sessionId: sessionId, nodeId: nodeId)
         }
     }
 
     func bridgeRequestInsightSave(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightSave()
+            self.parent.insight.didRequestInsightSave()
         }
     }
 
     func bridgeRequestInsightUp(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightUp()
+            self.parent.insight.didRequestInsightUp()
         }
     }
 
     func bridgeRequestInsightRegenerate(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightRegenerate()
+            self.parent.insight.didRequestInsightRegenerate()
         }
     }
 
     func bridgeRequestInsightCustomDeepDive(_ bridge: WebViewBridge, topic: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightCustomDeepDive(topic: topic)
+            self.parent.insight.didRequestInsightCustomDeepDive(topic: topic)
         }
     }
 
     func bridgeRequestInsightExploreAll(_ bridge: WebViewBridge, depth: Int) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightExploreAll(depth: depth)
+            self.parent.insight.didRequestInsightExploreAll(depth: depth)
         }
     }
 
     func bridgeRequestInsightRetrySection(_ bridge: WebViewBridge, sectionId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.insight.didRequestInsightRetrySection(sectionId: sectionId)
+            self.parent.insight.didRequestInsightRetrySection(sectionId: sectionId)
         }
     }
 }
@@ -1084,8 +1090,7 @@ extension EditorView.Coordinator {
 
 #Preview {
     let workspace = WorkspaceManager(prompts: AlertPrompts())
-    EditorView()
-        .environmentObject(workspace)
+    EditorView(research: workspace.research, insight: workspace.insight, taskBag: workspace.taskBag)
         .observingParts(of: workspace)
         .environmentObject(WindowTheme())
 }

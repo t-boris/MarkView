@@ -203,6 +203,7 @@ extension View {
         environmentObject(workspace.tabs)
             .environmentObject(workspace.layout)
             .environmentObject(workspace.chrome)
+            .environmentObject(workspace.windowUI)
             .environmentObject(workspace.requests)
             .environmentObject(workspace.project)
             .environmentObject(workspace.project.fileTree)
@@ -729,8 +730,7 @@ private struct WorkspaceWindow: View {
                     }
                 }()
                 ZStack {
-                    EditorView()
-                        .environmentObject(workspaceManager)
+                    EditorView(research: workspaceManager.research, insight: workspaceManager.insight, taskBag: workspaceManager.taskBag)
                         .opacity(editorVisible ? 1 : 0)
                         .allowsHitTesting(editorVisible)
                         .accessibilityHidden(!editorVisible)

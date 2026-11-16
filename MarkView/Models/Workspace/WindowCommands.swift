@@ -2,7 +2,8 @@ import SwiftUI
 
 /// What a view asks of its window as a whole: the commands that cut across the window's parts (show a file in a tab with the panels that
 /// go with it, open a tool's tab, delete the folder's metadata). A view that only issues one of these takes this and not the
-/// `WorkspaceManager` that implements it (`AR-14`): it reads nothing of the window's other parts and is not redrawn when they change.
+/// `WorkspaceManager` that implements it (`AR-14`): the view does not observe the whole window. A few scoped services are also
+/// exposed here when a command needs them; their own change signals stay separate.
 ///
 /// The window puts itself in the environment of its views (`observingParts(of:)`). A view outside any window finds nothing there, and
 /// its command does nothing.
@@ -36,6 +37,18 @@ protocol WindowCommands: ProjectOperationsPresenter {
     func startInsight(at url: URL)
     /// Discuss a file or folder in this window.
     func discuss(about url: URL)
+    /// The operations visible in this window's current project.
+    var projectOperations: ProjectOperationsStore? { get }
+    /// Open a local file and reveal its line fragment.
+    func openFile(_ url: URL, lineFragment: String?)
+    /// Open a wiki link in this window.
+    func openWikiLink(note: String, heading: String?)
+    /// Open a canvas file reference in this window.
+    func openCanvasFileReference(_ path: String)
+    /// Set the editor's code notes mode.
+    func setNotesView(_ show: Bool, explain: Bool)
+    /// Edit the graph currently shown in this window.
+    func runGraphEdit(instruction: String, currentMermaid: String)
     /// Show the settings window for this window's project.
     func showSettings()
     /// Delete this folder's metadata after confirmation; with `recreate`, index the folder again.
@@ -45,6 +58,7 @@ protocol WindowCommands: ProjectOperationsPresenter {
 extension WindowCommands {
     func openFile(_ url: URL, line: Int?) { openFile(url, line: line, endLine: nil) }
     func presentGraphCreator(in folder: URL?) { presentGraphCreator(for: "architecture", in: folder) }
+    func presentGraphCreator(for type: String) { presentGraphCreator(for: type, in: nil) }
 }
 
 private struct WindowCommandsKey: EnvironmentKey {
