@@ -41,7 +41,7 @@ final class QAWebActor: QAActorDriver {
     init(request: QADriverRequest, credentials: QACredentials) {
         self.request = request
         origin = URL(string: request.address)
-        session = BrowserSession(url: nil, dataStore: .nonPersistent(), extraHandlers: [.message(QAFaultHandler.name, faultHandler)], prompts: NoPrompts())
+        session = BrowserSession(url: nil, dataStore: .nonPersistent(), extraHandlers: [.message(QAFaultHandler.name, faultHandler)], prompts: QAPlayerPrompts())
         self.credentials = credentials
         let size = Self.viewport
         window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
@@ -174,6 +174,29 @@ final class QAWebActor: QAActorDriver {
         web.configuration.userContentController.removeScriptMessageHandler(forName: "markviewAgentFrame", contentWorld: .defaultClient)
         window.contentView = nil
         window.close()
+    }
+
+    // MARK: File chooser
+
+    /// The picture as a file in a folder of its own, written whole (`AtomicFile`): a page that reads it while another player writes it
+    /// never sees half of it. The folder is under the system temporary folder, which the system empties.
+    static func testImageFile(in folder: URL = FileManager.default.temporaryDirectory.appendingPathComponent("markview-qa-files", isDirectory: true)) throws -> URL {
+        guard let data = QATestImage.pngData() else { throw CocoaError(.fileWriteUnknown) }
+        let url = folder.appendingPathComponent(QATestImage.fileName)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try AtomicFile.write(data, to: url)
+        return url
+    }
+
+    /// The answer to a page's file chooser: the picture, or nil (the chooser is cancelled, as a person would cancel it) when it cannot be
+    /// written. One file is given even when the page allows several: the runner has one picture.
+    static func testImageChooser() -> [URL]? {
+        do {
+            return [try testImageFile()]
+        } catch {
+            AppLog.app.error("QA test image could not be written: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // MARK: Placeholders, credentials
@@ -319,6 +342,13 @@ final class QAWebActor: QAActorDriver {
           };
         })();
         """
+}
+
+/// What a web player says when the page puts a question to a person: nobody is asked, so a notice is dismissed and a confirmation is refused
+/// (`NoPrompts`), except a file chooser, which gets the built-in test image so that a step can attach a file as a person would.
+struct QAPlayerPrompts: UserPrompts {
+    func ask(_ prompt: UserPrompt) -> Int? { nil }
+    func chooseFiles(allowsMultiple: Bool, allowsDirectories: Bool) -> [URL]? { QAWebActor.testImageChooser() }
 }
 
 /// Receives the page's report that a fault was met.

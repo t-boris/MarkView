@@ -13,4 +13,11 @@ struct AlertPrompts: UserPrompts {
         // An alert with no button of its own shows one "OK". A response outside the buttons (the modal session was stopped) is no answer.
         return (0..<max(prompt.buttons.count, 1)).contains(index) ? index : nil
     }
+
+    func chooseFiles(allowsMultiple: Bool, allowsDirectories: Bool) -> [URL]? {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = allowsMultiple
+        panel.canChooseDirectories = allowsDirectories
+        return panel.runModal() == .OK ? panel.urls : nil
+    }
 }

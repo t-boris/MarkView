@@ -538,10 +538,8 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.canChooseDirectories = parameters.allowsDirectories
-        completionHandler(panel.runModal() == .OK ? panel.urls : nil)
+        // The person is asked through the tab's prompter (`AR-22`): the app shows its panel, a QA player gives its built-in picture.
+        completionHandler(prompts.chooseFiles(allowsMultiple: parameters.allowsMultipleSelection, allowsDirectories: parameters.allowsDirectories))
     }
 }
 

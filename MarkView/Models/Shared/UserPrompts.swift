@@ -19,9 +19,15 @@ struct UserPrompt: Equatable {
 protocol UserPrompts {
     /// Shows `prompt` and waits: the index of the button pressed (0 for the "OK" of a notice), or nil when nobody could answer.
     func ask(_ prompt: UserPrompt) -> Int?
+
+    /// Lets the person pick files for a page's file chooser: the files, or nil when they cancel or nobody can be asked.
+    func chooseFiles(allowsMultiple: Bool, allowsDirectories: Bool) -> [URL]?
 }
 
 extension UserPrompts {
+    /// By default nobody can be asked, so the chooser is cancelled, as if the person had closed the panel.
+    func chooseFiles(allowsMultiple: Bool, allowsDirectories: Bool) -> [URL]? { nil }
+
     /// True when the button at `button` was pressed. Any other button, and no answer, leave things as they were.
     func confirm(_ prompt: UserPrompt, proceedingWith button: Int) -> Bool {
         ask(prompt) == button
