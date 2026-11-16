@@ -202,4 +202,46 @@ func refused(_ data: Data, _ fragment: String) -> Bool {
 }
 
 MainActor.assumeIsolated { run() }
+
+// MARK: The catalog reads the person's folder in the background
+
+/// Waits (at most five seconds) until `condition` holds, letting the catalog's tasks run.
+@MainActor func eventually(_ condition: () -> Bool) async -> Bool {
+    for _ in 0..<500 {
+        if condition() { return true }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return condition()
+}
+
+@MainActor func catalogReads() async {
+    let root = scratchFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let user = root.appendingPathComponent("layouts", isDirectory: true)
+    try! FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
+    let catalog = LayoutCatalog(builtInFolder: shipped, userFolder: user)
+    check(catalog.library.presets.map(\.id) == ["writing", "review", "qa", "cockpit"], "a new catalog starts with the built-in presets")
+
+    try! presetJSON { $0["id"] = "mine" }.write(to: user.appendingPathComponent("mine.json"))
+    catalog.startReload()
+    catalog.startReload()
+    check(await eventually { catalog.library.presets.map(\.id).contains("mine") }, "two reloads asked at once end with the new file chosen")
+
+    try! FileManager.default.removeItem(at: user.appendingPathComponent("mine.json"))
+    catalog.startReload()
+    check(await eventually { !catalog.library.presets.map(\.id).contains("mine") }, "a reload after the file went drops the preset")
+
+    // The catalog going away stops what it started: the read that was running does not touch it.
+    weak var gone: LayoutCatalog?
+    do {
+        let short = LayoutCatalog(builtInFolder: shipped, userFolder: user)
+        short.startReload()
+        gone = short
+    }
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    check(gone == nil, "a catalog that is let go is not kept alive by its reads")
+}
+
+await catalogReads()
+print(failures == 0 ? "\nAll layout catalog checks passed" : "\n\(failures) check(s) FAILED")
 if failures > 0 { exit(1) }

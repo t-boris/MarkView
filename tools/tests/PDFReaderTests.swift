@@ -218,6 +218,12 @@ enum PDFReaderTests {
         check(protectedReader.locked && protectedReader.error != nil, "incorrect password is reported")
         await protectedReader.load(protectedURL, password: "fixture-reader")
         check(!protectedReader.locked && protectedReader.pageCount == 3 && !protectedReader.canCopy, "user password unlocks reading without overriding copy restrictions")
+        // Retry and the password field start a load: a second one asked at once replaces the first, so the later password wins.
+        let started = PDFReaderController()
+        started.startLoad(protectedURL, password: "wrong")
+        started.startLoad(protectedURL, password: "fixture-reader")
+        try await waitUntil { !started.loading && started.document != nil }
+        check(!started.locked && started.pageCount == 3 && started.error == nil, "two loads started at once end with the later one shown")
         let restricted = PDFReaderPDFView(frame: view.frame)
         restricted.document = protectedReader.document
         restricted.setCurrentSelection(protectedReader.document!.findString("needle", withOptions: []).first, animate: false)

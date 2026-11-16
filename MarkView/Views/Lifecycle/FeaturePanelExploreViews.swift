@@ -36,7 +36,7 @@ struct ExploreStageView: View {
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var layout: PanelLayout
     @State private var showUnderstandingDetails = false
 
     private var open: [FeatureObject] { feature.openQuestions }
@@ -114,10 +114,10 @@ struct ExploreStageView: View {
                     FlowButtons {
                         SmallButton(title: "Go to Review", icon: "arrow.right", prominent: true) {
                             store.finishExplore(feature.slug)
-                            workspaceManager.layout.featureStage = .review
+                            layout.featureStage = .review
                         }
                         SmallButton(title: "Ask more questions", icon: "sparkles") {
-                            Task { await assistant.exploreNext(feature.slug) }
+                            assistant.start("explore:" + feature.slug) { await $0.exploreNext(feature.slug) }
                         }
                     }
                 }
@@ -134,7 +134,7 @@ struct ExploreStageView: View {
                         .uiFont(size: 10).foregroundColor(palette.textDim)
                     Spacer()
                     SmallButton(title: "Ask more questions", icon: "sparkles", prominent: true) {
-                        Task { await assistant.exploreNext(feature.slug) }
+                        assistant.start("explore:" + feature.slug) { await $0.exploreNext(feature.slug) }
                     }
                 }
             }
@@ -144,7 +144,7 @@ struct ExploreStageView: View {
                         .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide the rest and finish", icon: "flag.checkered") {
-                        Task { await assistant.decideRest(feature.slug) }
+                        assistant.start("decide:" + feature.slug) { await $0.decideRest(feature.slug) }
                     }
                 }
             }
@@ -210,7 +210,7 @@ struct QuestionRound: View {
                                 icon: "checkmark", prominent: true) {
                         let round = answers
                         chosen = [:]
-                        Task { await assistant.answerBatch(feature.slug, answers: round) }
+                        assistant.start("answer:" + feature.slug) { await $0.answerBatch(feature.slug, answers: round) }
                     }
                     .disabled(answers.isEmpty)
                     .opacity(answers.isEmpty ? 0.5 : 1)
@@ -231,7 +231,7 @@ struct QuestionCard: View {
     @Binding var selection: PendingAnswer?
     /// The round is being applied: the answer is shown, nothing can change.
     var busy = false
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @State private var own = ""
     @FocusState private var ownFocused: Bool
     @State private var showDetails = false
@@ -251,7 +251,7 @@ struct QuestionCard: View {
                     Text("clarifies " + question.front.string("dimension")).uiFont(size: 8, weight: .semibold).foregroundColor(palette.cyan)
                 }
                 Spacer()
-                Button(action: { workspaceManager.openFile(question.url) }) {
+                Button(action: { flow.open(question.url) }) {
                     Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(palette.textDim)
                 }.buttonStyle(.plain).help("Open \(question.id)")
             }
@@ -326,18 +326,24 @@ struct QuestionCard: View {
                 Working(text: "Working on \(question.id)…")
             } else if !busy {
                 FlowButtons {
-                    SmallButton(title: "Suggest another approach") { Task { await assistant.moreOptions(feature.slug, question: question.id) } }
+                    SmallButton(title: "Suggest another approach") {
+                        assistant.start("options:" + question.id) { await $0.moreOptions(feature.slug, question: question.id) }
+                    }
                     SmallButton(title: "Research this", icon: "globe") {
-                        Task { await assistant.research(feature.slug, topic: question.title, for: question.id) }
+                        assistant.start("research:" + feature.slug) { await $0.research(feature.slug, topic: question.title, for: question.id) }
                     }
                     if !options.isEmpty {
                         SmallButton(title: showDetails ? "Hide pros/cons" : "Show pros/cons") {
                             let hasPros = options.contains { !($0["pros"]?.strings ?? []).isEmpty }
                             showDetails.toggle()
-                            if showDetails && !hasPros { Task { await assistant.prosAndCons(feature.slug, question: question.id) } }
+                            if showDetails && !hasPros {
+                                assistant.start("pros:" + question.id) { await $0.prosAndCons(feature.slug, question: question.id) }
+                            }
                         }
                     }
-                    SmallButton(title: "Skip for now") { Task { await assistant.skip(feature.slug, question: question.id) } }
+                    SmallButton(title: "Skip for now") {
+                        assistant.start("skip:" + question.id) { await $0.skip(feature.slug, question: question.id) }
+                    }
                 }
             }
         }

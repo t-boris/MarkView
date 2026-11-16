@@ -30,6 +30,10 @@ final class NewProjectFlow: ObservableObject {
     let store = FeatureStore()
     var assistant: FeatureAssistant { store.assistant }
     private let drafts = ProjectDraftStore.shared
+    /// The step the sheet started (the analysis of the idea, the brief, creating the project) and the discarding of the draft: one step runs at
+    /// a time, a new one replaces the one in flight, and closing the sheet ends it (`AR-19`). The draft is saved before the first AI call, so
+    /// a step that is cut off leaves what was saved, and Analyze Again or Retry continues from there.
+    private let tasks = TaskBag()
 
     /// The specification and the AI's running jobs change inside the store and the assistant; the
     /// sheet's buttons (Confirm Brief) follow them through this flow.
@@ -85,9 +89,45 @@ final class NewProjectFlow: ObservableObject {
 
     // MARK: Steps
 
+    /// Starts the first idea (see `start`).
+    func startIdea(_ idea: String, attachments: [URL]) {
+        tasks.store(Task { [weak self] in await self?.start(idea: idea, attachments: attachments) }, for: "step")
+    }
+
+    /// Starts the analysis of the idea again (see `analyze`).
+    func startAnalyze() {
+        tasks.store(Task { [weak self] in await self?.analyze() }, for: "step")
+    }
+
+    /// Starts the confirmation of the brief (see `confirm`).
+    func startConfirm() {
+        tasks.store(Task { [weak self] in await self?.confirm() }, for: "step")
+    }
+
+    /// Starts the return from the destination to the clarification (see `reopenClarification`).
+    func startReopenClarification() {
+        tasks.store(Task { [weak self] in await self?.reopenClarification() }, for: "step")
+    }
+
+    /// Starts creating the local project (see `create`); `created` gets its folder and the specification's slug.
+    func startCreate(created: @escaping (_ folder: URL, _ slug: String) -> Void) {
+        tasks.store(Task { [weak self] in
+            guard let self, let slug = draft?.slug, let url = await create(), !Task.isCancelled else { return }
+            created(url, slug)
+        }, for: "step")
+    }
+
+    /// Starts discarding the draft (see `discard`); `then` runs when it is gone.
+    func startDiscard(then: @escaping () -> Void) {
+        tasks.store(Task { [weak self] in
+            await self?.discard()
+            if !Task.isCancelled { then() }
+        }, for: "discard")
+    }
+
     /// The first idea: a draft is saved at once (it survives closing the window), then the AI
     /// turns the idea into the start of the specification.
-    func start(idea: String, attachments: [URL]) async {
+    private func start(idea: String, attachments: [URL]) async {
         let text = idea.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !working else { return }
         let new = ProjectDraft(idea: text)
@@ -103,7 +143,7 @@ final class NewProjectFlow: ObservableObject {
 
     /// The idea → overview, first requirements and questions. Retried from the clarify step
     /// when the AI failed.
-    func analyze(attachments: [URL] = []) async {
+    private func analyze(attachments: [URL] = []) async {
         guard var draft, draft.slug == nil, !working else { return }
         working = true
         defer { working = false }
@@ -118,7 +158,7 @@ final class NewProjectFlow: ObservableObject {
     }
 
     /// The user confirms the brief (DEC-003, DEC-016). Recorded in the overview.
-    func confirm() async {
+    private func confirm() async {
         guard var draft, let slug = draft.slug, canConfirm else { return }
         store.updateFeature(slug) { front, _ in front.set("confirmed", FeatureStore.today) }
         draft.title = feature?.title ?? draft.title
@@ -129,7 +169,7 @@ final class NewProjectFlow: ObservableObject {
     }
 
     /// Back from the destination to clarification: the brief needs to be confirmed again.
-    func reopenClarification() async {
+    private func reopenClarification() async {
         guard var draft, !creationLocked else { return }
         draft.stage = .clarifying
         await save(draft)
@@ -138,7 +178,7 @@ final class NewProjectFlow: ObservableObject {
 
     /// Create (or continue creating) the local project (REQ-004). The draft is removed only
     /// after every stage succeeded; on failure it keeps the stage reached for Retry (DEC-019).
-    func create() async -> URL? {
+    private func create() async -> URL? {
         guard var draft, let slug = draft.slug, let feature, !working else { return nil }
         if let problem = ProjectNaming.folderNameProblem(folderName) { error = problem; return nil }
         working = true
@@ -174,7 +214,7 @@ final class NewProjectFlow: ObservableObject {
     }
 
     /// Discard the unfinished draft (DEC-015).
-    func discard() async {
+    private func discard() async {
         guard let draft else { return }
         store.reset()
         await drafts.remove(draft.id)

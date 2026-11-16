@@ -18,7 +18,9 @@ struct ReviewStageView: View {
                 if assistant.isRunning("review:" + feature.slug) {
                     Working(text: "Reviewing the specification from every perspective — about a minute…")
                 } else {
-                    SmallButton(title: "Run review", icon: "sparkles", prominent: true) { Task { await assistant.review(feature.slug) } }
+                    SmallButton(title: "Run review", icon: "sparkles", prominent: true) {
+                        assistant.start("review:" + feature.slug) { await $0.review(feature.slug) }
+                    }
                 }
             }
             if !feature.outdatedRequirements.isEmpty {
@@ -32,7 +34,7 @@ struct ReviewStageView: View {
                         Working(text: "Merging overlapping requirements into a compact set — a few minutes for large specs…")
                     } else {
                         SmallButton(title: "Consolidate requirements", icon: "arrow.triangle.merge", prominent: true) {
-                            Task { await assistant.consolidateRequirements(feature.slug) }
+                            assistant.start("consolidate:" + feature.slug) { await $0.consolidateRequirements(feature.slug) }
                         }
                         .help("Merge duplicates and refinements; merged files stay with status superseded")
                     }
@@ -49,7 +51,7 @@ struct ReviewStageView: View {
                         .uiFont(size: 9).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide all for me (\(open.count))", icon: "wand.and.stars", prominent: true) {
-                        Task { await assistant.decideAllFindings(feature.slug) }
+                        assistant.start("decideall:" + feature.slug) { await $0.decideAllFindings(feature.slug) }
                     }
                 }
             }
@@ -83,7 +85,7 @@ struct FindingCard: View {
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let finding: FeatureObject
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @State private var own = ""
     /// What was just asked for this finding, shown at once.
     @State private var started: String?
@@ -118,17 +120,17 @@ struct FindingCard: View {
                 && !assistant.isRunning("decideall:" + feature.slug) {
                 FlowButtons {
                     SmallButton(title: "Decide for me", icon: "wand.and.stars") {
-                        Task { await assistant.resolve(feature.slug, finding: finding.id, with: "", delegated: true) }
+                        assistant.start("resolve:" + finding.id) { await $0.resolve(feature.slug, finding: finding.id, with: "", delegated: true) }
                     }
                     .help("AI chooses the resolution itself; the decision is recorded as proposed")
                     if (finding.front["options"]?.list ?? []).isEmpty {
                         SmallButton(title: "Resolve", icon: "sparkles", prominent: true) {
-                            Task { await assistant.resolutionOptions(feature.slug, finding: finding.id) }
+                            assistant.start("resolveopts:" + finding.id) { await $0.resolutionOptions(feature.slug, finding: finding.id) }
                         }
                     }
                     SmallButton(title: "Discuss") {
                         started = "Sent to the discussion — the reply appears at the top of this panel…"
-                        Task { await assistant.chat(feature.slug, message: "Let's discuss \(finding.id): \(finding.title)") }
+                        assistant.start("chat:" + feature.slug) { await $0.chat(feature.slug, message: "Let's discuss \(finding.id): \(finding.title)") }
                     }
                     SmallButton(title: "Edit Requirement") { openTarget() }
                     SmallButton(title: "Accept Risk") { store.setStatus(finding.id, in: feature.slug, to: "accepted-risk") }
@@ -141,13 +143,13 @@ struct FindingCard: View {
     private func openTarget() {
         let target = finding.front.strings("refs").first ?? ""
         if let object = feature.object(target) {
-            workspaceManager.openFile(object.url)
+            flow.open(object.url)
         } else if let root = store.root, !target.isEmpty, !target.contains("..") {
             let url = root.appendingPathComponent(target)
-            if FileManager.default.fileExists(atPath: url.path) { workspaceManager.openFile(url); return }
-            workspaceManager.openFile(finding.url)
+            if FileManager.default.fileExists(atPath: url.path) { flow.open(url); return }
+            flow.open(finding.url)
         } else {
-            workspaceManager.openFile(finding.url)
+            flow.open(finding.url)
         }
     }
 }
@@ -186,7 +188,7 @@ struct ResolutionOptions: View {
                     VStack(alignment: .leading, spacing: 1) {
                         SmallButton(title: option["label"]?.string ?? "Option", prominent: true) {
                             chosen = (option["label"]?.string ?? "") + " — " + text
-                            Task { await assistant.resolve(feature.slug, finding: finding.id, with: text) }
+                            assistant.start("resolve:" + finding.id) { await $0.resolve(feature.slug, finding: finding.id, with: text) }
                         }
                         Text(text).uiFont(size: 9).foregroundColor(palette.text).fixedSize(horizontal: false, vertical: true)
                         let consequence = option["consequence"]?.string ?? ""
@@ -201,7 +203,7 @@ struct ResolutionOptions: View {
                         guard !text.isEmpty else { return }
                         own = ""
                         chosen = text
-                        Task { await assistant.resolve(feature.slug, finding: finding.id, with: text) }
+                        assistant.start("resolve:" + finding.id) { await $0.resolve(feature.slug, finding: finding.id, with: text) }
                     }
                 }
             }
@@ -274,7 +276,9 @@ struct BeforeBuildSection: View {
                                 Text(gap.dimension).uiFont(size: 10).foregroundColor(palette.text)
                                 Spacer()
                                 SmallButton(title: "Research", icon: "globe") {
-                                    Task { await assistant.research(feature.slug, topic: "\(gap.dimension) for \(feature.title)") }
+                                    assistant.start("research:" + feature.slug) {
+                                        await $0.research(feature.slug, topic: "\(gap.dimension) for \(feature.title)")
+                                    }
                                 }
                             }
                         }

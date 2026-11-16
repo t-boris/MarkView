@@ -1,5 +1,8 @@
 import AppKit
 import PDFKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 struct PDFReaderOutline: Identifiable {
     let id = UUID()
@@ -98,6 +101,8 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
     @Published private(set) var findRequest = 0
     private(set) var loadedURL: URL?
     private var loadGeneration = UUID()
+    /// The load the toolbar or the password field started (`AR-19`): a new one replaces the one before it, and the reader going away ends it.
+    private let tasks = TaskBag()
     private var observers: [NSObjectProtocol] = []
     private var fitMode: PDFReaderPDFView.FitMode = .page
     private weak var view: PDFReaderPDFView?
@@ -109,6 +114,11 @@ final class PDFReaderController: NSObject, ObservableObject, @preconcurrency PDF
 
     deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// Starts `load` for Retry and the password field.
+    func startLoad(_ url: URL, password: String? = nil) {
+        tasks.store(Task { [weak self] in await self?.load(url, password: password) }, for: "load")
     }
 
     func load(_ url: URL, password: String? = nil) async {

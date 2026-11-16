@@ -117,6 +117,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// background (an unattended run still needs its prompt), and the staggered delivery of a batch (`AR-19`).
     private var pasteKey: String { "terminal-paste-" + id.uuidString }
     private var pasteDelivery: Task<Void, Never>?
+    /// What the session started besides its shell: links being resolved or followed, and a dictation being written out. Ending the shell
+    /// ends them (`AR-19`).
+    private let tasks = TaskBag()
     private var size = winsize(ws_row: 30, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
     /// Interface text scale for the terminal glyphs; the host view keeps it current.
     private var fontScale = AppFontScale.storedFactor
@@ -195,20 +198,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     private func resolveLinks(_ paths: [String], request: Int) {
         let probe = linkDirectoryProbe
-        Task {
+        tasks.store(Task {
             let valid = await Task.detached(priority: .userInitiated) {
                 let cwd = TerminalLink.workingDirectory(foregroundPID: probe.foreground, shellPID: probe.shell, fallback: probe.fallback)
                 return paths.filter { if case .file = TerminalLink.resolve($0, directory: cwd) { return true }; return false }
             }.value
-            guard let script = JS.call("window.mvResolvedLinks", args: [request, valid], ifDefined: true) else { return }
+            guard !Task.isCancelled, let script = JS.call("window.mvResolvedLinks", args: [request, valid], ifDefined: true) else { return }
             _ = try? await webView.evaluateJavaScript(script)
-        }
+        }, for: "resolve-links:\(request)")
     }
 
     /// Shared by regex URLs, OSC 8 hyperlinks and detected local paths.
     func activateLink(_ text: String) {
         let probe = linkDirectoryProbe
-        Task {
+        // Every followed link has a key of its own: two clicks are two links.
+        tasks.store(Task {
             let target = await Task.detached(priority: .userInitiated) {
                 let cwd = TerminalLink.workingDirectory(foregroundPID: probe.foreground, shellPID: probe.shell, fallback: probe.fallback)
                 return TerminalLink.resolve(text, directory: cwd)
@@ -226,7 +230,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 else { openExternalURL(url) }
             case nil: break
             }
-        }
+        }, for: "open-link:\(UUID().uuidString)")
+    }
+
+    /// The person stopped the dictation: the recording is transcribed and the text typed at the prompt. A failure stays in
+    /// `dictation.error`; a transcript without words calls `nothingHeard`, so the view can tell the person why that may be.
+    func startFinishingDictation(nothingHeard: @escaping () -> Void) {
+        transcribing = true
+        tasks.store(Task { [weak self] in
+            guard let self else { return }
+            let text = await dictation.stopRecording()
+            transcribing = false
+            guard let text else { return }
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { nothingHeard() } else { paste(text) }
+        }, for: "dictation")
     }
 
     /// The theme of the window this terminal is shown in, as the arguments of the page's `mvSetTheme`
@@ -461,6 +478,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let notifyCockpit = onCockpitTermination
         onCockpitTermination = nil
         notifyCockpit?()
+        tasks.cancelAll()
         connection?.stop()
         let stoppedPID = childPID
         childPID = 0

@@ -119,18 +119,8 @@ private struct SessionDictationButton: View {
 
     private func toggle() {
         if whisper.isRecording {
-            session.transcribing = true
-            let session = self.session, whisper = self.whisper
-            Task {
-                let text = await whisper.stopRecording()
-                session.transcribing = false
-                guard let text else { return } // the failure is in `whisper.error`
-                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    nothingHeard = whisper.nothingHeard
-                } else {
-                    session.paste(text)
-                }
-            }
+            let whisper = self.whisper
+            session.startFinishingDictation { nothingHeard = whisper.nothingHeard }
         } else {
             nothingHeard = nil
             whisper.startRecording()

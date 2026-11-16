@@ -3,16 +3,19 @@ import AppKit
 
 struct HandoffStartList: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var layout: PanelLayout
     @ObservedObject var store: FeatureStore
     @State private var ready: [(feature: Feature, state: HandoffState)] = []
+    /// Bumped by the refresh button: the read below starts again at once instead of at its next turn.
+    @State private var refreshes = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Ready to resume").uiFont(size: 13, weight: .semibold)
                 Spacer()
-                Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
+                Button { refreshes += 1 } label: { Image(systemName: "arrow.clockwise") }
                     .help("Refresh handoffs")
                     .accessibilityLabel("Refresh handoffs")
             }
@@ -26,14 +29,13 @@ struct HandoffStartList: View {
                     Spacer()
                     Button("Files") {
                         if let revision = item.state.revision {
-                            workspaceManager.flow.resumeHandoff(slug: item.feature.slug,
-                                title: item.feature.title, linkedFiles: revision.linkedFiles)
+                            flow.resumeHandoff(slug: item.feature.slug, title: item.feature.title, linkedFiles: revision.linkedFiles)
                         }
                     }
                     Button("Specification") {
                         store.activeSlug = item.feature.slug
-                        workspaceManager.layout.workspaceArea = .work
-                        workspaceManager.layout.workSection = .features
+                        layout.workspaceArea = .work
+                        layout.workSection = .features
                     }
                 }
                 .uiFont(size: 11)
@@ -46,7 +48,7 @@ struct HandoffStartList: View {
         .padding(12)
         .background(palette.bgActive)
         .cornerRadius(8)
-        .task(id: store.features.map(\.slug).joined(separator: ":")) {
+        .task(id: store.features.map(\.slug).joined(separator: ":") + "#\(refreshes)") {
             while !Task.isCancelled {
                 await load()
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -69,8 +71,9 @@ struct HandoffStartList: View {
 
 struct HandoffPanelView: View {
     @EnvironmentObject private var chrome: WindowChrome
+    @EnvironmentObject private var tabs: TabsController
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
     let feature: Feature
 
     @State private var state: HandoffState?
@@ -79,7 +82,7 @@ struct HandoffPanelView: View {
     @State private var showingVersions = false
     @State private var expanded = true
 
-    private var project: URL? { workspaceManager.flow.features.root }
+    private var project: URL? { flow.features.root }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -115,7 +118,7 @@ struct HandoffPanelView: View {
                 }
                 HStack(spacing: 8) {
                     Button(state?.revision == nil ? "Mark ready and hand off" : "Mark current version ready again") {
-                        Task { await markReady() }
+                        startMarkReady()
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(busy || project == nil)
@@ -134,7 +137,7 @@ struct HandoffPanelView: View {
                             Text(path).uiFont(size: 10, design: .monospaced).lineLimit(1)
                             if !linkedFileExists(path) { Text("Missing").uiFont(size: 10).foregroundColor(palette.orange) }
                             Spacer(minLength: 0)
-                            Button { Task { await removeFile(path) } } label: { Image(systemName: "xmark") }
+                            Button { startSaveLinks((state?.currentLinks ?? []).filter { $0 != path }) } label: { Image(systemName: "xmark") }
                                 .buttonStyle(.plain).help("Remove linked file")
                                 .accessibilityLabel("Remove linked file \(path)")
                         }
@@ -155,7 +158,6 @@ struct HandoffPanelView: View {
         .sheet(isPresented: $showingVersions) {
             if let project, let state {
                 HandoffVersionsView(project: project, feature: feature, state: state)
-                    .environmentObject(workspaceManager)
             }
         }
         .onAppear { if chrome.compactLayout { expanded = false } }
@@ -180,13 +182,23 @@ struct HandoffPanelView: View {
         }
     }
 
+    /// The hand-off is a job of the feature store (AR-19): one per feature at a time, ended by closing the folder.
+    private func startMarkReady() {
+        flow.features.jobs.start("handoff:ready:" + feature.slug) { await markReady() }
+    }
+
+    /// Writing the linked files is a job of the feature store like `startMarkReady`.
+    private func startSaveLinks(_ links: [String]) {
+        flow.features.jobs.start("handoff:links:" + feature.slug) { await saveLinks(links) }
+    }
+
     @MainActor private func markReady() async {
         guard let project else { return }
-        guard workspaceManager.tabs.saveBeforeHandoff(under: feature.folder) else { return }
+        guard tabs.saveBeforeHandoff(under: feature.folder) else { return }
         busy = true
         defer { busy = false }
         do {
-            let store = workspaceManager.flow.features
+            let store = flow.features
             let slug = feature.slug, person = store.lifecycleActor
             let service = store.lifecycle.service
             // The step is judged under the project's workflow and the item's rule variant, like every other status change.
@@ -202,7 +214,7 @@ struct HandoffPanelView: View {
                                                                  workflow: workflow, variantID: variant))
                     return result.reachedStatus
                 })
-            workspaceManager.flow.features.reloadSync(feature.slug)
+            flow.features.reloadSync(feature.slug)
             await refresh()
         } catch { self.error = error.localizedDescription }
     }
@@ -230,36 +242,34 @@ struct HandoffPanelView: View {
             error = "Only files inside the open project can be linked."
             return
         }
-        Task { await saveLinks(Array(Set((state?.currentLinks ?? []) + links)).sorted()) }
-    }
-
-    @MainActor private func removeFile(_ path: String) async {
-        await saveLinks((state?.currentLinks ?? []).filter { $0 != path })
+        startSaveLinks(Array(Set((state?.currentLinks ?? []) + links)).sorted())
     }
 
     @MainActor private func saveLinks(_ links: [String]) async {
         guard let project else { return }
-        guard workspaceManager.tabs.saveBeforeReading(feature.overviewURL,
+        guard tabs.saveBeforeReading(feature.overviewURL,
             action: "updating the handoff links") else { return }
         busy = true
         defer { busy = false }
         do {
             try await SpecificationHandoffStore.shared.setLinkedFiles(links, project: project, slug: feature.slug)
-            workspaceManager.flow.features.reloadSync(feature.slug)
+            flow.features.reloadSync(feature.slug)
             await refresh()
         } catch { self.error = error.localizedDescription }
     }
 
     private func resume() {
         guard let revision = state?.revision else { return }
-        workspaceManager.flow.resumeHandoff(slug: feature.slug, title: feature.title,
-                                       linkedFiles: revision.linkedFiles)
+        flow.resumeHandoff(slug: feature.slug, title: feature.title, linkedFiles: revision.linkedFiles)
     }
 }
 
 struct HandoffResumeBar: View {
     @Environment(\.palette) private var palette
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
+    @EnvironmentObject private var layout: PanelLayout
+    @EnvironmentObject private var chrome: WindowChrome
+    @EnvironmentObject private var requests: WindowRequests
     let resume: HandoffResume
 
     var body: some View {
@@ -268,13 +278,13 @@ struct HandoffResumeBar: View {
                 Label("Resume: \(resume.title)", systemImage: "checkmark.seal")
                     .uiFont(size: 12, weight: .semibold)
                 Spacer()
-                Button("Browse files") { workspaceManager.chrome.toggleNavigation() }
+                Button("Browse files") { chrome.toggleNavigation() }
                 Button("Open specification") {
-                    workspaceManager.flow.features.activeSlug = resume.slug
-                    workspaceManager.layout.workspaceArea = .work
-                    workspaceManager.layout.workSection = .features
+                    flow.features.activeSlug = resume.slug
+                    layout.workspaceArea = .work
+                    layout.workSection = .features
                 }
-                Button { workspaceManager.requests.handoffResume = nil } label: { Image(systemName: "xmark") }
+                Button { requests.handoffResume = nil } label: { Image(systemName: "xmark") }
                     .help("Dismiss handoff")
                     .accessibilityLabel("Dismiss handoff")
             }
@@ -291,7 +301,7 @@ struct HandoffResumeBar: View {
 }
 
 private struct HandoffVersionsView: View {
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject private var flow: FeatureFlowCoordinator
     @Environment(\.dismiss) private var dismiss
     let project: URL
     let feature: Feature
@@ -346,7 +356,7 @@ private struct HandoffVersionsView: View {
                 Spacer()
                 if title == "Current" {
                     Button("Open in Files") {
-                        workspaceManager.openFile(feature.folder.appendingPathComponent(selectedPath))
+                        flow.open(feature.folder.appendingPathComponent(selectedPath))
                         dismiss()
                     }
                     .disabled(state.currentHashes[selectedPath] == nil)

@@ -89,8 +89,8 @@ struct WorkflowFlowPicker: View {
         let target = sameName?.id
         let workflow = editor.draft
         let (title, text) = (trimmedName, note)
-        Task {
-            switch await library.save(name: title, note: text, workflow: workflow, replacing: target) {
+        library.startSave(name: title, note: text, workflow: workflow, replacing: target) { result in
+            switch result {
             case .success(let template):
                 saveFailed = false
                 saveMessage = "Saved “\(template.name)”. Any project can take it from this list."

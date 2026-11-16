@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Unfinished new projects (DEC-015): `~/Library/Application Support/MarkView/ProjectDrafts/<id>/`
 /// holds `draft.json` and `workspace/`, the specification being clarified. Shared by every
@@ -10,6 +13,8 @@ final class ProjectDraftStore: ObservableObject {
     @Published private(set) var drafts: [ProjectDraft] = []
 
     private let folder: URL
+    /// The read of the drafts folder: a new one replaces the one before it (`AR-19`).
+    private let tasks = TaskBag()
 
     init(folder: URL = ProjectDraftStore.defaultFolder) {
         self.folder = folder
@@ -34,10 +39,11 @@ final class ProjectDraftStore: ObservableObject {
     /// Read every draft again (off the main thread).
     func reload() {
         let folder = folder
-        Task {
+        tasks.store(Task { [weak self] in
             let loaded = await Task.detached { Self.load(folder) }.value
-            drafts = loaded
-        }
+            guard !Task.isCancelled else { return }
+            self?.drafts = loaded
+        }, for: "reload")
     }
 
     nonisolated private static let fileStore = SchemaVersionedStore<ProjectDraft>()
@@ -65,6 +71,11 @@ final class ProjectDraftStore: ObservableObject {
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
             try Self.fileStore.save(saved, to: url)
         }.value
+    }
+
+    /// Starts `remove` for the welcome screen's Discard; asking again for the same draft replaces the first request.
+    func startRemove(_ id: UUID) {
+        tasks.store(Task { [weak self] in await self?.remove(id) }, for: "remove:" + id.uuidString)
     }
 
     /// Remove a draft with its workspace: Discard, or after its project was created.

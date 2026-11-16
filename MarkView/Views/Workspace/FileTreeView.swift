@@ -55,6 +55,8 @@ struct FileTreeView: View {
     @State private var cachedSearchRows: [FileBrowserRow] = []
     @State private var listingMonitors: [ProjectChangeMonitor] = []
     @State private var listingRefresh: Task<Void, Never>?
+    /// What this view started that is not file work of the window (the .gitignore line): it ends when the view goes away (`AR-19`).
+    @State private var tasks = TaskBag()
     /// Folder a drag is currently over (highlighted as the drop target).
     @State private var dropTarget: URL?
     /// Row shown by "Reveal in File Tree" (highlighted until the next reveal).
@@ -178,6 +180,7 @@ struct FileTreeView: View {
             ProjectChangeMonitor(root: root.url, includeGenerated: true, shouldInclude: { path in
                 searchAll || watched.contains(path) || watched.contains(URL(fileURLWithPath: path).deletingLastPathComponent().path)
             }) {
+                // task: the monitor calls back off the main actor; this hops onto it and replaces `listingRefresh`, the debounced refresh, which is cancelled when the tree disappears
                 Task { @MainActor in
                     listingRefresh?.cancel()
                     listingRefresh = Task { @MainActor in
@@ -1220,7 +1223,7 @@ struct FileTreeView: View {
     /// Add a file or folder to the repository's .gitignore (as an anchored path), once.
     private func addToGitignore(_ url: URL, isDirectory: Bool) {
         guard let root = git.workingDirectory ?? fileTree.rootNode?.url else { return }
-        Task {
+        tasks.store(Task {
             let top = await GitHubClient.execute(["rev-parse", "--show-toplevel"], in: root, git: true)
             let repo = URL(fileURLWithPath: top.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                            ? root.path : top.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -1229,7 +1232,7 @@ struct FileTreeView: View {
             guard path.hasPrefix(base) else { return showError("“\(url.lastPathComponent)” is outside the repository.") }
             await git.ignore(String(path.dropFirst(base.count)), isDirectory: isDirectory)
             listVersion += 1
-        }
+        }, for: "gitignore")
     }
 
     private func createNewFile(in folderURL: URL, ignored: Bool = false) {
@@ -1311,16 +1314,11 @@ struct FileTreeView: View {
         }
         guard archiveBusy == nil else { return }
         archiveBusy = "Extracting \(url.lastPathComponent)…"
-        Task {
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
-                let folder = Archive.uniqueFolder(for: url, in: parent)
-                return Result { try Archive.extractAll(url, to: folder); return folder }
-            }.value
+        workspaceManager.fileOperations.startExtract(url, into: parent) { result in
             archiveBusy = nil
             switch result {
-            case .success(let folder):
-                workspaceManager.refreshFileTree()
-                NSWorkspace.shared.activateFileViewerSelecting([folder])
+            case .success(let folder): NSWorkspace.shared.activateFileViewerSelecting([folder])
+            case .failure(let error) where error is CancellationError: break
             case .failure(let error): showError("Could not extract \(url.lastPathComponent): \(error.localizedDescription)")
             }
         }
@@ -1330,13 +1328,11 @@ struct FileTreeView: View {
     private func compress(_ urls: [URL]) {
         guard archiveBusy == nil, !urls.isEmpty else { return }
         archiveBusy = "Compressing \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")…"
-        Task {
-            let result = await Task.detached(priority: .userInitiated) { Result { try Archive.compress(urls) } }.value
+        workspaceManager.fileOperations.startCompress(urls) { result in
             archiveBusy = nil
             switch result {
-            case .success(let zip):
-                workspaceManager.refreshFileTree()
-                NSWorkspace.shared.activateFileViewerSelecting([zip])
+            case .success(let zip): NSWorkspace.shared.activateFileViewerSelecting([zip])
+            case .failure(let error) where error is CancellationError: break
             case .failure(let error): showError("Could not compress: \(error.localizedDescription)")
             }
         }

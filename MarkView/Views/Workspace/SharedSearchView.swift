@@ -1,5 +1,36 @@
 import SwiftUI
 import AppKit
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
+
+/// What a search result opens into, decided by the model and shown by the window (`SearchOpening.show`).
+enum SearchOpening {
+    /// A document the model handed to its default application (a Word file): nothing is left to show.
+    case external
+    /// A file in a tab; a PDF at `page`, a note scrolled to `scrollText` once it is open.
+    case file(URL, page: Int?, scrollText: String?)
+    /// A code file at a line.
+    case code(URL, line: Int)
+
+    /// Shows the result in the window the person searched from. The scroll waits for the page to load.
+    @MainActor func show(in window: any WindowCommands) {
+        switch self {
+        case .external:
+            break
+        case .code(let url, let line):
+            window.openFile(url, line: line)
+        case .file(let url, let page, let scrollText):
+            if let page { window.openPDF(url, page: page) } else { window.openFile(url) }
+            if let scrollText {
+                // task: posts one notification 0.4 s after the file opened; it owns nothing
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    NotificationCenter.default.post(.scrollToText, for: window, object: scrollText)
+                }
+            }
+        }
+    }
+}
 
 @MainActor
 final class SharedSearchModel: ObservableObject {
@@ -10,7 +41,8 @@ final class SharedSearchModel: ObservableObject {
     @Published var scanned = 0
     @Published var indexedAt: Date?
     @Published var error: String?
-    private var searchTask: Task<Void, Never>?
+    /// The searches, rebuilds and openings the panel started: they end with the panel, and a new one replaces its own kind (`AR-19`).
+    private let tasks = TaskBag()
     private var documentDatabasePath: String?
 
     private let index = ProjectSearchIndex()
@@ -38,14 +70,19 @@ final class SharedSearchModel: ObservableObject {
         indexing = false
     }
 
-    /// Open a result: a file (at its line, or at the text found), or a file from inside an archive
-    /// (its temporary copy). False, with `error` set, when it cannot be opened.
-    func open(_ result: ProjectSearchResult, in workspaceManager: WorkspaceManager) async -> Bool {
-        guard let root = workspaceManager.rootNode?.url, let path = result.path else { return false }
+    /// Reads the index again for `root` and its linked folders; a newer rebuild replaces the running one.
+    func startRebuild(root: URL?, linked: [LinkedFolder]) {
+        tasks.store(Task { [weak self] in await self?.rebuild(root: root, linked: linked) }, for: "rebuild")
+    }
+
+    /// What `result` opens into: a file (at its line, or at the text found), or a file from inside an archive (its temporary copy).
+    /// Nil, with `error` set, when it cannot be opened. The window shows the answer (`SearchOpening.show`).
+    private func resolve(_ result: ProjectSearchResult, root: URL, linked: [LinkedFolder]) async -> SearchOpening? {
+        guard let path = result.path else { return nil }
         let roots = self.roots
         if let range = path.range(of: ProjectSearchIndex.archiveSeparator) {
             let entryPath = String(path[range.upperBound...])
-            guard let archiveURL = ProjectSearchRoot.url(for: String(path[..<range.lowerBound]), in: roots) else { return false }
+            guard let archiveURL = ProjectSearchRoot.url(for: String(path[..<range.lowerBound]), in: roots) else { return nil }
             let opened = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
                 Result {
                     guard let entry = try Archive.list(archiveURL).first(where: { $0.path == entryPath }) else { throw ArchiveError.notFound(entryPath) }
@@ -53,12 +90,11 @@ final class SharedSearchModel: ObservableObject {
                 }
             }.value
             switch opened {
-            case .success(let copy): workspaceManager.openFile(copy); return true
-            case .failure(let failure): error = failure.localizedDescription; return false
+            case .success(let copy): return .file(copy, page: nil, scrollText: nil)
+            case .failure(let failure): error = failure.localizedDescription; return nil
             }
         }
-        guard let url = ProjectSearchRoot.url(for: path, in: roots) else { return false }
-        let linked = workspaceManager.project.linkedFolders
+        guard let url = ProjectSearchRoot.url(for: path, in: roots) else { return nil }
         // The result must still be under a root of the search (the project or a linked folder).
         let valid = await Task.detached { () -> Bool in
             let resolved = url.resolvingSymlinksInPath().standardizedFileURL
@@ -68,41 +104,46 @@ final class SharedSearchModel: ObservableObject {
         guard valid else {
             error = "This result is missing or no longer inside the project. Refreshing search."
             await rebuild(root: root, linked: linked)
-            return false
+            return nil
         }
         if url.pathExtension.lowercased() == "docx" {
             guard NSWorkspace.shared.open(url) else {
                 error = "Could not open this Word document in its default application."
-                return false
+                return nil
             }
+            return .external
         } else if url.pathExtension.lowercased() == "pdf" {
-            workspaceManager.openFile(url)
-            if let page = result.page, case .pdf(let reader)? = workspaceManager.tabs.activeTab?.kind {
-                reader.openPageWhenReady(page)
-            }
+            return .file(url, page: result.page, scrollText: nil)
         } else if result.scope == .content, let line = result.line, !FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
-            workspaceManager.openFile(url, line: line)
-        } else {
-            workspaceManager.openFile(url)
-            if result.scope == .content {
-                // An FTS match may contain separated query terms; the first term still locates the passage.
-                let text = result.line == nil ? String(query.split(whereSeparator: { $0.isWhitespace }).first ?? "") : query
-                // task: posts one notification 0.4 s after the file opened; it owns nothing
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    NotificationCenter.default.post(.scrollToText, for: workspaceManager, object: text)
-                }
-            }
+            return .code(url, line: line)
+        } else if result.scope == .content {
+            // An FTS match may contain separated query terms; the first term still locates the passage.
+            let text = result.line == nil ? String(query.split(whereSeparator: { $0.isWhitespace }).first ?? "") : query
+            return .file(url, page: nil, scrollText: text)
         }
-        return true
+        return .file(url, page: nil, scrollText: nil)
+    }
+
+    /// Opens a result: `shown` gets what it opens into once that is known (never when it cannot be opened).
+    func startOpen(_ result: ProjectSearchResult, root: URL?, linked: [LinkedFolder], shown: @escaping (SearchOpening) -> Void) {
+        guard let root else { return }
+        tasks.store(Task { [weak self] in
+            guard let opening = await self?.resolve(result, root: root, linked: linked), !Task.isCancelled else { return }
+            shown(opening)
+        }, for: "open")
     }
 
     func scheduleSearch(documentDatabasePath: String? = nil) {
         self.documentDatabasePath = documentDatabasePath
-        searchTask?.cancel()
-        searchTask = Task {
+        tasks.store(Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
-            await search()
-        }
+            await self?.search()
+        }, for: "search")
+    }
+
+    /// Searches at once (the query was cleared), without the pause of `scheduleSearch`.
+    func startSearch() {
+        tasks.store(Task { [weak self] in await self?.search() }, for: "search-now")
     }
 
     func search() async {
@@ -143,7 +184,7 @@ struct SharedSearchView: View {
                     .focused($searchFocused)
                     .onChange(of: model.query) { _ in model.scheduleSearch(documentDatabasePath: workspaceManager.semanticDatabase?.dbPath) }
                 if model.indexing { ProgressView().controlSize(.small) }
-                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } } label: {
+                Button { model.startRebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh project search index")
@@ -260,7 +301,10 @@ struct SharedSearchView: View {
     }
 
     private func open(_ result: ProjectSearchResult) {
-        Task { if await model.open(result, in: workspaceManager) { dismiss() } }
+        model.startOpen(result, root: workspaceManager.rootNode?.url, linked: workspaceManager.project.linkedFolders) { opening in
+            opening.show(in: workspaceManager)
+            dismiss()
+        }
     }
 
     private struct SearchCommand: Identifiable {

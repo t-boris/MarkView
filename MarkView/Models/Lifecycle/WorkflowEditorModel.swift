@@ -1,6 +1,9 @@
 import Combine
 import Foundation
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Which transition table the diagram edits: the one of a work-item type, or the own one of a process.
 enum WorkflowScope: Hashable {
@@ -22,6 +25,8 @@ final class WorkflowEditorModel: ObservableObject {
         case features = "Features", bugs = "Bugs", processes = "Processes"
         var id: String { rawValue }
     }
+
+    private let tasks = TaskBag()
 
     @Published var draft = ProjectWorkflow.standard
     @Published var mode = Mode.visual
@@ -91,10 +96,12 @@ final class WorkflowEditorModel: ObservableObject {
     /// Reads the project's Definition of Done in the background: the file is small, but file reads stay off the main thread.
     private func loadChecklist(root: URL?) {
         guard let root else { checklist = nil; return }
-        Task { [weak self] in
+        // A later read replaces this one, and the editor going away ends it.
+        tasks.store(Task { [weak self] in
             let loaded = await Task.detached(priority: .utility) { DefinitionOfDone.loadIfPresent(root: root) }.value
+            guard !Task.isCancelled else { return }
             self?.checklist = loaded
-        }
+        }, for: "checklist")
     }
 
     /// The processes whose settings decide the steps of `scope`: those of a type that follow its transitions, or the process itself.
