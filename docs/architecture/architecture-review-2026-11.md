@@ -395,6 +395,8 @@ struct LayoutPreset: Codable, Identifiable {
 
 Bundled defaults plus `.dde/layouts/*.json` per project. Ship manual switching first: automatic triggers fight the rule that a window keeps its own state.
 
+Status (2026-11-15): done for manual switching. 4 JSON presets in `Resources/Layouts/` (`10-writing`, `20-review`, `30-qa`, `40-cockpit`), ordered by file name, are read by `LayoutCatalog` (which also reads `~/Library/Application Support/MarkView/layouts/`) and shown in the app's menu; there are no automatic triggers (`DEC-002`); the per-project `.dde/layouts/` folder of the proposal was not built.
+
 **Backdrops (AR-34, S):** split the mode (`off`, `shuffle`, `byProject`, `scene(id)`) from the scene and give each scene one file behind a small protocol (`id`, `title`, `symbol`, `build(context) -> [CALayer]`). Do not make scenes declarative or user-authored: each is 100-400 lines of bespoke Core Animation, and a data language for that would be a second animation engine.
 
 **Assistants (AR-35, M-L):** an `AssistantProvider` (identity, locating and probing, model catalogue, one-shot arguments and event parser or the session-protocol profile, terminal launch arguments, goal phrasing, optional usage source) with one registry; `TerminalProfile` becomes `provider | shell` and the three duplicate enums go. Behavioural, so not data. Worth doing when a sixth assistant is planned, or together with AR-26.
