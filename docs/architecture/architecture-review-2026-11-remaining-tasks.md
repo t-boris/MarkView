@@ -146,6 +146,8 @@ Per CLAUDE.md rule 2, no target is added without a first real suite moved into i
 
 **D3. AR-43 concurrency checking.**
 
+A clean complete-checking build on 6.30.66 succeeded with 36 distinct Swift warning lines in 19 files, versus 60 in 25 in the previous audit and 232 in 77 initially. The zero-warning acceptance remains open.
+
 Assistant results now store validated JSON bytes as Sendable data and decode fresh values for consumers, rejecting invalid JSON explicitly. Hosted tests checked nested values, booleans, Unicode, fragments, isolation from later mutation and invalid input. All 10 changed-file pure and two gui suites, including 16 hosted tests, Debug build, warning ratchet and architecture lint passed. One test driver was updated for the throwing initializer, and a missing CLICompletion manifest link was added to phase5 AI tests. Complete checking reduced `CodeAndXRayCoordinator.swift` warnings from 9 to 0 and `FeatureAI.swift` from 9 to 2. On this Mac a synthetic 1,086,891-byte JSON value took about 11 ms per validation/encode/decode cycle over ten iterations; larger outputs and repeated reads cost proportionally more.
 
 A clean complete-checking build on 6.30.65 succeeded with 60 distinct Swift warning lines in 25 files, versus 75 in 32 in the previous audit and 232 in 77 initially. The zero-warning acceptance remains open.
