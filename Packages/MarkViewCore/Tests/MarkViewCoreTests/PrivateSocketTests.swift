@@ -4,7 +4,7 @@ import XCTest
 @testable import MarkViewCore
 
 final class PrivateSocketTests: XCTestCase {
-    func testSocketSecurityAndLifecycle() throws {
+    func testSocketSecurityAndLifecycle() async throws {
         func check(_ condition: Bool, _ message: String, line: Int = #line) {
             XCTAssertTrue(condition, message, line: UInt(line))
         }
@@ -125,29 +125,28 @@ final class PrivateSocketTests: XCTestCase {
         // 0600 already (the socket is bound in a private staging folder and only renamed into place once it is).
         let watched = sockPath("watched")
         let stop = DispatchSemaphore(value: 0)
-        // unchecked Sendable: only the poller writes; the test reads after pollerFinished signals.
-        nonisolated(unsafe) var seen = 0
-        // unchecked Sendable: only the poller writes; the test reads after pollerFinished signals.
-        nonisolated(unsafe) var wrongMode = 0
-        let pollerFinished = DispatchSemaphore(value: 0)
-        let poller = Thread {
-            defer { pollerFinished.signal() }
-            while true {
-                if stop.wait(timeout: .now()) == .success { break }
+        let started = DispatchSemaphore(value: 0)
+        let poller = Task.detached {
+            var seen = 0
+            var wrongMode = 0
+            started.signal()
+            while stop.wait(timeout: .now()) != .success {
                 var info = stat()
                 if lstat(watched, &info) == 0 {
                     seen += 1
                     if info.st_mode & 0o7777 != 0o600 { wrongMode += 1 }
                 }
             }
+            return (seen, wrongMode)
         }
-        poller.start()
+        started.wait()
+        defer { stop.signal() }
         for _ in 0..<300 {
             let l = try PrivateSocket.open(at: watched)
             l.stop()
         }
         stop.signal()
-        pollerFinished.wait()
+        let (seen, wrongMode) = await poller.value
         check(wrongMode == 0 && seen > 0, "a socket is never seen at its path with a mode other than 0600 (seen \(seen) times)")
     }
 }
