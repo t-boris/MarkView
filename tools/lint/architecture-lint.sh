@@ -328,6 +328,22 @@ ratchet("app-log", "app-log-allowlist.txt", "NSLog or Logger site(s)",
         "# category of AppLog (Packages/MarkViewCore, AppLog.swift), which keeps interpolated strings private. Add a category there instead of a\n"
         "# new Logger, and never log file contents, tokens, prompts or request headers.")
 
+NSALERT = re.compile(r"(?<![A-Za-z0-9_])NSAlert\b")
+
+def nsalert_sites(files):
+    """Lines of a model that name `NSAlert`; a trailing `// ...` comment does not count."""
+    counts = {}
+    for path in files:
+        hits = sum(1 for _, line in code_lines(path) if NSALERT.search(re.split(r"\s//", line)[0]))
+        if hits:
+            counts[rel(path)] = hits
+    return counts
+
+ratchet("nsalert-in-models", "nsalert-in-models-allowlist.txt", "NSAlert reference(s)", nsalert_sites(swift_files("MarkView/Models")),
+        "# `NSAlert` in MarkView/Models (AR-22). `<count> <path>`; a ratchet that only falls. A model never shows a dialog: it asks through the\n"
+        "# UserPrompts it is given (Models/Shared/UserPrompts.swift) and the app answers once, with AlertPrompts (Views/Shared). The list is empty;\n"
+        "# a new site is fixed (inject UserPrompts), not added.")
+
 ownership = subprocess.run([str(lint_dir / "task-ownership.sh"), "--root", str(root), "--counts"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 if ownership.returncode != 0:
     violations.append(("unowned-task", f"tools/lint/task-ownership.sh failed: {ownership.stderr.strip()}"))
@@ -718,7 +734,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks"]
+rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

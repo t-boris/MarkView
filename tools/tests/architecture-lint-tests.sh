@@ -35,6 +35,9 @@ SWIFT = {
     "MarkView/Models/AI/Paths.swift": "let a = \"~/.claude/settings.json\"\nlet b = home.appendingPathComponent(\".codex\")\nlet c = other.claude\nlet d = 1 // .copilot in a comment\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift": "// the one writer and the one place that names the folders\nlet n = Darwin.write(fd, base, count)\nlet t = try data.write(to: tmp)\nlet f = \".dde\"\nlet p = \".markview-\" + kind\n",
     "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift": "// the one place that makes a Logger\nlet l = Logger(subsystem: \"com.markview.app\", category: \"x\")\n",
+    # The app answers a model's question in one place, in the views; a model that names the alert only in prose is not a site.
+    "MarkView/Views/Shared/AlertPrompts.swift": "struct AlertPrompts {\n    func ask() { let alert = NSAlert(); alert.runModal() }\n}\n",
+    "MarkView/Models/Shared/Asks.swift": "/// Shown by AlertPrompts (an NSAlert) in the app\n// NSAlert in a comment does not count\nlet shown = prompts.ask(question) // an NSAlert in the app\nlet MyNSAlertLike = 1\n",
     "MarkView/Models/Workspace/Export.swift": "// A comment about .write(to: is not a site\nfunc export() throws { try png.write(to: url) }\n",
     # What the window-wiring rule lets through: closures that are given at construction (`let`, a value type's field), a private or static
     # closure, a computed property, a narrow host protocol and a weak reference to it, and a view that only reads the manager.
@@ -102,6 +105,7 @@ def fixture():
     write(root, "tools/lint/file-size-allowlist.txt", "# no file is over the limit\n")
     write(root, "tools/lint/project-paths-allowlist.txt", "# none outside ProjectPaths\n")
     write(root, "tools/lint/app-log-allowlist.txt", "# none outside AppLog\n")
+    write(root, "tools/lint/nsalert-in-models-allowlist.txt", "# no model shows an alert\n")
     write(root, "tools/lint/unowned-task-allowlist.txt", "# no task is without an owner\n")
     write(root, "tools/lint/domain-cycles-allowlist.txt", "# no cycle between domain folders\n")
     write(root, "tools/lint/window-wiring-hooks.txt", "# no model has a hook that another object assigns\n")
@@ -309,6 +313,21 @@ try:
     check(code == 1 and "[app-log] MarkView/Models/Workspace/Noisy.swift: 2 NSLog or Logger site(s), 0 allowed (new sites)" in out,
           "a new NSLog or Logger(subsystem:) fails and is named, comments are not counted")
     check("AppLog.swift" not in out, "AppLog's own file is the allowed home, not counted")
+    # --- nsalert-in-models ratchet (AR-22)
+    root = fresh()
+    write(root, "MarkView/Models/Workspace/Asker.swift", "func f() {\n    let alert = NSAlert()\n    alert.runModal()\n}\nlet style: NSAlert.Style = .warning\n// NSAlert in a comment does not count\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[nsalert-in-models] MarkView/Models/Workspace/Asker.swift: 2 NSAlert reference(s), 0 allowed (new sites)" in out,
+          "a model that names NSAlert fails and is named, comments are not counted")
+    check("AlertPrompts.swift" not in out and "Asks.swift" not in out,
+          "the app's one alert, in the views, and a model that mentions NSAlert only in prose are not counted")
+    root = fresh()
+    write(root, "tools/lint/nsalert-in-models-allowlist.txt", "1 MarkView/Models/Workspace/Gone.swift\n")
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 1 and "[nsalert-in-models] MarkView/Models/Workspace/Gone.swift: 0 NSAlert reference(s), 1 allowed; the count fell" in out,
+          "an allowance for an NSAlert that is gone fails until the list is lowered")
     # --- unowned-task ratchet (AR-19)
     OWNED = (
         "final class Owner {\n"

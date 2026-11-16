@@ -1,0 +1,3 @@
+# `NSAlert` in MarkView/Models (AR-22). `<count> <path>`; a ratchet that only falls. A model never shows a dialog: it asks through the
+# UserPrompts it is given (Models/Shared/UserPrompts.swift) and the app answers once, with AlertPrompts (Views/Shared). The list is empty;
+# a new site is fixed (inject UserPrompts), not added.
