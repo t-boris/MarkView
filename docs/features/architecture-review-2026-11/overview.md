@@ -33,22 +33,21 @@ Following v6.26.0, [architecture-review-2026-11-followup.md](../../../architectu
 
 ## Scope
 
-Per [DEC-011](./decisions/DEC-011.md), Steps A–D of `architecture-review-2026-11-followup.md` (documentation and rules alignment, CI and test restoration, web and Swift security fixes, linking `Packages/MarkViewCore`, unused-code cleanup, and one first real caller for each of `Subprocess`, `ToolRegistry`, `DocumentScrollSideTable`, `AIOperation` and `SchemaVersionedStore`) were delivered in 6.26.1 and 6.26.2. The remaining multi-caller migrations (Step E) are **in progress (feat/architecture-review-finish)**. By an owner decision of 2026-11-15 that work ships as one pull request with one commit per finding; this waives the "separate per-finding pull requests" of DEC-011 for it only. The feature `status` stays `implementing` until the owner sets `verified` (Rule 6).
+Per [DEC-011](./decisions/DEC-011.md), Steps A–D of `architecture-review-2026-11-followup.md` (documentation and rules alignment, CI and test restoration, web and Swift security fixes, linking `Packages/MarkViewCore`, unused-code cleanup, and one first real caller for each of `Subprocess`, `ToolRegistry`, `DocumentScrollSideTable`, `AIOperation` and `SchemaVersionedStore`) were delivered in 6.26.1 and 6.26.2. The remaining multi-caller migrations (Step E) were carried out on `feat/architecture-review-finish`; their measured result is below and in `architecture-review-2026-11-followup.md` section 13. By an owner decision of 2026-11-15 that work ships as one pull request with one commit per finding; this waives the "separate per-finding pull requests" of DEC-011 for it only. The feature `status` stays `implementing` until the owner sets `verified` (Rule 6).
 
 ## Status
 
-Counts as of 6.26.2 (`6facd9f`), from sections 10.1 and 12.1 of the follow-up document; a finding is done only when its count reaches the target (Rule 1).
+Counts of 6.26.2 (`6facd9f`) come from sections 10.1 and 12.1 of the follow-up document; the counts dated 2026-11-15 come from section 13 of it. A finding is done only when its count reaches the target (Rule 1).
 
 Delivered: `Packages/MarkViewCore` is linked and the duplicate `MarkView/Core/` is gone; `MarkView/Models/` (21 folders) and `MarkView/Views/` (19 folders) have no loose files; first-party scripts live in `Resources/Editor/js/`; CI runs the whole pure tier. The folder move changed no dependency.
 
-Not delivered, all in progress (feat/architecture-review-finish):
+Reached their counts: AR-25 (`Process()` outside `Subprocess` 17 -> 0), AR-26 (`CLICompletion.run` outside `AIOperation` 55 -> 0), AR-35 (assistant switches 0), AR-28 (typed bridge, string `case` 29 -> 0), AR-37 and AR-38 (`SemanticDatabase` is an `actor` with a migration list), AR-30, AR-46, and the Swift half of AR-27 (`WKWebViewConfiguration(` 10 -> 0).
 
-- AR-25: 17 `Process()` creations in 15 files outside `Subprocess` (target 0); `Subprocess.run` has 1 caller (`InsightArchiveExporter`). FU-22: the process-group kill does not run.
-- AR-26: 55 `CLICompletion.run` calls in 28 files outside `AIOperation` (target 0); `AIOperation` has 1 call site (`ArchitectureStore.xrayCall`).
-- AR-36 and AR-39: `SchemaVersionedStore` has 1 user (`WindowSessionStorage`); 23 files hand-roll JSON stores.
-- AR-14, AR-17, AR-19: `WorkspaceManager.swift` is 5747 lines (target under 1000) and 62 views take the whole manager (target 0). The Phase 4 coordinators were deleted because nothing called them, so AR-14 steps 2–11, AR-17 and AR-19 have no code yet.
-- AR-37 and AR-38: `SemanticDatabase` is still `@MainActor`; delete-the-database-on-mismatch remains.
-- AR-28 and AR-29: no typed bridge; three first-party scripts are over 2800 lines (3628, 2998, 2845).
-- AR-20: folders only; no layer or dependency boundary exists (28 mutual pairs between `Models/` folders).
-- AR-31: `ToolRegistry` drives only the primary toolbar buttons and the sentinel tab URLs; about 7 lists must still be edited for a new tool (target 1).
-- FU-20 to FU-29 (follow-up section 12.2), among them FU-20: Mermaid diagrams lose their stylesheet in `mvKit.sanitizeMermaidSvg`.
+Not at target on 2026-11-15 (measured at the merge tip `ac3001ba` of `feat/architecture-review-finish`; base 6.26.2):
+
+- AR-14, AR-17, AR-19: `WorkspaceManager.swift` is 730 lines (5,747 at 6.26.2; target under 1,000: met) but 56 views still take the whole manager (62; target 0); 33 closure hooks and 4 back-references remain behind ratchets; unowned tasks 263 in 70 files (391 in 87).
+- AR-31: places to edit for a new tool 2 (about 7 at 6.26.2; target 1).
+- AR-20 and AR-21: 22 `Models/` domain pairs are still in cycles (28 mutual pairs at 6.26.2); no layer rule exists, only a ratchet.
+- AR-04, AR-24, AR-27 and AR-29: 27 `evaluateJavaScript` sites (57), 35 `.write(to:` sites (112), 80 `innerHTML =` sinks and 63 `<script>` tags with no module system.
+- AR-36, AR-39, AR-40, AR-42, AR-43: partial; the warning count of AR-43 and the main-thread cost of AR-42 were not measured in this pass.
+- FU-20 to FU-29 (follow-up section 13): FU-25 stays open (cached Insight HTML keeps `'unsafe-inline'`); FU-10 was never run live.
