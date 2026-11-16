@@ -20,8 +20,7 @@
 1 MarkView/Views/Lifecycle/IssueSyncViews.swift
 1 MarkView/Views/ProjectOps/ProjectOperationsView.swift
 1 MarkView/Views/Prototype/PrototypeStudioView.swift
-1 MarkView/Views/UIStudio/UIStudioTrackingLine.swift
-3 MarkView/Views/UIStudio/UIStudioView.swift
+1 MarkView/Views/UIStudio/UIStudioView.swift
 2 MarkView/Views/Workspace/ArchiveTabView.swift
 3 MarkView/Views/Workspace/ContentsPanelView.swift
 1 MarkView/Views/Workspace/DDESettingsView.swift

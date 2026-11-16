@@ -18,6 +18,7 @@
 		00CA6729A7DBFA482D057D61 /* RemoteRelaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */; };
 		01824FCE6C8423DDB049E120 /* FeatureReviewGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE3D4429958A004ADFE5D2C /* FeatureReviewGate.swift */; };
 		01833EC335A594FF5C294559 /* UIStudioTrackingLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */; };
+		7A1C5E02B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C5E03B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift */; };
 		02044E5B00D534734886BB62 /* IssueGitHubSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7E31914169E263C7E43C35 /* IssueGitHubSync.swift */; };
 		026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */; };
 		03CC33F577463F4CDCCA922A /* QARunAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */; };
@@ -1142,6 +1143,7 @@
 		ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectColorViews.swift; sourceTree = "<group>"; };
 		ECEFAE17263C5440B18AEDF2 /* MANIFEST.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = MANIFEST.txt; sourceTree = "<group>"; };
 		ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioTrackingLine.swift; sourceTree = "<group>"; };
+		7A1C5E03B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioContentsPanel.swift; sourceTree = "<group>"; };
 		ED38A3D93E96C54E2A3BCD06 /* UIStudioContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioContext.swift; sourceTree = "<group>"; };
 		ED3A5171E73A5AE15C8A979E /* WorkflowFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowFlow.swift; sourceTree = "<group>"; };
 		ED64FCA6C04585D135176CE3 /* CockpitQAPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitQAPlanView.swift; sourceTree = "<group>"; };
@@ -2062,6 +2064,7 @@
 				68569953A6974EBC56C557A5 /* UIStudioComparisonView.swift */,
 				1A6291D82348E4A264695D63 /* UIStudioPreviewHost.swift */,
 				ECF8D0D924530B8C94483B11 /* UIStudioTrackingLine.swift */,
+				7A1C5E03B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift */,
 				15F3C39CF6E64AB9AA1EDA1B /* UIStudioView.swift */,
 			);
 			path = UIStudio;
@@ -2981,6 +2984,7 @@
 				EB315F16B4603811DE1E360A /* UIStudioStore.swift in Sources */,
 				CEB68D6CDA33EA59EB05837D /* UIStudioTracking.swift in Sources */,
 				01833EC335A594FF5C294559 /* UIStudioTrackingLine.swift in Sources */,
+				7A1C5E02B4D94F6A8C3E1D07 /* UIStudioContentsPanel.swift in Sources */,
 				E161A7454C9233FFD975F710 /* UIStudioView.swift in Sources */,
 				9803A874E731E8A96D8E3FE6 /* UnderstandingAnswer.swift in Sources */,
 				CDB77CC294117E346070B67E /* WebAppPreview.swift in Sources */,
