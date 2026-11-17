@@ -41,9 +41,10 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
 @MainActor func extent(of hosting: NSView) -> Extent {
     let views = descendants(hosting)
     func frame(_ view: NSView) -> CGRect { view.convert(view.bounds, to: hosting) }
-    let scroll = views.first { String(describing: type(of: $0)) == "HostingScrollView" }.map(frame)
-    let document = views.first { String(describing: type(of: $0)) == "DocumentView" }.map { frame($0).width }
-    let clip = views.first { String(describing: type(of: $0)) == "HostingClipView" }.map { frame($0).width }
+    let area = views.compactMap { $0 as? NSScrollView }.first
+    let scroll = area.map(frame)
+    let document = area?.documentView.map { frame($0).width }
+    let clip = area.map { frame($0.contentView).width }
     let fields = views.filter { $0 is NSTextField || $0 is NSSegmentedControl }.map(frame).filter { $0.width > 0 }
     return Extent(sheet: hosting.bounds.width,
                   scroll: scroll.map { $0.minX...$0.maxX },
@@ -138,9 +139,10 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
             check(text != nil && text!.minX >= 0 && text!.maxX <= w, "\(name): the source text lies inside the tab",
                   text.map { "\(Int($0.minX))…\(Int($0.maxX))" } ?? "no text view")
         } else {
-            let scroll = all.first { String(describing: type(of: $0)) == "HostingScrollView" }.map(frame)
-            let document = all.first { String(describing: type(of: $0)) == "DocumentView" }.map { frame($0).width }
-            let clip = all.first { String(describing: type(of: $0)) == "HostingClipView" }.map { frame($0).width }
+            let area = all.compactMap { $0 as? NSScrollView }.first
+            let scroll = area.map(frame)
+            let document = area?.documentView.map { frame($0).width }
+            let clip = area.map { frame($0.contentView).width }
             print("info  \(name): scroll \(scroll.map { "\(Int($0.minX))…\(Int($0.maxX))" } ?? "-"), document \(document.map { Int($0) } ?? -1), clip \(clip.map { Int($0) } ?? -1)")
             if let scroll, let document, let clip {
                 check(scroll.minX >= 0 && scroll.maxX <= w, "\(name): the list lies inside the tab (\(Int(scroll.minX))…\(Int(scroll.maxX)) of \(Int(w)))")
@@ -160,6 +162,7 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
 /// BUG-112: the diagram answers the mouse. Real mouse events go to the window hosted off screen: a click on a state opens the
 /// state's inspector, a click on an arrow opens the transition's, and a drag from one state to another draws an arrow.
 @MainActor func interaction() {
+    NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
     let store = makeStore()
     let editor = WorkflowEditorModel()
     editor.attach(to: store)
@@ -197,6 +200,19 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
         let views = descendants(hosting)
         return (views.filter { $0 is NSTextField }.count, views.filter { String(describing: type(of: $0)) == "_FocusRingView" }.count)
     }
+    func accessibilityText(_ root: NSObject, depth: Int = 0) -> [String] {
+        guard depth < 24 else { return [] }
+        var values: [String] = []
+        for selector in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+            let method = NSSelectorFromString(selector)
+            if root.responds(to: method), let text = root.perform(method)?.takeUnretainedValue() as? String { values.append(text) }
+        }
+        let children = NSSelectorFromString("accessibilityChildren")
+        if root.responds(to: children), let found = root.perform(children)?.takeUnretainedValue() as? [NSObject] {
+            for child in found { values += accessibilityText(child, depth: depth + 1) }
+        }
+        return values
+    }
 
     let feature = editor.draft.feature
     // The tab draws the diagram at the zoom that fits the 920 pt it is given.
@@ -230,9 +246,9 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
     let start = diagram.arrows.first { feature.rules[$0.rule].kind == .start }!
     let stub = start.branches[0].stub
     click(at(CGPoint(x: (stub[0].x + stub[1].x) / 2, y: stub[0].y)))
-    check(inspector().fields == base.fields && inspector().controls >= base.controls + 6,
-          "diagram: a click on an arrow opens its transition (from, to, kind, three actors)", "\(base) -> \(inspector())")
-    let startControls = inspector().controls
+    let startLabels = accessibilityText(hosting)
+    check(["WHEN", "WHO", "EVIDENCE"].allSatisfy(startLabels.contains),
+          "diagram: a click on an arrow opens its transition and actor evidence")
     snapshot("arrow-start")
 
     // BUG-115: the card of an arrow holds the settings of the processes that step reads, so a completion has more than a start.
@@ -242,14 +258,15 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
         return at(CGPoint(x: (stub[0].x + stub[1].x) / 2, y: stub[0].y))
     }
     click(stubPoint(.completion))
-    let completionControls = inspector().controls
+    let completionLabels = accessibilityText(hosting)
     snapshot("arrow-completion")
-    check(!editor.draft.variants(for: .feature).isEmpty && completionControls > startControls,
-          "diagram: the card of a completion arrow holds the delivery settings of the processes (branch, checks, event)", "start \(startControls), completion \(completionControls)")
+    check(!editor.draft.variants(for: .feature).isEmpty && ["Reaches the branch", "Checks must pass", "Delivery event"].allSatisfy(completionLabels.contains),
+          "diagram: the card of a completion arrow holds the delivery settings of the processes (branch, checks, event)")
     click(stubPoint(.acceptance))
+    let acceptanceLabels = accessibilityText(hosting)
     snapshot("arrow-acceptance")
-    check(inspector().controls >= base.controls + 6 && inspector().controls < completionControls,
-          "diagram: …an acceptance arrow only who accepts", "\(inspector().controls) of \(completionControls)")
+    check(acceptanceLabels.contains("Accepted by") && !acceptanceLabels.contains("Delivery event"),
+          "diagram: …an acceptance arrow only who accepts")
 
     // A drag from a state to another draws an arrow: idea has no way to start the work yet.
     click(at(CGPoint(x: diagram.lanes[1].frame.midX, y: 6)))
@@ -268,7 +285,7 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
     let startRule = after.first { $0.kind == .start && $0.to == "implementing" }
     check(after.count == before.count && startRule?.from.contains("idea") == true,
           "diagram: dragging from a state to another adds the arrow (idea now starts the work)", "\(startRule?.from.sorted() ?? [])")
-    check(inspector().fields == base.fields && inspector().controls >= base.controls + 6, "diagram: …and opens the transition it made", "\(inspector())")
+    check(["WHEN", "WHO", "EVIDENCE"].allSatisfy(accessibilityText(hosting).contains), "diagram: …and opens the transition it made")
 }
 
 /// Every flow of the picker loaded into the tab (REQ-003): the draft is the flow and unsaved, the tab still lays out, and the Done
@@ -384,12 +401,19 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
     window.close()
 }
 
-@MainActor func testWorkflowLayoutAndInteraction() {
+@MainActor func testWorkflowInteraction() {
     defer {
         for store in stores { store.reset() }
         for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
     }
     interaction()
+}
+
+@MainActor func testWorkflowLayout() {
+    defer {
+        for store in stores { store.reset() }
+        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
+    }
     flows()
     picker()
     templateSettings()
