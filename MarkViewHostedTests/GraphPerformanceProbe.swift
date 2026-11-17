@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+import MarkViewCore
 @testable import MarkView
 
 private struct GraphProbePrompts: UserPrompts {

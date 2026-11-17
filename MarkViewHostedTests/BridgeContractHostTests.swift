@@ -174,3 +174,55 @@ check(hostileResult["text"] as? String == hostileQuestion && hostileResult["imgs
         XCTAssertEqual(failures, 0)
     }
 }
+
+
+@MainActor
+private final class PopupTestHost: NSObject, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler {
+    var popup: BrowserPopup?
+    var closed = false
+    var received: String?
+    var openResult: String?
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard BrowserPopup.isPopup(windowFeatures) else { return nil }
+        let popup = BrowserPopup(configuration: configuration, features: windowFeatures)
+        popup.onClose = { [weak self] _ in self?.closed = true }
+        self.popup = popup
+        return popup.webView
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        webView.evaluateJavaScript("""
+        window.addEventListener('message', e => window.webkit.messageHandlers.t.postMessage('msg:' + e.data));
+        var p = window.open('about:blank', 'auth', 'width=500,height=600');
+        if (p) { p.document.write('<script>window.opener.postMessage("signed-in", "*"); window.close();<\\/script>'); p.document.close(); }
+        String(p !== null)
+        """) { [weak self] result, _ in self?.openResult = result as? String }
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        received = message.body as? String
+    }
+}
+
+extension BridgeContractHostTests {
+    @MainActor func testPopupPreservesOpenerAndCloses() {
+        let host = PopupTestHost()
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.add(host, name: "t")
+        defer { configuration.userContentController.removeScriptMessageHandler(forName: "t"); host.popup?.close() }
+        let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 300), configuration: configuration)
+        view.uiDelegate = host
+        view.navigationDelegate = host
+        view.loadHTMLString("<html><body>x</body></html>", baseURL: URL(string: "https://example.com"))
+        XCTAssertFalse(BrowserPopup.isPopup(WKWindowFeatures()))
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline && !(host.openResult == "true" && host.received == "msg:signed-in" && host.closed) {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(host.openResult, "true", "window.open returns a window")
+        XCTAssertEqual(host.received, "msg:signed-in", "popup posts back to its opener")
+        XCTAssertTrue(host.closed, "window.close closes the popup")
+    }
+}
