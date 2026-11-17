@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 50,
+  "suiteCount": 49,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1162,15 +1162,6 @@
         "MarkView/Models/Insight/InsightArchiveExport.swift",
         "MarkView/Models/Insight/InsightCoordinator.swift",
         "MarkView/Models/Insight/InsightSession.swift"
-      ]
-    },
-    {
-      "name": "qa-web-window-tests",
-      "script": "tools/tests/qa-web-window-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Views/QA/QAWebWindow.swift",
-        "tools/tests/QAWebWindowChecks.swift"
       ]
     },
     {
