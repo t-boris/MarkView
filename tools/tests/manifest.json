@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 120,
+  "suiteCount": 117,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1545,18 +1545,6 @@
       ]
     },
     {
-      "name": "prototype-images-tests",
-      "script": "tools/tests/prototype-images-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/ImageAttachments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeImages.swift",
-        "tools/tests/PrototypeImagesTests.swift",
-        "tools/tests/prototype-images-tests.sh"
-      ]
-    },
-    {
       "name": "prototype-live-run",
       "script": "tools/tests/prototype-live-run.sh",
       "tier": "live",
@@ -1588,20 +1576,6 @@
       ]
     },
     {
-      "name": "prototype-reference-tests",
-      "script": "tools/tests/prototype-reference-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeReference.swift",
-        "tools/tests/PrototypeReferenceTests.swift",
-        "tools/tests/prototype-reference-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
       "name": "prototype-scheme-tests",
       "script": "tools/tests/prototype-scheme-tests.sh",
       "tier": "gui",
@@ -1626,19 +1600,6 @@
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "tools/tests/PrototypeTailwindRenderTests.swift",
         "tools/tests/prototype-tailwind-render-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "prototype-themes-tests",
-      "script": "tools/tests/prototype-themes-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeThemesTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
@@ -2206,7 +2167,10 @@
         "MarkView/Models/Git/GitHubClient.swift",
         "MarkViewHostedTests/WindowChromeHostTests.swift",
         "MarkView/Models/Workspace/WindowChrome.swift",
-        "MarkView/Models/Workspace/WindowSession.swift"
+        "MarkView/Models/Workspace/WindowSession.swift",
+        "MarkViewHostedTests/PrototypeDataHostTests.swift",
+        "MarkView/Models/Prototype/PrototypeImages.swift",
+        "MarkView/Models/Prototype/PrototypeReference.swift"
       ]
     },
     {
