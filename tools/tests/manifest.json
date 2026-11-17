@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 146,
+  "suiteCount": 145,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1294,26 +1294,6 @@
       ]
     },
     {
-      "name": "phase3-extensibility-tests",
-      "script": "tools/tests/phase3-extensibility-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Workspace/WelcomeActions.swift",
-        "MarkView/Models/Workspace/PanelLayout.swift",
-        "tools/tests/Phase3ExtensibilityTests.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/BackdropRegistry.swift",
-        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
-        "MarkView/Models/Appearance/ProjectBackdrop.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
       "name": "phase4-shell-tests",
       "script": "tools/tests/phase4-shell-tests.sh",
       "tier": "pure",
@@ -2300,7 +2280,9 @@
         "MarkViewHostedTests/WorkspaceRedesignHostTests.swift",
         "MarkView/Models/Shared/ProjectChangeMonitor.swift",
         "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
-        "MarkView/Models/Shared/FrontMatterFile.swift"
+        "MarkView/Models/Shared/FrontMatterFile.swift",
+        "MarkView/Models/Workspace/WelcomeActions.swift",
+        "MarkView/Models/Workspace/PanelLayout.swift"
       ]
     },
     {
