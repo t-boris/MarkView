@@ -586,6 +586,7 @@
 		A4DD9A6FAE364D6387E23E05 /* FeatureStoreLifecycleHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */; };
+		C16A57BD3D044D9C8E6F9113 /* ProjectWorkflowHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9114 /* ProjectWorkflowHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9111 /* LifecycleTransitionHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9112 /* LifecycleTransitionHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9105 /* GitHubRemoteProfileHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9106 /* GitHubRemoteProfileHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9103 /* StoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9104 /* StoreTestSupport.swift */; };
@@ -1318,6 +1319,7 @@
 		A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStoreLifecycleHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHostBridgeHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleSyncHostTests.swift; sourceTree = "<group>"; };
+		C16A57BD3D044D9C8E6F9114 /* ProjectWorkflowHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectWorkflowHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9112 /* LifecycleTransitionHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleTransitionHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9106 /* GitHubRemoteProfileHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubRemoteProfileHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9104 /* StoreTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = tools/tests/StoreTestSupport.swift; sourceTree = SOURCE_ROOT; };
@@ -2546,6 +2548,7 @@
 				A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */,
 				C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */,
 				C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */,
+				C16A57BD3D044D9C8E6F9114 /* ProjectWorkflowHostTests.swift */,
 				C16A57BD3D044D9C8E6F9112 /* LifecycleTransitionHostTests.swift */,
 				C16A57BD3D044D9C8E6F9106 /* GitHubRemoteProfileHostTests.swift */,
 				C16A57BD3D044D9C8E6F9104 /* StoreTestSupport.swift */,
@@ -3420,6 +3423,7 @@
 				A4DD9A6FAE364D6387E23E05 /* FeatureStoreLifecycleHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */,
+				C16A57BD3D044D9C8E6F9113 /* ProjectWorkflowHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9111 /* LifecycleTransitionHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9105 /* GitHubRemoteProfileHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9103 /* StoreTestSupport.swift in Sources */,

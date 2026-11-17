@@ -3,7 +3,7 @@
 # service, the delivery evidence, verified completion and reconciliation, the GitHub sync planner, the AI context and the
 # Lifecycle section's display model, and the project workflow they run on (docs/features/feature-3).
 # The app has no XCTest target: each suite is compiled on its own with a test main and run.
-#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow collector
+#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: collector
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
@@ -23,13 +23,12 @@ run() {  # name, checks file, extra sources...
 run_suite() {
     local suite=$1
     case $suite in
-        workflow)   run workflow ProjectWorkflowChecks.swift tools/tests/StoreTestSupport.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Shared/SchemaVersionedStore.swift ;;
         collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
         *) echo "unknown suite $suite"; exit 2 ;;
     esac
 }
 
-want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow collector)
+want=("$@"); [ ${#want[@]} -eq 0 ] && want=(collector)
 
 pids=()
 suites_batch=()

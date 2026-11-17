@@ -2081,7 +2081,9 @@
         "MarkView/Models/Lifecycle/IssueLifecycleContext.swift",
         "MarkViewHostedTests/LifecycleTransitionHostTests.swift",
         "MarkView/Models/Lifecycle/IssueCompletion.swift",
-        "MarkView/Models/Lifecycle/IssueReconciler.swift"
+        "MarkView/Models/Lifecycle/IssueReconciler.swift",
+        "MarkViewHostedTests/ProjectWorkflowHostTests.swift",
+        "MarkView/Models/Lifecycle/ProjectWorkflowStore.swift"
       ]
     },
     {
