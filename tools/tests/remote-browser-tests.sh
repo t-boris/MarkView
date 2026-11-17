@@ -1,15 +1,10 @@
 #!/bin/bash
+# Exercise the production relay, control socket, workspace and WebKit in the isolated app host.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-swiftc MarkView/Models/Browser/BrowserAddress.swift -parse-as-library -o "$out/remote-browser-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
-    MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/AgentTools/AgentToolServer.swift MarkView/Models/AgentTools/AgentToolWindow.swift \
-    MarkView/Models/Browser/BrowserAgentTabs.swift MarkView/Models/Browser/BrowserAgentExecutor.swift MarkView/Models/AI/AgentToolsSetting.swift MarkView/Models/AI/Providers/AssistantMCP.swift MarkView/Models/Remote/RemoteBrowserRelay.swift \
-    MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
-    MarkView/Models/Remote/RemoteWorkspace.swift MarkView/Models/Remote/RemoteCommand.swift \
-    MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/AI/AgentProcesses.swift \
-    MarkView/Models/Cockpit/CockpitPlan.swift MarkView/Models/Cockpit/CockpitHostBridge.swift MarkView/Models/Cockpit/CockpitStepPolicy.swift \
-    MarkView/Models/Cockpit/CockpitSupervisor.swift MarkView/Models/Cockpit/CockpitAgentRegistry.swift tools/tests/RemoteBrowserTests.swift
-# Isolate browser preferences and control sockets from the user's running MarkView.
-MARKVIEW_SOCKET_DIR="$out" "$out/remote-browser-tests" -ApplePersistenceIgnoreState YES
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+socket_dir=$(mktemp -d /tmp/mvhost.XXXXXX)
+trap 'rm -rf "$socket_dir"' EXIT
+MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
+  -only-testing:MarkViewHostedTests/RemoteBrowserHostTests test
