@@ -429,7 +429,7 @@
     {
       "name": "project-ai-choice-tests",
       "script": "tools/tests/project-ai-choice-tests.sh",
-      "tier": "pure",
+      "tier": "gui",
       "sources": [
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
@@ -438,7 +438,7 @@
         "MarkView/Models/Shared/LinkedFolders.swift",
         "MarkView/Models/Shared/LinkedFolderStore.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
-        "tools/tests/ProjectAIChoiceTests.swift",
+        "MarkViewHostedTests/ProjectAIChoiceHostTests.swift",
         "tools/tests/project-ai-choice-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",

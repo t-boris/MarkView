@@ -1,23 +1,21 @@
 #!/bin/bash
-# Checks per-project assistant choices (BUG-021): AIAssistants.swift and CLICompletion.swift are
-# compiled with a stub ACP client and a test main, then run.
-#   tools/tests/project-ai-choice-tests.sh
+# Isolated preferences and recovery files; an optional live Antigravity check is explicit.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-cp tools/tests/ProjectAIChoiceTests.swift "$out/main.swift"
-# The ACP client (Cline, Copilot) and the usage database are app-only; the checks never reach them.
-# LinkedFolders (the folders a Claude completion may read) needs the database's document id scheme.
-cat > "$out/Stub.swift" <<'SWIFT'
-import Foundation
-enum ACPAssistant {
-    static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] { [] }
-    static func run(_ request: CLICompletion.Request, tool: CLITool, toolPath: String, model: String?, workDir: URL,
-                    onDelta: (@Sendable (String) -> Void)?, onActivity: (@Sendable (CLICompletion.Activity) -> Void)?)
-        async throws -> CLICompletion.Result { fatalError("not used by the checks") }
-}
-SWIFT
-swiftc -o "$out/project-ai-choice-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/AI/AICallLog.swift \
-    MarkView/Models/AI/CLICompletion.swift "$out/Stub.swift" "$out/main.swift"
-"$out/project-ai-choice-tests"
+tmp=$(mktemp -d /tmp/mvaichoice.XXXXXX)
+trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/home"
+export TEST_RUNNER_CFFIXED_USER_HOME="$tmp/home"
+export TEST_RUNNER_MARKVIEW_AI_TEST_HOME="$tmp/home"
+unset TEST_RUNNER_MARKVIEW_LIVE_ANTIGRAVITY
+if [[ "${MARKVIEW_LIVE_ANTIGRAVITY:-}" == "1" ]]; then export TEST_RUNNER_MARKVIEW_LIVE_ANTIGRAVITY=1; fi
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+MARKVIEW_SOCKET_DIR="$tmp" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
+  -only-testing:MarkViewHostedTests/ProjectAIChoiceHostTests/testProjectAssistantChoices test | tee "$tmp/test.log"
+python3 - "$tmp/test.log" <<'PY'
+import pathlib,sys
+log=pathlib.Path(sys.argv[1]).read_text(errors='replace')
+if "ProjectAIChoiceHostTests testProjectAssistantChoices]' passed" not in log:
+    sys.exit('Project assistant-choice test was not executed and passed')
+PY

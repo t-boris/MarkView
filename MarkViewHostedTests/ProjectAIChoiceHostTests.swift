@@ -1,30 +1,41 @@
-// Checks per-project assistant choices (BUG-021): AIAssistantPreferences resolves the assistant,
-// model and X-Ray model for a project from its own choice, else the defaults, and one project's
-// choice never changes another's. Uses the test process's own defaults domain, cleared around.
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
-var failures = 0
-func check(_ name: String, _ got: String?, _ want: String?) {
-    if got == want { print("ok  \(name)") } else { failures += 1; print("FAIL \(name): got \(got.debugDescription) want \(want.debugDescription)") }
+private extension CLITool {
+    static var claude: CLITool { CLITool(rawValue: "claude")! }
+    static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
 }
 
-// The home folder of this process is a temporary one, so that the copies of unreadable records (below) and the defaults domain never
-// reach the real Application Support folder of whoever runs the check. It must be set before anything asks for a folder.
-let fixedHome = FileManager.default.temporaryDirectory.appendingPathComponent("ai-choice-home-\(UUID().uuidString)", isDirectory: true)
-try! FileManager.default.createDirectory(at: fixedHome, withIntermediateDirectories: true)
-setenv("CFFIXED_USER_HOME", fixedHome.path, 1)
-defer { try? FileManager.default.removeItem(at: fixedHome) }
-
-let domain = ProcessInfo.processInfo.processName
-UserDefaults.standard.removePersistentDomain(forName: domain)
-defer { UserDefaults.standard.removePersistentDomain(forName: domain) }
-
+final class ProjectAIChoiceHostTests: XCTestCase {
+    @MainActor func testProjectAssistantChoices() async throws {
+        func check(_ name: String, _ got: String?, _ want: String?) { XCTAssertEqual(got, want, name) }
+        let environment = ProcessInfo.processInfo.environment
+        guard Bundle.main.bundleIdentifier == "com.markview.tests.apphost",
+              let homePath = environment["MARKVIEW_AI_TEST_HOME"],
+              environment["CFFIXED_USER_HOME"] == homePath else {
+            XCTFail("An isolated test host and temporary home are required"); return
+        }
+        let fixedHome = URL(fileURLWithPath: homePath, isDirectory: true).resolvingSymlinksInPath()
+        let temporaryRoot = URL(fileURLWithPath: "/tmp", isDirectory: true).resolvingSymlinksInPath()
+        guard fixedHome.lastPathComponent == "home",
+              fixedHome.deletingLastPathComponent().lastPathComponent.hasPrefix("mvaichoice."),
+              fixedHome.path.hasPrefix(temporaryRoot.path + "/"),
+              PreferenceRecord.defaultFolder.resolvingSymlinksInPath().path.hasPrefix(fixedHome.path + "/") else {
+            XCTFail("Preference recovery must be confined to the temporary test home"); return
+        }
+        let defaults = UserDefaults.standard
+        let domain = "com.markview.tests.apphost"
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
 let base = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
     .appendingPathComponent("ai-\(UUID().uuidString)", isDirectory: true)
 let a = base.appendingPathComponent("alpha", isDirectory: true)
 let b = base.appendingPathComponent("beta", isDirectory: true)
-try! FileManager.default.createDirectory(at: a, withIntermediateDirectories: true)
-try! FileManager.default.createDirectory(at: b, withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: a, withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: b, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: base) }
 
 // Defaults only.
@@ -87,20 +98,13 @@ AssistantChoice(project: nil).setTool("codex")
 check("no project writes defaults", Settings.standard.stored(Setting.aiBackend), "codex")
 check("beta follows the new default", AIAssistantPreferences.backend(project: b).rawValue, "codex")
 
-// Optional manual live check: MARKVIEW_LIVE_ANTIGRAVITY=1 requires a signed-in `agy` CLI.
+// Manual only: the wrapper forwards this opt-in explicitly.
 if ProcessInfo.processInfo.environment["MARKVIEW_LIVE_ANTIGRAVITY"] == "1", CLIToolLocator.resolve(.antigravity) != nil {
     check("antigravity binary name", CLITool.antigravity.binaryName, "agy")
     let schema: [String: Any] = ["type": "object", "properties": ["answer": ["type": "number"]], "required": ["answer"]]
-    let request = CLICompletion.Request(project: nil, prompt: "What is 2+2? Answer with the number.", jsonSchema: schema,
-                                        toolOverride: .antigravity)
-    let semaphore = DispatchSemaphore(value: 0)
-    var answer: Double?
-    Task {
-        let result = try? await CLICompletion.run(request)
-        answer = ((result?.structured as? [String: Any])?["answer"] as? NSNumber)?.doubleValue
-        semaphore.signal()
-    }
-    semaphore.wait()
+    let request = CLICompletion.Request(project: nil, prompt: "What is 2+2? Answer with the number.", jsonSchema: schema, toolOverride: .antigravity)
+    let result = try? await CLICompletion.run(request)
+    let answer = ((result?.structured as? [String: Any])?["answer"] as? NSNumber)?.doubleValue
     check("antigravity structured answer", answer.map { String(Int($0)) }, "4")
 }
 
@@ -111,7 +115,7 @@ do {
     let copiesFolder = PreferenceRecord.defaultFolder
     check("home is the temporary one", copiesFolder.path.hasPrefix(fixedHome.resolvingSymlinksInPath().path) || copiesFolder.path.hasPrefix(fixedHome.path) ? "yes" : copiesFolder.path, "yes")
     let c = base.appendingPathComponent("gamma", isDirectory: true)
-    try! FileManager.default.createDirectory(at: c, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: c, withIntermediateDirectories: true)
     AssistantChoice(project: c).setTool("codex")
     check("a readable choice leaves no copy", String(PreferenceRecord.copies(named: "project-ai-choice").count), "0")
 
@@ -142,7 +146,6 @@ do {
     check("the copy keeps the old bytes", (PreferenceRecord.copies(named: "linked-folders").first.flatMap { try? Data(contentsOf: $0) }) == garbage ? "same" : "gone", "same")
 }
 
-print(failures == 0 ? "All project AI choice checks passed" : "\(failures) check(s) failed")
 // Simultaneous project choices must not lose one another.
 let pickProjects = (0..<100).map { fixedHome.appendingPathComponent("pick-\($0)") }
 let pickDate = Date(timeIntervalSince1970: 2_524_608_000)
@@ -151,11 +154,6 @@ DispatchQueue.concurrentPerform(iterations: pickProjects.count) { index in
 }
 let picksIntact = pickProjects.allSatisfy { ModelPickLog.lastPick(tool: .codex, project: $0) == pickDate }
 check("concurrent model picks remain independent", picksIntact ? "yes" : "no", "yes")
-exit(failures == 0 ? 0 : 1)
 
-// The suite names the assistants by their stored identity; the app names none outside its providers.
-extension CLITool {
-    static var claude: CLITool { CLITool(rawValue: "claude")! }
-    static var codex: CLITool { CLITool(rawValue: "codex")! }
-    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
+    }
 }

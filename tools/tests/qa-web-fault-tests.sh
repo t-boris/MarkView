@@ -17,4 +17,5 @@ MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme
   -skip-testing:MarkViewHostedTests/ResearchMapWebHostTests \
   -skip-testing:MarkViewHostedTests/ThemeWebHostTests \
   -skip-testing:MarkViewHostedTests/UIStudioWebHostTests \
-  -skip-testing:MarkViewHostedTests/WelcomeScreenHostTests test
+  -skip-testing:MarkViewHostedTests/WelcomeScreenHostTests \
+  -skip-testing:MarkViewHostedTests/ProjectAIChoiceHostTests test
