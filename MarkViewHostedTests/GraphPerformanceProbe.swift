@@ -248,4 +248,56 @@ final class GraphPerformanceProbe: XCTestCase {
         }
         print("GRAPH_PROFILE_MAX_INTERVAL_MS \(String(format: "%.1f", maxInterval))")
     }
+    @MainActor func testLargeProjectActionTimings() async throws {
+        guard let path = ProcessInfo.processInfo.environment["MARKVIEW_ACTION_PROFILE_ROOT"], !path.isEmpty else {
+            throw XCTSkip("Set MARKVIEW_ACTION_PROFILE_ROOT to run the local profiling probe.")
+        }
+        let root = URL(fileURLWithPath: path, isDirectory: true)
+        let foundDocument = await Task.detached { () -> URL? in
+            BackgroundFileScans.markdownPaths(in: root).compactMap { relative -> (URL, Int)? in
+                let url = root.appendingPathComponent(relative)
+                guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0, size <= 5_000_000 else { return nil }
+                return (url, size)
+            }.max { $0.1 < $1.1 }?.0
+        }.value
+        let document = try XCTUnwrap(foundDocument)
+        let suite = "action-profile-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("action-profile-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: temp, settings: Settings(defaults))
+        let tabs = TabsController(prompts: NoPrompts())
+        defer { tabs.shutdown() }
+        var action = "idle"
+        var largest: [String: Double] = [:]
+        var lastTick = ProcessInfo.processInfo.systemUptime
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(10))
+        timer.setEventHandler {
+            let now = ProcessInfo.processInfo.systemUptime
+            largest[action] = max(largest[action] ?? 0, (now - lastTick) * 1000)
+            lastTick = now
+        }
+        timer.resume()
+        defer { timer.cancel() }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        action = "tree-load"
+        for _ in 0..<3 {
+            let loaded = await context.loadTree(of: root)
+            XCTAssertTrue(loaded)
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertNotNil(context.rootNode)
+        action = "document-open"
+        for _ in 0..<3 {
+            await tabs.openTextFile(document)
+            XCTAssertEqual(tabs.openTabs.count, 1)
+            tabs.removeTab(at: 0)
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        action = "idle"
+        print("ACTION_PROFILE tree-load_ms=\(String(format: "%.1f", largest["tree-load"] ?? 0)) document-open_ms=\(String(format: "%.1f", largest["document-open"] ?? 0))")
+    }
+
 }
