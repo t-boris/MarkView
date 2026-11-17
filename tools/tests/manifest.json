@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 145,
+  "suiteCount": 144,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -267,25 +267,6 @@
         "MarkView/Resources/Editor/book.html",
         "tools/tests/BookPDFTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
-      ]
-    },
-    {
-      "name": "book-xray-tests",
-      "script": "tools/tests/book-xray-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Architecture/BookAnnotator.swift",
-        "MarkView/Models/Architecture/BookBuilder.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/Shared/WikiLinkResolver.swift",
-        "MarkView/Models/Architecture/XRayContent.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/BookXRayTests.swift",
-        "tools/tests/book-xray-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2282,7 +2263,10 @@
         "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
         "MarkView/Models/Shared/FrontMatterFile.swift",
         "MarkView/Models/Workspace/WelcomeActions.swift",
-        "MarkView/Models/Workspace/PanelLayout.swift"
+        "MarkView/Models/Workspace/PanelLayout.swift",
+        "MarkView/Models/Architecture/BookAnnotator.swift",
+        "MarkView/Models/Architecture/BookBuilder.swift",
+        "MarkView/Models/Shared/WikiLinkResolver.swift"
       ]
     },
     {
