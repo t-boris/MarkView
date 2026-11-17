@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 194,
+  "suiteCount": 193,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1312,16 +1312,6 @@
         "tools/tests/file-browser-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "file-info-tests",
-      "script": "tools/tests/file-info-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/FileInfo.swift",
-        "tools/tests/FileInfoTests.swift",
-        "tools/tests/file-info-tests.sh"
       ]
     },
     {

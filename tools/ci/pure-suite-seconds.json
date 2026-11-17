@@ -54,7 +54,6 @@
   "feature-flow-coordinator-tests": 62.0,
   "feature-jobs-tests": 5.9,
   "feature-store-schema-tests": 93.7,
-  "file-info-tests": 1.4,
   "file-operations-tests": 9.7,
   "finder-open-requests-tests": 2.7,
   "git-status-tests": 3.0,

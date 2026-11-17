@@ -3,21 +3,20 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// What the Contents panel says about a file: name, kind, size, dates and, by kind, text counts or
-/// the pixel size of an image. Foundation and ImageIO only, so it is checked on its own
-/// (`tools/tests/file-info-tests.sh`). Reading blocks: call `load` off the main thread.
-struct FileInfo: Equatable {
-    struct Row: Equatable, Identifiable {
-        var id: String { label }
-        let label: String
-        let value: String
+/// the pixel size of an image. Foundation and ImageIO only; checked by the core package tests. Reading blocks: call `load` off the main thread.
+public struct FileInfo: Equatable, Sendable {
+    public struct Row: Equatable, Identifiable, Sendable {
+        public var id: String { label }
+        public let label: String
+        public let value: String
     }
 
-    let rows: [Row]
+    public let rows: [Row]
 
     /// Text beyond this is not counted.
     static let maximumCountedBytes = 5 * 1_048_576
 
-    static func load(_ url: URL) -> FileInfo {
+    public static func load(_ url: URL) -> FileInfo {
         var rows: [Row] = []
         let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .creationDateKey, .contentTypeKey, .isDirectoryKey]
         let values = try? url.resourceValues(forKeys: keys)
