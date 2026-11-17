@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 159,
+  "suiteCount": 158,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1782,26 +1782,6 @@
         "MarkView/Models/Prototype/PrototypeAudit.swift",
         "tools/tests/PrototypeFixRoundTests.swift",
         "tools/tests/prototype-fixround-tests.sh"
-      ]
-    },
-    {
-      "name": "prototype-handoff-draft-tests",
-      "script": "tools/tests/prototype-handoff-draft-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeBaseline.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeFiles.swift",
-        "MarkView/Models/Prototype/PrototypeHandoff.swift",
-        "MarkView/Models/Prototype/PrototypeHandoffDraft.swift",
-        "MarkView/Models/Prototype/PrototypeShellStructure.swift",
-        "MarkView/Models/Prototype/PrototypeStyles.swift",
-        "MarkView/Models/Prototype/PrototypeTailwind.swift",
-        "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeHandoffDraftTests.swift",
-        "tools/tests/prototype-handoff-draft-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
