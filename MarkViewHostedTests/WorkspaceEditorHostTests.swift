@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CryptoKit
 import MarkViewCore
 import SwiftUI
 import WebKit
@@ -1800,5 +1801,116 @@ extension EditorHostTests {
         check(decode(closed)["nonce"] as? String == "undefined" && decode(closed)["csp"] as? String == "script-src 'none'",
               "a page that took no nonce builds the Insight frame with script-src 'none'", closed)
 
+    }
+}
+
+extension EditorHostTests {
+    func testInsightTemplateSecurityAndSnapshots() throws {
+        func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+        func skeleton(title: String, topics: [(label: String, hint: String)] = []) -> InsightSkeleton {
+            InsightSkeleton(title: title, suggestedTheme: nil, sections: [
+                InsightSection(id: "s1", type: .prose, title: "Overview <b>", scopeHint: nil, metadata: [:],
+                               deepDiveTopics: topics.enumerated().map {
+                                   InsightDeepDiveTopic(id: "t\($0.offset)", label: $0.element.label, hint: $0.element.hint, scopeHint: [])
+                               })
+            ])
+        }
+
+        func node(_ title: String, parent: InsightNode?, buffer: String, scope: NodeScope = .folderRoot) -> InsightNode {
+            let node = InsightNode(parentId: parent?.id, level: parent == nil ? 0 : 1, title: title, scope: scope)
+            node.skeleton = skeleton(title: title)
+            node.sectionStates = ["s1": SectionState(buffer: buffer, status: buffer.isEmpty ? .pending : .ready)]
+            return node
+        }
+
+        print("=== Insight page template ===")
+        let hostile = skeleton(title: "<script>alert(1)</script> & \"co\"", topics: [(label: "A'b <i>", hint: "\"hint\" <x>")])
+        let states = ["s1": SectionState(buffer: "<p class=\"keep\">body & <b>text</b></p>", status: .ready)]
+        let crumbs: [(nodeId: String, title: String)] = [("ROOT-ID", "Root <1>"), ("CHILD-ID", "Child")]
+        let page = InsightHTMLTemplate.html(skeleton: hostile, sectionStates: states, breadcrumbs: crumbs)
+        check(!page.contains("<script>alert(1)</script>") && page.contains("&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;co&quot;"),
+              "the title is escaped in the page title and nowhere appears as markup")
+        check(page.contains("<h2>Overview &lt;b&gt;</h2>"), "a section title is escaped")
+        check(page.contains("<div class=\"section-body\"><p class=\"keep\">body & <b>text</b></p></div>"), "the section text streamed by the assistant is kept as written")
+        check(page.contains("data-topic-index=\"0\" title=\"&quot;hint&quot; &lt;x&gt;\">🤿 A&#39;b &lt;i&gt;</button>"),
+              "a deep-dive button carries its escaped label and hint")
+        check(page.contains("<a class=\"crumb\" href=\"#ROOT-ID\">Root &lt;1&gt;</a>") && page.contains("<span class=\"crumb crumb-active\">Child</span>"),
+              "breadcrumbs link every ancestor and mark the last one active, escaped")
+        check(page == InsightHTMLTemplate.html(skeleton: hostile, sectionStates: states, breadcrumbs: crumbs),
+              "equal input gives byte-identical output")
+
+        // FU-25: the policy of the page. The page's one inline script is allowed by the hash of its own bytes; nothing else inline is.
+        func metaPolicy(of html: String) -> String? {
+            guard let open = html.range(of: "<meta http-equiv=\"Content-Security-Policy\" content=\""),
+                  let close = html.range(of: "\">", range: open.upperBound..<html.endIndex) else { return nil }
+            return String(html[open.upperBound..<close.lowerBound])
+        }
+        func directive(_ name: String, in policy: String) -> [String] {
+            for part in policy.split(separator: ";") {
+                let words = part.split(separator: " ").map(String.init)
+                if words.first == name { return Array(words.dropFirst()) }
+            }
+            return []
+        }
+        func inlineScripts(of html: String) -> [String] {
+            var found: [String] = []
+            var rest = html[...]
+            while let open = rest.range(of: "<script>"), let close = rest.range(of: "</script>", range: open.upperBound..<rest.endIndex) {
+                found.append(String(rest[open.upperBound..<close.lowerBound]))
+                rest = rest[close.upperBound...]
+            }
+            return found
+        }
+        let carried = try XCTUnwrap(metaPolicy(of: page), "the page carries a policy")
+        let scriptSources = directive("script-src", in: carried)
+        check(carried == InsightHTMLTemplate.policy, "the page carries the policy the template declares")
+        check(!scriptSources.contains("'unsafe-inline'") && !scriptSources.contains("'unsafe-eval'") && !scriptSources.contains("blob:") && !scriptSources.contains("data:"),
+              "script-src has no 'unsafe-inline', no 'unsafe-eval' and no blob: or data: source")
+        check(scriptSources.first == "'self'" && scriptSources.count == 2 && scriptSources[1].hasPrefix("'sha256-"), "script-src is 'self' (the bundled libraries) and one hash")
+        let scripts = inlineScripts(of: page)
+        check(scripts.count == 1, "the page has exactly one inline script (\(scripts.count))")
+        let hashOfScript = scripts.first.map { "'sha256-" + Data(SHA256.hash(data: Data($0.utf8))).base64EncodedString() + "'" }
+        check(hashOfScript != nil && scriptSources.contains(hashOfScript!), "the hash in script-src is the hash of the bytes between <script> and </script> in the page")
+        check(inlineScripts(of: InsightHTMLTemplate.html(skeleton: skeleton(title: "other"), sectionStates: [:], breadcrumbs: [])) == scripts,
+              "every page carries the same inline script, so one hash fits them all")
+        check(directive("connect-src", in: carried) == ["'none'"] && directive("default-src", in: carried) == ["'none'"] && directive("object-src", in: carried) == ["'none'"]
+              && directive("img-src", in: carried) == ["'self'", "data:"], "nothing can be sent out: default, connect and object are 'none', images are 'self' and data:")
+        check(InsightHTMLTemplate.policyKey.count == 16 && InsightHTMLTemplate.policyKey.allSatisfy { "0123456789abcdef".contains($0) },
+              "the policy key is 16 hex digits")
+        check(InsightHTMLTemplate.escape("&<>\"'") == "&amp;&lt;&gt;&quot;&#39;", "the escape covers text and attribute contexts")
+
+        print("\n=== Insight tree snapshot ===")
+        let root = node("Root", parent: nil, buffer: "<p>root</p>")
+        let child = node("Auth", parent: root, buffer: "<p>auth</p>", scope: .topic(label: "Auth", hint: "h", files: [URL(fileURLWithPath: "/tmp/a.md")]))
+        root.children = [child.id]
+        let empty = node("Unfinished", parent: root, buffer: "")
+        let snapshot = InsightTreeSnapshot(rootId: root.id, folderPath: "/tmp/notes", nodes: [root, child, empty])
+        check(Set(snapshot.nodes?.map(\.nodeId) ?? []) == [root.id, child.id], "a node whose skeleton has no content yet is not saved")
+        let data = try snapshot.encoded()
+        let decoded = try XCTUnwrap(InsightTreeSnapshot.decode(data), "the snapshot encodes and decodes")
+        let restored = decoded.restoredNodes(rootTitle: "ignored") ?? []
+        let byId = Dictionary(uniqueKeysWithValues: restored.map { ($0.id, $0) })
+        check(restored.count == 2 && decoded.rootId == root.id && decoded.folderPath == "/tmp/notes", "the saved tree comes back with its root and folder")
+        check(byId[root.id]?.children == [child.id] && byId[child.id]?.parentId == root.id && byId[child.id]?.level == 1, "parent, children and level survive")
+        check(byId[child.id]?.sectionStates["s1"]?.buffer == "<p>auth</p>" && byId[child.id]?.sectionStates["s1"]?.status == .ready && byId[child.id]?.status == .ready,
+              "section text comes back ready, and so does the node")
+        if case .topic(let label, let hint, let files)? = byId[child.id]?.scope {
+            check(label == "Auth" && hint == "h" && files == [URL(fileURLWithPath: "/tmp/a.md")], "a deep dive keeps its topic, hint and files")
+        } else {
+            check(false, "a deep dive keeps its topic scope")
+        }
+
+        let legacy = """
+        {"rootId":"\(root.id.uuidString)","folderPath":"/tmp/notes","createdAt":"2026-01-01T00:00:00Z",
+         "skeleton":\(String(decoding: try! JSONEncoder().encode(skeleton(title: "Old")), as: UTF8.self)),"sectionBuffers":{"s1":"<p>old</p>"}}
+        """
+        let old = InsightTreeSnapshot.decode(Data(legacy.utf8))?.restoredNodes(rootTitle: "notes") ?? []
+        check(old.count == 1 && old[0].id == root.id && old[0].title == "notes" && old[0].sectionStates["s1"]?.buffer == "<p>old</p>",
+              "an older root-only snapshot becomes one root node titled by the folder")
+        let bare = #"{"rootId":"\#(root.id.uuidString)","folderPath":"/x","createdAt":"2026-01-01T00:00:00Z","nodes":[]}"#
+        check(InsightTreeSnapshot.decode(Data(bare.utf8))?.restoredNodes(rootTitle: "x") == nil, "a snapshot with neither a tree nor a root restores nothing")
+        check(InsightTreeSnapshot.decode(Data("not json".utf8)) == nil, "unreadable data is no snapshot")
     }
 }

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 141,
+  "suiteCount": 140,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2244,7 +2244,10 @@
         "MarkViewHostedTests/BugValidityHostTests.swift",
         "MarkViewHostedTests/ProjectOperationsHostTests.swift",
         "MarkView/Models/ProjectOps/ProjectOperationHistory.swift",
-        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift"
+        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
+        "MarkView/Models/Insight/InsightCache.swift",
+        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
+        "MarkView/Models/Insight/InsightTreeSnapshot.swift"
       ]
     },
     {
@@ -3673,27 +3676,6 @@
         "tools/tests/DiagramCLIStub.swift",
         "tools/tests/LogicalViewTests.swift",
         "tools/tests/logical-view-tests.sh"
-      ]
-    },
-    {
-      "name": "insight-template-tests",
-      "script": "tools/tests/insight-template-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Insight/InsightCache.swift",
-        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
-        "MarkView/Models/Insight/InsightModels.swift",
-        "MarkView/Models/Insight/InsightTreeSnapshot.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "tools/tests/InsightTemplateTests.swift",
-        "tools/tests/insight-template-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
