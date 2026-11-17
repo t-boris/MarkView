@@ -15,7 +15,6 @@
   "cockpit-build-phase-tests": 0.0,
   "cockpit-child-tests": 11.6,
   "cockpit-instruments-tests": 3.8,
-  "cockpit-planning-tests": 3.5,
   "cockpit-policy-tests": 4.3,
   "cockpit-qa-attempt-tests": 6.6,
   "cockpit-run-tests": 9.3,

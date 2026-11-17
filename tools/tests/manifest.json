@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 109,
+  "suiteCount": 108,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -392,19 +392,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitInstrumentsChecks.swift",
         "tools/tests/cockpit-instruments-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "cockpit-planning-tests",
-      "script": "tools/tests/cockpit-planning-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "MarkView/Models/Cockpit/CockpitPlanning.swift",
-        "tools/tests/CockpitPlanningChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
@@ -2108,7 +2095,8 @@
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
-        "MarkViewHostedTests/CockpitHostBridgeHostTests.swift"
+        "MarkViewHostedTests/CockpitHostBridgeHostTests.swift",
+        "MarkView/Models/Cockpit/CockpitPlanning.swift"
       ]
     },
     {
