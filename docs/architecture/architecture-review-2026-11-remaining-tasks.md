@@ -159,6 +159,7 @@ Acceptance: `architecture-lint.sh` `window-wiring (hooks)` 31 -> a lower stated 
 Move the commands to `WindowCommands` (`@Environment(\.windowCommands)`), as the other views did. Acceptance: `workspace-manager` rule 2 -> 0.
 
 **C4. The 16-domain strongly connected group of `Models/`.** After C1-C3 re-run `domain-dependencies.py`; the tool counts named types only.
+- Measurement 2026-11-17: `python3 tools/lint/domain-dependencies.py --layer Models` reports one strongly connected group of 6 domains and 0 back-edges across 22 domains and 429 files. This supersedes the earlier 10-domain measurement; the tool counts named types only.
 - Measurement after C1–C3, 2026-11-16: `python3 tools/lint/domain-dependencies.py --layer Models` reports a largest strongly connected group of 10 domains (was 16) and 0 back-edges. The tool counts named types only; the remaining group is not claimed eliminated.
 Acceptance: the stated number of domains in the largest cycle, or a written decision that the remainder is accepted.
 
