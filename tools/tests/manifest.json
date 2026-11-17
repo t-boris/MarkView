@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 106,
+  "suiteCount": 105,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -889,19 +889,6 @@
       "sources": [
         "MarkView/Models/Git/GitHubClient.swift",
         "tools/tests/GitHubCommandTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "github-remote-profile-tests",
-      "script": "tools/tests/github-remote-profile-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Git/GitHubClient.swift",
-        "tools/tests/CLIToolLocatorStub.swift",
-        "tools/tests/GitHubRemoteProfileTests.swift",
-        "tools/tests/github-remote-profile-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
@@ -2079,7 +2066,9 @@
         "MarkViewHostedTests/CockpitHostBridgeHostTests.swift",
         "MarkView/Models/Cockpit/CockpitPlanning.swift",
         "MarkView/Models/Cockpit/CockpitRun.swift",
-        "MarkView/Models/Cockpit/CockpitRunStore.swift"
+        "MarkView/Models/Cockpit/CockpitRunStore.swift",
+        "tools/tests/CLIToolLocatorStub.swift",
+        "MarkViewHostedTests/GitHubRemoteProfileHostTests.swift"
       ]
     },
     {

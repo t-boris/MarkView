@@ -421,8 +421,8 @@ enum GitHubProfile {
         var source: String
     }
 
-    static func resolve(root: URL?, home: URL = SSHHostAliases.defaultHome) -> Resolved {
-        let setting = Settings.standard.value(Setting.gitHubConfigDirectory)
+    static func resolve(root: URL?, home: URL = SSHHostAliases.defaultHome, settings: Settings = .standard) -> Resolved {
+        let setting = settings.value(Setting.gitHubConfigDirectory)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !setting.isEmpty {
             let directory = URL(fileURLWithPath: expandTilde(setting, home: home))
@@ -447,8 +447,8 @@ enum GitHubProfile {
 
     /// Apply a folder's configuration to the environment of a `gh` or `git` run. A profile
     /// replaces an inherited token: the token of another account would override it.
-    static func apply(to environment: inout [String: String], root: URL, home: URL = SSHHostAliases.defaultHome) {
-        let resolved = resolve(root: root, home: home)
+    static func apply(to environment: inout [String: String], root: URL, home: URL = SSHHostAliases.defaultHome, settings: Settings = .standard) {
+        let resolved = resolve(root: root, home: home, settings: settings)
         guard let directory = resolved.directory else { return }
         environment["GH_CONFIG_DIR"] = directory.path
         if let token = resolved.token { environment["GITHUB_TOKEN"] = token } else { environment["GITHUB_TOKEN"] = nil }
