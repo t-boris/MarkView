@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 93,
+  "suiteCount": 92,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1440,18 +1440,6 @@
       ]
     },
     {
-      "name": "qa-video-tests",
-      "script": "tools/tests/qa-video-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/QA/QAFrameComposer.swift",
-        "MarkView/Models/QA/QAInputMark.swift",
-        "MarkView/Models/QA/QAVideoWriter.swift",
-        "tools/tests/QAVideoChecks.swift",
-        "tools/tests/qa-video-tests.sh"
-      ]
-    },
-    {
       "name": "qa-web-fault-tests",
       "script": "tools/tests/qa-web-fault-tests.sh",
       "tier": "gui",
@@ -1853,7 +1841,10 @@
         "MarkViewHostedTests/DocumentTranslatorHostTests.swift",
         "MarkView/Models/Workspace/FileOperationsController.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/FileTransfer.swift",
-        "MarkViewHostedTests/FileOperationsHostTests.swift"
+        "MarkViewHostedTests/FileOperationsHostTests.swift",
+        "MarkView/Models/QA/QAFrameComposer.swift",
+        "MarkView/Models/QA/QAVideoWriter.swift",
+        "MarkViewHostedTests/QAVideoHostTests.swift"
       ]
     },
     {
