@@ -17,9 +17,11 @@ private let studioAssistant = UIStudioAssistantFixture()
     func studioFeatureStore() -> FeatureStore? { store }
 }
 
-// CI runners give no clue when a windowed WebKit test hangs: print every line at once and stop with the last step reached.
+// Write static stage names directly so an interrupted test can report its last reached scenario.
 private struct SessionProgress {
-    func reached(_ name: String) { print("--  " + name) }
+    func reached(_ name: String) {
+        FileHandle.standardError.write(Data("--  \(name)\n".utf8))
+    }
 }
 private let watchdog = SessionProgress()
 private func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {

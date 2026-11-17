@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+CI investigation: static UI Studio stage markers now go directly to stderr. A marker was observed in the xcodebuild log while the networking group was still running; that group passed in 44.8 seconds with nine markers (`/tmp/markview-studio-stage-progress.log`). This improves timeout diagnostics but does not establish the original CI timeout cause; final CI remains pending.
+
 After the Book PDF host migration, the complete local `gui` tier passed 19/19 suites with 0 failures using the isolated `/tmp/MarkViewHostedTestsDerived` build directory (`/tmp/markview-gui-nov17-current.log`). Its general app-hosted suite passed 224 tests with 3 optional skips in 367 seconds; UI Studio’s three session tests passed in 362 seconds, its three lifetime tests passed in 24 seconds, and two workflow-editor tests passed in 171 seconds.
 
 The complete `pure` tier passed 24/24 suites with 0 failures before the subsequent test-only migration using four jobs (`/tmp/markview-pure-nov17-current.log`). The five provider-dependent live scenarios remain manual per DEC-013.
