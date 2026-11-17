@@ -52,7 +52,6 @@
   "feature-flow-coordinator-tests": 62.0,
   "feature-store-schema-tests": 93.7,
   "file-operations-tests": 9.7,
-  "git-status-tests": 3.0,
   "git-task-ownership-tests": 16.2,
   "github-activity-prompt-tests": 3.4,
   "github-command-tests": 13.7,

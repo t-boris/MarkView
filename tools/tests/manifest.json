@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 165,
+  "suiteCount": 164,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1207,16 +1207,6 @@
         "tools/tests/file-operations-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ProjectProvidingTestSupport.swift"
-      ]
-    },
-    {
-      "name": "git-status-tests",
-      "script": "tools/tests/git-status-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Git/GitStatusModel.swift",
-        "tools/tests/GitStatusTests.swift",
-        "tools/tests/git-status-tests.sh"
       ]
     },
     {
@@ -2640,7 +2630,8 @@
         "MarkView/Models/Workspace/EditorPage.swift",
         "MarkView/Models/Lifecycle/IssueListing.swift",
         "MarkView/Models/Lifecycle/IssueSync.swift",
-        "MarkView/Models/Architecture/HistoricalBaseline.swift"
+        "MarkView/Models/Architecture/HistoricalBaseline.swift",
+        "MarkView/Models/Git/GitStatusModel.swift"
       ]
     },
     {
