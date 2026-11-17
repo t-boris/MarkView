@@ -1,24 +1,18 @@
 import Foundation
+import XCTest
+@testable import MarkViewCore
 
-/// The Finder Quick Action request poll (`AR-19`) on real files: what a request file may be, that it is consumed once, that one poll
-/// serves the app, and that stopping it ends it.
-@main
-enum FinderOpenRequestsChecks {
-    nonisolated(unsafe) static var failures = 0
-
-    static func check(_ condition: Bool, _ message: String) {
-        if !condition {
-            failures += 1
-            FileHandle.standardError.write(Data("FAIL: \(message)\n".utf8))
-        }
+@MainActor
+final class FinderOpenRequestsTests: XCTestCase {
+    func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
-
-    static func write(_ text: String, to path: String) { try? text.write(toFile: path, atomically: true, encoding: .utf8) }
-    static func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: path) }
+    func write(_ text: String, to path: String) { try? text.write(toFile: path, atomically: true, encoding: .utf8) }
+    func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: path) }
 
     /// Waits until `condition` holds, for at most two seconds.
     @MainActor
-    static func eventually(_ condition: () -> Bool) async -> Bool {
+    func eventually(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
         for _ in 0..<200 {
             if condition() { return true }
             try? await Task.sleep(nanoseconds: 10_000_000)
@@ -26,8 +20,7 @@ enum FinderOpenRequestsChecks {
         return condition()
     }
 
-    @MainActor
-    static func main() async {
+    func testRequestFilesAndPolling() async {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("finder-requests-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -71,7 +64,7 @@ enum FinderOpenRequestsChecks {
         var received: [[URL]] = []
         var ignored = 0
         check(!polled.isPolling, "a new poll is not running")
-        polled.start { received.append($0); check(Thread.isMainThread, "the handler runs on the main thread") }
+        polled.start { received.append($0); self.check(Thread.isMainThread, "the handler runs on the main thread") }
         polled.start { _ in ignored += 1 }
         check(polled.isPolling, "start begins the poll")
         write("/tmp/polled-one", to: first)
@@ -99,10 +92,5 @@ enum FinderOpenRequestsChecks {
         polled.stop()
         scheduler.stopAll()
 
-        if failures > 0 {
-            FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
-            exit(1)
-        }
-        print("FinderOpenRequests: request files, one poll (also in the background), stop and restart passed")
     }
 }

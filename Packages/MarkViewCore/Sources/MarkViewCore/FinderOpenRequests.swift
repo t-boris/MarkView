@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(MarkViewCore)
-import MarkViewCore
-#endif
 
 /// Finder Quick Action requests (`AR-19`): the action writes the path of what to open into `markview_open_path.txt`, and the app
 /// picks it up. One poll serves the whole app; the app delegate starts it at launch, so a request is taken with or without a window
@@ -9,8 +6,8 @@ import MarkViewCore
 /// the app is in the background, because the action writes the file while another app (Finder) is in front. A request file is read
 /// as `AR-12` and `FU-09` require: no symbolic link, a regular file owned by the user, at most 64 KB, and deleted as soon as it is read.
 @MainActor
-final class FinderOpenRequests {
-    static let shared = FinderOpenRequests()
+public final class FinderOpenRequests {
+    public static let shared = FinderOpenRequests()
     nonisolated static let fileName = "markview_open_path.txt"
     /// Both the per-user temporary directory and `/tmp`: the action may write to either.
     nonisolated static var standardCandidates: [String] {
@@ -31,7 +28,7 @@ final class FinderOpenRequests {
     var isPolling: Bool { scheduler.keys.contains(Self.pollKey) }
 
     /// Starts the poll unless it runs; `handler` takes each request on the main actor.
-    func start(handler: @escaping @MainActor ([URL]) -> Void) {
+    public func start(handler: @escaping @MainActor ([URL]) -> Void) {
         guard !isPolling else { return }
         let candidates = candidates
         scheduler.every(interval, key: Self.pollKey, pausesWhenHidden: false) {
@@ -39,7 +36,7 @@ final class FinderOpenRequests {
         }
     }
 
-    func stop() { scheduler.stop(key: Self.pollKey) }
+    public func stop() { scheduler.stop(key: Self.pollKey) }
 
     /// The request in the first of `paths` that holds one, which is deleted; nil when none does. It reads files, so it runs off the
     /// main thread.
