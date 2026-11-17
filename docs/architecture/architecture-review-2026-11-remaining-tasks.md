@@ -324,6 +324,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+A migrated Code X-Ray test retained an unconditional `|| true` in a closed-part layout check from the original standalone suite. The condition is now enforced, and the focused Code X-Ray host test passed against the BUG-085 layout scenario. Architecture lint and the SwiftLint ratchet passed; final GUI verification remains open.
+
 A database-explorer integration assertion contained an unconditional `|| true`; it now checks the expected connection ID. The standalone suite passed against its throwaway local PostgreSQL container, including the corrected assertion and cleanup. Final full-suite verification remains open.
 
 The project AI choice pure suite contained a real Antigravity call that ran whenever its CLI was installed. It now requires explicit manual opt-in with `MARKVIEW_LIVE_ANTIGRAVITY=1`; the automatic suite passed without that opt-in. This keeps provider calls manual under DEC-013.

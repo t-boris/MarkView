@@ -584,7 +584,7 @@ extension XRayContentHostTests {
                    one[0].y2 - one[0].y1 > before[0].y2 - before[0].y1 + 20, Math.abs((one[1].y1 - one[0].y2) - (before[1].y1 - before[0].y2)) <= 2,
                    overlaps() === 0, titles() === 0].join();
         const cellOne = rect('code:application:c:0');
-        out.closed = [Math.abs((cellOne.x2 - cellOne.x1) - (cellBefore.x2 - cellBefore.x1)) <= 1 || true, Math.abs(cellOne.x1 - cellBefore.x1) <= 1,
+        out.closed = [Math.abs((cellOne.x2 - cellOne.x1) - (cellBefore.x2 - cellBefore.x1)) <= 1, Math.abs(cellOne.x1 - cellBefore.x1) <= 1,
                       rect('code:layer:application').y1 > one[0].y2].join();
         const rendered = cy.getElementById('code:presentation:c:0').renderedBoundingBox();
         out.zoom = [rendered.x1 >= 0 && rendered.x2 <= cy.width() && rendered.y1 >= 0 && rendered.y2 <= cy.height()].join();
