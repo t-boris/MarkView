@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+On 6.30.126, the complete pure tier passed 54/54 suites and the complete MarkViewCore package passed 135 tests with 0 failures. The GUI tier is in progress; final CI and release remain open.
+
 The work is not finished. The latest published and installed release is 6.30.97; later changes, including the 6.30.126 version bump, are local. Historical dated notes below record the evidence available at each step and are superseded by later status entries.
 
 - A2: the analyzer baseline and changed-file ratchet exist; unused imports and their allowances were removed from `TabClosing`, `ConflictPrompt`, deployment-prompt, feature-review-gate and feature-job sources, leaving 110 recorded allowances after the list-selection import was also removed; unused-import analysis of both sources and their app callers found 0 warnings. The feature-job source also had its unused import and allowance removed; its analyzer check passed. Both moved files' analyzer checks passed; detecting diagnostics caused in untouched files remains open.
