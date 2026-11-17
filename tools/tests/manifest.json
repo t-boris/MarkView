@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 171,
+  "suiteCount": 170,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2701,7 +2701,13 @@
         "MarkViewHostedTests/WorkspaceEditorHostTests.swift",
         "MarkView/Resources/Editor/js/markview-document-files.js",
         "MarkView/Resources/Editor/js/markview-render.js",
-        "MarkView/Resources/Editor/js/markview-d3-mermaid.js"
+        "MarkView/Resources/Editor/js/markview-d3-mermaid.js",
+        "MarkView/Resources/Editor/js/markview-canvas.js",
+        "MarkView/Resources/Editor/js/markview-code.js",
+        "MarkView/Resources/Editor/js/markview-structured.js",
+        "MarkView/Resources/Editor/js/markview-mdext.js",
+        "MarkView/Resources/Editor/js/markview-state.js",
+        "MarkView/Resources/Editor/js/markview-find.js"
       ]
     },
     {
@@ -3640,27 +3646,6 @@
         "MarkView/Models/Architecture/UnderstandingAnswer.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/UnderstandingAnswerTests.swift"
-      ]
-    },
-    {
-      "name": "web-sinks-tests",
-      "script": "tools/tests/web-sinks-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Resources/Editor/index.html",
-        "MarkView/Resources/Editor/js/markview-canvas.js",
-        "MarkView/Resources/Editor/js/markview-code.js",
-        "MarkView/Resources/Editor/js/markview-render.js",
-        "MarkView/Resources/Editor/js/mv-kit.js",
-        "tools/tests/WebSinkTests.swift",
-        "tools/tests/web-sinks-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/markview-structured.js",
-        "MarkView/Resources/Editor/js/markview-mdext.js",
-        "MarkView/Resources/Editor/js/markview-state.js",
-        "MarkView/Resources/Editor/js/markview-find.js"
       ]
     },
     {
