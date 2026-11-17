@@ -585,6 +585,7 @@
 		698EA768F99E5859772A9DB6 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */; };
 		F00000000000000000000101 /* EditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000102 /* EditorHostTests.swift */; };
 		F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000104 /* ControlToolRunnerTests.swift */; };
+		F00000000000000000000120 /* WorkflowEditorLayoutHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */; };
 		B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */; };
 		45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */; };
 		DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */; };
@@ -1301,6 +1302,7 @@
 		FDC4E2EE931C68C12939307E /* MarkViewHostedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkViewHostedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000102 /* EditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000104 /* ControlToolRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunnerTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowEditorLayoutHostTests.swift; sourceTree = "<group>"; };
 		6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReaderHostTests.swift; sourceTree = "<group>"; };
 		346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFrameHostTests.swift; sourceTree = "<group>"; };
 		B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExportHostTests.swift; sourceTree = "<group>"; };
@@ -2530,6 +2532,7 @@
 				64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */,
 				F00000000000000000000102 /* EditorHostTests.swift */,
 				F00000000000000000000104 /* ControlToolRunnerTests.swift */,
+				F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */,
 				6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */,
 				346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */,
 				B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */,
@@ -3391,6 +3394,7 @@
 				2160A77CBC30DE1DF620DA38 /* QAWebFaultTests.swift in Sources */,
 				F00000000000000000000101 /* EditorHostTests.swift in Sources */,
 				F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */,
+				F00000000000000000000120 /* WorkflowEditorLayoutHostTests.swift in Sources */,
 				B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */,
 				45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */,
 				DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */,

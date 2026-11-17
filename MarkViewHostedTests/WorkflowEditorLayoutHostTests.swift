@@ -1,48 +1,30 @@
 import AppKit
+import MarkViewCore
 import SwiftUI
+import XCTest
+@testable import MarkView
 
-// BUG-108: the shipping Workflow tab (WorkflowTabView) hosted off screen (a borderless window far outside the display, never
-// shown) and measured at the widths a person may have it: every control and every list must lie inside the tab on every page, in
-// the graphical and in the source view, for the standard workflow and for one at its widest (the first form of the bug was a
-// transition whose label was wider than its sheet, which cut off the left edge). Run through
-// tools/tests/workflow-editor-layout-tests.sh, which compiles the real view and the real workflow model with the stand-ins below.
+/// Layout and mouse interaction use the shipping editor, lifecycle coordinator and a temporary project.
+final class WorkflowEditorLayoutHostTests: XCTestCase {
+    private var temporaryFolders: [URL] = []
+    private var stores: [FeatureStore] = []
 
-extension View {
-    func uiFont(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> some View {
-        font(.system(size: size, weight: weight, design: design))
+    @MainActor private func makeStore() -> FeatureStore {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("mv-workflow-host-" + UUID().uuidString)
+        try! FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        temporaryFolders.append(folder)
+        let workflowURL = ProjectPaths.workflowFile(folder)
+        try! FileManager.default.createDirectory(at: workflowURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try! ProjectWorkflowStore.text(of: .standard).write(to: workflowURL, atomically: true, encoding: .utf8)
+        let store = FeatureStore()
+        store.setup(root: folder)
+        stores.append(store)
+        return store
     }
-    func uiFont(_ style: Font.TextStyle, weight: Font.Weight? = nil) -> some View { font(.system(style)).fontWeight(weight) }
-}
 
-/// The part of the coordinator the tab calls; the real one needs a project folder on disk.
-@MainActor final class IssueLifecycleCoordinator {
-    struct WorkflowSaveReport: Equatable {
-        var workflow: ProjectWorkflow
-        var failures: [String] = []
+    @MainActor private func check(_ ok: Bool, _ message: String, _ detail: String = "", file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(ok, message + (detail.isEmpty ? "" : " — " + detail), file: file, line: line)
     }
-    var workflowLoad: WorkflowLoad = .loaded(.standard)
-    var workflowProposal: WorkflowProposal?
-    func dismissWorkflowProposal() { workflowProposal = nil }
-    var workflow: ProjectWorkflow { workflowLoad.effective }
-    var workflowStore: ProjectWorkflowStore? { nil }
-    func reloadWorkflow() {}
-    func workflowImpact(of changed: ProjectWorkflow) -> WorkflowImpact { WorkflowImpact() }
-    func saveWorkflow(_ changed: ProjectWorkflow, statusReplacements: [IssueKind: [String: String]] = [:],
-                      variantReplacements: [String: String] = [:], by actor: LifecycleActor) -> Result<WorkflowSaveReport, WorkflowStoreError> {
-        .success(WorkflowSaveReport(workflow: changed))
-    }
-}
-@MainActor final class FeatureStore: ObservableObject {
-    var root: URL? = URL(fileURLWithPath: "/tmp/project")
-    var lifecycleActor = "Tester"
-    let lifecycle = IssueLifecycleCoordinator()
-}
-
-var failures = 0
-func check(_ ok: Bool, _ message: String, _ detail: String = "") {
-    if !ok { failures += 1 }
-    print("\(ok ? "ok  " : "FAIL") \(message)\(ok || detail.isEmpty ? "" : " — " + detail)")
-}
 
 @MainActor func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
@@ -71,7 +53,7 @@ struct Extent { let sheet: CGFloat; let scroll: ClosedRange<CGFloat>?; let docum
 
 /// A workflow at its widest: every transition starts from every status, every actor needs every condition, ids are long, and the
 /// project has the processes with transitions of their own.
-func widest() -> ProjectWorkflow {
+@MainActor func widest() -> ProjectWorkflow {
     var workflow = ProjectWorkflow.standard
     for kind in [IssueKind.feature, .bug] {
         var definition = workflow.lifecycle(kind)
@@ -90,7 +72,7 @@ func widest() -> ProjectWorkflow {
 }
 
 /// The processes with transitions of their own: Quick feature, and a bug process from the copy template.
-func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkflow {
+@MainActor func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkflow {
     var workflow = base
     var quick = ProcessTemplate.quickFeature.variant(kind: .feature, id: ProcessTemplate.quickFeatureID, in: workflow)
     var copy = ProcessTemplate.standardTransitions.variant(kind: .bug, id: "bug-copy", in: workflow)
@@ -107,11 +89,11 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
 }
 
 @MainActor func measureTab(_ label: String, workflow: ProjectWorkflow, width: CGFloat, proposal: WorkflowProposal? = nil) {
-    let store = FeatureStore()
-    store.lifecycle.workflowLoad = .loaded(workflow)
+    let store = makeStore()
     store.lifecycle.workflowProposal = proposal
     let editor = WorkflowEditorModel()
     editor.attach(to: store)
+    editor.draft = workflow
     editor.expanded = [ProcessTemplate.quickFeatureID, "bug-copy"]
     let hosting = NSHostingView(rootView: WorkflowTabView(store: store, editor: editor))
     let size = NSSize(width: width, height: 720)
@@ -178,8 +160,7 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
 /// BUG-112: the diagram answers the mouse. Real mouse events go to the window hosted off screen: a click on a state opens the
 /// state's inspector, a click on an arrow opens the transition's, and a drag from one state to another draws an arrow.
 @MainActor func interaction() {
-    let store = FeatureStore()
-    store.lifecycle.workflowLoad = .loaded(.standard)
+    let store = makeStore()
     let editor = WorkflowEditorModel()
     editor.attach(to: store)
     let hosting = NSHostingView(rootView: WorkflowTabView(store: store, editor: editor))
@@ -222,7 +203,9 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     let zoom = WorkflowDiagram.zoom(statuses: feature.statuses, rules: feature.rules, available: 920)
     let diagram = WorkflowDiagram(statuses: feature.statuses, rules: feature.rules, width: 920, metrics: WorkflowDiagram.Metrics(zoom: zoom))
     let left: CGFloat = 16   // the tab's padding; the diagram is at its natural size in a 1100 pt tab
-    let idea = diagram.nodes.first { $0.id == "idea" }!.frame
+    guard let idea = diagram.nodes.first(where: { $0.id == "idea" })?.frame else {
+        check(false, "diagram: the standard workflow has an idea state"); return
+    }
     guard let field = descendants(hosting).compactMap({ $0 as? NSTextField }).first(where: { ($0.placeholderString ?? "") == "new-status-id" }) else {
         check(false, "diagram: the add-a-state field is on screen"); return
     }
@@ -292,8 +275,7 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
 /// panel under the diagram says what Done means. With SNAPSHOT_DIR set, each flow's Features page is saved to be looked at.
 @MainActor func flows() {
     for flow in WorkflowFlow.catalogue {
-        let store = FeatureStore()
-        store.lifecycle.workflowLoad = .loaded(.standard)
+        let store = makeStore()
         let editor = WorkflowEditorModel()
         editor.attach(to: store)
         editor.apply(flow)
@@ -324,6 +306,7 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
 /// used, and the plain one chosen for new projects: never the real folder of the app.
 @MainActor func sampleLibrary() -> WorkflowTemplateLibrary {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("mv-layout-templates-\(UUID().uuidString)", isDirectory: true)
+    temporaryFolders.append(folder)
     let store = WorkflowTemplateStore(folder: folder)
     var strict = WorkflowFlow.kanban.applied(to: .standard)
     for index in strict.variants.indices { strict.variants[index].integration = .pullRequest; strict.variants[index].checks = true; strict.variants[index].delivery = .githubRelease }
@@ -357,8 +340,7 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
 /// The picker's list on its own: every flow is there with its columns, the templates of the shared folder come first, the one in use is
 /// marked, and nothing runs past the edge.
 @MainActor func picker() {
-    let store = FeatureStore()
-    store.lifecycle.workflowLoad = .loaded(.standard)
+    let store = makeStore()
     let editor = WorkflowEditorModel()
     editor.attach(to: store)
     let library = sampleLibrary()
@@ -402,7 +384,11 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     window.close()
 }
 
-@MainActor func run() {
+@MainActor func testWorkflowLayoutAndInteraction() {
+    defer {
+        for store in stores { store.reset() }
+        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
+    }
     interaction()
     flows()
     picker()
@@ -430,8 +416,4 @@ func withProcesses(_ base: ProjectWorkflow, widen: Bool = false) -> ProjectWorkf
     }
 }
 
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-MainActor.assumeIsolated { run() }
-print(failures == 0 ? "All workflow editor layout checks passed" : "\(failures) check(s) failed")
-exit(failures == 0 ? 0 : 1)
+}

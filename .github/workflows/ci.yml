@@ -158,9 +158,6 @@ jobs:
       - name: Run SwiftLint ratchet
         run: ./tools/lint/swiftlint-ratchet.py
 
-      - name: Test unused-import analyzer ratchet
-        run: python3 tools/tests/swiftlint-unused-import-ratchet-tests.py
-
       - name: Check unused imports in changed app sources
         timeout-minutes: 15
         env:

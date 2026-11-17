@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 208,
+  "suiteCount": 209,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4237,7 +4237,7 @@
         "MarkView/Views/Lifecycle/WorkflowProposalBanner.swift",
         "MarkView/Views/Lifecycle/WorkflowTabView.swift",
         "MarkView/Views/Lifecycle/WorkflowTemplatesSettings.swift",
-        "tools/tests/WorkflowEditorLayoutTests.swift",
+        "MarkViewHostedTests/WorkflowEditorLayoutHostTests.swift",
         "tools/tests/workflow-editor-layout-tests.sh",
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
@@ -4821,6 +4821,17 @@
         "tools/tests/ProjectOperationsStoreTests.swift",
         "tools/tests/project-operations-store-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
+      ]
+    },
+    {
+      "name": "swiftlint-unused-import-ratchet-tests",
+      "script": "tools/tests/swiftlint-unused-import-ratchet-tests.py",
+      "tier": "pure",
+      "sources": [
+        "tools/tests/swiftlint-unused-import-ratchet-tests.py",
+        "tools/lint/swiftlint-unused-import-ratchet.py",
+        "tools/lint/swiftlint-unused-import-allowlist.txt",
+        "tools/ci/unused-import-changes.py"
       ]
     }
   ]
