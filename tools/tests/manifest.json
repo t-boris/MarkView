@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 103,
+  "suiteCount": 102,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1580,23 +1580,6 @@
       ]
     },
     {
-      "name": "qa-review-tests",
-      "script": "tools/tests/qa-review-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/QA/QAAPI.swift",
-        "MarkView/Models/QA/QAEffort.swift",
-        "MarkView/Models/QA/QAPageEvidence.swift",
-        "MarkView/Models/QA/QAReview.swift",
-        "MarkView/Models/QA/QAScenario.swift",
-        "MarkView/Models/QA/QATriage.swift",
-        "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/QAReviewChecks.swift",
-        "tools/tests/qa-evidence-web-tests.sh",
-        "tools/tests/qa-review-tests.sh"
-      ]
-    },
-    {
       "name": "qa-tests",
       "script": "tools/tests/qa-tests.sh",
       "tier": "pure",
@@ -2023,7 +2006,10 @@
         "MarkView/Models/Lifecycle/CycleTime.swift",
         "MarkView/Models/Lifecycle/CycleTimeReport.swift",
         "MarkView/Models/Lifecycle/EvidenceTimings.swift",
-        "MarkViewHostedTests/CycleTimeHostTests.swift"
+        "MarkViewHostedTests/CycleTimeHostTests.swift",
+        "MarkView/Models/QA/QAReview.swift",
+        "tools/tests/qa-evidence-web-tests.sh",
+        "MarkViewHostedTests/QAReviewHostTests.swift"
       ]
     },
     {
