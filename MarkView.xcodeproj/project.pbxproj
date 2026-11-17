@@ -564,6 +564,7 @@
 		2160A77CBC30DE1DF620DA38 /* QAWebFaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */; };
 		698EA768F99E5859772A9DB6 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */; };
 		F00000000000000000000101 /* EditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000102 /* EditorHostTests.swift */; };
+		2595E5D447984E99B63CD316 /* WorkspaceEditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */; };
 		F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000104 /* ControlToolRunnerTests.swift */; };
 		F00000000000000000000120 /* WorkflowEditorLayoutHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */; };
 		F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000123 /* PrototypeDeadlineFixture.swift */; };
@@ -1268,6 +1269,7 @@
 		E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		FDC4E2EE931C68C12939307E /* MarkViewHostedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkViewHostedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000102 /* EditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorHostTests.swift; sourceTree = "<group>"; };
+		34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditorHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000104 /* ControlToolRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunnerTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowEditorLayoutHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000123 /* PrototypeDeadlineFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeDeadlineFixture.swift; sourceTree = "<group>"; };
@@ -2485,6 +2487,7 @@
 			children = (
 				64AEC1226F48F9DF18415C70 /* QAWebFaultTests.swift */,
 				F00000000000000000000102 /* EditorHostTests.swift */,
+				34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */,
 				F00000000000000000000104 /* ControlToolRunnerTests.swift */,
 				F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */,
 				F00000000000000000000123 /* PrototypeDeadlineFixture.swift */,
@@ -3331,6 +3334,7 @@
 			files = (
 				2160A77CBC30DE1DF620DA38 /* QAWebFaultTests.swift in Sources */,
 				F00000000000000000000101 /* EditorHostTests.swift in Sources */,
+				2595E5D447984E99B63CD316 /* WorkspaceEditorHostTests.swift in Sources */,
 				F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */,
 				F00000000000000000000120 /* WorkflowEditorLayoutHostTests.swift in Sources */,
 				F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */,

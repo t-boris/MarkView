@@ -2730,7 +2730,8 @@
         "MarkView/Views/Appearance/BackdropLayerBuilders.swift",
         "MarkView/Views/Appearance/DevBackdropLayers.swift",
         "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
-        "MarkView/Resources/Editor/js/markview-data.js"
+        "MarkView/Resources/Editor/js/markview-data.js",
+        "MarkViewHostedTests/WorkspaceEditorHostTests.swift"
       ]
     },
     {

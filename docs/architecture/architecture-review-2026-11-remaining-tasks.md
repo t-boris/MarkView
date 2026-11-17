@@ -317,6 +317,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+The migrated workspace and editor host checks were split from the original editor test file into `WorkspaceEditorHostTests.swift`, with Xcode target membership and the manifest updated. Four representative focused tests passed (data viewers, document routing, window themes and window-state isolation), as did repository hygiene, architecture lint and SwiftLint.
+
 Editor document routing and the hidden-WebKit checks that messages retain their document identity moved into the app-hosted editor tests. Both focused tests passed against the shipping types and bundled editor, as did repository hygiene, architecture lint and SwiftLint. The manifest lists 173 suites: 123 pure, 45 GUI and 5 live; every listed path exists.
 
 The data viewers and structured-editor WebKit checks moved into the app-hosted editor tests. The former stand-in file-scheme handler was removed; the test uses `DataFileSchemeHandler` with access restricted to its fixture directory. The focused test passed against bundled app resources and real fixture files, as did repository hygiene, architecture lint and SwiftLint. The manifest lists 174 suites: 123 pure, 46 GUI and 5 live; every listed path exists.
