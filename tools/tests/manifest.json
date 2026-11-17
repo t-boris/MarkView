@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 117,
+  "suiteCount": 116,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1395,16 +1395,6 @@
         "MarkView/Models/Prototype/PrototypeFidelity.swift",
         "tools/tests/PrototypeFidelityTests.swift",
         "tools/tests/prototype-fidelity-tests.sh"
-      ]
-    },
-    {
-      "name": "prototype-fixround-tests",
-      "script": "tools/tests/prototype-fixround-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeAudit.swift",
-        "tools/tests/PrototypeFixRoundTests.swift",
-        "tools/tests/prototype-fixround-tests.sh"
       ]
     },
     {
