@@ -138,6 +138,7 @@ function create(parent, { doc = "", language = "", dark = false } = {}) {
   ];
   const view = new EditorView({ parent, state: EditorState.create({ doc, extensions: build() }) });
   view.scrollDOM.addEventListener("scroll", notifyLayout, { passive: true });
+  let navigationGeneration = 0;
   return {
     view,
     /** Replace the document (and optionally its language); resets scroll and folds. */
@@ -166,8 +167,22 @@ function create(parent, { doc = "", language = "", dark = false } = {}) {
       const clamp = (n) => Math.min(Math.max(1, n), total);
       const from = view.state.doc.line(clamp(line));
       const to = view.state.doc.line(clamp(Math.max(line, endLine || line)));
+      const generation = ++navigationGeneration;
+      const document = view.state.doc;
+      const originalScroll = view.scrollDOM.scrollTop;
       view.dispatch({ selection: { anchor: from.from, head: to.to },
                       effects: EditorView.scrollIntoView(from.from, { y: "center" }) });
+      // CodeMirror can consume a scroll request before the target has coordinates. Retry after its
+      // first measurement only while this is still the same document, selection, and scroll position.
+      requestAnimationFrame(() => {
+        if (generation !== navigationGeneration || view.state.doc !== document || !view.dom.isConnected ||
+            view.state.selection.main.anchor !== from.from || view.scrollDOM.scrollTop !== originalScroll ||
+            !view.scrollDOM.clientHeight) return;
+        const target = view.coordsAtPos(from.from), bounds = view.scrollDOM.getBoundingClientRect();
+        if (!target || target.top < bounds.top || target.bottom > bounds.bottom) {
+          view.dispatch({ effects: EditorView.scrollIntoView(from.from, { y: "center" }) });
+        }
+      });
     },
     openSearch() { openSearchPanel(view); },
     /** Vertical geometry for margin notes: pixel offsets inside the scrolled content. */

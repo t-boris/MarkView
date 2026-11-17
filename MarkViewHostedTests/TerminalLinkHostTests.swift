@@ -296,14 +296,167 @@ import MarkViewCore
             check(try await js("getComputedStyle(document.getElementById('editor-pane')).display !== 'none'") as? Bool == true, "structured link reveals source")
             check(try await js("(() => {const e = document.getElementById('editor-input'); return e.value.slice(e.selectionStart, e.selectionEnd);})()") as? String == "  \"key100\": 100,", "structured requested line selected")
             check(try await js("document.getElementById('editor-input').scrollTop > 0") as? Bool == true, "structured source scrolls")
-            _ = try await js("setCodeContent(Array.from({length:180}, (_,i) => 'let line' + (i+1) + ' = ' + (i+1)).join('\\n'), 'swift', 'fixture.swift'); codeGotoLine(121,121)")
+            _ = try await js("""
+                (() => {
+                  const instrument = api => {
+                    const create = api.create;
+                    api.create = function(...args) {
+                      const viewer = create.apply(this, args);
+                      window.__lineTestViewer = viewer;
+                      return viewer;
+                    };
+                    return api;
+                  };
+                  let api = window.MVCode;
+                  if (api) instrument(api);
+                  else Object.defineProperty(window, 'MVCode', {configurable: true, get() { return api; }, set(value) { api = instrument(value); }});
+                  setCodeContent(Array.from({length:180}, (_,i) => 'let line' + (i+1) + ' = ' + (i+1)).join('\\n'), 'swift', 'fixture.swift');
+                  codeGotoLine(121,121);
+                })()
+                """)
             for _ in 0..<30 {
                 if try await js("!!document.querySelector('.cm-scroller') && document.querySelector('.cm-scroller').scrollTop > 0") as? Bool == true { break }
                 await pause()
             }
             let codeScrolls = try await js("!!document.querySelector('.cm-scroller') && document.querySelector('.cm-scroller').scrollTop > 0") as? Bool == true
-            if !codeScrolls { print("Editor code diagnostic: \(try await js("(() => { const e=document.querySelector('.cm-scroller'); return e && [innerHeight,e.clientHeight,e.scrollHeight,e.scrollTop]; })()") ?? "unknown")") }
+            if !codeScrolls {
+                let codeDiagnostic = try await js("""
+                    (() => {
+                      const scrollers = Array.from(document.querySelectorAll('.cm-scroller'));
+                      const view = window.__lineTestViewer?.view;
+                      return {pending: window.pendingCodeLine || null, focus: document.hasFocus(),
+                        selectedLine: view ? view.state.doc.lineAt(view.state.selection.main.anchor).number : null,
+                        viewport: view ? [view.viewport.from, view.viewport.to] : null,
+                        scrollers: scrollers.map(e => ({client: e.clientHeight, height: e.scrollHeight, top: e.scrollTop,
+                          visible: !!e.getClientRects().length, text: e.querySelector('.cm-content')?.textContent?.slice(0, 100) || ''}))};
+                    })()
+                    """)
+                print("Editor code diagnostic: \(codeDiagnostic ?? "unknown")")
+            }
             check(codeScrolls, "code line queued across viewer load")
+            let selectedLine = try await js("window.__lineTestViewer?.view.state.doc.lineAt(window.__lineTestViewer.view.state.selection.main.anchor).number") as? Int
+            check(selectedLine == 121, "code navigation selects the requested line")
+            _ = try await js("""
+                document.getElementById('code-container').style.display = 'none';
+                setCodeContent(Array.from({length:180}, (_,i) => 'let hidden' + (i+1) + ' = ' + (i+1)).join('\\n'), 'swift', 'hidden.swift');
+                codeGotoLine(150, 150);
+                """)
+            await pause()
+            _ = try await js("document.getElementById('code-container').style.display = ''")
+            var hiddenScrolls = false
+            for _ in 0..<30 {
+                if try await js("""
+                    (() => {
+                      const scroller = document.querySelector('.cm-scroller');
+                      const line = Array.from(document.querySelectorAll('.cm-line')).find(e => e.textContent === 'let hidden150 = 150');
+                      if (!scroller || !line) return false;
+                      const bounds = scroller.getBoundingClientRect(), target = line.getBoundingClientRect();
+                      return target.top >= bounds.top && target.bottom <= bounds.bottom;
+                    })()
+                    """) as? Bool == true {
+                    hiddenScrolls = true; break
+                }
+                await pause()
+            }
+            check(hiddenScrolls, "code line queued while the viewer is hidden")
+            _ = try await js("setCodeContent(Array.from({length:180}, (_,i) => 'let retry' + (i+1) + ' = ' + (i+1)).join('\\n'), 'swift', 'retry.swift')")
+            _ = try await js("""
+                (() => {
+                  const view = window.__lineTestViewer.view;
+                  const documentView = view.docView, original = documentView.scrollIntoView;
+                  window.__lineTestCoordinateLosses = 0;
+                  documentView.scrollIntoView = function(target) {
+                    if (window.__lineTestCoordinateLosses === 0 && target.range.head === view.state.doc.line(130).from) {
+                      window.__lineTestCoordinateLosses++;
+                      const coordinates = this.coordsAt;
+                      this.coordsAt = () => null;
+                      try { return original.call(this, target); } finally { this.coordsAt = coordinates; }
+                    }
+                    return original.call(this, target);
+                  };
+                  view.scrollDOM.scrollTop = 0;
+                  codeGotoLine(130, 130);
+                })()
+                """)
+            var retryVisible = false
+            for _ in 0..<30 {
+                if try await js("""
+                    (() => {
+                      const scroller = document.querySelector('.cm-scroller');
+                      const line = Array.from(document.querySelectorAll('.cm-line')).find(e => e.textContent === 'let retry130 = 130');
+                      if (!scroller || !line) return false;
+                      const bounds = scroller.getBoundingClientRect(), target = line.getBoundingClientRect();
+                      return target.top >= bounds.top && target.bottom <= bounds.bottom;
+                    })()
+                    """) as? Bool == true {
+                    retryVisible = true; break
+                }
+                await pause()
+            }
+            check(try await js("window.__lineTestCoordinateLosses") as? Int == 1, "the first scroll attempt had no coordinates")
+            check(retryVisible, "code navigation recovers when coordinates are temporarily unavailable")
+            _ = try await js("setCodeContent(Array.from({length:180}, (_,i) => 'let manual' + (i+1) + ' = ' + (i+1)).join('\\n'), 'swift', 'manual.swift')")
+            _ = try await js("""
+                (() => {
+                  const view = window.__lineTestViewer.view;
+                  const documentView = view.docView, original = documentView.scrollIntoView;
+                  window.__lineTestManualLosses = 0;
+                  documentView.scrollIntoView = function(target) {
+                    if (window.__lineTestManualLosses === 0 && target.range.head === view.state.doc.line(130).from) {
+                      window.__lineTestManualLosses++;
+                      const coordinates = this.coordsAt;
+                      this.coordsAt = () => null;
+                      try { return original.call(this, target); }
+                      finally {
+                        this.coordsAt = coordinates;
+                        queueMicrotask(() => view.dispatch({selection: {anchor: view.state.doc.line(5).from}}));
+                      }
+                    }
+                    return original.call(this, target);
+                  };
+                  view.scrollDOM.scrollTop = 0;
+                  codeGotoLine(130, 130);
+                })()
+                """)
+            for _ in 0..<30 {
+                if try await js("window.__lineTestManualLosses === 1 && window.__lineTestViewer.view.state.doc.lineAt(window.__lineTestViewer.view.state.selection.main.anchor).number === 5") as? Bool == true { break }
+                await pause()
+            }
+            await pause()
+            check(try await js("window.__lineTestManualLosses") as? Int == 1, "the manual-selection scenario lost its first scroll")
+            check(try await js("window.__lineTestViewer.view.state.doc.lineAt(window.__lineTestViewer.view.state.selection.main.anchor).number === 5 && window.__lineTestViewer.view.scrollDOM.scrollTop === 0") as? Bool == true,
+                  "a later selection is not overridden by the navigation retry")
+            _ = try await js("setCodeContent(Array.from({length:180}, (_,i) => 'let scroll' + (i+1) + ' = ' + (i+1)).join('\\n'), 'swift', 'scroll.swift')")
+            _ = try await js("""
+                (() => {
+                  const view = window.__lineTestViewer.view;
+                  const documentView = view.docView, original = documentView.scrollIntoView;
+                  window.__lineTestScrollLosses = 0;
+                  documentView.scrollIntoView = function(target) {
+                    if (window.__lineTestScrollLosses === 0 && target.range.head === view.state.doc.line(130).from) {
+                      window.__lineTestScrollLosses++;
+                      const coordinates = this.coordsAt;
+                      this.coordsAt = () => null;
+                      try { return original.call(this, target); }
+                      finally {
+                        this.coordsAt = coordinates;
+                        queueMicrotask(() => { view.scrollDOM.scrollTop = 350; });
+                      }
+                    }
+                    return original.call(this, target);
+                  };
+                  view.scrollDOM.scrollTop = 0;
+                  codeGotoLine(130, 130);
+                })()
+                """)
+            for _ in 0..<30 {
+                if try await js("window.__lineTestScrollLosses === 1 && window.__lineTestViewer.view.scrollDOM.scrollTop === 350") as? Bool == true { break }
+                await pause()
+            }
+            await pause()
+            check(try await js("window.__lineTestScrollLosses") as? Int == 1, "the manual-scroll scenario lost its first scroll")
+            check(try await js("window.__lineTestViewer.view.scrollDOM.scrollTop === 350") as? Bool == true,
+                  "a later scroll is not overridden by the navigation retry")
             print("Editor line checks: \(checks), failures: \(failures)")
             finish?(nil)
         } catch { finish?(error.localizedDescription) }
@@ -362,6 +515,6 @@ final class TerminalLinkHostTests: XCTestCase {
         checks.start(page: entry)
         await fulfillment(of: [done], timeout: 90)
         XCTAssertEqual(checks.failures, 0)
-        XCTAssertEqual(checks.checks, 9)
+        XCTAssertEqual(checks.checks, 17)
     }
 }
