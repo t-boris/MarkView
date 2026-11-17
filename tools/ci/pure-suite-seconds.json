@@ -13,7 +13,6 @@
   "build-warnings-tests": 1.2,
   "cli-completion-timeout-tests": 18.9,
   "cockpit-build-phase-tests": 0.0,
-  "cockpit-child-tests": 11.6,
   "cockpit-instruments-tests": 3.8,
   "cockpit-policy-tests": 4.3,
   "cockpit-qa-attempt-tests": 6.6,

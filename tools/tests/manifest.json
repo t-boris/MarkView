@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 102,
+  "suiteCount": 101,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -365,18 +365,6 @@
       "sources": [
         "tools/cockpit-temporal/scripts/build-runtime-phase.sh",
         "tools/cockpit-temporal/scripts/build-runtime.sh"
-      ]
-    },
-    {
-      "name": "cockpit-child-tests",
-      "script": "tools/tests/cockpit-child-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
-        "MarkView/Models/Cockpit/CockpitChild.swift",
-        "tools/tests/CockpitChildChecks.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2009,7 +1997,10 @@
         "MarkViewHostedTests/CycleTimeHostTests.swift",
         "MarkView/Models/QA/QAReview.swift",
         "tools/tests/qa-evidence-web-tests.sh",
-        "MarkViewHostedTests/QAReviewHostTests.swift"
+        "MarkViewHostedTests/QAReviewHostTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
+        "MarkView/Models/Cockpit/CockpitChild.swift",
+        "MarkViewHostedTests/CockpitChildHostTests.swift"
       ]
     },
     {
