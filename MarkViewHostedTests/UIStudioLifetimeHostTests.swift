@@ -1739,3 +1739,347 @@ func verifiesWithTestKey(_ token: String) -> Bool {
 
     }
 }
+
+extension UIStudioLifetimeHostTests {
+    @MainActor func testPromptRules() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+            if !condition { XCTFail("\(name): \(detail())") }
+        }
+
+    // DEC-007, BUG-078: the preparation prompt says that everything succeeds in the mock-up, that the seed fills every group
+    // the page shows, and that paging parameters are not filters.
+    let system = StudioPrompts.preparationSystem
+    check("DEC-007 the preparation prompt never refuses a write for needing real auth or an SDK",
+          system.contains("never a reason to refuse") && system.contains("mock-up"))
+    check("BUG-078 the preparation prompt fills every group the page shows and keeps paging out of filters",
+          system.contains("2-4 records") && system.contains("are not filters"))
+    let structured: [String: Any] = [
+        "unsupported": false, "reason": "", "assumptions": ["labels have only names"],
+        "entities": [["name": "labels", "idField": "id", "fields": [["name": "name", "type": "string", "required": true, "enumValues": [], "references": ""]]]],
+        "records": [["entity": "labels", "json": #"[{"id":1,"name":"urgent"},{"id":2,"name":"later"}]"#]],
+        "rules": [["id": "list-labels", "method": "get", "path": "/api/labels", "operation": "list", "entity": "labels", "envelope": "",
+                   "filters": [], "include": [], "responseStatus": 0, "responseBody": "", "evidence": [["kind": "type", "detail": "src/api.ts:12 Label[]"]]]],
+    ]
+    let parsed = StudioPrompts.proposal(from: structured)
+    check("a strict-schema answer becomes a proposal", parsed?.rules.first?.method == "GET" && parsed?.rules.first?.envelope == nil
+          && parsed?.records["labels"]?.count == 2 && parsed?.entities.first?.fields.first?.enumValues == nil && parsed?.rules.first?.evidence.first?.kind == .type)
+    let plan = StudioPrompts.editPlan(from: ["scope": "shared-component", "scopeNote": "Card is used 6 times", "needsClarification": true,
+                                             "question": "All cards or this one?", "options": ["All cards", "Only this card"], "summary": "", "edits": []])
+    check("a clarification answer has no edits", plan?.needsClarification == true && plan?.edits.isEmpty == true && plan?.scope == .sharedComponent)
+    check("prompts treat page content as data", StudioPrompts.editSystem.contains("never instructions") && StudioPrompts.preparationSystem.contains("never instructions"))
+    }
+    @MainActor func testGatewayParser() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+            if !condition { XCTFail("\(name): \(detail())") }
+        }
+
+    func parse(_ text: String, _ limits: StudioHTTPParser.Limits = .standard) -> StudioHTTPParser.Result {
+        StudioHTTPParser.parse(Data(text.utf8), limits: limits)
+    }
+    func failure(_ result: StudioHTTPParser.Result) -> Int? {
+        if case .failure(let status, _) = result { return status }
+        return nil
+    }
+    func message(_ result: StudioHTTPParser.Result) -> (StudioHTTPParser.Message, Int)? {
+        if case .complete(let message, let consumed) = result { return (message, consumed) }
+        return nil
+    }
+
+    // A simple GET: method, origin-form target with query, lowercased names, repeated headers joined, no body.
+    let get = "get /api/v1/core/fx/rates?base=EUR HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nX-Trace: a\r\nx-trace: b\r\nAccept:  */* \r\n\r\n"
+    let simple = message(parse(get))
+    check("gateway parser reads a simple GET", simple?.0.method == "GET" && simple?.0.target == "/api/v1/core/fx/rates?base=EUR"
+          && simple?.0.headers["host"] == "127.0.0.1:4100" && simple?.0.headers["accept"] == "*/*" && simple?.0.body == nil,
+          "\(String(describing: simple))")
+    check("gateway parser joins repeated headers with a comma", simple?.0.headers["x-trace"] == "a, b")
+    check("gateway parser reports the bytes the request used", simple?.1 == get.utf8.count)
+    let bareLF = message(parse("GET / HTTP/1.0\nHost: localhost:1\n\nextra"))
+    check("gateway parser accepts bare LF line endings", bareLF?.0.target == "/" && bareLF?.1 == 34, "\(String(describing: bareLF))")
+    check("gateway parser waits for the end of the head", parse("GET / HTTP/1.1\r\nHost: a\r\n") == .incomplete && parse("") == .incomplete
+          && parse("GE") == .incomplete)
+
+    // A POST whose body arrives in several pieces.
+    let postHead = "POST /api/orders HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nContent-Length: 11\r\nContent-Type: application/json\r\n\r\n"
+    check("gateway parser: a split head is incomplete", parse(String(postHead.prefix(30))) == .incomplete)
+    check("gateway parser: a partial body is incomplete", parse(postHead + "{\"id\":") == .incomplete)
+    let post = message(parse(postHead + "{\"id\":\"42\"}GET /next"))
+    check("gateway parser completes the body from Content-Length", post?.0.body == Data("{\"id\":\"42\"}".utf8)
+          && post?.1 == postHead.utf8.count + 11, "\(String(describing: post))")
+    check("gateway parser: Content-Length 0 is no body", message(parse("POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"))?.0.body == nil)
+    check("gateway parser accepts identical repeated Content-Length values",
+          message(parse("POST / HTTP/1.1\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\nok"))?.0.body == Data("ok".utf8))
+
+    // Chunked transfer coding with extensions and a trailer.
+    let chunkedHead = "POST /upload HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nTransfer-Encoding: chunked\r\n\r\n"
+    let chunks = "4;name=value\r\nWiki\r\n5 ; ext\r\npedia\r\nE\r\n in\r\n\r\nchunks.\r\n0;last\r\nX-Checksum: abc\r\n\r\n"
+    let chunked = message(parse(chunkedHead + chunks))
+    check("gateway parser decodes chunks, ignoring extensions and trailers", chunked?.0.body == Data("Wikipedia in\r\n\r\nchunks.".utf8)
+          && chunked?.1 == (chunkedHead + chunks).utf8.count, "\(String(describing: chunked))")
+    check("gateway parser: chunks cut anywhere are incomplete", (1..<chunks.utf8.count).allSatisfy {
+        parse(chunkedHead + String(decoding: Array(chunks.utf8.prefix($0)), as: UTF8.self)) == .incomplete
+    })
+    check("gateway parser: a malformed chunk size is refused", failure(parse(chunkedHead + "zz\r\nab\r\n0\r\n\r\n")) == 400)
+    check("gateway parser: chunk data without its line end is refused", failure(parse(chunkedHead + "2\r\nabc\r\n0\r\n\r\n")) == 400)
+
+    // Expect: 100-continue.
+    let expectHead = "PUT /api/doc HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n"
+    check("gateway parser asks for 100-continue while the body is pending", parse(expectHead) == .expectContinue
+          && parse(expectHead + "he") == .expectContinue)
+    check("gateway parser completes an expect-continue request with its body", message(parse(expectHead + "hello"))?.0.body == Data("hello".utf8))
+    check("gateway parser ignores 100-continue in HTTP/1.0", parse(expectHead.replacingOccurrences(of: "HTTP/1.1", with: "HTTP/1.0")) == .incomplete)
+
+    // Limits.
+    let longTarget = "/" + String(repeating: "a", count: 8 * 1024)
+    check("gateway parser: a target over the limit is 414", failure(parse("GET \(longTarget) HTTP/1.1\r\n\r\n")) == 414)
+    check("gateway parser: a target over the limit is 414 before its line ends", failure(parse("GET \(longTarget)")) == 414)
+    check("gateway parser: a target longer than the whole head limit is still 414",
+          failure(parse("GET /\(String(repeating: "b", count: 70 * 1024)) HTTP/1.1\r\n\r\n")) == 414)
+    check("gateway parser: a target at the limit is accepted",
+          message(parse("GET \(String(longTarget.dropLast())) HTTP/1.1\r\n\r\n")) != nil)
+    let manyHeaders = (0...100).map { "X-H\($0): v\r\n" }.joined()
+    check("gateway parser: more than 100 headers is 431", failure(parse("GET / HTTP/1.1\r\n\(manyHeaders)\r\n")) == 431)
+    check("gateway parser: more than 100 headers is 431 before the head ends", failure(parse("GET / HTTP/1.1\r\n\(manyHeaders)")) == 431)
+    check("gateway parser: 100 headers are accepted",
+          message(parse("GET / HTTP/1.1\r\n\((0..<100).map { "X-H\($0): v\r\n" }.joined())\r\n"))?.0.headers.count == 100)
+    let bigValue = String(repeating: "v", count: 64 * 1024)
+    check("gateway parser: a head over 64 KB is 431", failure(parse("GET / HTTP/1.1\r\nX-Big: \(bigValue)\r\n\r\n")) == 431)
+    check("gateway parser: a head over 64 KB is 431 before it ends", failure(parse("GET / HTTP/1.1\r\nX-Big: \(bigValue)")) == 431)
+    check("gateway parser: a Content-Length over 5 MB is 413 before the body is read",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: \(5 * 1024 * 1024 + 1)\r\n\r\n")) == 413
+          && failure(parse("POST / HTTP/1.1\r\nContent-Length: 99999999999999999999999\r\n\r\n")) == 413)
+    check("gateway parser: a chunk over the body limit is 413 before its data arrives",
+          failure(parse(chunkedHead + String(5 * 1024 * 1024 + 1, radix: 16) + "\r\n")) == 413)
+    var small = StudioHTTPParser.Limits.standard
+    small.body = 8
+    check("gateway parser: chunks that add up over the body limit are 413",
+          failure(parse(chunkedHead + "5\r\nhello\r\n5\r\n", small)) == 413 && message(parse(chunkedHead + "8\r\n12345678\r\n0\r\n\r\n", small)) != nil)
+
+    // Malformed and refused framing.
+    check("gateway parser: Content-Length with Transfer-Encoding is 400",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n")) == 400)
+    check("gateway parser: conflicting Content-Length values are 400",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\nabcd")) == 400
+          && failure(parse("POST / HTTP/1.1\r\nContent-Length: 3, 4\r\n\r\nabcd")) == 400)
+    check("gateway parser: a negative or non-numeric Content-Length is 400",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: -1\r\n\r\n")) == 400 && failure(parse("POST / HTTP/1.1\r\nContent-Length: 1x\r\n\r\n")) == 400)
+    check("gateway parser: other transfer codings are 501", failure(parse("POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n")) == 501)
+    check("gateway parser: an absolute-form target is 400", failure(parse("GET http://127.0.0.1:4100/api HTTP/1.1\r\n\r\n")) == 400)
+    check("gateway parser: asterisk and authority forms are 400", failure(parse("OPTIONS * HTTP/1.1\r\n\r\n")) == 400
+          && failure(parse("CONNECT example.com:443 HTTP/1.1\r\n\r\n")) == 400)
+    check("gateway parser: folded header lines are 400", failure(parse("GET / HTTP/1.1\r\nX-A: a\r\n  continued\r\n\r\n")) == 400)
+    check("gateway parser: malformed lines are 400", failure(parse("GET /\r\n\r\n")) == 400 && failure(parse("GET  / HTTP/1.1\r\n\r\n")) == 400
+          && failure(parse("GET / HTTP/1.1\r\nNoColon\r\n\r\n")) == 400 && failure(parse("GET / HTTP/1.1\r\nX-A : a\r\n\r\n")) == 400
+          && failure(parse("GET / HTTP/1.1\r\nX-A: a\rb\r\n\r\n")) == 400 && failure(parse("GET / FTP/1.1\r\n\r\n")) == 400)
+    check("gateway parser: HTTP/2 in a request line is 505", failure(parse("GET / HTTP/2.0\r\n\r\n")) == 505)
+    check("gateway parser: a TLS handshake is refused at once", failure(StudioHTTPParser.parse(Data([0x16, 0x03, 0x01, 0x02, 0x00]))) == 400)
+
+    // Serializer.
+    let response = StudioGatewayResponse(status: 404, headers: [
+        "Content-Type": "application/json", "Content-Length": "999", "Transfer-Encoding": "chunked", "Connection": "keep-alive",
+        "Keep-Alive": "timeout=5", "Upgrade": "h2c", "Proxy-Authenticate": "Basic", "TE": "trailers", "Trailer": "X-Checksum",
+        "X-Markview-Simulation": "0", "X-Request-Id": "r-1", "X-Injected": "a\r\nSet-Cookie: evil=1", "Bad Name": "x",
+    ], body: Data(#"{"error":"missing"}"#.utf8))
+    let wire = String(decoding: StudioHTTPParser.serialize(response), as: UTF8.self)
+    let lines = wire.components(separatedBy: "\r\n")
+    let lowered = Set(lines.dropFirst().map { $0.lowercased() })
+    check("gateway serializer writes the status line with its reason", lines.first == "HTTP/1.1 404 Not Found", lines.first ?? "")
+    check("gateway serializer keeps the caller's ordinary headers", lowered.contains("content-type: application/json") && lowered.contains("x-request-id: r-1"))
+    check("gateway serializer drops framing and hop-by-hop headers", !wire.lowercased().contains("chunked") && !wire.contains("keep-alive")
+          && !wire.contains("timeout=5") && !wire.contains("h2c") && !wire.contains("Proxy-") && !wire.contains("trailers")
+          && !wire.contains("Trailer") && !lowered.contains("content-length: 999") && !lowered.contains("x-markview-simulation: 0"), wire)
+    check("gateway serializer sets content-length, connection: close and the simulation mark",
+          lowered.contains("content-length: 19") && lowered.contains("connection: close") && lowered.contains("x-markview-simulation: 1")
+          && lines.filter { $0.lowercased().hasPrefix("connection:") }.count == 1, wire)
+    check("gateway serializer never lets a value inject a header", !wire.contains("Set-Cookie") && !wire.contains("Bad Name"), wire)
+    check("gateway serializer appends the body after the head", wire.hasSuffix("\r\n\r\n{\"error\":\"missing\"}"))
+    let noContent = String(decoding: StudioHTTPParser.serialize(StudioGatewayResponse(status: 204, headers: [:], body: Data("x".utf8))), as: UTF8.self)
+    check("gateway serializer: 204 has neither body nor content-length", noContent.hasPrefix("HTTP/1.1 204 No Content\r\n")
+          && !noContent.contains("content-length") && noContent.hasSuffix("\r\n\r\n"), noContent)
+    let invalid = String(decoding: StudioHTTPParser.serialize(StudioGatewayResponse(status: 101, headers: [:], body: nil)), as: UTF8.self)
+    check("gateway serializer: an informational or invalid status is sent as 500", invalid.hasPrefix("HTTP/1.1 500 Internal Server Error\r\n")
+          && invalid.contains("content-length: 0\r\n"), invalid)
+    check("gateway serializer: an unknown status gets its class as the reason",
+          String(decoding: StudioHTTPParser.serialize(StudioGatewayResponse(status: 299, headers: [:])), as: UTF8.self).hasPrefix("HTTP/1.1 299 Success\r\n"))
+    let headOnly = StudioHTTPParser.serialize(StudioGatewayResponse(status: 200, headers: [:], body: Data("abc".utf8)), includeBody: false)
+    check("gateway serializer answers HEAD with the length and no body",
+          String(decoding: headOnly, as: UTF8.self).contains("content-length: 3\r\n") && String(decoding: headOnly, as: UTF8.self).hasSuffix("\r\n\r\n"))
+    }
+    @MainActor func testDocumentSimulation() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+            if !condition { XCTFail("\(name): \(detail())") }
+        }
+        let app = "http://localhost:5173"
+        var requestCounter = 0
+        func answer(_ outcome: StudioSimOutcome) -> (Int, StudioJSON?) {
+            guard case .respond(let response, _) = outcome else { return (-1, nil) }
+            return (response.status, response.body.flatMap { StudioJSON(text: $0) })
+        }
+
+    var dspec = StudioEnvironmentSpec()
+    dspec.entities = [StudioEntity(name: "settings"), StudioEntity(name: "profiles")]
+    dspec.seed = [
+        "settings": [.object(["id": .string("default"), "value": StudioJSON(text: #"{"theme":"dark","layout":{"cols":2,"dense":true},"lang":"en"}"#)!])],
+        // A seed record without `value` is the document itself.
+        "profiles": [.object(["id": .string("ann"), "name": .string("Ann"), "plan": .string("pro")])],
+    ]
+    let ipc = "http://electron.ipc/desk/settings"
+    dspec.rules = [
+        StudioRule(id: "get-doc", method: "GET", path: ipc + "/getDocument", operation: .document, entity: "settings"),
+        // The expected revision is a path parameter, not the document's key.
+        StudioRule(id: "save-doc", method: "PUT", path: ipc + "/saveDocument/:expectedRevision", operation: .document, entity: "settings"),
+        StudioRule(id: "patch-doc", method: "PATCH", path: ipc + "/patchDocument/:expectedRevision", operation: .document, entity: "settings"),
+        StudioRule(id: "reset-doc", method: "PUT", path: ipc + "/resetDocument/:expectedRevision", operation: .document, entity: "settings",
+                   documentAction: .reset),
+        StudioRule(id: "reload-doc", method: "POST", path: ipc + "/reloadDocument", operation: .document, entity: "settings",
+                   response: StudioFixedResponse(status: 200, body: StudioJSON(text: #"{"document":"{{studio.document}}","revision":"{{studio.revision}}","note":"r{{studio.revision}}"}"#)),
+                   documentAction: .read),
+        StudioRule(id: "clear-doc", method: "DELETE", path: ipc + "/clearDocument", operation: .document, entity: "settings"),
+        StudioRule(id: "get-profile", method: "GET", path: "/api/profiles/:id", operation: .document, entity: "profiles"),
+        StudioRule(id: "put-profile", method: "PUT", path: "/api/profiles/:id", operation: .document, entity: "profiles"),
+    ]
+    var whole = StudioProposal()
+    whole.entities = dspec.entities
+    whole.records = dspec.seed
+    whole.rules = dspec.rules
+    let wholeProblems = StudioValidator.problems(proposal: whole, spec: StudioEnvironmentSpec(), state: [:])
+    check("DOC a document rule set is a valid proposal", wholeProblems.isEmpty, wholeProblems.joined(separator: "; "))
+    var dsim = StudioSimulator(spec: dspec, scenario: StudioScenario(id: "populated", name: "Populated", kind: .populated), appOrigin: app)
+    func call(_ method: String, _ url: String, _ body: String? = nil) -> (Int, StudioJSON?) {
+        requestCounter += 1
+        let request = StudioHTTPRequest(method: method, url: URL(string: url.hasPrefix("/") ? app + url : url)!, headers: [:], body: body,
+                                        requestId: "d\(requestCounter)")
+        return answer(dsim.handle(request))
+    }
+    let first = call("GET", ipc + "/getDocument")
+    check("DOC a read answers the seeded document itself", first.0 == 200 && first.1?["theme"]?.stringValue == "dark" && first.1?["id"] == nil,
+          "\(first)")
+    let saved = call("PUT", ipc + "/saveDocument/rev-7", #"{"theme":"light","layout":{"cols":3},"lang":"en"}"#)
+    check("DOC a save replaces the document and answers it", saved.0 == 200 && saved.1?["theme"]?.stringValue == "light", "\(saved)")
+    let afterSave = call("GET", ipc + "/getDocument").1
+    check("DOC the next read returns what was saved (the revision segment is not a key)",
+          afterSave?["theme"]?.stringValue == "light" && afterSave?["layout"]?["dense"] == nil, "\(afterSave?.text ?? "nil")")
+    _ = call("PATCH", ipc + "/patchDocument/rev-8", #"{"layout":{"dense":false},"lang":null,"accent":"teal"}"#)
+    let patched = call("GET", ipc + "/getDocument").1
+    check("DOC a patch merges nested keys, and null removes a key",
+          patched?["layout"]?["cols"]?.numberValue == 3 && patched?["layout"]?["dense"] == .bool(false) && patched?["lang"] == nil
+            && patched?["accent"]?.stringValue == "teal", "\(patched?.text ?? "nil")")
+    _ = call("PUT", ipc + "/resetDocument/rev-9", #"["theme","lang"]"#)
+    let partly = call("GET", ipc + "/getDocument").1
+    check("DOC a reset of named keys restores only them from the seed",
+          partly?["theme"]?.stringValue == "dark" && partly?["lang"]?.stringValue == "en" && partly?["accent"]?.stringValue == "teal",
+          "\(partly?.text ?? "nil")")
+    let wrapped = call("POST", ipc + "/reloadDocument").1
+    check("DOC a template answer carries the document and its revision",
+          wrapped?["document"]?["accent"]?.stringValue == "teal" && wrapped?["revision"]?.stringValue == "3" && wrapped?["note"]?.stringValue == "r3",
+          "\(wrapped?.text ?? "nil")")
+    _ = call("DELETE", ipc + "/clearDocument")
+    let cleared = call("GET", ipc + "/getDocument").1
+    check("DOC a delete resets the whole document to the seed", cleared?["accent"] == nil && cleared?["layout"]?["dense"] == .bool(true),
+          "\(cleared?.text ?? "nil")")
+    let ann = call("GET", "/api/profiles/ann")
+    check("DOC a seed record without value is the document, keyed by the path parameter",
+          ann.0 == 200 && ann.1?["plan"]?.stringValue == "pro" && ann.1?["id"] == nil, "\(ann)")
+    _ = call("PUT", "/api/profiles/bob", #"{"name":"Bob"}"#)
+    check("DOC documents of different keys are separate",
+          call("GET", "/api/profiles/bob").1?["name"]?.stringValue == "Bob" && call("GET", "/api/profiles/ann").1?["name"]?.stringValue == "Ann")
+    check("DOC an unknown key is not found", call("GET", "/api/profiles/zoe").0 == 404)
+    _ = call("PUT", ipc + "/saveDocument/r", #"{"theme":"solar"}"#)
+    dsim.reset()
+    check("DOC Reset returns to the seeded document", call("GET", ipc + "/getDocument").1?["theme"]?.stringValue == "dark")
+
+    let parsed = StudioPrompts.proposal(from: [
+        "unsupported": false, "reason": "", "assumptions": [], "entities": [["name": "settings", "idField": "id", "fields": []]],
+        "records": [["entity": "settings", "json": #"[{"id":"default","value":{"theme":"dark"}}]"#]],
+        "rules": [["id": "reset", "method": "PUT", "path": "/api/settings/reset", "operation": "document", "entity": "settings",
+                   "envelope": "", "documentAction": "reset", "filters": [], "include": [], "responseStatus": 0,
+                   "responseBody": #"{"ok":true,"document":"{{studio.document}}"}"#, "evidence": []]]])
+    let rule = parsed?.rules.first
+    check("DOC a prepared document rule keeps its action and its template",
+          rule?.operation == .document && rule?.documentAction == .reset && rule?.response?.status == 200
+            && rule?.response?.body?["document"]?.stringValue == "{{studio.document}}", "\(String(describing: rule))")
+    check("DOC the preparation prompt explains documents", StudioPrompts.preparationSystem.contains("Use `document` for one JSON document"))
+    var noEntity = StudioProposal()
+    noEntity.rules = [StudioRule(id: "orphan", method: "GET", path: "/api/prefs", operation: .document)]
+    check("DOC a document rule needs a defined entity",
+          StudioValidator.problems(proposal: noEntity, spec: StudioEnvironmentSpec(), state: [:]).contains { $0.contains("needs a defined entity") })
+    }
+    @MainActor func testRouteScanner() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+            if !condition { XCTFail("\(name): \(detail())") }
+        }
+
+    let fm = FileManager.default
+    let project = fm.temporaryDirectory.appendingPathComponent("markview-routes-\(UUID().uuidString)").resolvingSymlinksInPath()
+    defer { try? fm.removeItem(at: project) }
+    func write(_ path: String, _ text: String) {
+        let url = project.appendingPathComponent(path)
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+    let app = "apps/admin-panel"
+    write("\(app)/app/api/admin/work/queue/route.ts", "import x from 'y'\nexport async function GET(req: Request) { return Response.json([]) }\n")
+    write("\(app)/app/api/admin/users/[id]/route.ts", "export const PATCH = async () => new Response()\nexport async function DELETE() {}\n")
+    write("\(app)/app/api/v1/[...path]/route.ts", "async function handler() {}\nexport { handler as GET, handler as POST }\n")
+    write("\(app)/app/(dashboard)/api/health/route.ts", "export function GET() { return new Response('ok') }\n")
+    write("\(app)/app/@modal/api/slot/route.ts", "export function GET() {}\n")
+    write("\(app)/app/work/page.tsx", "export default function Page() { return null }\n")
+    write("\(app)/app/api/admin/node_modules/x/route.ts", "export function GET() {}\n")
+    write("\(app)/src/app/api/hello/route.js", "export function POST() {}\n")
+    write("\(app)/pages/api/legacy/[id].ts", "export default function handler() {}\n")
+    write("\(app)/pages/api/index.ts", "export default function handler() {}\n")
+    write("\(app)/pages/api/legacy/[id].test.ts", "test()\n")
+    let found = StudioRouteScanner.scan(project: project, appFolder: project.appendingPathComponent(app))
+    func entry(_ path: String) -> StudioRouteHandler? { found.first { $0.path == path } }
+    check("BUG-090 every route file of the application is found, none that is not a route",
+          Set(found.map(\.path)) == ["/api/admin/work/queue", "/api/admin/users/:id", "/api/v1/:path*", "/api/health", "/api/hello", "/api/legacy/:id", "/api"],
+          found.map(\.path).joined(separator: ", "))
+    check("BUG-090 the exported methods are read: functions, constants and re-exports",
+          entry("/api/admin/work/queue")?.methods == ["GET"] && entry("/api/admin/users/:id")?.methods == ["PATCH", "DELETE"]
+          && entry("/api/v1/:path*")?.methods == ["GET", "POST"] && entry("/api/hello")?.methods == ["POST"])
+    check("BUG-090 a pages-router API route takes any method, and the file is given from the project folder",
+          entry("/api/legacy/:id")?.methods == [] && entry("/api")?.file == "\(app)/pages/api/index.ts"
+          && entry("/api/admin/work/queue")?.file == "\(app)/app/api/admin/work/queue/route.ts")
+    func serves(_ method: String, _ path: String) -> String? { StudioRouteScanner.handler(for: method, path: path, in: found)?.path }
+    check("BUG-088 sign-in cookies are told from consent and preference cookies",
+          ["sb-abc-auth-token", "session", "__Secure-next-auth.session-token", "access_token", "XSRF-TOKEN", "JSESSIONID"].allSatisfy(StudioSignInCookies.isSignIn(name:))
+          && ["cookie_consent", "_ga", "NEXT_LOCALE", "theme", "gdpr-accepted", "analytics_id"].allSatisfy { !StudioSignInCookies.isSignIn(name: $0) })
+    check("BUG-089 the handler of a request is found from its method and path",
+          serves("GET", "/api/admin/work/queue") == "/api/admin/work/queue" && serves("PATCH", "/api/admin/users/42") == "/api/admin/users/:id"
+          && serves("GET", "/api/health") == "/api/health")
+    check("BUG-089 a static route beats a catch-all, and a method the file does not export is not served by it",
+          serves("GET", "/api/v1/core/orders/7") == "/api/v1/:path*" && serves("GET", "/api/admin/users/42") == nil
+          && serves("POST", "/api/admin/work/queue") == nil && serves("GET", "/nothing/here") == nil)
+    // The inventory the code gives, and how it joins the assistant's.
+    let fromCode = StudioMapParsing.inventory(routes: found)
+    let codeEntries = (fromCode?.entries ?? []).map { $0.endpoint.method + " " + $0.endpoint.path }
+    check("BUG-090 the routes become endpoints of the application's server, one per method; a catch-all proxy is none",
+          Set(codeEntries) == ["GET /api/admin/work/queue", "PATCH /api/admin/users/:id", "DELETE /api/admin/users/:id", "GET /api/health", "POST /api/hello",
+                               "GET /api/legacy/:id", "GET /api"]
+          && fromCode?.services.map(\.name) == [StudioMapService.application]
+          && fromCode?.entries.first { $0.endpoint.path == "/api/admin/work/queue" }?.endpoint.callSite == "\(app)/app/api/admin/work/queue/route.ts",
+          codeEntries.joined(separator: ", "))
+    check("BUG-090 an endpoint's group is named from its first plain path segments",
+          StudioMapParsing.resource(of: "/api/admin/work/queue") == "admin-work" && StudioMapParsing.resource(of: "/api/v1/core/orders/:id") == "core-orders"
+          && StudioMapParsing.resource(of: "/api/:id") == "")
+    var assistantInventory = StudioMapInventory()
+    assistantInventory.services = [StudioMapService(name: StudioMapService.application, side: .browser)]
+    assistantInventory.entries = [.init(service: StudioMapService.application,
+                                        endpoint: StudioMapEndpoint(method: "PATCH", path: "/api/admin/users/:userId", resource: "users"))]
+    let combined = StudioMapParsing.merged(assistantInventory, with: fromCode ?? StudioMapInventory())
+    check("BUG-090 the code's endpoints complete the assistant's list without repeating one it has",
+          combined.added == codeEntries.count - 1 && combined.inventory.entries.count == codeEntries.count
+          && combined.inventory.entries.first?.endpoint.path == "/api/admin/users/:userId" && combined.inventory.notes.count == 1)
+    check("BUG-090 a project with no route handler adds nothing", StudioMapParsing.inventory(routes: []) == nil
+          && StudioMapParsing.merged(assistantInventory, with: StudioMapInventory()).added == 0)
+    var context = StudioPreparationContext(contract: "GET /api/admin/work/queue", method: "GET", url: "http://localhost:3301/api/admin/work/queue?limit=5",
+                                           headers: [:], body: nil, attempt: 1, problems: [])
+    let plain = StudioPrompts.preparationPrompt(context, spec: StudioEnvironmentSpec(), appFolder: app)
+    context.handlerFile = "\(app)/app/api/admin/work/queue/route.ts"
+    context.handlerText = "export async function GET() {}"
+    let hinted = StudioPrompts.preparationPrompt(context, spec: StudioEnvironmentSpec(), appFolder: app)
+    check("BUG-089 the preparation prompt names the handler and shows its start, so the agent does not search for it",
+          !plain.contains("handles this request in") && hinted.contains("handles this request in `\(app)/app/api/admin/work/queue/route.ts`")
+          && hinted.contains("export async function GET() {}") && hinted.contains("do not search the project"))
+
+    }
+}
