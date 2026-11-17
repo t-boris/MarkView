@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 168,
+  "suiteCount": 167,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1455,16 +1455,6 @@
       ]
     },
     {
-      "name": "issue-listing-tests",
-      "script": "tools/tests/issue-listing-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "tools/tests/IssueListingTests.swift",
-        "tools/tests/issue-listing-tests.sh"
-      ]
-    },
-    {
       "name": "issue-sync-tests",
       "script": "tools/tests/issue-sync-tests.sh",
       "tier": "pure",
@@ -2668,7 +2658,8 @@
         "MarkView/Resources/Editor/js/markview-book.js",
         "MarkView/Resources/Editor/js/markview-insight-handlers.js",
         "MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
-        "MarkView/Models/Workspace/EditorPage.swift"
+        "MarkView/Models/Workspace/EditorPage.swift",
+        "MarkView/Models/Lifecycle/IssueListing.swift"
       ]
     },
     {
