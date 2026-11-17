@@ -973,15 +973,10 @@
     },
     {
       "name": "document-files-tests",
-      "script": "tools/tests/document-files-tests.sh",
-      "tier": "gui",
+      "script": "tools/tests/document-files.test.js",
+      "tier": "pure",
       "sources": [
-        "MarkView/Bridge/DocumentFileSchemeHandler.swift",
-        "MarkView/Models/Workspace/DocumentFiles.swift",
         "MarkView/Resources/Editor/js/markview-document-files.js",
-        "tools/tests/DocumentFileSchemeHandlerTests.swift",
-        "tools/tests/DocumentFilesPageTests.swift",
-        "tools/tests/DocumentFilesTests.swift",
         "tools/tests/document-files.test.js"
       ]
     },
@@ -2731,7 +2726,8 @@
         "MarkView/Views/Appearance/DevBackdropLayers.swift",
         "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
         "MarkView/Resources/Editor/js/markview-data.js",
-        "MarkViewHostedTests/WorkspaceEditorHostTests.swift"
+        "MarkViewHostedTests/WorkspaceEditorHostTests.swift",
+        "MarkView/Resources/Editor/js/markview-document-files.js"
       ]
     },
     {

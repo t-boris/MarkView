@@ -1931,3 +1931,213 @@ extension EditorHostTests {
 
     }
 }
+
+
+@MainActor
+private final class DocumentFilesTestLoader: NSObject, WKNavigationDelegate {
+    var done: CheckedContinuation<Void, Never>?
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        done?.resume()
+        done = nil
+    }
+}
+
+extension EditorHostTests {
+    func testDocumentFilePolicy() throws {
+        func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "", line: UInt = #line) {
+            XCTAssertTrue(ok, "\(name): \(detail())", line: line)
+        }
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("document-files-\(UUID().uuidString)", isDirectory: true)
+        let project = base.appendingPathComponent("project", isDirectory: true)
+        let outside = base.appendingPathComponent("outside", isDirectory: true)
+        for folder in [project.appendingPathComponent("docs/images"), project.appendingPathComponent("sub"), outside] {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? fm.removeItem(at: base) }
+        let bytes = Data([0x89, 0x50, 0x4e, 0x47])
+        for path in ["docs/images/shot.png", "docs/images/file tree.PNG", "docs/images/logo.svg", "docs/notes.md", "sub/up.jpg"] {
+            try bytes.write(to: project.appendingPathComponent(path))
+        }
+        try bytes.write(to: outside.appendingPathComponent("secret.png"))
+        try fm.createSymbolicLink(at: project.appendingPathComponent("docs/escape.png"), withDestinationURL: outside.appendingPathComponent("secret.png"))
+        try fm.createSymbolicLink(at: project.appendingPathComponent("docs/linked"), withDestinationURL: outside)
+
+        func request(_ path: String) -> URL {
+            var components = URLComponents()
+            components.scheme = DocumentFiles.scheme
+            components.host = ""
+            components.path = path
+            return components.url!
+        }
+        func resolve(_ path: String, roots: [URL]? = nil) -> DocumentFiles.Resolution {
+            DocumentFiles.resolve(request(path), roots: roots ?? [project])
+        }
+        let real = project.resolvingSymlinksInPath().standardizedFileURL
+
+        // A picture inside the project is served with its content type.
+        if case .file(let url, let type) = resolve(project.path + "/docs/images/shot.png") {
+            check("a picture inside the project is served", url.path == real.appendingPathComponent("docs/images/shot.png").path, url.path)
+            check("png gets image/png", type == "image/png", type)
+        } else { check("a picture inside the project is served", false) }
+
+        if case .file(_, let type) = resolve(project.path + "/docs/images/logo.svg") {
+            check("svg is declared as svg so an img can draw it", type == "image/svg+xml", type)
+        } else { check("svg is served", false) }
+
+        if case .file(let url, let type) = resolve(project.path + "/docs/images/file tree.PNG") {
+            check("a name with a space and a capital extension is served", url.lastPathComponent == "file tree.PNG" && type == "image/png", url.path)
+        } else { check("a name with a space and a capital extension is served", false) }
+
+        // The address the page builds for a path with a space is percent-encoded; the request decodes it back.
+        let encoded = URL(string: "markview-doc://" + project.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)! + "/docs/images/file%20tree.PNG")!
+        if case .file(let url, _) = DocumentFiles.resolve(encoded, roots: [project]) {
+            check("a percent-encoded request is decoded", url.lastPathComponent == "file tree.PNG", url.path)
+        } else { check("a percent-encoded request is decoded", false) }
+
+        // Only pictures.
+        check("a Markdown file is refused", resolve(project.path + "/docs/notes.md") == .forbidden)
+        check("a path without a file type is refused", resolve(project.path + "/docs/images") == .forbidden)
+
+        // Only inside the folders the person works in.
+        check("a picture outside every root is refused", resolve(outside.path + "/secret.png") == .forbidden)
+        check("a .. that leaves the root is refused", resolve(project.path + "/docs/../../outside/secret.png") == .forbidden)
+        check("a symbolic link to a picture outside is refused", resolve(project.path + "/docs/escape.png") == .forbidden)
+        check("a symbolic link to a folder outside is refused", resolve(project.path + "/docs/linked/secret.png") == .forbidden)
+        check("a sibling folder with the root's name as a prefix is refused",
+              resolve(base.path + "/project-other/x.png") == .forbidden)
+
+        // .. that stays inside is fine.
+        if case .file(let url, _) = resolve(project.path + "/sub/../docs/images/shot.png") {
+            check("a .. that stays inside the root is served", url.lastPathComponent == "shot.png")
+        } else { check("a .. that stays inside the root is served", false) }
+
+        // Several roots: the folder of a document outside the project.
+        check("a picture next to a document outside the project is served with that folder as a root",
+              resolve(outside.path + "/secret.png", roots: [project, outside]) != .forbidden)
+
+        // Requests that are not for this scheme or not absolute.
+        check("another scheme is refused", DocumentFiles.resolve(URL(string: "https://example.com/a.png")!, roots: [project]) == .forbidden)
+        check("no roots, nothing is served", resolve(project.path + "/docs/images/shot.png", roots: []) == .forbidden)
+
+        // The roots: the project and the folder of each open document, without repeats.
+        let docs = [project.appendingPathComponent("README.md"), project.appendingPathComponent("docs/notes.md"), outside.appendingPathComponent("a.md")]
+        let roots = DocumentFiles.roots(project: project, documents: docs)
+        check("roots are the project and the folders of the documents", roots.map(\.path) == [project.path, project.appendingPathComponent("docs").path, outside.path], roots.map(\.path).joined(separator: ", "))
+        check("roots without a project are the folders of the documents",
+              DocumentFiles.roots(project: nil, documents: [outside.appendingPathComponent("a.md")]).map(\.path) == [outside.path])
+
+    }
+
+    @MainActor func testDocumentFilePagePaths() async throws {
+        func check(_ name: String, _ ok: Bool, _ detail: String = "", line: UInt = #line) {
+            XCTAssertTrue(ok, "\(name): \(detail)", line: line)
+        }
+        _ = NSApplication.shared
+        let scriptURL = try XCTUnwrap(Bundle.main.url(forResource: "markview-document-files", withExtension: "js", subdirectory: "Editor/js"))
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        defer { web.stopLoading() }
+        let loader = DocumentFilesTestLoader()
+        web.navigationDelegate = loader
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            loader.done = continuation
+            web.loadHTMLString("<html><body><div id=\"r\"></div></body></html>", baseURL: nil)
+        }
+        let test = script + """
+        ;
+        const base = 'file:///P/my%20q/';
+        const r = document.getElementById('r');
+        r.innerHTML = '<p><img src="a b.png" width="10"> <img src="https://x.test/w.png"> <img src="data:image/png;base64,AAAA">'
+            + '<a href="notes/x.md">link</a>'
+            + '<picture><source srcset="a.png 1x, b.png 2x"><img src="../up.png"></picture></p>';
+        // what the renderer does to links
+        r.querySelectorAll('a').forEach(function (a) { a.setAttribute('data-mv-href', a.getAttribute('href')); a.setAttribute('href', new URL(a.getAttribute('href'), base).href); });
+        MarkViewDocumentFiles.resolvePictures(r, base);
+        const shown = r.innerHTML;
+        const restored = MarkViewDocumentFiles.withOriginalPaths(shown);
+        return JSON.stringify({ shown: shown, restored: restored, original: '<p><img src="a b.png" width="10"> <img src="https://x.test/w.png"> <img src="data:image/png;base64,AAAA"><a href="notes/x.md">link</a><picture><source srcset="a.png 1x, b.png 2x"><img src="../up.png"></picture></p>' });
+        """
+        let raw = try? await web.callAsyncJavaScript(test, contentWorld: .page) as? String
+        guard let raw, let data = raw.data(using: .utf8), let result = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              let shown = result["shown"], let restored = result["restored"], let original = result["original"] else {
+            XCTFail("The document-files script did not return its results"); return
+        }
+        check("a local picture is shown at its markview-doc address", shown.contains("src=\"markview-doc:///P/my%20q/a%20b.png\""), shown)
+        check("a parent-relative picture is shown at its address", shown.contains("src=\"markview-doc:///P/up.png\""), shown)
+        check("a srcset is rewritten with its descriptors", shown.contains("markview-doc:///P/my%20q/a.png 1x, markview-doc:///P/my%20q/b.png 2x"), shown)
+        check("a web picture and inline data stay as written", shown.contains("src=\"https://x.test/w.png\"") && shown.contains("src=\"data:image/png;base64,AAAA\""), shown)
+        check("the width the author wrote is kept", shown.contains("width=\"10\""))
+        check("the author's paths come back exactly", restored == original, "\n  got  \(restored)\n  want \(original)")
+        check("no helper attribute is left after restoring", !restored.contains("data-mv-"), restored)
+    }
+
+    @MainActor func testDocumentFileSchemeHandler() async throws {
+        func check(_ name: String, _ ok: Bool, _ detail: String = "", line: UInt = #line) {
+            XCTAssertTrue(ok, "\(name): \(detail)", line: line)
+        }
+        _ = NSApplication.shared
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("document-handler-\(UUID().uuidString)", isDirectory: true)
+        let project = base.appendingPathComponent("project", isDirectory: true)
+        let outside = base.appendingPathComponent("outside", isDirectory: true)
+        try fm.createDirectory(at: project.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+
+        func png() -> Data {
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 12, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
+                                       hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            return rep.representation(using: .png, properties: [:])!
+        }
+        try png().write(to: project.appendingPathComponent("docs/a b.png"))
+        try png().write(to: outside.appendingPathComponent("secret.png"))
+        try Data("<svg xmlns='http://www.w3.org/2000/svg' width='20' height='10'><rect width='20' height='10' fill='red'/></svg>".utf8)
+            .write(to: project.appendingPathComponent("docs/logo.svg"))
+
+        func address(_ path: String) -> String {
+            var components = URLComponents()
+            components.scheme = DocumentFiles.scheme
+            components.host = ""
+            components.path = path
+            return components.string!
+        }
+
+        let handler = DocumentFileSchemeHandler()
+        handler.allowedRoots = { [project] }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.setURLSchemeHandler(handler, forURLScheme: DocumentFileSchemeHandler.scheme)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        defer { web.stopLoading() }
+        let loader = DocumentFilesTestLoader()
+        web.navigationDelegate = loader
+        let page = """
+        <html><body>
+        <img id="ok" src="\(address(project.path + "/docs/a b.png"))">
+        <img id="svg" src="\(address(project.path + "/docs/logo.svg"))">
+        <img id="outside" src="\(address(outside.path + "/secret.png"))">
+        <img id="missing" src="\(address(project.path + "/docs/none.png"))">
+        </body></html>
+        """
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            loader.done = continuation
+            web.loadHTMLString(page, baseURL: URL(fileURLWithPath: "/"))
+        }
+        // The load event waits for the pictures; a short extra wait covers a slow answer.
+        try await Task.sleep(nanoseconds: 700_000_000)
+        let raw = try await web.callAsyncJavaScript("""
+        return JSON.stringify(Array.from(document.images).map(function (i) { return [i.id, i.complete && i.naturalWidth, i.naturalHeight]; }));
+        """, contentWorld: .page) as? String
+        let rows = (try? JSONSerialization.jsonObject(with: Data((raw ?? "[]").utf8))) as? [[Any]] ?? []
+        var sizes: [String: [Int]] = [:]
+        for row in rows { if let id = row[0] as? String { sizes[id] = [(row[1] as? Int) ?? 0, (row[2] as? Int) ?? 0] } }
+
+        check("an allowed picture with a space in its name loads at its size", sizes["ok"] == [12, 8], "\(sizes)")
+        check("an SVG loads (declared as image/svg+xml)", sizes["svg"] == [20, 10], "\(sizes)")
+        check("a picture outside the folders is refused", sizes["outside"] == [0, 0], "\(sizes)")
+        check("a missing picture does not load", sizes["missing"] == [0, 0], "\(sizes)")
+    }
+}

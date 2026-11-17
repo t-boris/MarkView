@@ -46,6 +46,7 @@
   "deployment-task-ownership-tests": 17.3,
   "diagram-tests": 3.7,
   "discussion-tests": 5.4,
+  "document-files-tests": 0.1,
   "document-translator-tests": 47.7,
   "feature-discovery-tests": 9.3,
   "feature-flow-coordinator-tests": 62.0,

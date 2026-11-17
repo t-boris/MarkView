@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Standalone check of the page side of BUG-061: how a document's relative picture paths become markview-doc: addresses.
 // Run with tools/tests/document-files-tests.sh (node, no packages).
 'use strict';
