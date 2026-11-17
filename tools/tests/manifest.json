@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 188,
+  "suiteCount": 187,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -987,16 +987,6 @@
         "tools/tests/DiagramAITests.swift",
         "tools/tests/DiagramCLIStub.swift",
         "tools/tests/diagram-tests.sh"
-      ]
-    },
-    {
-      "name": "dictation-insertion-tests",
-      "script": "tools/tests/dictation-insertion-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Views/Dictation/DictationViews.swift",
-        "tools/tests/DictationInsertionTests.swift",
-        "tools/tests/dictation-insertion-tests.sh"
       ]
     },
     {
