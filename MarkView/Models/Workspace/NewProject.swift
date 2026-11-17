@@ -4,7 +4,7 @@ import MarkViewCore
 #endif
 
 // Start a Project from Scratch (docs/features/start-a-project-from-scratch): the rules that need
-// no UI, no process and no main actor, so tools/tests/new-project-tests.sh compiles them alone.
+// no UI, no process and no main actor; app-hosted tests check these rules.
 
 /// A new project from its first idea until its folder exists (DEC-015). The clarification lives
 /// in a draft workspace next to this record; bootstrap copies it into the project and removes

@@ -18,7 +18,6 @@
   "git-task-ownership-tests": 16.2,
   "github-command-tests": 13.7,
   "insight-coordinator-tests": 67.3,
-  "new-project-tests": 19.4,
   "no-process-outside-subprocess-lint": 0.5,
   "persistent-remote-session-tests": 42.0,
   "project-agent-tools-tests": 43.5,
