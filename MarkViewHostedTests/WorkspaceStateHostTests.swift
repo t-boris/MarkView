@@ -1997,3 +1997,125 @@ extension EditorHostTests {
         check(LocalExecutor.nodeBinDirectories(home: fakeHome + "/nowhere").isEmpty, "no nvm, no change")
     }
 }
+
+extension EditorHostTests {
+    func testFeatureDiscoveryAndRecordedSettlements() throws {
+        func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+        func feature(front: String, questions: [(id: String, status: String, priority: String)]) -> Feature {
+            let (fm, body) = FrontMatter.split("---\n\(front)\n---\n\n# T\n")
+            var feature = Feature(slug: "t", folder: URL(fileURLWithPath: "/tmp/t"), front: fm, overviewBody: body)
+            feature.objects[.question] = questions.map { q in
+                let (qf, qb) = FrontMatter.split("---\ntype: question\nid: \(q.id)\nstatus: \(q.status)\npriority: \(q.priority)\n---\n\n## Question\n\nQ\n")
+                return FeatureObject(kind: .question, id: q.id, url: URL(fileURLWithPath: "/tmp/t/questions/\(q.id).md"), front: qf, body: qb)
+            }
+            return feature
+        }
+
+        // A fresh feature: nothing asked, no estimate — discovery has not run.
+        let fresh = feature(front: "title: T\nstatus: exploring", questions: [])
+        check(!fresh.isUnderstood, "fresh feature is not understood")
+        check(fresh.openQuestions.isEmpty, "fresh feature has no open question")
+
+        // The intake asked three questions: not understood while any is open.
+        let asked = feature(front: "title: T\nstatus: exploring\nquestions_left: \"3\"",
+                            questions: [("Q-001", "open", "normal"), ("Q-002", "open", "blocking"), ("Q-003", "answered", "normal")])
+        check(!asked.isUnderstood, "open questions keep discovery running")
+        check(asked.openQuestions.map(\.id) == ["Q-002", "Q-001"], "blocking questions come first")
+        check(!asked.discoveryDone, "discovery is not done while a question is open")
+
+        // Every question settled, the AI expects none: done — whatever the dimensions say.
+        let done = feature(front: "title: T\nstatus: exploring\nquestions_left: \"0\"\nunderstanding:\n  Problem: known\n  Security: unknown",
+                           questions: [("Q-001", "answered", "normal"), ("Q-002", "deferred", "blocking")])
+        check(done.isUnderstood, "settled questions and questions_left 0 end discovery")
+        check(done.discoveryDone, "discoveryDone follows")
+        check(done.readinessConditions.first { $0.name == "Feature understood" }.map { $0.met } == true, "readiness: feature understood met")
+
+        // Every question settled but the AI expects more: not done.
+        let more = feature(front: "title: T\nstatus: exploring\nquestions_left: \"2\"",
+                           questions: [("Q-001", "answered", "normal")])
+        check(!more.isUnderstood, "questions_left above 0 keeps discovery open")
+        check(more.discoveryDone, "but the round is over (nothing open) so leaving Explore approves")
+        check(more.readinessConditions.first { $0.name == "Feature understood" }.map { !$0.met } == true, "readiness: not met while the AI expects more")
+
+        // A feature from before this rule: every dimension known or n/a, no estimate.
+        var legacyFront = "title: T\nstatus: review\nunderstanding:\n"
+        for dimension in FeatureVocabulary.understanding { legacyFront += "  \(dimension): \(dimension == "Security" ? "n/a" : "known")\n" }
+        let legacy = feature(front: legacyFront, questions: [("Q-001", "answered", "normal")])
+        check(legacy.isUnderstood, "legacy feature with every dimension known counts as understood")
+
+        // Quick feature: no questions, questions_left 0.
+        let quick = feature(front: "title: T\nstatus: ready\nintake: quick\nquestions_left: \"0\"", questions: [])
+        check(quick.isUnderstood, "quick feature is understood at once")
+
+        // BUG-023: review convergence — decisions written into requirements, settled findings remembered.
+        func object(_ kind: FeatureObjectKind, _ id: String, _ front: String, _ body: String = "") -> FeatureObject {
+            let (fm, b) = FrontMatter.split("---\ntype: \(kind.rawValue)\nid: \(id)\n\(front)\n---\n\n\(body)")
+            return FeatureObject(kind: kind, id: id, url: URL(fileURLWithPath: "/tmp/t/\(id).md"), front: fm, body: b)
+        }
+
+        let requirementBody = "## Statement\n\nOld rule.\n\n## Acceptance Criteria\n\n- [x] Kept\n- [ ] Old\n\n## Notes\n\nKeep me.\n"
+        let rewritten = FeatureObject.replacingSection("Statement", in: requirementBody, with: "New rule.")
+        check(rewritten.contains("## Statement\n\nNew rule.\n\n## Acceptance Criteria"), "a section's text is replaced in place")
+        check(!rewritten.contains("Old rule."), "the old section text is gone")
+        check(rewritten.contains("## Notes\n\nKeep me."), "other sections stay")
+        let lastReplaced = FeatureObject.replacingSection("Notes", in: requirementBody, with: "Changed.")
+        check(lastReplaced.hasSuffix("## Notes\n\nChanged.\n") && lastReplaced.contains("- [ ] Old"), "the last section is replaced up to the end")
+        let appended = FeatureObject.replacingSection("Statement", in: "## Acceptance Criteria\n\n- [ ] A\n", with: "S.")
+        check(appended.hasSuffix("## Statement\n\nS.\n") && appended.hasPrefix("## Acceptance Criteria"), "a missing section is appended")
+        check(FeatureObject.acceptanceCriteria(in: requirementBody).map(\.done) == [true, false], "criteria are read from a body")
+        let writtenBody = FeatureObject.requirementBody(statement: "The system shall list tickets.", criteria: ["Shows 20 per page", "Sorted by SLA"])
+        check(writtenBody == "## Statement\n\nThe system shall list tickets.\n\n## Acceptance Criteria\n\n- [ ] Shows 20 per page\n- [ ] Sorted by SLA\n", "a requirement body is the statement and its open criteria")
+        check(FeatureObject.acceptanceCriteria(in: writtenBody).map(\.text) == ["Shows 20 per page", "Sorted by SLA"]
+              && FeatureObject.acceptanceCriteria(in: writtenBody).allSatisfy { !$0.done }, "the criteria of a written requirement are read back, none of them done")
+
+        var decided = feature(front: "title: T\nstatus: review", questions: [])
+        decided.objects[.decision] = [object(.decision, "DEC-001", "status: proposed"),
+                                      object(.decision, "DEC-002", "status: accepted\napplied: 2026-10-04"),
+                                      object(.decision, "DEC-003", "status: rejected"),
+                                      object(.decision, "DEC-004", "status: accepted")]
+        decided.objects[.finding] = [object(.finding, "F-001", "status: resolved", "## Resolution\n\nAI: write X into REQ-001.\n"),
+                                     object(.finding, "F-002", "status: resolved\nresolved_by: DEC-004", "## Resolution\n\nSee DEC-004.\n"),
+                                     object(.finding, "F-003", "status: resolved\napplied: 2026-10-04", "## Resolution\n\nDone.\n"),
+                                     object(.finding, "F-004", "status: dismissed", "## Resolution\n\nNo.\n")]
+        check(decided.settlementsToApply.map(\.id) == ["DEC-001", "DEC-004", "F-001"],
+              "pending: decisions in force and text-only resolutions not yet applied")
+
+        let resolved = object(.finding, "F-001", "status: resolved", "## Finding\n\nX\n\n## Resolution\n\nAI: do Y — see DEC-001.\n")
+        check(resolved.settlement == "AI: do Y — see DEC-001.", "a resolved finding carries its resolution")
+        check(object(.finding, "F-002", "status: dismissed\ndismissed_reason: gone").settlement == "dismissed: gone", "a dismissed finding carries its reason")
+        check(object(.finding, "F-003", "status: open").settlement.isEmpty, "an open finding is not settled")
+
+        // BUG-024: a number still referenced is never reused; overview edits touch only exact unique passages.
+        var referenced = feature(front: "title: T\nstatus: review", questions: [])
+        referenced.overviewBody = "Decision groups: see DEC-009.\n"
+        referenced.objects[.decision] = [object(.decision, "DEC-001", "status: accepted")]
+        referenced.objects[.requirement] = [object(.requirement, "REQ-001", "status: approved\ndecisions: [DEC-001, DEC-012]", "## Statement\n\nPer DEC-007.\n")]
+        check(referenced.nextID(.decision) == "DEC-013", "a deleted decision still linked (DEC-012) is not reused")
+        check(Set(referenced.referencedNumbers(.decision)) == Set([1, 7, 9, 12]), "references in links, texts and the overview count")
+        check(referenced.nextID(.finding) == "F-001", "a kind without references starts at 1")
+
+        let overview = "# R01\n\nThe six decision groups remain open.\n\nKeep me. Keep me.\n"
+        let edited = FeatureObject.applyingEdits([(find: "The six decision groups remain open.", replace: "All six groups are decided."),
+                                                  (find: "Keep me.", replace: "Gone."),
+                                                  (find: "Not there", replace: "X"),
+                                                  (find: "", replace: "Y")], to: overview)
+        check(edited.applied == 1 && edited.text.contains("All six groups are decided.") && edited.text.contains("Keep me. Keep me."),
+              "only an exact, unique passage is edited")
+
+        // The issues and the epic created from the plan belong to the feature (Build → Approve & create GitHub issues).
+        let planRoot = FileManager.default.temporaryDirectory.appendingPathComponent("plan-issues-\(UUID().uuidString)/with-plan")
+        try FileManager.default.createDirectory(at: planRoot.appendingPathComponent("implementation"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: planRoot.deletingLastPathComponent()) }
+        try "---\ntitle: T\nstatus: review\nissues: [\"#3\"]\n---\n\nBody.\n".write(to: planRoot.appendingPathComponent("overview.md"), atomically: true, encoding: .utf8)
+        var plan = FrontMatter()
+        plan.set("type", "plan")
+        plan.set("epic", "9")
+        plan["issues"] = .list([PlannedIssue(id: "I-1", title: "A", summary: "s", requirements: ["REQ-001"], decisions: [], github: 7).yaml,
+                                PlannedIssue(id: "I-2", title: "B", summary: "s", requirements: ["REQ-002"], decisions: []).yaml])
+        try plan.join(body: "# Plan\n\n## I-1: A (#7)\n").write(to: planRoot.appendingPathComponent("implementation/plan.md"), atomically: true, encoding: .utf8)
+        let planned = Feature.load(folder: planRoot)
+        check(planned?.issueNumbers == [3, 7, 9], "plan issues and the epic count as the feature's issues, with the overview's own: \(String(describing: planned?.issueNumbers))")
+    }
+}

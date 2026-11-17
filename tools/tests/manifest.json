@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 144,
+  "suiteCount": 143,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -852,24 +852,6 @@
         "tools/tests/document-translator-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ProjectProvidingTestSupport.swift"
-      ]
-    },
-    {
-      "name": "feature-discovery-tests",
-      "script": "tools/tests/feature-discovery-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/BugValidity.swift",
-        "MarkView/Models/Lifecycle/FeatureModels.swift",
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "tools/tests/FeatureDiscoveryTests.swift",
-        "tools/tests/feature-discovery-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2266,7 +2248,12 @@
         "MarkView/Models/Workspace/PanelLayout.swift",
         "MarkView/Models/Architecture/BookAnnotator.swift",
         "MarkView/Models/Architecture/BookBuilder.swift",
-        "MarkView/Models/Shared/WikiLinkResolver.swift"
+        "MarkView/Models/Shared/WikiLinkResolver.swift",
+        "MarkView/Models/Lifecycle/BugValidity.swift",
+        "MarkView/Models/Lifecycle/FeatureModels.swift",
+        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
+        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
+        "MarkView/Models/Lifecycle/ProjectWorkflow.swift"
       ]
     },
     {
