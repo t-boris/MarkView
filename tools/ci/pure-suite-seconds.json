@@ -12,7 +12,6 @@
   "bridge-contract-tests": 15.0,
   "browser-host-tests": 33.7,
   "bug-basket-tests": 20.3,
-  "bug-validity-tests": 16.8,
   "build-warnings-tests": 1.2,
   "change-diff-tests": 13.5,
   "change-source-tests": 10.4,

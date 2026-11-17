@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 143,
+  "suiteCount": 142,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -334,19 +334,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "bug-validity-tests",
-      "script": "tools/tests/bug-validity-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/BugValidity.swift",
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "tools/tests/BugValidityTests.swift",
-        "tools/tests/bug-validity-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2253,7 +2240,8 @@
         "MarkView/Models/Lifecycle/FeatureModels.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift"
+        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
+        "MarkViewHostedTests/BugValidityHostTests.swift"
       ]
     },
     {
