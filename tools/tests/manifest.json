@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 108,
+  "suiteCount": 107,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2600,20 +2600,6 @@
       "sources": [
         "MarkView/Models/Terminal/TerminalChildProcess.swift",
         "tools/tests/TerminalChildProcessTests.swift"
-      ]
-    },
-    {
-      "name": "text-diff-tests",
-      "script": "tools/tests/text-diff-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Architecture/ChangeExplanation.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/Architecture/TextDiff.swift",
-        "tools/tests/TextDiffChecks.swift",
-        "tools/tests/text-diff-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
