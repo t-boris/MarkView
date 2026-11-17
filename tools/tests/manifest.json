@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 47,
+  "suiteCount": 46,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1136,7 +1136,10 @@
         "MarkView/Models/Insight/GraphRAG.swift",
         "MarkView/Models/Insight/InsightArchiveExport.swift",
         "MarkView/Models/Insight/InsightCoordinator.swift",
-        "MarkView/Models/Insight/InsightSession.swift"
+        "MarkView/Models/Insight/InsightSession.swift",
+        "MarkViewHostedTests/UIStudioLifetimeHostTests.swift",
+        "MarkView/Models/UIStudio/UIStudioGateway.swift",
+        "MarkView/Models/UIStudio/UIStudioGatewayStreams.swift"
       ]
     },
     {
@@ -1385,17 +1388,6 @@
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "ui-studio-gateway-tests",
-      "script": "tools/tests/ui-studio-gateway-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/UIStudio/UIStudioGateway.swift",
-        "MarkView/Models/UIStudio/UIStudioGatewayStreams.swift",
-        "tools/tests/UIStudioGatewayTests.swift",
-        "tools/tests/ui-studio-gateway-tests.sh"
       ]
     },
     {
