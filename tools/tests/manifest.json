@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 164,
+  "suiteCount": 163,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -446,18 +446,6 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
-      "name": "cloud-services-tests",
-      "script": "tools/tests/cloud-services-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Deployments/CloudServices.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
-        "MarkView/Models/Deployments/DeploymentModels.swift",
-        "tools/tests/CloudServicesTests.swift",
-        "tools/tests/cloud-services-tests.sh"
       ]
     },
     {
@@ -2631,7 +2619,10 @@
         "MarkView/Models/Lifecycle/IssueListing.swift",
         "MarkView/Models/Lifecycle/IssueSync.swift",
         "MarkView/Models/Architecture/HistoricalBaseline.swift",
-        "MarkView/Models/Git/GitStatusModel.swift"
+        "MarkView/Models/Git/GitStatusModel.swift",
+        "MarkView/Models/Deployments/CloudServices.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
+        "MarkView/Models/Deployments/DeploymentModels.swift"
       ]
     },
     {

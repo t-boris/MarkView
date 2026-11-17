@@ -20,7 +20,6 @@
   "change-source-tests": 10.4,
   "claude-session-model-tests": 1.1,
   "cli-completion-timeout-tests": 18.9,
-  "cloud-services-tests": 3.8,
   "cockpit-agent-registry-tests": 6.5,
   "cockpit-build-phase-tests": 0.0,
   "cockpit-child-tests": 11.6,
