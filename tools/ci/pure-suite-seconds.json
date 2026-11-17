@@ -13,7 +13,6 @@
   "database-explorer-tests": 25.8,
   "document-files-tests": 0.1,
   "feature-flow-coordinator-tests": 62.0,
-  "insight-coordinator-tests": 67.3,
   "no-process-outside-subprocess-lint": 0.5,
   "persistent-remote-session-tests": 42.0,
   "project-ai-choice-tests": 21.3,
