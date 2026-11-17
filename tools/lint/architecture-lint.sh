@@ -3,6 +3,7 @@
 # the feature tests. It reads the working tree, lists every violation and exits 1 when there is one. CI runs it in the pure job.
 #
 # Rules that must hold:
+#   cockpit-tool-classes  every registered project/control/deployment/discussion tool is classified
 #   workflow-test-paths  literal test paths named in GitHub workflows exist
 #   no-loose-swift       no *.swift directly in MarkView/Models or MarkView/Views (every file lives in a domain folder)
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
@@ -758,8 +759,33 @@ if manager_file.is_file():
         if forwarded.search(line):
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
+
+# The Cockpit gate must classify exactly the tool names registered in these sources.
+policy_path = root / "MarkView/Models/Cockpit/CockpitStepPolicy.swift"
+if policy_path.is_file():
+    tool_paths = [root / f"MarkView/Models/AgentTools/{name}.swift" for name in
+                  ("ProjectAgentTools", "ControlAgentTools", "DeploymentAgentTools", "DiscussionAgentTools")]
+    if any(not path.is_file() for path in tool_paths):
+        violations.append(("cockpit-tool-classes", "a tool registration source is missing"))
+    else:
+        source = policy_path.read_text()
+        match = re.search(r"static\s+let\s+classes\s*:\s*\[String:\s*ToolClass\]\s*=\s*\[(.*?)\n\s*\]", source, re.S)
+        if not match:
+            violations.append(("cockpit-tool-classes", "the classification table could not be read"))
+        else:
+            declared = set()
+            for path in tool_paths:
+                declared.update(re.findall(r'tool\("(markview_[a-z_]+)"', path.read_text()))
+            classified = set(re.findall(r'"(markview_[a-z_]+)"\s*:', match.group(1)))
+            if len(declared) <= 50:
+                violations.append(("cockpit-tool-classes", f"only {len(declared)} registered tools were found"))
+            for name in sorted(declared - classified):
+                violations.append(("cockpit-tool-classes", f"unclassified tool {name}"))
+            for name in sorted(classified - declared):
+                violations.append(("cockpit-tool-classes", f"stale classification {name}"))
+
 # --- report
-rules = ["workflow-test-paths", "no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
+rules = ["cockpit-tool-classes", "workflow-test-paths", "no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

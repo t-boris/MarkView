@@ -858,6 +858,29 @@ try:
     check((root / "tools/lint/domain-cycles-allowlist.txt").read_text().endswith("2 Models/Beta -> Models/Alpha  # the allow-list names the direction\n"),
           "--tighten keeps the reason of the entries that stay")
 
+    # --- Cockpit tool classifications
+    root = fresh()
+    names = ["markview_" + a + b for a in "ab" for b in "abcdefghijklmnopqrstuvwxyz"]
+    agents = "MarkView/Models/AgentTools/"
+    for filename in ("ProjectAgentTools", "ControlAgentTools", "DeploymentAgentTools", "DiscussionAgentTools"):
+        write(root, agents + filename + ".swift", "\n".join(f'tool("{name}")' for name in names) if filename == "ProjectAgentTools" else "// no tools\n")
+    policy = "MarkView/Models/Cockpit/CockpitStepPolicy.swift"
+    def classes(items):
+        return "static let classes: [String: ToolClass] = [\n" + "\n".join(f'    "{name}": .read,' for name in items) + "\n    ]\n"
+    write(root, policy, classes(names))
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0, "matching Cockpit tool classifications pass")
+    write(root, policy, classes(names[1:]))
+    code, out = run(root)
+    check(code == 1 and "unclassified tool " + names[0] in out, "an unclassified Cockpit tool fails")
+    write(root, policy, classes(names + ["markview_stale"]))
+    code, out = run(root)
+    check(code == 1 and "stale classification markview_stale" in out, "a stale Cockpit classification fails")
+    write(root, agents + "ProjectAgentTools.swift", "tool(\"markview_aa\")\n")
+    code, out = run(root)
+    check(code == 1 and "only 1 registered tools were found" in out, "an incomplete Cockpit registration scan fails")
+
     # --- lists
     root = fresh()
     (root / "tools/lint/process-allowlist.txt").unlink()

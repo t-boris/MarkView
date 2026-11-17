@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 91,
+  "suiteCount": 90,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -365,27 +365,6 @@
       "sources": [
         "tools/cockpit-temporal/scripts/build-runtime-phase.sh",
         "tools/cockpit-temporal/scripts/build-runtime.sh"
-      ]
-    },
-    {
-      "name": "cockpit-policy-tests",
-      "script": "tools/tests/cockpit-policy-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Cockpit/CockpitAgentRegistry.swift",
-        "MarkView/Models/Cockpit/CockpitHostBridge.swift",
-        "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "MarkView/Models/Cockpit/CockpitStepAudit.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Cockpit/CockpitStepMeter.swift",
-        "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
-        "MarkView/Models/Cockpit/CockpitSupervisor.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/CockpitPolicyChecks.swift",
-        "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/cockpit-policy-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1850,7 +1829,10 @@
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
-        "MarkViewHostedTests/RemoteCodexContextHostTests.swift"
+        "MarkViewHostedTests/RemoteCodexContextHostTests.swift",
+        "MarkView/Models/Cockpit/CockpitStepAudit.swift",
+        "MarkView/Models/Cockpit/CockpitStepMeter.swift",
+        "MarkViewHostedTests/CockpitPolicyHostTests.swift"
       ]
     },
     {

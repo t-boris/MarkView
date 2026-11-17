@@ -46,7 +46,7 @@ jobs:
         run: |
           ( tools/tests/cockpit-build-phase-tests.sh ) & a=$!
           ( tools/tests/cockpit-qa-attempt-tests.sh ) & b=$!
-          ( tools/tests/qa-tests.sh; swift test --package-path Packages/MarkViewCore --filter FeatureReviewGateTests; tools/tests/cockpit-policy-tests.sh ) & c=$!
+          ( tools/tests/qa-tests.sh; swift test --package-path Packages/MarkViewCore --filter FeatureReviewGateTests; ./tools/lint/architecture-lint.sh ) & c=$!
           status=0
           for job in "$a" "$b" "$c"; do wait "$job" || status=1; done
           exit "$status"

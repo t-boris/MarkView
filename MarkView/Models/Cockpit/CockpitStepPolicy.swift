@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the agent of one Cockpit step may do through MarkView's MCP tools, derived from the controls the person approved.
-/// Foundation only, no app state: tools/tests/cockpit-policy-tests.sh compiles this file on its own and checks the rules.
+/// Foundation only, no app state; behavior is checked in the app host and tool coverage by architecture lint.
 ///
 /// The gate refuses a call; it does not stop the agent's own shell or editor. `CockpitStepAudit` compares the project before and
 /// after the step for what this gate cannot see.
