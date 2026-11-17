@@ -1,5 +1,5 @@
 import Foundation
-// Compile-time stand-in for CLICompletion used by standalone architecture and logical-view checks.
+// Compile-time stand-in for CLICompletion used by standalone architecture checks.
 enum CLICompletion {
     struct Request {
         func validateSchema() throws {}

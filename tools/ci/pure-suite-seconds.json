@@ -44,7 +44,6 @@
   "insight-coordinator-tests": 67.3,
   "issue-lifecycle-tests": 38.9,
   "layout-preset-tests": 5.0,
-  "logical-view-tests": 12.5,
   "new-project-close-tests": 109.4,
   "new-project-tests": 19.4,
   "no-process-outside-subprocess-lint": 0.5,
