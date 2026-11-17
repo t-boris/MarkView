@@ -2259,8 +2259,8 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/PrototypeDeadlineFixture.swift",
-        "tools/tests/PrototypeDeadlineTests.swift",
+        "MarkViewHostedTests/PrototypeDeadlineFixture.swift",
+        "MarkViewHostedTests/PrototypeDeadlineHostTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]

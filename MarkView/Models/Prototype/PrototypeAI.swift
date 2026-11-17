@@ -10,6 +10,10 @@ import MarkViewCore
 /// and read-only (`CLICompletion`); the assistant answers with files and edits, and
 /// `PrototypeFiles.apply` is the only code that writes them.
 enum PrototypeAI {
+    /// A scoped assistant boundary for isolated runs; child tasks inherit it without changing other runs.
+    typealias AssistantRunner = @Sendable (CLICompletion.Request, AIOperation<CLICompletion.Request, CLICompletion.Result>.Delta?,
+                                           AIOperation<CLICompletion.Request, CLICompletion.Result>.Activity?) async throws -> CLICompletion.Result
+    @TaskLocal static var assistantRunner: AssistantRunner?
 
     struct Outcome {
         var summary: String
@@ -186,7 +190,7 @@ enum PrototypeAI {
             onResult: { result in
                 stage(.log("The assistant finished"))
                 await record(result)
-            })
+            }, runner: assistantRunner ?? AIAssistantRunner.run)
         return try await asking.execute(request, onActivity: { tracker.handle($0) }).result
     }
 

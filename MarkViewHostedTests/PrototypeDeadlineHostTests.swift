@@ -1,7 +1,9 @@
 import CryptoKit
 import Foundation
+import XCTest
+@testable import MarkView
 
-@main enum PrototypeDeadlineTests {
+enum PrototypeDeadlineChecks {
     static func main() async throws {
         try await requirementsMode()
         try await codeMode()
@@ -38,35 +40,35 @@ import Foundation
             try await PrototypeAI.sync(root: root, folder: folder, manifest: manifest, codeScope: scope,
                                        language: "", record: { _ in }, stage: { _ in })
         }
-        await CLICompletion.audit.reset()
-        await CLICompletion.audit.set(variant: "fragments")
+        await PrototypeAssistantFixture.audit.reset()
+        await PrototypeAssistantFixture.audit.set(variant: "fragments")
         let built = try await sync()
-        precondition(built.screens == ["Orders"] && built.failed.isEmpty, "A truncated screen must be rebuilt from fragments.")
+        XCTAssertTrue(built.screens == ["Orders"] && built.failed.isEmpty, "A truncated screen must be rebuilt from fragments.")
         for path in ["app.js", "data.js", "styles.css", "screens/orders.js", "components/src-index-html.html"] {
             let actual = try String(contentsOf: site.appendingPathComponent(path), encoding: .utf8)
-            precondition(actual == CLICompletion.fragmentFiles[path], "Fragments must join byte-for-byte: \(path)")
+            XCTAssertTrue(actual == PrototypeAssistantFixture.fragmentFiles[path], "Fragments must join byte-for-byte: \(path)")
         }
         let index = try String(contentsOf: site.appendingPathComponent("index.html"), encoding: .utf8)
-        precondition(index.contains("screens/orders.js") && index.contains("original/src/styles.css"), "The generated shell still receives scripts and copied styles.")
-        let labels = await CLICompletion.audit.labels
-        precondition(labels.contains("prototype:foundation:data:part:data.js:3"), "A large data file requires multiple bounded responses.")
-        precondition(labels.contains("prototype:component:src-index-html:part:components/src-index-html.html:1"))
+        XCTAssertTrue(index.contains("screens/orders.js") && index.contains("original/src/styles.css"), "The generated shell still receives scripts and copied styles.")
+        let labels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(labels.contains("prototype:foundation:data:part:data.js:3"), "A large data file requires multiple bounded responses.")
+        XCTAssertTrue(labels.contains("prototype:component:src-index-html:part:components/src-index-html.html:1"))
 
         for variant in ["fragments-fail", "fragments-cancel"] {
-            await CLICompletion.audit.set(variant: variant)
+            await PrototypeAssistantFixture.audit.set(variant: variant)
             do {
                 _ = try await sync()
-                preconditionFailure("An incomplete fragment must fail the sync.")
+                XCTFail("An incomplete fragment must fail the sync.")
             } catch is CancellationError {
-                precondition(variant == "fragments-cancel")
+                XCTAssertTrue(variant == "fragments-cancel")
             } catch {
-                precondition(variant == "fragments-fail", "\(error)")
+                XCTAssertTrue(variant == "fragments-fail", "\(error)")
             }
             let restored = PrototypeFiles.read(site: site)
-            precondition(restored == original.files.sorted { $0.path < $1.path }, "The failed sync must restore v3 exactly.")
+            XCTAssertTrue(restored == original.files.sorted { $0.path < $1.path }, "The failed sync must restore v3 exactly.")
         }
-        await CLICompletion.audit.reset()
-        await CLICompletion.audit.set(variant: "")
+        await PrototypeAssistantFixture.audit.reset()
+        await PrototypeAssistantFixture.audit.set(variant: "")
         print("Prototype fragmented sync: truncated foundation, screens and components recover; failed or cancelled parts restore v3.")
     }
 
@@ -75,7 +77,7 @@ import Foundation
     static func stubMode() async throws {
         let fm = FileManager.default
         func build(_ variant: String) async throws -> (PrototypeAI.Built, URL) {
-            await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: variant)
+            await PrototypeAssistantFixture.audit.reset(); await PrototypeAssistantFixture.audit.set(variant: variant)
             let root = fm.temporaryDirectory.appendingPathComponent("mv-prototype-stub-" + UUID().uuidString)
             let folder = PrototypeFiles.folder(root: root, slug: "fixture")
             try fm.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
@@ -85,35 +87,35 @@ import Foundation
         }
         let once = try await build("stub-once")
         defer { try? fm.removeItem(at: once.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
-        precondition(once.0.screens == ["Home"] && once.0.failed.isEmpty, "the retry produced the screen: \(once.0.screens) \(once.0.failed)")
-        precondition((try? String(contentsOf: once.1, encoding: .utf8))?.contains("App.register") == true, "the real screen was saved")
-        let calls = await CLICompletion.audit.calls["prototype:screen:home"]
-        let prompt = await CLICompletion.audit.prompts["prototype:screen:home"] ?? ""
-        let effort = await CLICompletion.audit.efforts["prototype:screen:home"]
-        precondition(calls == 2, "a stub is asked again once: \(String(describing: calls))")
-        precondition(prompt.contains("is not a finished screen") && prompt.contains("the file has no code, only comments or nothing"), "the retry says why: \(prompt.suffix(300))")
-        precondition(effort == "medium", "the retry runs at medium effort: \(String(describing: effort))")
+        XCTAssertTrue(once.0.screens == ["Home"] && once.0.failed.isEmpty, "the retry produced the screen: \(once.0.screens) \(once.0.failed)")
+        XCTAssertTrue((try? String(contentsOf: once.1, encoding: .utf8))?.contains("App.register") == true, "the real screen was saved")
+        let calls = await PrototypeAssistantFixture.audit.calls["prototype:screen:home"]
+        let prompt = await PrototypeAssistantFixture.audit.prompts["prototype:screen:home"] ?? ""
+        let effort = await PrototypeAssistantFixture.audit.efforts["prototype:screen:home"]
+        XCTAssertTrue(calls == 2, "a stub is asked again once: \(String(describing: calls))")
+        XCTAssertTrue(prompt.contains("is not a finished screen") && prompt.contains("the file has no code, only comments or nothing"), "the retry says why: \(prompt.suffix(300))")
+        XCTAssertTrue(effort == "medium", "the retry runs at medium effort: \(String(describing: effort))")
 
         let always = try await build("stub-always")
         defer { try? fm.removeItem(at: always.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
-        precondition(always.0.screens.isEmpty && always.0.failed == ["Home"], "a screen that stays a stub is failed: \(always.0.screens) \(always.0.failed)")
-        precondition(!fm.fileExists(atPath: always.1.path), "no file is written for a stub")
-        let again = await CLICompletion.audit.calls["prototype:screen:home"]
-        precondition(again == 2, "two tries, no more: \(String(describing: again))")
+        XCTAssertTrue(always.0.screens.isEmpty && always.0.failed == ["Home"], "a screen that stays a stub is failed: \(always.0.screens) \(always.0.failed)")
+        XCTAssertTrue(!fm.fileExists(atPath: always.1.path), "no file is written for a stub")
+        let again = await PrototypeAssistantFixture.audit.calls["prototype:screen:home"]
+        XCTAssertTrue(again == 2, "two tries, no more: \(String(describing: again))")
 
         // BUG-062: a loader that clears its own container is asked again once with the reason; if the second answer still has it, the
         // screen is saved as it is (the check is a text scan) and the preview check decides.
         let loaderOnce = try await build("loader-once")
         defer { try? fm.removeItem(at: loaderOnce.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
-        let loaderCalls = await CLICompletion.audit.calls["prototype:screen:home"]
-        let loaderPrompt = await CLICompletion.audit.prompts["prototype:screen:home"] ?? ""
-        precondition(loaderCalls == 2 && loaderPrompt.contains("would stay empty") && loaderPrompt.contains("through draw()"), "asked again with the reason: \(loaderPrompt.suffix(400))")
-        precondition(loaderOnce.0.screens == ["Home"] && loaderOnce.0.failed.isEmpty, "the retry produced the screen")
-        precondition((try? String(contentsOf: loaderOnce.1, encoding: .utf8))?.contains("return App.load(() => h('p'") == true, "the corrected screen was saved")
+        let loaderCalls = await PrototypeAssistantFixture.audit.calls["prototype:screen:home"]
+        let loaderPrompt = await PrototypeAssistantFixture.audit.prompts["prototype:screen:home"] ?? ""
+        XCTAssertTrue(loaderCalls == 2 && loaderPrompt.contains("would stay empty") && loaderPrompt.contains("through draw()"), "asked again with the reason: \(loaderPrompt.suffix(400))")
+        XCTAssertTrue(loaderOnce.0.screens == ["Home"] && loaderOnce.0.failed.isEmpty, "the retry produced the screen")
+        XCTAssertTrue((try? String(contentsOf: loaderOnce.1, encoding: .utf8))?.contains("return App.load(() => h('p'") == true, "the corrected screen was saved")
         let loaderAlways = try await build("loader-always")
         defer { try? fm.removeItem(at: loaderAlways.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
-        let loaderTwice = await CLICompletion.audit.calls["prototype:screen:home"]
-        precondition(loaderTwice == 2 && loaderAlways.0.failed.isEmpty && fm.fileExists(atPath: loaderAlways.1.path),
+        let loaderTwice = await PrototypeAssistantFixture.audit.calls["prototype:screen:home"]
+        XCTAssertTrue(loaderTwice == 2 && loaderAlways.0.failed.isEmpty && fm.fileExists(atPath: loaderAlways.1.path),
                      "two tries, then saved as it is and not failed: \(String(describing: loaderTwice)) \(loaderAlways.0.failed)")
         print("Prototype stub screens: a comment-only screen is asked again once with the reason, a stub that stays is reported as failed and not saved; a loader that clears its container is asked again once and then saved for the preview check to judge.")
     }
@@ -152,120 +154,121 @@ import Foundation
         }
 
         // 1. Five listed files: three revised (one after a retry), one needs nothing, one fails; the rest of the site is as it was.
-        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep")
+        await PrototypeAssistantFixture.audit.reset(); await PrototypeAssistantFixture.audit.set(variant: "sweep")
         try reset()
         let outcome = try await revise()
-        precondition(outcome.written == ["data.js", "index.html", "styles.css"], "written: \(outcome.written)")
-        precondition(outcome.summary.hasPrefix("Listed the files.\n\nRevised 3 of 5 files; 1 needed no change; could not revise screens/home.js"),
+        XCTAssertTrue(outcome.written == ["data.js", "index.html", "styles.css"], "written: \(outcome.written)")
+        XCTAssertTrue(outcome.summary.hasPrefix("Listed the files.\n\nRevised 3 of 5 files; 1 needed no change; could not revise screens/home.js"),
                      "summary: \(outcome.summary)")
         let after = files()
-        precondition(after["index.html"]?.contains("Titre du fixture") == true && after["index.html"]?.contains("WRONG") == false,
+        XCTAssertTrue(after["index.html"]?.contains("Titre du fixture") == true && after["index.html"]?.contains("WRONG") == false,
                      "a run owns its file: \(after["index.html"] ?? "")")
-        precondition(after["styles.css"] == "body { color: navy; }" && after["data.js"] == "window.DB = { ok: 1 };")
-        precondition(after["app.js"] == original["app.js"] && after["screens/home.js"] == original["screens/home.js"],
+        XCTAssertTrue(after["styles.css"] == "body { color: navy; }" && after["data.js"] == "window.DB = { ok: 1 };")
+        XCTAssertTrue(after["app.js"] == original["app.js"] && after["screens/home.js"] == original["screens/home.js"],
                      "a delete or a failed run left a file changed")
         let theme = try String(contentsOf: site.appendingPathComponent("original/theme.css"), encoding: .utf8)
-        precondition(theme == "a { color: red; }")
-        let labels = await CLICompletion.audit.labels
-        precondition(labels == ["prototype:revise", "prototype:revise:index.html", "prototype:revise:app.js", "prototype:revise:data.js",
+        XCTAssertTrue(theme == "a { color: red; }")
+        let labels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(labels == ["prototype:revise", "prototype:revise:index.html", "prototype:revise:app.js", "prototype:revise:data.js",
                                 "prototype:revise:styles.css", "prototype:revise:screens/home.js"],
                      "one run per listed file, the ghost, the repeat and the outside path dropped: \(labels.sorted())")
-        let firstPrompt = await CLICompletion.audit.prompts["prototype:revise"] ?? ""
-        precondition(!firstPrompt.contains("answered in this one run"), "a request that can fan out may decline into `remaining`")
-        let filePrompt = await CLICompletion.audit.prompts["prototype:revise:index.html"] ?? ""
-        precondition(filePrompt.contains("revises one file of it, `index.html`") && filePrompt.contains("=== index.html ===\n<h1>Fixture title</h1>")
+        let firstPrompt = await PrototypeAssistantFixture.audit.prompts["prototype:revise"] ?? ""
+        XCTAssertTrue(!firstPrompt.contains("answered in this one run"), "a request that can fan out may decline into `remaining`")
+        let filePrompt = await PrototypeAssistantFixture.audit.prompts["prototype:revise:index.html"] ?? ""
+        XCTAssertTrue(filePrompt.contains("revises one file of it, `index.html`") && filePrompt.contains("=== index.html ===\n<h1>Fixture title</h1>")
                      && filePrompt.hasSuffix("Reviewer's request:\nConvert all preview to English"), "the file run is given its file whole")
-        let efforts = await CLICompletion.audit.efforts
-        precondition(efforts["prototype:revise:index.html"] == "low", "file runs are low effort")
-        precondition(stages.all.contains("Could not revise screens/home.js: fixture: home cannot be revised")
+        let efforts = await PrototypeAssistantFixture.audit.efforts
+        XCTAssertTrue(efforts["prototype:revise:index.html"] == "low", "file runs are low effort")
+        let failure = CLICompletion.Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "fixture: home cannot be revised")
+        XCTAssertTrue(stages.all.contains("Could not revise screens/home.js: " + failure.localizedDescription)
                      && stages.all.contains("No change needed in app.js") && stages.all.contains("Revised data.js"), "progress lines: \(stages.all)")
 
         // 2. A fix round never fans out: the same listing is only an explanation, nothing is written.
-        await CLICompletion.audit.reset(); try reset()
+        await PrototypeAssistantFixture.audit.reset(); try reset()
         let fix = try await revise(sweep: false)
-        precondition(fix.written.isEmpty && fix.summary == "Listed the files.\n\nNo files were changed." && files() == original, "fix round: \(fix.summary)")
-        let fixLabels = await CLICompletion.audit.labels
-        precondition(fixLabels == ["prototype:revise"], "a fix round starts no per-file run")
-        let aloneRun = await CLICompletion.audit.prompts["prototype:revise"] ?? ""
-        precondition(aloneRun.contains("answered in this one run") && aloneRun.contains("leave `remaining` empty"),
+        XCTAssertTrue(fix.written.isEmpty && fix.summary == "Listed the files.\n\nNo files were changed." && files() == original, "fix round: \(fix.summary)")
+        let fixLabels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(fixLabels == ["prototype:revise"], "a fix round starts no per-file run")
+        let aloneRun = await PrototypeAssistantFixture.audit.prompts["prototype:revise"] ?? ""
+        XCTAssertTrue(aloneRun.contains("answered in this one run") && aloneRun.contains("leave `remaining` empty"),
                      "a run that cannot fan out is not asked to decline into `remaining` (BUG-062)")
 
         // 3. Every file run fails: the request fails and the site is as it was.
-        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep-all-fail"); try reset()
+        await PrototypeAssistantFixture.audit.reset(); await PrototypeAssistantFixture.audit.set(variant: "sweep-all-fail"); try reset()
         do {
             _ = try await revise()
-            preconditionFailure("a sweep in which no file could be revised must fail")
+            XCTFail("a sweep in which no file could be revised must fail")
         } catch let error as PrototypeFiles.Failure {
-            precondition(error.localizedDescription.contains("index.html") && error.localizedDescription.contains("failed"), "\(error.localizedDescription)")
+            XCTAssertTrue(error.localizedDescription.contains("index.html") && error.localizedDescription.contains("failed"), "\(error.localizedDescription)")
         }
-        precondition(files()["index.html"] == original["index.html"] && files()["styles.css"] == original["styles.css"])
+        XCTAssertTrue(files()["index.html"] == original["index.html"] && files()["styles.css"] == original["styles.css"])
 
         // 4. An answer without a change that explains itself is a reply, not an error.
-        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "explain"); try reset()
+        await PrototypeAssistantFixture.audit.reset(); await PrototypeAssistantFixture.audit.set(variant: "explain"); try reset()
         let explained = try await revise()
-        precondition(explained.written.isEmpty && explained.summary == "The prototype is already in English.\n\nNo files were changed.",
+        XCTAssertTrue(explained.written.isEmpty && explained.summary == "The prototype is already in English.\n\nNo files were changed.",
                      "\(explained.summary)")
-        let explainLabels = await CLICompletion.audit.labels
-        precondition(explainLabels == ["prototype:revise"])
+        let explainLabels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(explainLabels == ["prototype:revise"])
 
         // 5. Silence is an error, and the second attempt says why it is asked again.
-        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "silent"); try reset()
+        await PrototypeAssistantFixture.audit.reset(); await PrototypeAssistantFixture.audit.set(variant: "silent"); try reset()
         do {
             _ = try await revise()
-            preconditionFailure("an answer with no change and no summary must fail")
+            XCTFail("an answer with no change and no summary must fail")
         } catch let error as PrototypeFiles.Failure {
-            precondition(error.localizedDescription.contains("no change and no explanation"), "\(error.localizedDescription)")
+            XCTAssertTrue(error.localizedDescription.contains("no change and no explanation"), "\(error.localizedDescription)")
         }
-        let again = await CLICompletion.audit.prompts["prototype:revise"] ?? ""
-        precondition(again.contains("Your previous answer was empty:") && !again.contains("could not be applied"), "retry text for an empty answer")
+        let again = await PrototypeAssistantFixture.audit.prompts["prototype:revise"] ?? ""
+        XCTAssertTrue(again.contains("Your previous answer was empty:") && !again.contains("could not be applied"), "retry text for an empty answer")
 
         // 6. Cancelling in the middle of a sweep writes nothing.
-        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep-slow"); try reset()
+        await PrototypeAssistantFixture.audit.reset(); await PrototypeAssistantFixture.audit.set(variant: "sweep-slow"); try reset()
         let task = Task { try await revise() }
         try await Task.sleep(nanoseconds: 700_000_000)
         task.cancel()
         do {
             _ = try await task.value
-            preconditionFailure("a cancelled sweep must not finish")
+            XCTFail("a cancelled sweep must not finish")
         } catch is CancellationError {}
-        precondition(files() == original, "a cancelled sweep changed the site")
+        XCTAssertTrue(files() == original, "a cancelled sweep changed the site")
 
         // 7. The fix round names the files its problems come from (BUG-062): no first run decides that again, each file gets a run
         // of its own with the whole list and a higher effort, and what one run cannot do does not stop the others.
-        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep"); try reset()
+        await PrototypeAssistantFixture.audit.reset(); await PrototypeAssistantFixture.audit.set(variant: "sweep"); try reset()
         let reported = ["Screen \"Home\" (#/, screens/home.js) renders nothing: the page has no content besides the shell.",
                         "TypeError: Attempted to assign to readonly property. (app.js:93)",
                         "ReferenceError: nope is not defined (data.js:5)",
                         "Unexpected token (styles.css:2)",
                         "ResizeObserver loop completed with undelivered notifications."]
         let named = PrototypeAudit.fixFiles(problems: reported, existing: Set(files().keys))
-        precondition(named == ["screens/home.js", "app.js", "data.js", "styles.css"] && named.count > PrototypeAudit.directFixLimit,
+        XCTAssertTrue(named == ["screens/home.js", "app.js", "data.js", "styles.css"] && named.count > PrototypeAudit.directFixLimit,
                      "the problems name four files: \(named)")
         let split = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Fix the errors reported by the preview. Change nothing else.",
                                                  pick: nil, runtimeErrors: reported, language: "", sweep: true, concurrency: 2,
                                                  sweepFiles: named, sweepEffort: "medium", record: { _ in }, stage: events)
-        let splitLabels = await CLICompletion.audit.labels
-        precondition(splitLabels == Set(named.map { "prototype:revise:" + $0 }), "one run per named file and no first run: \(splitLabels.sorted())")
-        precondition(split.written == ["data.js", "styles.css"], "written: \(split.written)")
-        precondition(split.summary.hasPrefix("Revised 2 of 4 files; 1 needed no change; could not revise screens/home.js"), "summary: \(split.summary)")
-        let dataPrompt = await CLICompletion.audit.prompts["prototype:revise:data.js"] ?? ""
-        precondition(dataPrompt.contains("What the preview reported (fix what concerns this file; the other runs handle the other files):")
+        let splitLabels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(splitLabels == Set(named.map { "prototype:revise:" + $0 }), "one run per named file and no first run: \(splitLabels.sorted())")
+        XCTAssertTrue(split.written == ["data.js", "styles.css"], "written: \(split.written)")
+        XCTAssertTrue(split.summary.hasPrefix("Revised 2 of 4 files; 1 needed no change; could not revise screens/home.js"), "summary: \(split.summary)")
+        let dataPrompt = await PrototypeAssistantFixture.audit.prompts["prototype:revise:data.js"] ?? ""
+        XCTAssertTrue(dataPrompt.contains("What the preview reported (fix what concerns this file; the other runs handle the other files):")
                      && dataPrompt.contains("- TypeError: Attempted to assign to readonly property. (app.js:93)")
                      && dataPrompt.contains("- ReferenceError: nope is not defined (data.js:5)"), "every run sees the whole list")
-        let splitEfforts = await CLICompletion.audit.efforts
-        precondition(splitEfforts["prototype:revise:data.js"] == "medium", "a fix run is medium effort: \(String(describing: splitEfforts["prototype:revise:data.js"]))")
+        let splitEfforts = await PrototypeAssistantFixture.audit.efforts
+        XCTAssertTrue(splitEfforts["prototype:revise:data.js"] == "medium", "a fix run is medium effort: \(String(describing: splitEfforts["prototype:revise:data.js"]))")
         let after7 = files()
-        precondition(after7["styles.css"] == "body { color: navy; }" && after7["screens/home.js"] == original["screens/home.js"] && after7["app.js"] == original["app.js"])
+        XCTAssertTrue(after7["styles.css"] == "body { color: navy; }" && after7["screens/home.js"] == original["screens/home.js"] && after7["app.js"] == original["app.js"])
         // The same request without a list of files still declines into `remaining` and fans out from there.
-        await CLICompletion.audit.reset(); try reset()
+        await PrototypeAssistantFixture.audit.reset(); try reset()
         let declined = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Fix the errors reported by the preview. Change nothing else.",
                                                     pick: nil, runtimeErrors: reported, language: "", sweep: true, concurrency: 2,
                                                     sweepEffort: "medium", record: { _ in }, stage: events)
-        let declinedLabels = await CLICompletion.audit.labels
-        precondition(declinedLabels.contains("prototype:revise") && declinedLabels.contains("prototype:revise:index.html"), "a decline fans out: \(declinedLabels.sorted())")
-        precondition(declined.written.contains("styles.css"), "the fan-out of a fix round writes: \(declined.written)")
+        let declinedLabels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(declinedLabels.contains("prototype:revise") && declinedLabels.contains("prototype:revise:index.html"), "a decline fans out: \(declinedLabels.sorted())")
+        XCTAssertTrue(declined.written.contains("styles.css"), "the fan-out of a fix round writes: \(declined.written)")
 
-        await CLICompletion.audit.set(variant: "")
+        await PrototypeAssistantFixture.audit.set(variant: "")
         print("Prototype sweep: a request for many files is revised file by file (retry, partial failure, no change, cancel), written once; an explanation is a reply, silence an error; a fix round that names its files starts one run per file, and a decline there fans out too; a run that cannot fan out is told so.")
     }
 
@@ -274,61 +277,61 @@ import Foundation
     static func requirementsMode() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-prototype-deadline-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        await CLICompletion.audit.set(variant: "runtime")
-        defer { Task { await CLICompletion.audit.set(variant: "") } }
+        await PrototypeAssistantFixture.audit.set(variant: "runtime")
+        defer { Task { await PrototypeAssistantFixture.audit.set(variant: "") } }
         let folder = PrototypeFiles.folder(root: root, slug: "fixture")
         let site = PrototypeFiles.site(of: folder)
         try FileManager.default.createDirectory(at: site, withIntermediateDirectories: true)
         let built = try await PrototypeAI.build(root: root, folder: folder, brief: "One screen", sources: [], language: "",
             record: { _ in }, stage: { _ in })
-        precondition(built.screens == ["Home"] && built.failed.isEmpty && built.gaps.isEmpty && built.components.isEmpty,
+        XCTAssertTrue(built.screens == ["Home"] && built.failed.isEmpty && built.gaps.isEmpty && built.components.isEmpty,
                      "requirements mode has no gaps or components, whatever the planner filled in: \(built.gaps)")
         func read(_ path: String) -> String { (try? String(contentsOf: site.appendingPathComponent(path), encoding: .utf8)) ?? "" }
-        precondition(FileManager.default.fileExists(atPath: site.appendingPathComponent("screens/home.js").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: site.appendingPathComponent("screens/home.js").path))
         let index = read("index.html")
-        precondition(index.contains("<script src=\"seed.js\"></script>") && index.contains("<script src=\"screens/home.js\"></script>")
+        XCTAssertTrue(index.contains("<script src=\"seed.js\"></script>") && index.contains("<script src=\"screens/home.js\"></script>")
                      && index.contains("<meta name=\"mv-prototype\" content=\"fixture\">"), index)
-        precondition(read("app.js").contains("App.configure({\"plan\":[{\"embedded\":false,\"hosts\":[],\"id\":\"home\""), "the plan is configured")
-        precondition(read("app.js").contains("\"roles\":[\"Owner\"]"), "the roles are configured")
-        precondition(read("data.js").contains("DB.seed = function") && read("seed.js").contains("DB.days(-2)")
+        XCTAssertTrue(read("app.js").contains("App.configure({\"plan\":[{\"embedded\":false,\"hosts\":[],\"id\":\"home\""), "the plan is configured")
+        XCTAssertTrue(read("app.js").contains("\"roles\":[\"Owner\"]"), "the roles are configured")
+        XCTAssertTrue(read("data.js").contains("DB.seed = function") && read("seed.js").contains("DB.days(-2)")
                      && read("styles.css") == "body { color: black; }")
-        let screenPrompt = await CLICompletion.audit.prompts["prototype:screen:home"] ?? ""
-        precondition(screenPrompt.contains("App.register({id, route, title, render(ctx)})") && screenPrompt.contains("DB.list(entity")
+        let screenPrompt = await PrototypeAssistantFixture.audit.prompts["prototype:screen:home"] ?? ""
+        XCTAssertTrue(screenPrompt.contains("App.register({id, route, title, render(ctx)})") && screenPrompt.contains("DB.list(entity")
                      && !screenPrompt.contains("function append(element, child)"), "the screen sees the API, not the runtime code")
         _ = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Revise title", pick: nil,
             runtimeErrors: [], language: "", record: { _ in }, stage: { _ in })
         let contents = read("index.html")
-        precondition(contents.contains("Revised fixture") && contents.contains("screens/home.js"))
+        XCTAssertTrue(contents.contains("Revised fixture") && contents.contains("screens/home.js"))
         let manifest = PrototypeFiles.Manifest(title: "Fixture", slug: "fixture", brief: "", sources: [])
         let spec = try await PrototypeAI.specification(root: root, folder: folder, manifest: manifest,
             language: "", record: { _ in }, stage: { _ in })
-        precondition(spec.contains("Fixture specification"))
-        let labels = await CLICompletion.audit.labels
-        precondition(labels == ["prototype:plan", "prototype:foundation:styles", "prototype:foundation:seed",
+        XCTAssertTrue(spec.contains("Fixture specification"))
+        let labels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(labels == ["prototype:plan", "prototype:foundation:styles", "prototype:foundation:seed",
                                 "prototype:screen:home", "prototype:revise", "prototype:spec"], "labels: \(labels.sorted())")
-        let planPrompt = await CLICompletion.audit.prompts["prototype:plan"] ?? ""
-        precondition(planPrompt.contains("requirement sources") && !planPrompt.contains("Reconstruct"))
+        let planPrompt = await PrototypeAssistantFixture.audit.prompts["prototype:plan"] ?? ""
+        XCTAssertTrue(planPrompt.contains("requirement sources") && !planPrompt.contains("Reconstruct"))
 
         // A seed that does not run is asked for twice, then left as the placeholder and reported; the screens still stand.
-        await CLICompletion.audit.reset()
-        await CLICompletion.audit.set(variant: "broken-seed")
+        await PrototypeAssistantFixture.audit.reset()
+        await PrototypeAssistantFixture.audit.set(variant: "broken-seed")
         let broken = PrototypeFiles.folder(root: root, slug: "broken")
         try FileManager.default.createDirectory(at: PrototypeFiles.site(of: broken), withIntermediateDirectories: true)
         let rebuilt = try await PrototypeAI.build(root: root, folder: broken, brief: "One screen", sources: [], language: "",
             record: { _ in }, stage: { _ in })
-        let seedCalls = await CLICompletion.audit.calls["prototype:foundation:seed"]
-        precondition(rebuilt.screens == ["Home"] && seedCalls == 2 && rebuilt.gaps.count == 1 && rebuilt.gaps[0].contains("seed.js does not run"),
+        let seedCalls = await PrototypeAssistantFixture.audit.calls["prototype:foundation:seed"]
+        XCTAssertTrue(rebuilt.screens == ["Home"] && seedCalls == 2 && rebuilt.gaps.count == 1 && rebuilt.gaps[0].contains("seed.js does not run"),
                      "a broken seed becomes a gap: \(rebuilt.gaps), \(String(describing: seedCalls))")
         let placeholder = (try? String(contentsOf: PrototypeFiles.site(of: broken).appendingPathComponent("seed.js"), encoding: .utf8)) ?? ""
-        precondition(placeholder.contains("DB.seed({});"), "the placeholder stays")
-        await CLICompletion.audit.set(variant: "")
+        XCTAssertTrue(placeholder.contains("DB.seed({});"), "the placeholder stays")
+        await PrototypeAssistantFixture.audit.set(variant: "")
         print("Prototype deadline policy: plan, styles and seed beside the screens on the built-in runtime, revision and specification complete without wall-clock limits.")
     }
 
     /// Code mode (Previews from Existing Code): the build reads a fixture web app, carries its gaps and evidence
     /// through the prompts and the result, and leaves every file outside `docs/prototypes/` untouched (REQ-001).
     static func codeMode() async throws {
-        await CLICompletion.audit.reset()
+        await PrototypeAssistantFixture.audit.reset()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-prototype-code-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let fm = FileManager.default
@@ -348,7 +351,7 @@ import Foundation
         try put("node_modules/left-pad/index.js", "module.exports = s => s;")
 
         let before = try checksums(root: root)
-        precondition(before.count == 8, "the fixture tree has eight files, found \(before.count)")
+        XCTAssertTrue(before.count == 8, "the fixture tree has eight files, found \(before.count)")
 
         let folder = PrototypeFiles.folder(root: root, slug: "orders")
         try fm.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
@@ -358,97 +361,97 @@ import Foundation
             mode: .code, codeScope: scope, record: { _ in }, stage: { event in
                 if case .phase(let text) = event { phases.add(text) }
             })
-        precondition(built.title == "Fixture Orders" && built.screens == ["Orders"] && built.failed.isEmpty)
-        precondition(built.gaps == CLICompletion.codeGaps + [
+        XCTAssertTrue(built.title == "Fixture Orders" && built.screens == ["Orders"] && built.failed.isEmpty)
+        XCTAssertTrue(built.gaps == PrototypeAssistantFixture.codeGaps + [
             "Component src/ghost.vue named by the plan was not found in the sources",
             "Component src/phantom.html marked in the files was not found in the sources",
-            "Could not isolate component src/toolbar.html: the toolbar has no source file to read",
+            "Could not isolate component src/toolbar.html: " + CLICompletion.Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "the toolbar has no source file to read").localizedDescription,
             "Coverage: the build named or read 1 of 1 UI source files of 2 KB or more (100%, 2 KB of 2 KB).",
         ], "the build carries the plan's gaps, the components without a source file and the one it could not isolate: \(built.gaps)")
-        precondition(built.assumptions == ["Prices are in EUR"])
+        XCTAssertTrue(built.assumptions == ["Prices are in EUR"])
         // What the sync baseline is made from (REQ-009): the stored plan, the written screens with the files they were built from, the scope.
-        let input = try! { () throws -> PrototypeAI.Built.BaselineInput in
+        let input = try { () throws -> PrototypeAI.Built.BaselineInput in
             guard let input = built.baseline else { throw PrototypeFiles.Failure.edits(["no baseline input"]) }
             return input
         }()
-        precondition(input.plan.contains("\"screens\"") && input.screens.map(\.id) == ["orders"], "the baseline input holds the plan and the written screens: \(input.screens.map(\.id))")
-        precondition(input.screens[0].sources.contains("src/index.html"), "a screen's sources are its evidence and components: \(input.screens[0].sources)")
-        precondition(input.scope.contains("src/index.html") && input.scope.contains("src/app.js"), "the scope is the inventory: \(input.scope)")
-        precondition(phases.first == "Step 1 of 4 · Reading the code and planning the screens", "\(phases.first ?? "")")
-        precondition(phases.last == "Step 4 of 4 · Isolating the source components", "\(phases.last ?? "")")
+        XCTAssertTrue(input.plan.contains("\"screens\"") && input.screens.map(\.id) == ["orders"], "the baseline input holds the plan and the written screens: \(input.screens.map(\.id))")
+        XCTAssertTrue(input.screens[0].sources.contains("src/index.html"), "a screen's sources are its evidence and components: \(input.screens[0].sources)")
+        XCTAssertTrue(input.scope.contains("src/index.html") && input.scope.contains("src/app.js"), "the scope is the inventory: \(input.scope)")
+        XCTAssertTrue(phases.first == "Step 1 of 4 · Reading the code and planning the screens", "\(phases.first ?? "")")
+        XCTAssertTrue(phases.last == "Step 4 of 4 · Isolating the source components", "\(phases.last ?? "")")
         let site = PrototypeFiles.site(of: folder)
-        precondition(fm.fileExists(atPath: site.appendingPathComponent("screens/orders.js").path))
+        XCTAssertTrue(fm.fileExists(atPath: site.appendingPathComponent("screens/orders.js").path))
 
         // Components (REQ-007): the planned template and the toolbar found by its marker; the isolated page of the
         // first exists and is linked, the second has none and is a gap. The ghost the plan named and the phantom
         // the markup named have no source file: neither is linked.
-        precondition(built.components == [
+        XCTAssertTrue(built.components == [
             PrototypeFiles.Component(path: "src/index.html", label: "index", screens: ["Orders"], page: "components/src-index-html.html"),
             PrototypeFiles.Component(path: "src/toolbar.html", label: "toolbar", screens: ["Orders"], page: nil),
         ], "components from the plan and the markup, with the isolated page: \(built.components)")
         let isolated = try String(contentsOf: site.appendingPathComponent("components/src-index-html.html"), encoding: .utf8)
-        precondition(isolated.contains("Orders alone") && isolated.contains("data-mv-component=\"src/index.html\""))
-        precondition(!fm.fileExists(atPath: site.appendingPathComponent("components/src-toolbar-html.html").path))
-        let componentPrompt = await CLICompletion.audit.prompts["prototype:component:src-index-html"] ?? ""
-        precondition(componentPrompt.contains("component `src/index.html` as `components/src-index-html.html`")
+        XCTAssertTrue(isolated.contains("Orders alone") && isolated.contains("data-mv-component=\"src/index.html\""))
+        XCTAssertTrue(!fm.fileExists(atPath: site.appendingPathComponent("components/src-toolbar-html.html").path))
+        let componentPrompt = await PrototypeAssistantFixture.audit.prompts["prototype:component:src-index-html"] ?? ""
+        XCTAssertTrue(componentPrompt.contains("component `src/index.html` as `components/src-index-html.html`")
                      && componentPrompt.contains("- Orders: screens/orders.js\n"), "the component writer gets the page, the screens and the source")
-        let componentSystem = await CLICompletion.audit.systems["prototype:component:src-index-html"] ?? ""
-        precondition(componentSystem.contains("isolated view of a source component"))
+        let componentSystem = await PrototypeAssistantFixture.audit.systems["prototype:component:src-index-html"] ?? ""
+        XCTAssertTrue(componentSystem.contains("isolated view of a source component"))
 
         // The prompts: the code is the reference, the inventory lists the scope only, the Electron hint is there,
         // the screen writer gets its evidence, and the foundation is asked for the original tokens.
-        let prompts = await CLICompletion.audit.prompts
-        let systems = await CLICompletion.audit.systems
+        let prompts = await PrototypeAssistantFixture.audit.prompts
+        let systems = await PrototypeAssistantFixture.audit.systems
         let plan = prompts["prototype:plan"] ?? ""
-        precondition(systems["prototype:plan"]?.contains("`evidence`") == true && systems["prototype:plan"]?.contains("`gaps`") == true)
-        precondition(plan.contains("- src\n") && plan.contains("src/ (4 files,") && plan.contains("- app.js (") && plan.contains("- styles.css (")
+        XCTAssertTrue(systems["prototype:plan"]?.contains("`evidence`") == true && systems["prototype:plan"]?.contains("`gaps`") == true)
+        XCTAssertTrue(plan.contains("- src\n") && plan.contains("src/ (4 files,") && plan.contains("- app.js (") && plan.contains("- styles.css (")
                      && plan.contains("- index.html ("), "the inventory lists the scope's folder with its files")
-        precondition(!plan.contains("package.json") && !plan.contains("node_modules") && !plan.contains("main.js"), "inventory is limited to the selected scope")
-        precondition(plan.contains("Electron renderer: only the browser part is in scope"))
-        precondition(!plan.contains("fetch('/api/orders')"), "the inventory never inlines file content")
+        XCTAssertTrue(!plan.contains("package.json") && !plan.contains("node_modules") && !plan.contains("main.js"), "inventory is limited to the selected scope")
+        XCTAssertTrue(plan.contains("Electron renderer: only the browser part is in scope"))
+        XCTAssertTrue(!plan.contains("fetch('/api/orders')"), "the inventory never inlines file content")
         let screen = prompts["prototype:screen:orders"] ?? ""
-        precondition(screen.contains("- src/index.html\n- src/app.js\n- src/styles.css\n") && screen.contains("no network request"))
-        precondition(screen.contains(PrototypePrompts.componentRule) && screen.contains("as the plan names them:\n- src/index.html\n")
+        XCTAssertTrue(screen.contains("- src/index.html\n- src/app.js\n- src/styles.css\n") && screen.contains("no network request"))
+        XCTAssertTrue(screen.contains(PrototypePrompts.componentRule) && screen.contains("as the plan names them:\n- src/index.html\n")
                      && !screen.contains("ghost"), "the screen writer is told to mark the components that exist, not the ghost")
-        precondition(systems["prototype:plan"]?.contains("`components`") == true, "the planner is asked for the components")
-        precondition(prompts["prototype:foundation:shell"]?.contains("reproduce the original design tokens") == true)
-        precondition(prompts["prototype:foundation:styles"]?.contains("reproduce the original design tokens") == true)
-        precondition(prompts["prototype:foundation:data"]?.contains("reproduce the original design tokens") == true)
+        XCTAssertTrue(systems["prototype:plan"]?.contains("`components`") == true, "the planner is asked for the components")
+        XCTAssertTrue(prompts["prototype:foundation:shell"]?.contains("reproduce the original design tokens") == true)
+        XCTAssertTrue(prompts["prototype:foundation:styles"]?.contains("reproduce the original design tokens") == true)
+        XCTAssertTrue(prompts["prototype:foundation:data"]?.contains("reproduce the original design tokens") == true)
 
         // The app's own stylesheet is copied unchanged, linked before the prototype's styles.css, kept out of what the
         // assistant reads, and the writers are told it is there (BUG-050).
         let copiedStyles = site.appendingPathComponent("original/src/styles.css")
-        precondition((try? String(contentsOf: copiedStyles, encoding: .utf8)) == ":root { --accent: #0a84ff; } h1 { color: var(--accent); }",
+        XCTAssertTrue((try? String(contentsOf: copiedStyles, encoding: .utf8)) == ":root { --accent: #0a84ff; } h1 { color: var(--accent); }",
                      "the original stylesheet is copied unchanged")
         let indexHTML = try String(contentsOf: site.appendingPathComponent("index.html"), encoding: .utf8)
         let originalLink = indexHTML.range(of: "<link rel=\"stylesheet\" href=\"original/src/styles.css\">")
         let ownLink = indexHTML.range(of: "href=\"styles.css\"")
-        precondition(originalLink != nil && ownLink != nil && originalLink!.lowerBound < ownLink!.lowerBound,
+        XCTAssertTrue(originalLink != nil && ownLink != nil && originalLink!.lowerBound < ownLink!.lowerBound,
                      "index.html links the original stylesheet before styles.css: \(indexHTML)")
-        precondition(!PrototypeFiles.read(site: site).contains { $0.path.hasPrefix("original/") }, "the assistant is not shown the copied originals")
+        XCTAssertTrue(!PrototypeFiles.read(site: site).contains { $0.path.hasPrefix("original/") }, "the assistant is not shown the copied originals")
         for label in ["prototype:foundation:shell", "prototype:foundation:data", "prototype:screen:orders"] {
-            precondition(prompts[label]?.contains("already copied into the prototype unchanged") == true && prompts[label]?.contains("src/styles.css") == true,
+            XCTAssertTrue(prompts[label]?.contains("already copied into the prototype unchanged") == true && prompts[label]?.contains("src/styles.css") == true,
                          "\(label) is told about the copied stylesheet")
         }
 
         // Revision and specification in code mode name the sources and the gaps.
         _ = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Revise title", pick: nil,
             runtimeErrors: [], language: "", mode: .code, sources: ["src"], record: { _ in }, stage: { _ in })
-        let revise = await CLICompletion.audit.prompts["prototype:revise"] ?? ""
-        precondition(revise.contains("reconstruction of the existing interface implemented in the project's source code in `src`"))
-        precondition(!revise.contains("requirements come from the project's documents"))
+        let revise = await PrototypeAssistantFixture.audit.prompts["prototype:revise"] ?? ""
+        XCTAssertTrue(revise.contains("reconstruction of the existing interface implemented in the project's source code in `src`"))
+        XCTAssertTrue(!revise.contains("requirements come from the project's documents"))
         var manifest = PrototypeFiles.Manifest(title: built.title, slug: "orders", brief: "", sources: ["src"], mode: .code, gaps: built.gaps)
         manifest.version = 1
         _ = try await PrototypeAI.specification(root: root, folder: folder, manifest: manifest, language: "", record: { _ in }, stage: { _ in })
-        let spec = await CLICompletion.audit.prompts["prototype:spec"] ?? ""
-        precondition(spec.contains("Reconstruction: sources, evidence, known gaps") && spec.contains(CLICompletion.codeGaps[1]))
-        let specSystem = await CLICompletion.audit.systems["prototype:spec"] ?? ""
-        precondition(specSystem.contains("never present simulated behaviour"))
+        let spec = await PrototypeAssistantFixture.audit.prompts["prototype:spec"] ?? ""
+        XCTAssertTrue(spec.contains("Reconstruction: sources, evidence, known gaps") && spec.contains(PrototypeAssistantFixture.codeGaps[1]))
+        let specSystem = await PrototypeAssistantFixture.audit.systems["prototype:spec"] ?? ""
+        XCTAssertTrue(specSystem.contains("never present simulated behaviour"))
 
         // Nothing outside docs/prototypes/ changed, and the prototype landed inside it.
         let after = try checksums(root: root)
-        precondition(after == before, "source files changed: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
-        precondition(PrototypeFiles.read(site: PrototypeFiles.site(of: folder)).map(\.path).contains("screens/orders.js"))
+        XCTAssertTrue(after == before, "source files changed: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
+        XCTAssertTrue(PrototypeFiles.read(site: PrototypeFiles.site(of: folder)).map(\.path).contains("screens/orders.js"))
         print("Prototype code mode: the fixture app is reconstructed with its gaps, evidence and components; every file outside docs/prototypes/ is unchanged.")
 
         try await syncFromCode(root: root, folder: folder, scope: scope, before: before)
@@ -463,15 +466,15 @@ import Foundation
         let folder = PrototypeFiles.folder(root: root, slug: "orders-inc")
         let site = PrototypeFiles.site(of: folder)
         try fm.createDirectory(at: site, withIntermediateDirectories: true)
-        await CLICompletion.audit.reset()
-        await CLICompletion.audit.set(variant: "")
+        await PrototypeAssistantFixture.audit.reset()
+        await PrototypeAssistantFixture.audit.set(variant: "")
         let built = try await PrototypeAI.build(root: root, folder: folder, brief: "", sources: ["src"], language: "", mode: .code,
                                                 codeScope: scope, record: { _ in }, stage: { _ in })
         try PrototypeFiles.snapshot(folder: folder, version: 1)
         var manifest = PrototypeFiles.Manifest(title: built.title, slug: "orders-inc", brief: "", sources: ["src"], mode: .code, gaps: built.gaps)
         manifest.version = 1
         manifest.components = built.components
-        guard let input = built.baseline else { preconditionFailure("a code build carries the baseline input") }
+        guard let input = built.baseline else { XCTFail("a code build carries the baseline input"); return }
         let named = input.scope + input.styles + input.screens.flatMap(\.sources) + built.components.map(\.path)
         let record = PrototypeBaseline.make(version: 1, plan: input.plan, styles: input.styles, screens: input.screens, components: built.components,
                                             scope: PrototypeBaseline.fingerprints(root: root, paths: named),
@@ -484,8 +487,8 @@ import Foundation
                                             site: PrototypeBaseline.siteFingerprints(site: site))
         }
         func state(_ id: String, _ status: PrototypeBaseline.Status) -> PrototypeBaseline.State? { status.units.first { $0.unit.id == id }?.state }
-        precondition(state("orders", status(record)) == .inSync, "right after the build the screen is in sync")
-        precondition(PrototypeBaseline.syncPlan(status: status(record), record: record).mode == .nothing, "nothing changed: nothing to sync")
+        XCTAssertTrue(state("orders", status(record)) == .inSync, "right after the build the screen is in sync")
+        XCTAssertTrue(PrototypeBaseline.syncPlan(status: status(record), record: record).mode == .nothing, "nothing changed: nothing to sync")
 
         // The code changes: the screen's script, and the toolbar component's file.
         let appJS = root.appendingPathComponent("src/app.js"), toolbar = root.appendingPathComponent("src/toolbar.html")
@@ -495,33 +498,33 @@ import Foundation
         try (toolbarOriginal + "<!-- changed -->").write(to: toolbar, atomically: true, encoding: .utf8)
         let drift = status(record)
         let plan = PrototypeBaseline.syncPlan(status: drift, record: record)
-        precondition(plan.mode == .incremental && Set(plan.units.map(\.unit.id)) == ["orders", "src/toolbar.html"],
+        XCTAssertTrue(plan.mode == .incremental && Set(plan.units.map(\.unit.id)) == ["orders", "src/toolbar.html"],
                      "the plan names the units whose sources changed: \(plan.units.map(\.unit.id))")
 
         let foundationBefore = Dictionary(uniqueKeysWithValues: PrototypeFiles.read(site: site)
             .filter { ["index.html", "app.js", "data.js", "styles.css"].contains($0.path) }.map { ($0.path, $0.content) })
-        await CLICompletion.audit.reset()
-        await CLICompletion.audit.set(variant: "synced")
+        await PrototypeAssistantFixture.audit.reset()
+        await PrototypeAssistantFixture.audit.set(variant: "synced")
         let synced = try await PrototypeAI.syncChanged(root: root, folder: folder, manifest: manifest, baseline: record, units: plan.units,
                                                        language: "", record: { _ in }, stage: { _ in })
-        precondition(synced.screens == ["Orders"] && synced.rewritten == ["orders"] && synced.restyled, "\(synced.screens) \(synced.rewritten)")
-        precondition(synced.failed.count == 1 && synced.failed[0].reason.contains("the toolbar has no source file to read"),
+        XCTAssertTrue(synced.screens == ["Orders"] && synced.rewritten == ["orders"] && synced.restyled, "\(synced.screens) \(synced.rewritten)")
+        XCTAssertTrue(synced.failed.count == 1 && synced.failed[0].reason.contains("the toolbar has no source file to read"),
                      "the component that cannot be isolated is reported and does not stop the sync: \(synced.failed)")
-        let labels = await CLICompletion.audit.labels
-        precondition(labels == ["prototype:screen:orders", "prototype:component:src-toolbar-html"],
+        let labels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(labels == ["prototype:screen:orders", "prototype:component:src-toolbar-html"],
                      "no planner, no foundation, no unchanged unit is run: \(labels.sorted())")
-        let prompt = await CLICompletion.audit.prompts["prototype:screen:orders"] ?? ""
-        precondition(prompt.contains("This is an UPDATE of a screen that already exists")
+        let prompt = await PrototypeAssistantFixture.audit.prompts["prototype:screen:orders"] ?? ""
+        XCTAssertTrue(prompt.contains("This is an UPDATE of a screen that already exists")
                      && prompt.contains("read them first:\n- src/app.js\n")
                      && prompt.contains("docs/prototypes/orders-inc/site/screens/orders.js"),
                      "the writer is told which files changed and where the current screen is")
-        precondition(!prompt.contains("- src/index.html\n\nThe current"), "unchanged files are not listed as changed")
+        XCTAssertTrue(!prompt.contains("- src/index.html\n\nThe current"), "unchanged files are not listed as changed")
         let live = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
-        precondition(live.contains("Orders (synced)"), "the changed screen was written again")
+        XCTAssertTrue(live.contains("Orders (synced)"), "the changed screen was written again")
         let foundationAfter = Dictionary(uniqueKeysWithValues: PrototypeFiles.read(site: site)
             .filter { ["index.html", "app.js", "data.js", "styles.css"].contains($0.path) }.map { ($0.path, $0.content) })
-        precondition(foundationAfter == foundationBefore, "the foundation files are not touched by an incremental sync")
-        precondition(synced.components.map(\.path).contains("src/index.html"), "the components are linked again")
+        XCTAssertTrue(foundationAfter == foundationBefore, "the foundation files are not touched by an incremental sync")
+        XCTAssertTrue(synced.components.map(\.path).contains("src/index.html"), "the components are linked again")
 
         // The baseline after the sync: the rebuilt screen is current, the component that failed still shows as changed.
         let inventory = PrototypeFiles.inventory(root: root, sources: ["src"])
@@ -529,7 +532,7 @@ import Foundation
                                               scope: PrototypeBaseline.fingerprints(root: root, paths: Array(Set(record.scope.keys).union(inventory.entries.map(\.path)))),
                                               site: PrototypeBaseline.siteFingerprints(site: site))
         let after = status(next)
-        precondition(state("orders", after) == .inSync && state("src/toolbar.html", after) == .codeChanged,
+        XCTAssertTrue(state("orders", after) == .inSync && state("src/toolbar.html", after) == .codeChanged,
                      "orders: \(String(describing: state("orders", after))), toolbar: \(String(describing: state("src/toolbar.html", after)))")
 
         // Nothing could be rebuilt: the live version is restored, not left half written.
@@ -538,7 +541,7 @@ import Foundation
         try "DIRTY".write(to: site.appendingPathComponent("screens/orders.js"), atomically: true, encoding: .utf8)
         try (appOriginal + "\n// another change\n").write(to: appJS, atomically: true, encoding: .utf8)
         let again = PrototypeBaseline.syncPlan(status: status(next), record: next)
-        await CLICompletion.audit.set(variant: "orders-stub")
+        await PrototypeAssistantFixture.audit.set(variant: "orders-stub")
         var message = ""
         do {
             _ = try await PrototypeAI.syncChanged(root: root, folder: folder, manifest: manifest, baseline: next,
@@ -546,9 +549,9 @@ import Foundation
         } catch {
             message = error.localizedDescription
         }
-        precondition(message.contains("None of the 1 changed unit could be rebuilt"), "a sync that rebuilt nothing is a failure: \(message)")
+        XCTAssertTrue(message.contains("None of the 1 changed unit could be rebuilt"), "a sync that rebuilt nothing is a failure: \(message)")
         let restored = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
-        precondition(restored.contains("Orders (synced)"), "the previous version's files are back: \(restored.prefix(40))")
+        XCTAssertTrue(restored.contains("Orders (synced)"), "the previous version's files are back: \(restored.prefix(40))")
 
         // A baseline whose plan cannot be read is refused with the way out.
         var broken = next
@@ -556,13 +559,13 @@ import Foundation
         var refused = ""
         do { _ = try await PrototypeAI.syncChanged(root: root, folder: folder, manifest: manifest, baseline: broken, units: [], language: "", record: { _ in }, stage: { _ in }) }
         catch { refused = error.localizedDescription }
-        precondition(refused.contains("Rebuild everything"), "an unreadable stored plan points at Rebuild everything: \(refused)")
-        await CLICompletion.audit.set(variant: "")
+        XCTAssertTrue(refused.contains("Rebuild everything"), "an unreadable stored plan points at Rebuild everything: \(refused)")
+        await PrototypeAssistantFixture.audit.set(variant: "")
 
         try appOriginal.write(to: appJS, atomically: true, encoding: .utf8)
         try toolbarOriginal.write(to: toolbar, atomically: true, encoding: .utf8)
         let final = try checksums(root: root)
-        precondition(final == before, "an incremental sync changed source files: \(final.filter { before[$0.key] != $0.value }.keys.sorted())")
+        XCTAssertTrue(final == before, "an incremental sync changed source files: \(final.filter { before[$0.key] != $0.value }.keys.sorted())")
         print("Prototype incremental sync: only the changed units are written again with the stored plan, a failed component is reported, nothing rebuilt restores the version; no source file changed.")
     }
 
@@ -570,8 +573,8 @@ import Foundation
     /// and the host run at medium effort, a component that is a widget or modal screen gets its isolated page without
     /// the assistant, the original stylesheet is copied and the coverage is reported.
     static func widgetsMode() async throws {
-        await CLICompletion.audit.reset()
-        await CLICompletion.audit.set(variant: "widgets")
+        await PrototypeAssistantFixture.audit.reset()
+        await PrototypeAssistantFixture.audit.set(variant: "widgets")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-prototype-widgets-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let fm = FileManager.default
@@ -590,45 +593,45 @@ import Foundation
         let built = try await PrototypeAI.build(root: root, folder: folder, brief: "", sources: ["src"], language: "", mode: .code,
             codeScope: PrototypeAI.CodeScope(apps: [.init(path: "", label: "desk", isElectron: false)]), record: { _ in },
             stage: { event in if case .milestone(let text) = event { milestones.add(text) } })
-        precondition(built.screens == ["Workspace", "Order list", "Settings"] && built.failed.isEmpty, "the host, the widget and the modal are built: \(built.screens)")
+        XCTAssertTrue(built.screens == ["Workspace", "Order list", "Settings"] && built.failed.isEmpty, "the host, the widget and the modal are built: \(built.screens)")
         let site = PrototypeFiles.site(of: folder)
 
         // The shell and the styles part are told what the plan contains and that the original styles are loaded.
-        let systems = await CLICompletion.audit.systems
-        precondition(systems["prototype:foundation:shell"]?.contains("App.renderScreen(id, extra)") == true
+        let systems = await PrototypeAssistantFixture.audit.systems
+        XCTAssertTrue(systems["prototype:foundation:shell"]?.contains("App.renderScreen(id, extra)") == true
                      && systems["prototype:foundation:shell"]?.contains("`embedded: true`") == true, "the shell is asked for the widget API")
-        precondition(systems["prototype:foundation:styles"]?.contains("small bridge") == true
+        XCTAssertTrue(systems["prototype:foundation:styles"]?.contains("small bridge") == true
                      && systems["prototype:foundation:styles"]?.contains("design tokens as CSS variables") == false, "styles.css is a bridge, not a design system")
 
         // The host lists its widgets (a name the plan does not know is dropped), the widgets know they are embedded.
-        let prompts = await CLICompletion.audit.prompts
-        precondition(prompts["prototype:screen:workspace"]?.contains("HOST of the window") == true
+        let prompts = await PrototypeAssistantFixture.audit.prompts
+        XCTAssertTrue(prompts["prototype:screen:workspace"]?.contains("HOST of the window") == true
                      && prompts["prototype:screen:workspace"]?.contains("- order-list — Order list (/widgets/order-list)") == true
                      && prompts["prototype:screen:workspace"]?.contains("- settings — Settings (/modals/settings)") == true
                      && prompts["prototype:screen:workspace"]?.contains("ghost") == false, "the host prompt lists the widgets and the modal")
-        precondition(prompts["prototype:screen:order-list"]?.contains("rendered inside another screen") == true
+        XCTAssertTrue(prompts["prototype:screen:order-list"]?.contains("rendered inside another screen") == true
                      && prompts["prototype:screen:order-list"]?.contains("HOST of the window") == false, "the widget prompt")
-        precondition(prompts["prototype:screen:settings"]?.contains("in the host's dialog") == true, "the modal prompt")
-        let efforts = await CLICompletion.audit.efforts
-        precondition(efforts["prototype:screen:workspace"] == "medium" && efforts["prototype:screen:order-list"] == "medium"
+        XCTAssertTrue(prompts["prototype:screen:settings"]?.contains("in the host's dialog") == true, "the modal prompt")
+        let efforts = await PrototypeAssistantFixture.audit.efforts
+        XCTAssertTrue(efforts["prototype:screen:workspace"] == "medium" && efforts["prototype:screen:order-list"] == "medium"
                      && efforts["prototype:screen:settings"] == "medium", "hosts, widgets and modals run at medium effort: \(efforts)")
 
         // The original stylesheet is copied and linked; both components are isolated without the assistant.
         let index = try String(contentsOf: site.appendingPathComponent("index.html"), encoding: .utf8)
-        precondition(index.contains("href=\"original/src/styles.css\""), "index.html links the original stylesheet")
-        let labels = await CLICompletion.audit.labels
-        precondition(!labels.contains { $0.hasPrefix("prototype:component:") }, "no assistant run isolates a widget or a modal: \(labels.sorted())")
-        precondition(built.components.map(\.path) == ["src/index.html", "src/toolbar.html"]
+        XCTAssertTrue(index.contains("href=\"original/src/styles.css\""), "index.html links the original stylesheet")
+        let labels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(!labels.contains { $0.hasPrefix("prototype:component:") }, "no assistant run isolates a widget or a modal: \(labels.sorted())")
+        XCTAssertTrue(built.components.map(\.path) == ["src/index.html", "src/toolbar.html"]
                      && built.components.map(\.page) == ["components/src-index-html.html", "components/src-toolbar-html.html"],
                      "both components have an isolated page: \(built.components)")
         let page = try String(contentsOf: site.appendingPathComponent("components/src-index-html.html"), encoding: .utf8)
-        precondition(page.contains("App.renderScreen(\"order-list\")") && page.contains("<script src=\"../screens/order-list.js\">")
+        XCTAssertTrue(page.contains("App.renderScreen(\"order-list\")") && page.contains("<script src=\"../screens/order-list.js\">")
                      && page.contains("href=\"../original/src/styles.css\"") && page.contains("data-mv-component=\"src/index.html\""),
                      "the isolated page mounts the widget alone: \(page)")
 
         // Coverage: src/app.js is named by the host, so the one UI source file of 2 KB or more is covered.
-        precondition(built.coverage?.covered == 1 && built.coverage?.total == 1, "coverage: \(String(describing: built.coverage))")
-        precondition(milestones.all.contains { $0.hasPrefix("Coverage: the build named or read 1 of 1") }, "the conversation gets the coverage figure")
+        XCTAssertTrue(built.coverage?.covered == 1 && built.coverage?.total == 1, "coverage: \(String(describing: built.coverage))")
+        XCTAssertTrue(milestones.all.contains { $0.hasPrefix("Coverage: the build named or read 1 of 1") }, "the conversation gets the coverage figure")
         print("Prototype widgets: the host, a widget and a modal are built at medium effort; their pages need no assistant; coverage is reported.")
     }
 
@@ -649,52 +652,52 @@ import Foundation
             plain.mode = .requirements
             _ = try await PrototypeAI.sync(root: root, folder: folder, manifest: plain, codeScope: scope, language: "", record: { _ in }, stage: { _ in })
         } catch { refused = true }
-        precondition(refused, "sync refuses a requirements-mode prototype")
+        XCTAssertTrue(refused, "sync refuses a requirements-mode prototype")
         let untouched = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
-        precondition(untouched.contains("<h1>Orders</h1>"), "a refused sync changes nothing")
+        XCTAssertTrue(untouched.contains("<h1>Orders</h1>"), "a refused sync changes nothing")
 
         // The code changed: the sync reconstructs it again into site/, v1 keeps the earlier files.
-        await CLICompletion.audit.reset()
-        await CLICompletion.audit.set(variant: "synced")
+        await PrototypeAssistantFixture.audit.reset()
+        await PrototypeAssistantFixture.audit.set(variant: "synced")
         let steps = Phases()
         let synced = try await PrototypeAI.sync(root: root, folder: folder, manifest: manifest, codeScope: scope, language: "",
             record: { _ in }, stage: { event in
                 if case .step(let text) = event { steps.add(text) }
                 if case .phase(let text) = event { steps.add(text) }
             })
-        precondition(synced.title == "Fixture Orders (synced)" && synced.screens == ["Orders"], "\(synced.title) \(synced.screens)")
-        precondition(synced.components.map(\.path) == ["src/index.html", "src/toolbar.html"] && synced.components[0].page != nil, "the sync records the components again")
-        precondition(steps.first == "Clearing the previous files (kept as v1)", "\(steps.first ?? "")")
+        XCTAssertTrue(synced.title == "Fixture Orders (synced)" && synced.screens == ["Orders"], "\(synced.title) \(synced.screens)")
+        XCTAssertTrue(synced.components.map(\.path) == ["src/index.html", "src/toolbar.html"] && synced.components[0].page != nil, "the sync records the components again")
+        XCTAssertTrue(steps.first == "Clearing the previous files (kept as v1)", "\(steps.first ?? "")")
         let live = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
         let kept = try String(contentsOf: PrototypeFiles.versionFolder(of: folder, 1).appendingPathComponent("screens/orders.js"), encoding: .utf8)
-        precondition(live.contains("Orders (synced)") && kept.contains("<h1>Orders</h1>") && !kept.contains("synced"), "the live site is the new reconstruction, v1 the old one")
-        let labels = await CLICompletion.audit.labels
-        precondition(labels.contains("prototype:plan") && labels.contains("prototype:screen:orders") && labels.contains("prototype:component:src-index-html"),
+        XCTAssertTrue(live.contains("Orders (synced)") && kept.contains("<h1>Orders</h1>") && !kept.contains("synced"), "the live site is the new reconstruction, v1 the old one")
+        let labels = await PrototypeAssistantFixture.audit.labels
+        XCTAssertTrue(labels.contains("prototype:plan") && labels.contains("prototype:screen:orders") && labels.contains("prototype:component:src-index-html"),
                      "a sync runs the same stages as creation: \(labels.sorted())")
-        let plan = await CLICompletion.audit.prompts["prototype:plan"] ?? ""
-        precondition(plan.contains("- src\n") && plan.contains("Electron renderer"), "the sync plans with the same sources and scope hints")
+        let plan = await PrototypeAssistantFixture.audit.prompts["prototype:plan"] ?? ""
+        XCTAssertTrue(plan.contains("- src\n") && plan.contains("Electron renderer"), "the sync plans with the same sources and scope hints")
         try PrototypeFiles.snapshot(folder: folder, version: 2)
         manifest.version = 2
-        precondition(fm.fileExists(atPath: PrototypeFiles.versionFolder(of: folder, 1).appendingPathComponent("index.html").path)
+        XCTAssertTrue(fm.fileExists(atPath: PrototypeFiles.versionFolder(of: folder, 1).appendingPathComponent("index.html").path)
                      && fm.fileExists(atPath: PrototypeFiles.versionFolder(of: folder, 2).appendingPathComponent("components/src-index-html.html").path),
                      "both versions are kept")
 
         // A sync whose planner fails leaves the prototype as it was: the live site is v2 again.
-        await CLICompletion.audit.set(variant: "failing")
+        await PrototypeAssistantFixture.audit.set(variant: "failing")
         var failed = false
         do {
             _ = try await PrototypeAI.sync(root: root, folder: folder, manifest: manifest, codeScope: scope, language: "", record: { _ in }, stage: { _ in })
         } catch {
             failed = error.localizedDescription.contains("the planner could not read the code")
         }
-        precondition(failed, "the failed sync reports the planner's error")
+        XCTAssertTrue(failed, "the failed sync reports the planner's error")
         let restored = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
-        precondition(restored.contains("Orders (synced)") && fm.fileExists(atPath: site.appendingPathComponent("components/src-index-html.html").path),
+        XCTAssertTrue(restored.contains("Orders (synced)") && fm.fileExists(atPath: site.appendingPathComponent("components/src-index-html.html").path),
                      "a failed sync restores the previous version's files")
-        await CLICompletion.audit.set(variant: "")
+        await PrototypeAssistantFixture.audit.set(variant: "")
 
         let after = try checksums(root: root)
-        precondition(after == before, "a sync changed source files: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
+        XCTAssertTrue(after == before, "a sync changed source files: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
         print("Prototype sync from code: the reconstruction runs again into a new version, v1 stays, a failed sync restores the live site; no source file changed.")
     }
 
@@ -721,5 +724,34 @@ import Foundation
             out[path] = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         }
         return out
+    }
+}
+
+final class PrototypeDeadlineHostTests: XCTestCase {
+    func testPrototypeDeadlineAndRecovery() async throws {
+        let runner: PrototypeAI.AssistantRunner = { request, delta, activity in
+            try await PrototypeAssistantFixture.run(request, onDelta: delta, onActivity: activity)
+        }
+        try await PrototypeAI.$assistantRunner.withValue(runner) {
+            try await PrototypeDeadlineChecks.main()
+        }
+    }
+
+    func testConcurrentRunsKeepTheirOwnAssistant() async throws {
+        @Sendable func run(_ name: String) async throws -> String {
+            let runner: PrototypeAI.AssistantRunner = { request, _, _ in
+                try CLICompletion.Result(text: name + ":" + request.label, structured: nil,
+                                         inputTokens: 0, outputTokens: 0, costUSD: nil)
+            }
+            return try await PrototypeAI.$assistantRunner.withValue(runner) {
+                try await PrototypeAI.call(root: FileManager.default.temporaryDirectory, system: "", prompt: "",
+                                           schema: nil, label: name, record: { _ in }, stage: { _ in }).text
+            }
+        }
+        async let first = run("first")
+        async let second = run("second")
+        let values = try await [first, second]
+        XCTAssertEqual(values, ["first:first", "second:second"])
+        XCTAssertNil(PrototypeAI.assistantRunner)
     }
 }

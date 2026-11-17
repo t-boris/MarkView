@@ -586,6 +586,8 @@
 		F00000000000000000000101 /* EditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000102 /* EditorHostTests.swift */; };
 		F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000104 /* ControlToolRunnerTests.swift */; };
 		F00000000000000000000120 /* WorkflowEditorLayoutHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */; };
+		F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000123 /* PrototypeDeadlineFixture.swift */; };
+		F00000000000000000000124 /* PrototypeDeadlineHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */; };
 		B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */; };
 		45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */; };
 		DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */; };
@@ -1303,6 +1305,8 @@
 		F00000000000000000000102 /* EditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000104 /* ControlToolRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunnerTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowEditorLayoutHostTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000123 /* PrototypeDeadlineFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeDeadlineFixture.swift; sourceTree = "<group>"; };
+		F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeDeadlineHostTests.swift; sourceTree = "<group>"; };
 		6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReaderHostTests.swift; sourceTree = "<group>"; };
 		346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFrameHostTests.swift; sourceTree = "<group>"; };
 		B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExportHostTests.swift; sourceTree = "<group>"; };
@@ -2533,6 +2537,8 @@
 				F00000000000000000000102 /* EditorHostTests.swift */,
 				F00000000000000000000104 /* ControlToolRunnerTests.swift */,
 				F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */,
+				F00000000000000000000123 /* PrototypeDeadlineFixture.swift */,
+				F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */,
 				6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */,
 				346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */,
 				B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */,
@@ -3395,6 +3401,8 @@
 				F00000000000000000000101 /* EditorHostTests.swift in Sources */,
 				F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */,
 				F00000000000000000000120 /* WorkflowEditorLayoutHostTests.swift in Sources */,
+				F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */,
+				F00000000000000000000124 /* PrototypeDeadlineHostTests.swift in Sources */,
 				B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */,
 				45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */,
 				DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */,
@@ -3453,7 +3461,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.97;
+				CURRENT_PROJECT_VERSION = 6.30.98;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3468,7 +3476,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.97;
+				MARKETING_VERSION = 6.30.98;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3535,7 +3543,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.97;
+				CURRENT_PROJECT_VERSION = 6.30.98;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3556,7 +3564,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.97;
+				MARKETING_VERSION = 6.30.98;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3656,7 +3664,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.97;
+				CURRENT_PROJECT_VERSION = 6.30.98;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3677,7 +3685,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.97;
+				MARKETING_VERSION = 6.30.98;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

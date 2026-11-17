@@ -1,32 +1,13 @@
 import Foundation
+import XCTest
+@testable import MarkView
 
-enum CLITool { case claude }
-enum AssistantProviderRegistry { static var defaultTool: CLITool { .claude } }
-enum CLICompletion {
-    struct Request {
-        let project: URL?
-        var prompt: String
-        var systemPrompt: String? = nil
-        var jsonSchema: [String: Any]? = nil
-        var readableFolder: URL? = nil
-        var extraReadableFolders: [URL] = []
-        var images: [URL] = []
-        var timeout: TimeInterval? = 180
-        var effort: String? = nil
-        var label = ""
-    }
-    struct Result { let text: String; let structured: Any?; let inputTokens: Int; let outputTokens: Int }
-    enum Activity { case read(String), search(String), run(String), thinking, writing(Int), answerDelta(String), webSearch(String), webFetch(String) }
-    enum Failure: LocalizedError {
-        case invalidOutput(CLITool, String)
-        case timedOut(CLITool, TimeInterval)
-        var errorDescription: String? {
-            switch self {
-            case .invalidOutput(_, let detail): return detail
-            case .timedOut(_, let limit): return "timed out after \(limit) s"
-            }
-        }
-    }
+/// Deterministic assistant responses at the scoped provider boundary; app request and result types stay real.
+enum PrototypeAssistantFixture {
+    typealias Request = CLICompletion.Request
+    typealias Result = CLICompletion.Result
+    typealias Activity = CLICompletion.Activity
+    typealias Failure = CLICompletion.Failure
     actor Audit {
         var labels: Set<String> = []
         /// The last prompt and system prompt sent under each label.
@@ -73,7 +54,7 @@ enum CLICompletion {
     static func run(_ request: Request, onDelta: (@Sendable (String) -> Void)? = nil,
                     onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
         // The provider boundary must receive no deadline for every stage, including follow-ups.
-        if let limit = request.timeout { throw Failure.timedOut(.claude, limit) }
+        if let limit = request.timeout { throw Failure.timedOut(try XCTUnwrap(CLITool(rawValue: "claude")), limit) }
         try Task.checkCancellation()
         await audit.record(request.label, prompt: request.prompt, system: request.systemPrompt ?? "", effort: request.effort)
         let variant = await audit.variant
@@ -81,29 +62,29 @@ enum CLICompletion {
             if let range = request.label.range(of: ":part:") {
                 let path = String(request.label[range.upperBound...].split(separator: ":")[0])
                 let line = String(request.prompt.split(separator: "\n").last ?? "")
-                let saved = try JSONSerialization.jsonObject(with: Data(line.utf8)) as! [String: String]
-                let prefix = saved["content"]!
-                let whole = fragmentFiles[path]!
-                precondition(saved["path"] == path && whole.hasPrefix(prefix), "Every part receives the exact saved prefix.")
-                precondition(request.jsonSchema?["required"] as? [String] == ["content", "done"])
+                let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: String])
+                let prefix = try XCTUnwrap(saved["content"])
+                let whole = try XCTUnwrap(fragmentFiles[path])
+                XCTAssertTrue(saved["path"] == path && whole.hasPrefix(prefix), "Every part receives the exact saved prefix.")
+                XCTAssertTrue(request.jsonSchema?["required"] as? [String] == ["content", "done"])
                 if path == "data.js", !prefix.isEmpty {
-                    if variant == "fragments-fail" { throw Failure.invalidOutput(.claude, "fixture: fragment failed") }
+                    if variant == "fragments-fail" { throw Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "fixture: fragment failed") }
                     if variant == "fragments-cancel" { throw CancellationError() }
                 }
                 let rest = String(whole.dropFirst(prefix.count))
                 let content = String(rest.prefix(4_096))
                 let fragment: [String: Any] = ["content": content, "done": rest.count <= 4_096]
-                return Result(text: "", structured: fragment, inputTokens: 1, outputTokens: 1)
+                return try Result(text: "", structured: fragment, inputTokens: 1, outputTokens: 1, costUSD: nil)
             }
             if request.label.hasPrefix("prototype:foundation:") || request.label == "prototype:screen:orders"
                 || request.label == "prototype:component:src-index-html" {
-                throw Failure.invalidOutput(.claude, "the answer was cut off before its JSON ended (261514 characters after 3 continuation turns)")
+                throw Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "the answer was cut off before its JSON ended (261514 characters after 3 continuation turns)")
             }
         }
         let object: [String: Any]
         switch request.label {
         case "prototype:plan" where variant == "failing":
-            throw Failure.invalidOutput(.claude, "fixture: the planner could not read the code")
+            throw Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "fixture: the planner could not read the code")
         case "prototype:plan" where variant == "widgets":
             // A window of docked widgets (BUG-050): a host, a widget and a modal, the last two with a source file each.
             func entry(_ id: String, _ name: String, _ route: String, evidence: [String], components: [String],
@@ -180,7 +161,7 @@ enum CLICompletion {
                 "content": "<link rel=\"stylesheet\" href=\"../styles.css\"><main id=\"component\" data-mv-component=\"src/index.html\">Orders alone</main>"]]]
         case "prototype:component:src-toolbar-html":
             // A component the assistant cannot isolate: the build records a gap and goes on (REQ-007).
-            throw Failure.invalidOutput(.claude, "the toolbar has no source file to read")
+            throw Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "the toolbar has no source file to read")
         // A request for many files (BUG-051): the first run lists them; one run per file follows.
         case "prototype:revise" where variant.hasPrefix("sweep"):
             // Repeats, a path with the prototype folder, a file that does not exist and one outside the site are listed too.
@@ -194,7 +175,7 @@ enum CLICompletion {
             object = ["summary": "  ", "screens": [], "files": [], "edits": [], "delete": [], "remaining": []]
         case let label where label.hasPrefix("prototype:revise:"):
             let path = String(label.dropFirst("prototype:revise:".count))
-            if variant == "sweep-all-fail" { throw Failure.invalidOutput(.claude, "fixture: the run for \(path) failed") }
+            if variant == "sweep-all-fail" { throw Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "fixture: the run for \(path) failed") }
             if variant == "sweep-slow" { try await Task.sleep(nanoseconds: 3_000_000_000) }
             func answer(edits: [[String: String]] = [], delete: [String] = []) -> [String: Any] {
                 ["summary": "Revised \(path)", "screens": [], "files": [], "edits": edits, "delete": delete, "remaining": []]
@@ -211,7 +192,7 @@ enum CLICompletion {
                 object = answer(edits: [["path": "styles.css", "find": "black", "replace": "navy"],
                                         ["path": "index.html", "find": "Fixture title", "replace": "WRONG"]], delete: ["app.js"])
             case "screens/home.js":
-                throw Failure.invalidOutput(.claude, "fixture: home cannot be revised")
+                throw Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "fixture: home cannot be revised")
             default:
                 object = answer()
             }
@@ -220,9 +201,9 @@ enum CLICompletion {
                       "edits": [["path": "index.html", "find": variant == "runtime" ? "<title>Fixture</title>" : "Fixture title",
                                  "replace": variant == "runtime" ? "<title>Revised fixture</title>" : "Revised fixture"]]]
         case "prototype:spec":
-            return Result(text: "# Fixture specification\n\nHome screen.", structured: nil, inputTokens: 1, outputTokens: 1)
-        default: throw Failure.invalidOutput(.claude, "Unexpected fixture request")
+            return try Result(text: "# Fixture specification\n\nHome screen.", structured: nil, inputTokens: 1, outputTokens: 1, costUSD: nil)
+        default: throw Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "Unexpected fixture request")
         }
-        return Result(text: "", structured: object, inputTokens: 1, outputTokens: 1)
+        return try Result(text: "", structured: object, inputTokens: 1, outputTokens: 1, costUSD: nil)
     }
 }
