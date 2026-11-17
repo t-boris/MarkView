@@ -1302,7 +1302,7 @@
       "script": "tools/tests/research-map-web-tests.sh",
       "tier": "gui",
       "sources": [
-        "tools/tests/ResearchMapWebTests.swift",
+        "MarkViewHostedTests/ResearchMapTranslationHostTests.swift",
         "tools/tests/research-map-web-tests.sh",
         "MarkView/Bridge/TypedWebBridge.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
@@ -1319,7 +1319,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "MarkView/Models/Research/ResearchMapDocument.swift"
       ]
     },
     {

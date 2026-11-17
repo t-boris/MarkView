@@ -13,4 +13,5 @@ MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
   -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests -skip-testing:MarkViewHostedTests/UIStudioSessionHostTests \
-  -skip-testing:MarkViewHostedTests/WorkflowEditorLayoutHostTests test
+  -skip-testing:MarkViewHostedTests/WorkflowEditorLayoutHostTests \
+  -skip-testing:MarkViewHostedTests/ResearchMapWebHostTests test

@@ -1,15 +1,11 @@
 #!/bin/bash
-# The research map view (DEC-009) in the shipped editor page, in real WebKit with a hidden window and a stubbed bridge:
-# a type: research-map document shows the map, a pushed snapshot is drawn, and every click, drag and keystroke reaches
-# Swift as the exact researchMap message of the contract. No window is ever shown.
-#   tools/tests/research-map-web-tests.sh
+# Research-map WebKit checks run in an isolated app-host process so the progress watchdog
+# cannot stop other hosted suites; the socket namespace is private to this test.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-mkdir "$out/web"
-cp tools/tests/ResearchMapWebTests.swift "$out/web/main.swift"
-swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/research-map-web-tests" \
-  Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Bridge/TypedWebBridge.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift "$out/web/main.swift"
-cp -R MarkView/Resources/Themes "$out/Themes"
-"$out/research-map-web-tests" "$PWD/MarkView/Resources/Editor"
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+socket_dir=$(mktemp -d /tmp/mvrmhost.XXXXXX)
+trap 'rm -rf "$socket_dir"' EXIT
+MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
+  -only-testing:MarkViewHostedTests/ResearchMapWebHostTests/testResearchMapWeb test
