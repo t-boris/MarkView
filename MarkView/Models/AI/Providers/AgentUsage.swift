@@ -3,7 +3,7 @@ import Foundation
 // Usage and quota of the AI coding agents: quota windows, the headline window, colour levels, the user's
 // fallback limit and its window, pace and the display state. The parsers of the vendors' official usage
 // responses are in each assistant's provider file. Foundation only, no app state:
-// tools/tests/agent-usage-tests.sh compiles this file on its own and checks the rules.
+// The app-hosted tests check these rules against the shipping implementation.
 // Spec: docs/features/ai-agent-usage-quota-tracker-codex-claude-code.
 
 extension CLITool {

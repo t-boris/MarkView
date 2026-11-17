@@ -2,7 +2,7 @@ import Foundation
 
 // Usage counted from the agents' local CLI logs (DEC-007), in the format each assistant's provider describes
 // (`UsageLogFormat`): Claude Code's ~/.claude/projects/**/*.jsonl, Codex's ~/.codex/sessions/**/*.jsonl. Foundation
-// only and no network (DEC-013); tools/tests/agent-usage-tests.sh checks the line parsers.
+// only and no network (DEC-013); app-hosted tests check the line parsers.
 
 /// Tokens (and cost, when the log records it) of one model call.
 struct UsageEvent: Sendable {
