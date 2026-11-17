@@ -4,7 +4,7 @@ import SQLite3
 
 // What an assistant CLI is doing right now, read from the tail of its own session log
 // (Claude Code's ~/.claude/projects/<folder>/*.jsonl, Codex's ~/.codex/sessions/**/rollout-*.jsonl).
-// Foundation only and no network, like AgentUsageLogs; tools/tests/agent-activity-tests.sh checks
+// Foundation only and no network, like AgentUsageLogs; the app-hosted tests check
 // the parsers. Only tool names, file names and the session's own title are shown: command lines
 // and file contents are never read into the text, because they can hold secrets.
 
