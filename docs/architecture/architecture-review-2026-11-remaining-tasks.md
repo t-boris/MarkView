@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4: browser-profile, evidence-package and conversation-model checks now run against shipping types in the app host. All 3 focused tests passed, retaining all 63 named check sites; the corresponding standalone functions and calls were removed, and the remaining `ui-studio-tests` suite passed. Temporary browser and evidence fixtures use unique directories and are removed. Architecture lint, SwiftLint and repository hygiene passed. Full automated tiers and final CI remain pending.
+
 CI investigation: static UI Studio stage markers now go directly to stderr. A marker was observed in the xcodebuild log while the networking group was still running; that group passed in 44.8 seconds with nine markers (`/tmp/markview-studio-stage-progress.log`). This improves timeout diagnostics but does not establish the original CI timeout cause; final CI remains pending.
 
 D4: UI Studio gateway-parser, route-scanner, document-simulation and prompt checks now run against shipping types in the app host. Four focused tests passed, retaining all 80 named checks; the corresponding standalone functions and calls were removed, and the remaining `ui-studio-tests` suite passed separately. The route scanner uses a unique temporary project and removes it. Architecture lint, SwiftLint and repository hygiene passed; the general hosted and lifetime wrappers include these checks. Full automated tiers and final CI remain pending.
