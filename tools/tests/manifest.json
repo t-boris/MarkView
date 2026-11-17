@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 166,
+  "suiteCount": 165,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1310,16 +1310,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "historical-baseline-tests",
-      "script": "tools/tests/historical-baseline-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Architecture/HistoricalBaseline.swift",
-        "tools/tests/HistoricalBaselineTests.swift",
-        "tools/tests/historical-baseline-tests.sh"
       ]
     },
     {
@@ -2649,7 +2639,8 @@
         "MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
         "MarkView/Models/Workspace/EditorPage.swift",
         "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/IssueSync.swift"
+        "MarkView/Models/Lifecycle/IssueSync.swift",
+        "MarkView/Models/Architecture/HistoricalBaseline.swift"
       ]
     },
     {
