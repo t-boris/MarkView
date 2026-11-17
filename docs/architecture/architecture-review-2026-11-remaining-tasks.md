@@ -323,6 +323,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+Project Changes scanner and watcher checks moved to the app host. The memory check samples the process footprint during the scan because the host has an unrelated lifetime high-water mark; this sampling is approximate. Both focused runs passed, and a priority inversion warning from the first was fixed before the repeat. Repository hygiene, architecture lint, SwiftLint, manifest paths and all 26 pure suites across three shards passed. The manifest now has 61 suites: 26 pure, 30 GUI and 5 live. The 6.30.142 Debug build succeeded with no Swift warnings; Xcode emitted its App Intents metadata warning. Final GUI and CI verification remain open.
+
 Insight coordinator, cache restoration, archive export and task-lifetime checks now run in the app host with temporary files, a fixture window and the real app types; the focused test passed without an assistant call. Standalone WhisperClient, WebViewBridge, ACPAssistant, ImportanceRater and ArchitectureScanner substitutes were removed with their now-unused support file. Architecture and SwiftLint, manifest paths, pure shards and repository hygiene passed. Final GUI verification remains open.
 
 Research-map controller, file-editing and job-lifetime checks now run in the app host with temporary files and a fixture window. The focused test passed against the real app types; the standalone FeatureStore, ACPAssistant and ArchitectureScanner stand-ins were removed. Architecture and SwiftLint, manifest paths, pure shards and repository hygiene passed. Final GUI verification remains open.

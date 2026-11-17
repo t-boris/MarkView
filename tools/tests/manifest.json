@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 62,
+  "suiteCount": 61,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -509,24 +509,6 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
-      ]
-    },
-    {
-      "name": "project-change-tests",
-      "script": "tools/tests/project-change-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Appearance/ProjectColor.swift",
-        "MarkView/Models/Shared/LinkedFolderStore.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Architecture/ProjectChangeReview.swift",
-        "MarkView/Models/Shared/ProjectChangeMonitor.swift",
-        "MarkView/Models/Shared/ProjectSearch.swift",
-        "tools/tests/ProjectChangeTests.swift",
-        "tools/tests/project-change-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the review of observed file changes shows and asks for: the files the scanner found changed, and the assistant's reading of them.
-/// The scanner itself (disk walking, no UI, no AI) is in ProjectChangeReview.swift so that tools/tests/project-change-tests.sh can compile it alone.
+/// The scanner itself (disk walking, no UI, no AI) is in ProjectChangeReview.swift.
 @MainActor
 final class ProjectChangeReview: ObservableObject {
     @Published private(set) var changes: [ProjectChange] = []
