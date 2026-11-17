@@ -14,7 +14,7 @@ swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/browser-
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Browser/BrowserAddress.swift MarkView/Models/Workspace/BrowserHost.swift MarkView/Models/Browser/BrowserAgentTabs.swift MarkView/Models/AgentTools/AgentToolWindow.swift MarkView/Models/Browser/WebPreview.swift MarkView/Models/Browser/BrowserElementPick.swift \
     MarkView/Models/Browser/WebAppPreview.swift MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Shared/ProjectProviding.swift \
-    MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Architecture/XRayScope.swift MarkView/Models/Git/GitHubItem.swift MarkView/Models/Shared/ArchiveSupport.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Workspace/TabClosing.swift \
+    MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Architecture/XRayScope.swift MarkView/Models/Git/GitHubItem.swift MarkView/Models/Shared/ArchiveSupport.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Workspace/ToolRegistry.swift \
     MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
     MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift MarkView/Models/Shared/UserPrompts.swift tools/tests/ScriptedPrompts.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift \

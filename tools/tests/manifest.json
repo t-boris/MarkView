@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 202,
+  "suiteCount": 201,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1123,7 +1123,7 @@
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
         "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
         "MarkView/Models/Shared/ProjectProviding.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
@@ -1236,7 +1236,7 @@
         "MarkView/Models/Workspace/PanelLayout.swift",
         "MarkView/Models/Shared/ProjectProviding.swift",
         "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Browser/WebAppPreview.swift",
@@ -1382,7 +1382,7 @@
         "MarkView/Models/Workspace/FileOperationsController.swift",
         "MarkView/Models/Workspace/FileTransfer.swift",
         "MarkView/Models/Shared/ProjectProviding.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
@@ -2834,7 +2834,7 @@
         "MarkView/Models/Architecture/XRayScope.swift",
         "MarkView/Models/Git/GitHubItem.swift",
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Views/Book/PDFReaderView.swift",
         "MarkViewHostedTests/PDFReaderHostTests.swift",
@@ -3421,15 +3421,6 @@
       ]
     },
     {
-      "name": "tab-closing-tests",
-      "script": "tools/tests/tab-closing-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/TabClosing.swift",
-        "tools/tests/TabClosingChecks.swift"
-      ]
-    },
-    {
       "name": "tabs-controller-tests",
       "script": "tools/tests/tabs-controller-tests.sh",
       "tier": "pure",
@@ -3444,7 +3435,7 @@
         "MarkView/Models/Git/GitHubItem.swift",
         "MarkView/Models/Shared/FileType.swift",
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -4018,7 +4009,7 @@
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
         "MarkView/Models/Workspace/PanelLayout.swift",
         "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
         "MarkView/Models/Workspace/WindowChrome.swift",
@@ -4609,7 +4600,7 @@
         "MarkView/Models/Workspace/PanelLayout.swift",
         "MarkView/Models/Shared/ProjectProviding.swift",
         "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "MarkView/Models/Workspace/TabClosing.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
         "MarkView/Models/Workspace/ToolOpener.swift",
         "MarkView/Models/Workspace/ToolRegistry.swift",
