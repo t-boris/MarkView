@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+After the Book PDF host migration, a fresh complete local `gui` tier is running sequentially with the isolated `/tmp/MarkViewHostedTestsDerived` build directory. Its result is pending; the previous focused passes do not establish that the whole tier passes together.
+
 The complete MarkViewCore package passed 136 tests with 0 failures on the current 6.30.146 source. At the 6.30.144 checkpoint, the complete pure tier passed 24/24 suites and the package passed 135 tests with 0 failures. Full verification of the subsequent editor and test changes remains open. At the earlier 6.30.126 checkpoint, the complete pure tier passed 54/54 suites. The previous general hosted GUI suite passed 180 tests with 3 optional skips and 0 failures; the current general host run had one failure among 213 tests and 3 optional skips ([F-005](../features/architecture-review-2026-11/findings/F-005.md)); the subsequent full GUI run was interrupted after a compilation failure, later fixed and checked with focused tests. The full GUI run was stopped after that failure; a corrected repeat, final CI and release remain open.
 
 The work is not finished. The latest published and installed release is 6.30.97; later changes, including the 6.30.146 version bump, are local. Historical dated notes below record the evidence available at each step and are superseded by later status entries.
