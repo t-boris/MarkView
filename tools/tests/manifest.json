@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 138,
+  "suiteCount": 137,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2235,7 +2235,8 @@
         "MarkView/Models/Insight/InsightCache.swift",
         "MarkView/Models/Insight/InsightHTMLTemplate.swift",
         "MarkView/Models/Insight/InsightTreeSnapshot.swift",
-        "MarkView/Models/Architecture/UnderstandingAnswer.swift"
+        "MarkView/Models/Architecture/UnderstandingAnswer.swift",
+        "MarkView/Models/Workspace/ArchiveModel.swift"
       ]
     },
     {
@@ -3749,21 +3750,6 @@
         "tools/tests/window-composition-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift"
-      ]
-    },
-    {
-      "name": "archive-model-tests",
-      "script": "tools/tests/archive-model-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/ArchiveModel.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/ArchiveModelTests.swift",
-        "tools/tests/archive-model-tests.sh"
       ]
     },
     {

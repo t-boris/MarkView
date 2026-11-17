@@ -246,3 +246,75 @@ extension EditorHostTests {
         do { _ = try Archive.list(broken); check(false, "a broken archive fails") } catch { check(true, "a broken archive fails with a message: \(error.localizedDescription)") }
     }
 }
+
+extension EditorHostTests {
+    @MainActor func testArchiveModelLifecycle() async throws {
+        func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+        @MainActor func eventually(_ condition: () -> Bool) async -> Bool {
+            for _ in 0..<500 {
+                if condition() { return true }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            return condition()
+        }
+        let work = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("archive-model-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let src = work.appendingPathComponent("pack")
+        try FileManager.default.createDirectory(at: src.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        try "hello\n".write(to: src.appendingPathComponent("readme.md"), atomically: true, encoding: .utf8)
+        try "deep\n".write(to: src.appendingPathComponent("docs/note.md"), atomically: true, encoding: .utf8)
+        let zip = try Archive.compress([src])
+
+        let model = ArchiveModel(url: zip)
+        check(model.phase == .loading && model.rows.isEmpty, "a new model is loading and shows nothing")
+        await model.load()
+        check(model.phase == .loaded && model.files == 2 && model.folders >= 1, "the entries of the zip are read: \(model.files) files, \(model.folders) folders")
+        check(!model.rows.isEmpty && model.rows.first?.isDirectory == true, "the tree starts with the top folder")
+        model.filter = "note"
+        check(model.rows.map(\.title) == ["pack/docs/note.md"], "a search lists the matching files by path: \(model.rows.map(\.title))")
+        model.filter = ""
+
+        // A click unpacks one file for a look; a second click while it is on its way is not started.
+        let entry = model.entries.first { $0.path.hasSuffix("readme.md") }!
+        var opened: [URL] = []
+        model.open(entry) { opened.append($0) }
+        check(model.opening == entry.path, "the entry being unpacked is named while it is on its way")
+        model.open(entry) { opened.append($0) }
+        check(await eventually { model.opening == nil && opened.count == 1 }, "the unpacked copy is handed to the viewer, once")
+        let openedFile = try XCTUnwrap(opened.first)
+        var cacheFolder = openedFile
+        for _ in entry.path.split(separator: "/") { cacheFolder.deleteLastPathComponent() }
+        let cacheRoot = Archive.cacheRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let isolatedCache = cacheFolder.standardizedFileURL.resolvingSymlinksInPath()
+        let cacheIsIsolated = isolatedCache.deletingLastPathComponent() == cacheRoot
+        check(cacheIsIsolated, "archive model fixture cache is isolated")
+        defer { if cacheIsIsolated { try? FileManager.default.removeItem(at: isolatedCache) } }
+        check((try? String(contentsOf: openedFile, encoding: .utf8)) == "hello\n", "the copy has the content of the entry")
+
+        // Extract all: next to the archive, in a new folder named after it.
+        var folders: [URL] = []
+        model.extract(into: nil) { folders.append($0) }
+        check(model.busy != nil, "an unpacking says what it is doing")
+        model.extract(into: nil) { folders.append($0) }
+        check(await eventually { model.busy == nil && folders.count == 1 }, "everything is unpacked, once")
+        let folder = folders.first
+        check(folder?.lastPathComponent == "pack 2" && folder?.deletingLastPathComponent() == zip.deletingLastPathComponent()
+              && FileManager.default.fileExists(atPath: folder!.appendingPathComponent("pack/docs/note.md").path),
+              "the folder is next to the archive (\"pack\" is taken, so it is numbered) and holds the tree: \(String(describing: folder?.lastPathComponent))")
+        check(model.extractedTo == folder && model.notice?.contains("Extracted 2 files") == true, "the model remembers where it unpacked and says so")
+
+        // A model that is let go (the tab closed) does not call back: its task is cancelled with it.
+        var closing: ArchiveModel? = ArchiveModel(url: zip)
+        await closing!.load()
+        weak let gone = closing
+        var called = false
+        closing!.extract(into: nil) { _ in called = true }
+        closing = nil
+        try await Task.sleep(nanoseconds: 800_000_000)
+        check(gone == nil, "a closed archive tab is not kept alive by its unpacking")
+        check(!called, "an unpacking of a closed tab reports to nobody")
+    }
+}
