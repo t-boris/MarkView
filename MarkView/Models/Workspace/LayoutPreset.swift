@@ -4,7 +4,7 @@ import Foundation
 // right panels show, and the tool whose tab is brought forward. A preset is data: the ones that ship are JSON files in
 // `Resources/Layouts/`, a person's own go in `~/Library/Application Support/MarkView/layouts/` (`LayoutLibrary` reads both).
 // Nothing applies a preset by itself (no trigger on a tool, a project or a Git change): a window keeps its own state until its person
-// chooses one from the View menu or the toolbar. Foundation only, so `tools/tests/layout-preset-tests.sh` compiles it without the app.
+// chooses one from the View menu or the toolbar. The app-hosted tests check the shipping implementation.
 
 struct LayoutPreset: Equatable, Identifiable, Sendable {
     /// Which panels the window shows. Every key is required in a file, so a preset describes the whole row of panels.

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 82,
+  "suiteCount": 81,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -652,29 +652,6 @@
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
-      ]
-    },
-    {
-      "name": "layout-preset-tests",
-      "script": "tools/tests/layout-preset-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/LayoutPreset.swift",
-        "MarkView/Models/Workspace/LayoutCatalog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "MarkView/Models/Workspace/PanelLayout.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Resources/Layouts/10-writing.json",
-        "MarkView/Resources/Layouts/20-review.json",
-        "MarkView/Resources/Layouts/30-qa.json",
-        "MarkView/Resources/Layouts/40-cockpit.json",
-        "tools/tests/LayoutPresetTests.swift",
-        "tools/tests/layout-preset-tests.sh",
-        "MarkView/Models/Appearance/BackdropRegistry.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -1704,7 +1681,13 @@
         "MarkViewHostedTests/CockpitPolicyHostTests.swift",
         "MarkView/Models/Lifecycle/BugBasket.swift",
         "MarkView/Models/Discussion/Discussion.swift",
-        "MarkView/Models/Discussion/DiscussionPrompt.swift"
+        "MarkView/Models/Discussion/DiscussionPrompt.swift",
+        "MarkView/Models/Workspace/LayoutPreset.swift",
+        "MarkView/Models/Workspace/LayoutCatalog.swift",
+        "MarkView/Resources/Layouts/10-writing.json",
+        "MarkView/Resources/Layouts/20-review.json",
+        "MarkView/Resources/Layouts/30-qa.json",
+        "MarkView/Resources/Layouts/40-cockpit.json"
       ]
     },
     {

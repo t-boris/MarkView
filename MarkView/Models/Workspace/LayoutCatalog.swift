@@ -8,7 +8,7 @@ import MarkViewCore
 // person put in `~/Library/Application Support/MarkView/layouts/`. `LayoutLibrary` is the pure part (read two folders, validate, look up);
 // `LayoutCatalog` is the one shared, observable copy the menus read. A file that cannot be used is never skipped silently: it is
 // logged and listed with its reason in `LayoutLibrary.ignored`, which the Layout menu shows. The app never writes, rewrites or deletes
-// a layout file. Foundation, Combine and the TaskBag only, so `tools/tests/layout-preset-tests.sh` compiles it without the app.
+// a layout file. The app-hosted tests check the catalog and its background reads.
 
 // MARK: - Library
 
