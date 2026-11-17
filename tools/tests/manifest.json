@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 92,
+  "suiteCount": 91,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1844,7 +1844,13 @@
         "MarkViewHostedTests/FileOperationsHostTests.swift",
         "MarkView/Models/QA/QAFrameComposer.swift",
         "MarkView/Models/QA/QAVideoWriter.swift",
-        "MarkViewHostedTests/QAVideoHostTests.swift"
+        "MarkViewHostedTests/QAVideoHostTests.swift",
+        "MarkView/Models/Remote/RemoteCodexContext.swift",
+        "MarkView/Models/Remote/RemoteCommand.swift",
+        "MarkView/Models/Remote/RemoteProtocol.swift",
+        "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
+        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
+        "MarkViewHostedTests/RemoteCodexContextHostTests.swift"
       ]
     },
     {
@@ -1927,47 +1933,6 @@
       ]
     },
     {
-      "name": "remote-codex-context-tests",
-      "script": "tools/tests/remote-codex-context-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
-        "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
-        "MarkView/Models/Remote/RemoteCodexContext.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Remote/RemoteCommand.swift",
-        "MarkView/Models/Remote/RemoteProtocol.swift",
-        "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
-        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/RemoteCodexContextTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
       "name": "remote-relay-settings-tests",
       "script": "tools/tests/remote-relay-settings-tests.sh",
       "tier": "pure",
@@ -2047,7 +2012,6 @@
         "tools/tests/RemoteChannelTests.swift",
         "tools/tests/RemoteWorkspaceTests.swift",
         "tools/tests/remote-browser-tests.sh",
-        "tools/tests/remote-codex-context-tests.sh",
         "tools/tests/remote-relay-settings-tests.sh",
         "tools/tests/terminal-child-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",

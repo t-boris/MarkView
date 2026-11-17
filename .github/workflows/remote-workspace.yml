@@ -19,7 +19,7 @@ on:
       - 'tools/tests/GitHubCommandTests.swift'
       - 'tools/tests/github-command-tests.sh'
       - 'tools/tests/TerminalChildProcessTests.swift'
-      - 'tools/tests/remote-codex-context-tests.sh'
+      - 'MarkViewHostedTests/RemoteCodexContextHostTests.swift'
       - 'tools/tests/remote-browser-tests.sh'
       - 'tools/tests/remote-relay-settings-tests.sh'
       - '.github/workflows/remote-workspace.yml'
