@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 195,
+  "suiteCount": 194,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1082,7 +1082,7 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Architecture/XRayScope.swift",
@@ -1195,7 +1195,7 @@
         "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Workspace/BrowserHost.swift",
         "MarkView/Models/Browser/WebPreview.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Architecture/XRayScope.swift",
@@ -1332,7 +1332,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Architecture/XRayScope.swift",
@@ -2779,7 +2779,7 @@
         "MarkView/Models/Workspace/WorkspaceFileTreeStore.swift",
         "MarkView/Models/Book/PDFReader.swift",
         "MarkView/Models/Lifecycle/FeatureIngest.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Architecture/XRayScope.swift",
@@ -3369,7 +3369,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Architecture/XRayScope.swift",
@@ -3941,7 +3941,7 @@
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
         "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Architecture/XRayScope.swift",
@@ -4255,17 +4255,6 @@
       ]
     },
     {
-      "name": "background-file-scans-tests",
-      "script": "tools/tests/background-file-scans-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/BackgroundFileScansTests.swift",
-        "tools/tests/background-file-scans-tests.sh"
-      ]
-    },
-    {
       "name": "semantic-database-tests",
       "script": "tools/tests/semantic-database-tests.sh",
       "tier": "pure",
@@ -4368,7 +4357,7 @@
         "MarkView/Models/Shared/SemanticDatabase.swift",
         "MarkView/Models/Shared/SemanticModels.swift",
         "MarkView/Models/Shared/SemanticSchema.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/ExcludedFolders.swift",
         "MarkView/Models/Workspace/FileNode.swift",
         "MarkView/Models/Shared/LinkedFolders.swift",
@@ -4530,7 +4519,7 @@
         "MarkView/Models/Workspace/PrototypeStudioHost.swift",
         "MarkView/Models/Terminal/AssistantProviding.swift",
         "MarkView/Models/Workspace/UIStudioHost.swift",
-        "MarkView/Models/Workspace/BackgroundFileScans.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
         "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
         "MarkView/Models/Workspace/DocumentState.swift",
         "MarkView/Models/Architecture/XRayScope.swift",

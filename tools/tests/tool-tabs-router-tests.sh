@@ -13,7 +13,7 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/tool-tab
     MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift \
     MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
     MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Architecture/XRayScope.swift MarkView/Models/Git/GitHubItem.swift MarkView/Models/Shared/ArchiveSupport.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Workspace/ToolRegistry.swift \
-    MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
+    MarkView/Models/Workspace/EditorDocumentRouting.swift \
     MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift MarkView/Models/Shared/UserPrompts.swift \
     MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Shared/SchemaVersionedStore.swift MarkView/Models/Workspace/WindowSession.swift \
     MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift MarkView/Models/Shared/ProjectProviding.swift \

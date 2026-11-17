@@ -1,15 +1,12 @@
 import Foundation
-#if canImport(MarkViewCore)
-import MarkViewCore
-#endif
 
 /// File-system work a window needs but must never do on the main thread (`AR-42`): walking a project tree, and reading the
 /// open files to see what an assistant changed. Every function is a plain function over values: the caller runs it in a
 /// detached task and applies the result on the main actor. A walk ends early when the calling task is cancelled.
-enum BackgroundFileScans {
+public enum BackgroundFileScans {
     /// Whether `folder` holds at least one Markdown file. Hidden files, package contents, anything under `.dde` and links
     /// that lead outside the folder do not count. The walk stops at the first hit.
-    static func containsMarkdown(in folder: URL) -> Bool {
+    public static func containsMarkdown(in folder: URL) -> Bool {
         let resolved = folder.resolvingSymlinksInPath().standardizedFileURL.path
         // The separator keeps a sibling like `/x/foobar` from passing for `/x/foo`.
         let prefix = resolved.hasSuffix("/") ? resolved : resolved + "/"
@@ -26,7 +23,7 @@ enum BackgroundFileScans {
 
     /// The Markdown files under `root` as paths relative to it, sorted: the document list of the diagram sheet. Hidden files and
     /// folders are skipped.
-    static func markdownPaths(in root: URL) -> [String] {
+    public static func markdownPaths(in root: URL) -> [String] {
         // The path enumerator hands out relative paths, so a root under a link (`/var`, `/tmp`) needs no prefix handling.
         guard let enumerator = FileManager.default.enumerator(atPath: root.path) else { return [] }
         var files: [String] = []
@@ -43,7 +40,7 @@ enum BackgroundFileScans {
     }
 
     /// The first file called `name` anywhere under `directory`, or nil.
-    static func firstFile(named name: String, in directory: URL) -> URL? {
+    public static func firstFile(named name: String, in directory: URL) -> URL? {
         guard let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return nil }
         while let url = enumerator.nextObject() as? URL {
@@ -57,36 +54,43 @@ enum BackgroundFileScans {
 
     /// When the file was last changed, read from the disk now. A `URL` caches resource values, so a date taken through one can
     /// be older than the file; the attributes of the path are always current.
-    static func modificationDate(of url: URL) -> Date? {
+    public static func modificationDate(of url: URL) -> Date? {
         try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
     }
 
     /// An open tab the watcher looks at, as the window knows it when a check starts.
-    struct OpenFile: Sendable {
-        enum Kind: Sendable { case data, text }
-        let url: URL
-        let kind: Kind
+    public struct OpenFile: Sendable {
+        public enum Kind: Sendable { case data, text }
+        public let url: URL
+        public let kind: Kind
         /// The modification date seen at the previous check; nil when none was taken yet.
-        let seen: Date?
+        public let seen: Date?
         /// The text the tab holds (text tabs): a file whose text is the same is not a change.
-        let loaded: String
+        public let loaded: String
+
+        public init(url: URL, kind: Kind, seen: Date?, loaded: String) {
+            self.url = url
+            self.kind = kind
+            self.seen = seen
+            self.loaded = loaded
+        }
     }
 
     /// What the disk holds for one open file.
-    struct OpenFileReading: Sendable {
-        let file: OpenFile
+    public struct OpenFileReading: Sendable {
+        public let file: OpenFile
         /// The file's modification date now.
-        let date: Date
+        public let date: Date
         /// The file is newer than at the previous check (data tabs: the viewer reads it again).
-        let isNewer: Bool
+        public let isNewer: Bool
         /// The new text of a text file, when it differs from the tab's.
-        let changedText: String?
+        public let changedText: String?
     }
 
     /// Read the modification dates of `files` and, for text files that look changed, their text. Without `all`, only a file
     /// newer than the last check is read; `all` reads every text file (a branch switch can restore older modification dates).
     /// A file that cannot be read (gone, unreadable, not UTF-8 text) is left out.
-    static func read(_ files: [OpenFile], all: Bool) -> [OpenFileReading] {
+    public static func read(_ files: [OpenFile], all: Bool) -> [OpenFileReading] {
         var readings: [OpenFileReading] = []
         for file in files {
             if Task.isCancelled { break }

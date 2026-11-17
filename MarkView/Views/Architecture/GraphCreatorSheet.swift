@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Sheet for creating a new graph diagram from selected source documents
 struct GraphCreatorSheet: View {

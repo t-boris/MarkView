@@ -11,7 +11,7 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/file-ope
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Workspace/FileOperationsController.swift MarkView/Models/Shared/ArchiveSupport.swift MarkView/Models/Workspace/FileTransfer.swift MarkView/Models/Shared/ProjectProviding.swift \
     MarkView/Models/Workspace/DocumentState.swift MarkView/Models/Architecture/XRayScope.swift MarkView/Models/Git/GitHubItem.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Workspace/ToolRegistry.swift \
-    MarkView/Models/Workspace/BackgroundFileScans.swift MarkView/Models/Workspace/EditorDocumentRouting.swift \
+    MarkView/Models/Workspace/EditorDocumentRouting.swift \
     MarkView/Models/Workspace/DocumentScrollSideTable.swift MarkView/Models/Workspace/TabsController.swift MarkView/Models/Shared/UserPrompts.swift \
     MarkView/Models/Book/PDFReader.swift MarkView/Models/AI/OutputLanguage.swift tools/tests/TabsControllerStubs.swift \
     tools/tests/ProjectProvidingTestSupport.swift tools/tests/FileOperationsTests.swift
