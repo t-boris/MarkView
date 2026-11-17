@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 131,
+  "suiteCount": 129,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2190,7 +2190,12 @@
         "MarkView/Resources/Editor/js/markview-architecture-graph.js",
         "MarkView/Resources/Editor/js/markview-architecture-panels.js",
         "MarkView/Resources/Editor/js/markview-architecture-details.js",
-        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
+        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js",
+        "MarkViewHostedTests/WorkflowDiagramHostTests.swift",
+        "MarkViewHostedTests/XRayComparisonHostTests.swift",
+        "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
+        "MarkView/Models/Lifecycle/WorkflowFlow.swift",
+        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift"
       ]
     },
     {
@@ -3234,22 +3239,6 @@
       ]
     },
     {
-      "name": "workflow-diagram-tests",
-      "script": "tools/tests/workflow-diagram-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
-        "MarkView/Models/Lifecycle/WorkflowFlow.swift",
-        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
-        "tools/tests/WorkflowDiagramChecks.swift",
-        "tools/tests/workflow-diagram-tests.sh"
-      ]
-    },
-    {
       "name": "workflow-done-tests",
       "script": "tools/tests/workflow-done-tests.sh",
       "tier": "pure",
@@ -3388,30 +3377,6 @@
         "tools/tests/WorkflowTemplateChecks.swift",
         "tools/tests/workflow-template-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "xray-comparison-web-tests",
-      "script": "tools/tests/xray-comparison-web-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "tools/tests/XRayComparisonWebTests.swift",
-        "tools/tests/xray-comparison-web-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/markview-architecture-model.js",
-        "MarkView/Resources/Editor/js/markview-architecture-graph.js",
-        "MarkView/Resources/Editor/js/markview-architecture-panels.js",
-        "MarkView/Resources/Editor/js/markview-architecture-details.js",
-        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js",
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
