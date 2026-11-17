@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 170,
+  "suiteCount": 169,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1633,41 +1633,6 @@
       ]
     },
     {
-      "name": "phase0-safety-tests",
-      "script": "tools/tests/phase0-safety-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/App/MarkViewApp.swift",
-        "MarkView/Bridge/WebViewBridge.swift",
-        "MarkView/Models/AI/CLICompletion.swift",
-        "MarkView/Models/Deployments/DeploymentExecutor.swift",
-        "MarkView/Models/Lifecycle/FeatureIntake.swift",
-        "MarkView/Models/Insight/InsightArchiveExporter.swift",
-        "MarkView/Models/UIStudio/UIStudioSession.swift",
-        "MarkView/Models/Dictation/WhisperClient.swift",
-        "MarkView/Resources/Editor/book.html",
-        "MarkView/Resources/Editor/discussion.html",
-        "MarkView/Resources/Editor/index.html",
-        "MarkView/Resources/Editor/terminal.html",
-        "MarkView/Resources/Editor/js/markview-book.js",
-        "MarkView/Resources/Editor/js/markview-bridge.js",
-        "MarkView/Resources/Editor/js/markview-canvas.js",
-        "MarkView/Resources/Editor/js/markview-code.js",
-        "MarkView/Resources/Editor/js/markview-discussion.js",
-        "MarkView/Resources/Editor/js/markview-insight-handlers.js",
-        "MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
-        "MarkView/Resources/Editor/js/markview-render.js",
-        "MarkView/Resources/Editor/js/markview-terminal.js",
-        "MarkView/Resources/Editor/js/mv-kit.js",
-        "MarkView/Models/Workspace/EditorPage.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Views/Workspace/EditorView.swift",
-        "tools/tests/Phase0SafetyTests.swift",
-        "tools/tests/phase0-safety-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
-      ]
-    },
-    {
       "name": "phase3-extensibility-tests",
       "script": "tools/tests/phase3-extensibility-tests.sh",
       "tier": "pure",
@@ -2709,7 +2674,18 @@
         "MarkView/Resources/Editor/js/markview-state.js",
         "MarkView/Resources/Editor/js/markview-find.js",
         "MarkViewHostedTests/WorkspaceAppearanceHostTests.swift",
-        "MarkViewHostedTests/WorkspaceStateHostTests.swift"
+        "MarkViewHostedTests/WorkspaceStateHostTests.swift",
+        "MarkView/App/MarkViewApp.swift",
+        "MarkView/Models/AI/CLICompletion.swift",
+        "MarkView/Models/Deployments/DeploymentExecutor.swift",
+        "MarkView/Models/Lifecycle/FeatureIntake.swift",
+        "MarkView/Models/Insight/InsightArchiveExporter.swift",
+        "MarkView/Models/UIStudio/UIStudioSession.swift",
+        "MarkView/Models/Dictation/WhisperClient.swift",
+        "MarkView/Resources/Editor/js/markview-book.js",
+        "MarkView/Resources/Editor/js/markview-insight-handlers.js",
+        "MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
+        "MarkView/Models/Workspace/EditorPage.swift"
       ]
     },
     {
