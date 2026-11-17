@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 177,
+  "suiteCount": 176,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1385,17 +1385,6 @@
       ]
     },
     {
-      "name": "image-attachments-tests",
-      "script": "tools/tests/image-attachments-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/ImageAttachments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/ImageAttachmentsTests.swift",
-        "tools/tests/image-attachments-tests.sh"
-      ]
-    },
-    {
       "name": "insight-coordinator-tests",
       "script": "tools/tests/insight-coordinator-tests.sh",
       "tier": "pure",
@@ -2775,7 +2764,8 @@
         "MarkView/Models/Workspace/WindowTitle.swift",
         "MarkView/Views/Appearance/ThemePickerView.swift",
         "MarkView/Models/Workspace/ExcludedFolders.swift",
-        "MarkView/Views/Shared/WindowStorage.swift"
+        "MarkView/Views/Shared/WindowStorage.swift",
+        "MarkView/Models/Shared/ImageAttachments.swift"
       ]
     },
     {
