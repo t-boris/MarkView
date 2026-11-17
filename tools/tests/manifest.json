@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 59,
+  "suiteCount": 58,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1449,19 +1449,6 @@
         "MarkView/Models/Research/ResearchMapReport.swift",
         "tools/tests/ResearchMapReportTests.swift",
         "tools/tests/research-map-report-tests.sh"
-      ]
-    },
-    {
-      "name": "research-map-run-tests",
-      "script": "tools/tests/research-map-run-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Research/ResearchDocument.swift",
-        "MarkView/Models/Research/ResearchMapDocument.swift",
-        "MarkView/Models/Research/ResearchMapRun.swift",
-        "tools/tests/ResearchMapRunTests.swift",
-        "tools/tests/research-map-run-tests.sh"
       ]
     },
     {
