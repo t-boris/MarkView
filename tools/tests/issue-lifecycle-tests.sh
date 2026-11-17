@@ -3,7 +3,7 @@
 # service, the delivery evidence, verified completion and reconciliation, the GitHub sync planner, the AI context and the
 # Lifecycle section's display model, and the project workflow they run on (docs/features/feature-3).
 # The app has no XCTest target: each suite is compiled on its own with a test main and run.
-#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow log evidence collector completion github context display store
+#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow log collector completion github context store
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
@@ -25,18 +25,16 @@ run_suite() {
     case $suite in
         workflow)   run workflow ProjectWorkflowChecks.swift tools/tests/StoreTestSupport.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Shared/SchemaVersionedStore.swift ;;
         log)        run log IssueTransitionLogChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
-        evidence)   run evidence IssueEvidenceChecks.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" ;;
         collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
         completion) run completion IssueCompletionChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" ;;
         github)     run github IssueGitHubSyncChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueSync.swift" "$M/Lifecycle/IssueGitHubSync.swift" ;;
         context)    run context IssueContextChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueLifecycleContext.swift" ;;
-        display)    run display IssueDisplayChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueLifecycleDisplay.swift" ;;
         store)      run store IssueStoreChecks.swift "$M/Shared/FrontMatter.swift" "$M/Shared/FrontMatterFile.swift" "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" "$M/Lifecycle/MarkdownIssueStatusStore.swift" ;;
         *) echo "unknown suite $suite"; exit 2 ;;
     esac
 }
 
-want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow log evidence collector completion github context display store)
+want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow log collector completion github context store)
 
 pids=()
 suites_batch=()

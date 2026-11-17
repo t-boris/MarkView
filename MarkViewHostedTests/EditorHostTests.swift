@@ -2075,3 +2075,390 @@ extension EditorHostTests {
 
     }
 }
+
+
+extension EditorHostTests {
+    func testIssueDeliveryEvidence() {
+        func check(_ message: String, _ condition: Bool, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        func minutes(_ n: Double) -> Date { t0.addingTimeInterval(n * 60) }
+        let sources = [EvidenceSource.available("git"), .available("GitHub checks"), .available("GitHub releases")]
+
+        func unit(_ ref: WorkRef, merged: Date? = Date(timeIntervalSince1970: 1_800_000_600), head: String = "aaa1111", paths: [String]? = ["MarkView/Models/Lifecycle/IssueLifecycle.swift", "docs/features/x/overview.md"], checks: CheckState? = nil,
+                  association: WorkAssociation = .explicit, closedUnmerged: Bool = false) -> WorkUnit {
+            WorkUnit(ref: ref, headSHA: head, mergedAt: merged, closedUnmerged: closedUnmerged, changedPaths: paths,
+                     checks: checks ?? .passed(sha: head), association: association)
+        }
+        func verdict(_ work: [WorkUnit], release: Bool = false, releases: [WorkRef: ReleaseState] = [:], since: Date? = nil,
+                     sources: [EvidenceSource] = [.available("git"), .available("GitHub checks"), .available("GitHub releases")]) -> DeliveryVerdict {
+            DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: release, releases: releases, since: since))
+        }
+        func isComplete(_ v: DeliveryVerdict) -> Bool { v.isComplete }
+        func isIncomplete(_ v: DeliveryVerdict) -> Bool { if case .incomplete = v { return true } else { return false } }
+        func isUnknown(_ v: DeliveryVerdict) -> Bool { if case .unknown = v { return true } else { return false } }
+
+        let pr1 = WorkRef.pullRequest(1), pr2 = WorkRef.pullRequest(2), c1 = WorkRef.commit("1234567890abcdef")
+
+        // MARK: Completion needs merged work with passing checks (DEC-007)
+
+        check("a merged unit with passing checks completes", isComplete(verdict([unit(pr1)])))
+        check("the summary names the unit", verdict([unit(pr1)]).lines.first?.contains("PR #1") == true)
+        check("a direct commit on main counts", isComplete(verdict([unit(c1, head: "1234567890abcdef")])))
+        check("no work at all is not completion", isIncomplete(verdict([])))
+        check("an unmerged pull request is not completion", isIncomplete(verdict([unit(pr1, merged: nil)])))
+        check("a pull request closed without merging counts for nothing", isIncomplete(verdict([unit(pr1, merged: nil, closedUnmerged: true)])))
+        check("a closed-unmerged unit does not block a merged one", isComplete(verdict([unit(pr1), unit(pr2, merged: nil, closedUnmerged: true)])))
+        check("every associated unit must be merged", isIncomplete(verdict([unit(pr1), unit(pr2, merged: nil)])))
+        check("the unmerged unit is named", verdict([unit(pr1), unit(pr2, merged: nil)]).lines.contains { $0.contains("PR #2") && $0.contains("not merged") })
+        check("a failed check blocks", isIncomplete(verdict([unit(pr1, checks: .failed(sha: "aaa1111"))])))
+        check("a running check blocks", isIncomplete(verdict([unit(pr1, checks: .pending(sha: "aaa1111"))])))
+        check("a commit without any workflow run is unknown, not a pass", isUnknown(verdict([unit(pr1, checks: .noRuns(sha: "aaa1111"))])))
+        check("unreadable checks are unknown", isUnknown(verdict([unit(pr1, checks: .unknown("rate limited"))])))
+
+        // MARK: Stale evidence (REQ-005 criterion 1, plan I-4 "changed commit heads")
+
+        check("checks of an older commit do not count for a moved head",
+              isIncomplete(verdict([unit(pr1, head: "bbb2222", checks: .passed(sha: "aaa1111"))])))
+        check("the stale head is named", verdict([unit(pr1, head: "bbb2222", checks: .passed(sha: "aaa1111"))]).lines.contains { $0.contains("older commit") })
+
+        // MARK: Documentation-only work is not implementation work (DEC-012)
+
+        check("a docs-only commit is not implementation work", isIncomplete(verdict([unit(c1, paths: ["docs/features/x/overview.md", "tasks/todo.md"])])))
+        check("a docs-only commit does not block real work", isComplete(verdict([unit(pr1), unit(c1, merged: minutes(11), paths: ["README.md"], checks: .noRuns(sha: "aaa1111"))])))
+        check("docs paths", DocumentationPaths.isDocumentation("docs/a.md") && DocumentationPaths.isDocumentation("tasks/x") && DocumentationPaths.isDocumentation("CLAUDE.md"))
+        check("code paths", !DocumentationPaths.isDocumentation("MarkView/Models/A.swift") && !DocumentationPaths.isDocumentation("project.yml") && !DocumentationPaths.isDocumentation(".github/workflows/x.yml"))
+        check("a unit with an unreadable file list is unknown", isUnknown(verdict([unit(pr1, paths: nil)])))
+        check("an empty file list is not documentation-only", !unit(pr1, paths: []).isDocumentationOnly)
+
+        // MARK: A required release (DEC-007, DEC-012)
+
+        check("with a release required and delivered it completes",
+              isComplete(verdict([unit(pr1)], release: true, releases: [pr1: .delivered(tag: "v5.36.0")])))
+        check("the release is in the summary", verdict([unit(pr1)], release: true, releases: [pr1: .delivered(tag: "v5.36.0")]).lines.first?.contains("v5.36.0") == true)
+        check("merged and green but unreleased stays unfinished", isIncomplete(verdict([unit(pr1)], release: true, releases: [pr1: .pending])))
+        check("the missing release is named", verdict([unit(pr1)], release: true, releases: [pr1: .pending]).lines.contains { $0.contains("release") })
+        check("a release that could not be determined is unknown", isUnknown(verdict([unit(pr1)], release: true, releases: [pr1: .unknown("compare failed")])))
+        check("a release never collected is unknown", isUnknown(verdict([unit(pr1)], release: true)))
+        check("no release is asked for when not required", isComplete(verdict([unit(pr1)], release: false, releases: [pr1: .pending])))
+        check("every unit needs its release",
+              isIncomplete(verdict([unit(pr1), unit(c1, head: "ccc3333")], release: true, releases: [pr1: .delivered(tag: "v1"), c1: .pending])))
+
+        // MARK: Unavailable and ambiguous sources are never a pass (REQ-005 criterion 1)
+
+        check("an unavailable source makes it unknown", isUnknown(verdict([unit(pr1)], sources: [.available("git"), .unavailable("GitHub", "not signed in")])))
+        check("the reason is kept", verdict([unit(pr1)], sources: [.unavailable("GitHub", "not signed in")]).lines.first?.contains("not signed in") == true)
+        check("a definite gap is reported as incomplete even when a source is down",
+              isIncomplete(verdict([unit(pr1, merged: nil)], sources: [.unavailable("GitHub", "offline")])))
+        check("an ambiguously associated unit never completes",
+              !isComplete(verdict([unit(pr1, association: .ambiguous("#294 is linked by two features"))])))
+        check("an ambiguous unit is reported as unknown", isUnknown(verdict([unit(pr1, association: .ambiguous("shared #294"))])) || isIncomplete(verdict([unit(pr1, association: .ambiguous("shared #294"))])))
+        check("an ambiguous unit does not count as merged work even when the rest is fine",
+              !isComplete(verdict([unit(pr1, association: .ambiguous("shared"))])))
+        check("an ambiguous unit beside a clear one still blocks", !isComplete(verdict([unit(pr1), unit(pr2, association: .ambiguous("shared"))])))
+
+        // MARK: A reopened issue needs new work (Q-003, DEC-009)
+
+        check("work merged before the reopening does not complete it again", isIncomplete(verdict([unit(pr1, merged: minutes(10))], since: minutes(20))))
+        check("work merged after the reopening does", isComplete(verdict([unit(pr1, merged: minutes(10)), unit(pr2, merged: minutes(30), head: "ddd4444")], since: minutes(20))))
+        check("no start time asks for nothing more", isComplete(verdict([unit(pr1)], since: nil)))
+
+        // MARK: Association (DEC-012)
+
+        check("feature folder names the feature", WorkAssociationRules.mentionsFeature("feat: x\n\ndocs/features/issue-lifecycle-management/overview.md", slug: "issue-lifecycle-management", issues: []))
+        check("a longer slug is not the feature", !WorkAssociationRules.mentionsFeature("docs/features/issue-lifecycle-management-2/x", slug: "issue-lifecycle-management", issues: []))
+        check("a Feature trailer names the feature", WorkAssociationRules.mentionsFeature("feat: research map\n\nBody.\n\nFeature: issue-lifecycle-management\n", slug: "issue-lifecycle-management", issues: []))
+        check("a trailer is case-insensitive and tolerates spaces", WorkAssociationRules.mentionsFeature("x\n  feature:   s  \ny", slug: "S", issues: []))
+        check("a trailer of a longer slug is not the feature", !WorkAssociationRules.mentionsFeature("x\nFeature: s-2\n", slug: "s", issues: []))
+        check("a trailer in the middle of a line is not a trailer", !WorkAssociationRules.mentionsFeature("see Feature: s for details", slug: "s", issues: []))
+        check("an issue number of the feature names it", WorkAssociationRules.mentionsFeature("Fixes #294", slug: "s", issues: [294]))
+        check("another number does not", !WorkAssociationRules.mentionsFeature("Fixes #2940", slug: "s", issues: [294]))
+        check("a bug key names the bug", WorkAssociationRules.mentionsBug("fix: BUG-065 styles", key: "BUG-065", issues: []))
+        check("a longer bug key is another bug", !WorkAssociationRules.mentionsBug("fix: BUG-0651", key: "BUG-065", issues: []))
+        check("a bug key matches without case", WorkAssociationRules.mentionsBug("bug-065", key: "BUG-065", issues: []))
+        check("a quoted feature slug in a PR description names the feature", WorkAssociationRules.mentionsFeature("Complete UI Studio (`ui-studio`) REQ-001", slug: "ui-studio", issues: []))
+        check("a longer quoted feature slug does not name another feature", !WorkAssociationRules.mentionsFeature("`ui-studio-other`", slug: "ui-studio", issues: []))
+        let prDescription = "Complete `ui-studio`.\nBUG-012 through BUG-016 were previously addressed in 4b8a783; this PR does not claim new fixes for them."
+        let deliveryDescription = WorkAssociationRules.deliveryDescription(prDescription)
+        check("historical bug references do not attribute this PR to those bugs", !WorkAssociationRules.mentionsBug(deliveryDescription, key: "BUG-012", issues: []))
+        check("excluding a historical reference preserves the PR's feature link", WorkAssociationRules.mentionsFeature(deliveryDescription, slug: "ui-studio", issues: []))
+        check("abbreviated batch names every bug", ["BUG-012", "BUG-013", "BUG-014"].allSatisfy { WorkAssociationRules.mentionsBug("fix: BUG-012/013/014", key: $0, issues: []) })
+        check("abbreviated batch does not match a partial number", !WorkAssociationRules.mentionsBug("fix: BUG-012/0131", key: "BUG-013", issues: []))
+        check("an anchor is not an issue number", !WorkAssociationRules.mentionsIssueNumber("see a#12 and &#12;", in: [12]))
+        let split = WorkAssociationRules.exclusiveNumbers([1, 2], claimedByOthers: [2, 3])
+        check("a number another issue also links is shared", split.exclusive == [1] && split.shared == [2])
+
+        // Explicit project requirements, including an operator's documented override of old checklist defaults.
+        let policyData = Data(#"{"items":[{"id":"pr","mode":"require"},{"id":"ci","mode":"require"}]}"#.utf8)
+        let requiredPolicy = ProjectDeliveryPolicy.read(definition: policyData, guide: nil)
+        check("project policy requires the configured PR and CI", requiredPolicy.pullRequestRequired && requiredPolicy.checksRequired)
+        check("missing policy uses the standard PR and CI requirements", ProjectDeliveryPolicy.read(definition: nil, guide: nil).pullRequestRequired && ProjectDeliveryPolicy.read(definition: nil, guide: nil).checksRequired)
+        let askPolicy = Data(#"{"items":[{"id":"pr","mode":"ask"}]}"#.utf8)
+        check("ask before PR does not silently skip the PR", ProjectDeliveryPolicy.read(definition: askPolicy, guide: nil).pullRequestRequired)
+        let directGuide = "## Commits go straight to main (operator)\nUntil further notice, commit directly to `main` and push it.\n\n## CI is switched off (operator)\nUntil further notice, do not wait for CI."
+        let directPolicy = ProjectDeliveryPolicy.read(definition: policyData, guide: directGuide)
+        check("explicit operator rules override outdated PR and CI settings", !directPolicy.pullRequestRequired && !directPolicy.checksRequired)
+        let skipPR = Data(#"{"items":[{"id":"pr","mode":"skip"}]}"#.utf8)
+        let requiredGuide = "## Git Workflow\n- Never commit to main directly for anything else.\n- Open a pull request into main."
+        check("an explicit project rule requiring PR overrides a skipped checklist item", ProjectDeliveryPolicy.read(definition: skipPR, guide: requiredGuide).pullRequestRequired)
+        check("an AGENTS.md rule requiring a PR is respected", ProjectDeliveryPolicy.read(definition: skipPR, guide: "The most important rule: every feature and bug fix goes through a pull request.").pullRequestRequired)
+        let unconfirmedPR = WorkUnit(ref: .pullRequest(41), headSHA: "sha", mergedAt: minutes(10), changedPaths: ["app.swift"],
+                                     checks: .passed(sha: "sha"), pullRequestVerified: false)
+        let unresolvedPR = DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: [unconfirmedPR], releaseRequired: false, pullRequestRequired: true))
+        check("a required PR must be confirmed by GitHub", !unresolvedPR.isComplete)
+        let negativeGuide = "Never commit directly to main. CI may be switched off in other projects."
+        let stillRequired = ProjectDeliveryPolicy.read(definition: policyData, guide: negativeGuide)
+        check("a casual or negative mention does not override requirements", stillRequired.pullRequestRequired && stillRequired.checksRequired)
+
+        // MARK: Reading git and GitHub output
+
+        let log = "\u{1e}aaa111\u{1f}2026-11-05T10:00:00+00:00\u{1f}feat: x\n\ndocs/features/x\n\u{1f}\nMarkView/A.swift\ndocs/x.md\n\u{1e}bbb222\u{1f}2026-11-05T11:00:00+00:00\u{1f}docs: y\n\u{1f}\nREADME.md\n"
+        let commits = GitWorkLog.commits(from: log)
+        check("git log records are split", commits.count == 2 && commits[0].sha == "aaa111" && commits[1].sha == "bbb222")
+        check("files and message are kept apart", commits[0].paths == ["MarkView/A.swift", "docs/x.md"] && commits[0].message.contains("docs/features/x"))
+        check("a commit without code files is docs", commits[1].paths.allSatisfy(DocumentationPaths.isDocumentation))
+        check("git arguments ask for names and the separators", GitWorkLog.arguments(ref: "origin/main").contains("--name-only"))
+
+        let allGreen = Data(#"[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"skipped"}]"#.utf8)
+        check("all runs green passes", RunsVerdict.state(runsJSON: allGreen, sha: "s") == .passed(sha: "s"))
+        check("a failed run fails", RunsVerdict.state(runsJSON: Data(#"[{"status":"completed","conclusion":"failure"}]"#.utf8), sha: "s") == .failed(sha: "s"))
+        check("a running run is pending", RunsVerdict.state(runsJSON: Data(#"[{"status":"in_progress","conclusion":""},{"status":"completed","conclusion":"success"}]"#.utf8), sha: "s") == .pending(sha: "s"))
+        check("no runs is noRuns, not a pass", RunsVerdict.state(runsJSON: Data("[]".utf8), sha: "s") == .noRuns(sha: "s"))
+        check("garbage is unknown", { if case .unknown = RunsVerdict.state(runsJSON: Data("nope".utf8), sha: "s") { return true } else { return false } }())
+        check("a failed run beats a running one", RunsVerdict.state(runsJSON: Data(#"[{"status":"in_progress"},{"status":"completed","conclusion":"failure"}]"#.utf8), sha: "s") == .failed(sha: "s"))
+        check("rollup SUCCESS passes", RunsVerdict.state(rollup: "SUCCESS", sha: "s") == .passed(sha: "s"))
+        check("rollup PENDING is pending", RunsVerdict.state(rollup: "PENDING", sha: "s") == .pending(sha: "s"))
+        check("rollup absent is noRuns", RunsVerdict.state(rollup: nil, sha: "s") == .noRuns(sha: "s"))
+
+        // MARK: The project's release rule comes from its definition of done
+
+        let dod = { (mode: String) in Data(#"{"items":[{"id":"branch","mode":"skip"},{"id":"deploy","mode":"\#(mode)"}]}"#.utf8) }
+        check("deploy required", ReleaseRequirement.isRequired(definitionOfDoneJSON: dod("require")))
+        check("deploy skipped", !ReleaseRequirement.isRequired(definitionOfDoneJSON: dod("skip")))
+        check("deploy ask-me is not a requirement", !ReleaseRequirement.isRequired(definitionOfDoneJSON: dod("ask")))
+        check("no file, no requirement", !ReleaseRequirement.isRequired(definitionOfDoneJSON: nil))
+        check("damaged file, no requirement", !ReleaseRequirement.isRequired(definitionOfDoneJSON: Data("{".utf8)))
+
+        // MARK: A unit whose files could not be read is no definite gap (BUG-106)
+
+        let unreadable = unit(c1, head: "1234567890abcdef", paths: nil)
+        func strict(_ work: [WorkUnit]) -> DeliveryVerdict {
+            DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: work, releaseRequired: false, pullRequestRequired: true))
+        }
+        let beside = strict([unit(pr1), unreadable])
+        check("a unit with unreadable files leaves the verdict unknown, not complete", isUnknown(beside))
+        check("a unit with unreadable files is not reported as missing a pull request",
+              !beside.lines.contains { $0.contains("requires a merged pull request") } && beside.lines.contains { $0.contains("changed files of") })
+        check("a unit with unreadable files does not hide a definite gap elsewhere",
+              isIncomplete(strict([unit(pr1, checks: .failed(sha: "aaa1111")), unreadable])))
+
+    }
+}
+
+
+extension EditorHostTests {
+    func testIssueLifecycleDisplay() {
+        func check(_ message: String, _ condition: Bool, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)   // 2027-01-15 08:00 UTC
+        func at(_ minutes: Int) -> Date { t0.addingTimeInterval(Double(minutes) * 60) }
+
+        let person = LifecycleActor.human("Boris")
+        let agent = LifecycleActor.ai("Claude Code", session: "s1")
+        let robot = LifecycleActor.system("MarkView")
+
+        func record(_ phase: TransitionRecord.Phase, _ from: String, _ to: String, _ actor: LifecycleActor, minute: Int,
+                    kind: IssueKind = .feature, issue: String = "export-pdf", command: String = "", reason: String? = nil,
+                    transition: TransitionKind? = nil, override: Bool = false, bypassed: [LifecycleCondition] = [],
+                    missing: [LifecycleCondition] = [], evidence: [String] = [], message: String? = nil, verified: Bool? = nil,
+                    target: String? = nil, outcome: GitHubWriteOutcome? = nil, id: UUID = UUID()) -> TransitionRecord {
+            TransitionRecord(id: id, phase: phase, command: command.isEmpty ? UUID().uuidString : command, kind: kind, issue: issue, from: from, to: to,
+                             actor: actor, at: at(minute), reason: reason, transitionKind: transition, override: override, bypassed: bypassed,
+                             missing: missing, evidence: evidence, message: message, verified: verified, target: target, githubOutcome: outcome)
+        }
+
+        func display(_ records: [TransitionRecord], status: String, kind: IssueKind = .feature, issue: String = "export-pdf",
+                     completion: String = "not complete", notes: [String] = []) -> IssueLifecycleDisplay {
+            IssueLifecycleDisplay.make(kind: kind, issue: issue, status: status, history: IssueHistory(kind: kind, issue: issue, all: records),
+                                       completion: completion, discrepancies: notes)
+        }
+
+        // MARK: Applied transitions (REQ-004 criterion 1)
+
+        do {
+            let applied = record(.applied, "implementing", "implemented", robot, minute: 30, reason: "All work merged.", transition: .completion,
+                                 evidence: ["PR #12 merged", "checks passed on 4f3a9c1"])
+            let d = display([record(.baseline, "", "implementing", robot, minute: 0), applied], status: "implemented", completion: "verified completion")
+            let row = d.history.first
+            check("an applied transition names the previous and the resulting status", row?.headline == "implementing → implemented")
+            check("an applied transition names the actor", row?.actor == "MarkView")
+            check("an applied transition carries its time", row?.time == at(30))
+            check("an applied transition shows the reason", row?.notes.contains("Reason: All work merged.") == true)
+            check("an applied transition lists each piece of evidence",
+                  row?.notes.contains("Evidence: PR #12 merged") == true && row?.notes.contains("Evidence: checks passed on 4f3a9c1") == true)
+            check("an applied transition names the kind of step", row?.notes.contains("Step: completion") == true)
+            check("history reads newest first", d.history.map(\.headline) == ["implementing → implemented", "first seen: implementing"])
+            check("the first sight is a baseline row", d.history.last?.notes.first == "First seen by MarkView; the history starts here.")
+            check("the completion label is kept", d.completion == "verified completion" && d.status == "implemented")
+            check("an AI actor reads with its tool and session",
+                  display([record(.applied, "ready", "implementing", agent, minute: 1, transition: .start)], status: "implementing").history.first?.actor == "AI Claude Code (s1)")
+            check("a person actor reads with the name",
+                  display([record(.applied, "draft", "review", person, minute: 1, transition: .spec)], status: "review").history.first?.actor == "person Boris")
+        }
+
+        // MARK: Overrides (REQ-004 criterion 2)
+
+        do {
+            let forced = record(.applied, "implementing", "implemented", person, minute: 40, reason: "Shipped by hand, CI is down.", transition: .completion,
+                                override: true, bypassed: [.deliveryEvidence, .reason])
+            let d = display([forced], status: "implemented", completion: "completed by an override, not verified")
+            let row = d.history.first
+            check("an override is marked", row?.tone == .override)
+            check("an override shows its reason", row?.notes.contains("Reason: Shipped by hand, CI is down.") == true)
+            check("an override names the conditions it bypassed",
+                  row?.notes.first == "Override by a person, bypassed: delivery evidence; a reason.")
+            check("an override without bypassed conditions is still marked",
+                  display([record(.applied, "draft", "ready", person, minute: 1, reason: "x", override: true)], status: "ready").history.first?.notes.first == "Override by a person.")
+            check("a normal step is not marked as an override",
+                  display([record(.applied, "draft", "review", person, minute: 1, transition: .spec)], status: "review").history.first?.tone == .normal)
+        }
+
+        // MARK: Blocked requests and missing evidence (REQ-004 criterion 3)
+
+        do {
+            let blocked = record(.rejected, "implementing", "implemented", agent, minute: 50, missing: [.deliveryEvidence],
+                                 message: "implemented needs delivery evidence: PR #12 is not merged.")
+            let d = display([record(.applied, "ready", "implementing", agent, minute: 10, transition: .start), blocked], status: "implementing")
+            check("a blocked request is listed apart from the history", d.blocked.count == 1 && d.history.count == 1)
+            check("a blocked request says nothing changed", d.blocked.first?.headline == "asked implementing → implemented, nothing changed")
+            check("a blocked request explains why", d.blocked.first?.notes.first == "implemented needs delivery evidence: PR #12 is not merged.")
+            check("a blocked request names the missing evidence", d.blocked.first?.notes.contains("Missing: delivery evidence") == true)
+            check("a blocked request is tagged blocked", d.blocked.first?.tone == .blocked)
+            check("blocked requests are capped and newest first",
+                  display((0..<9).map { record(.rejected, "open", "fixed", agent, minute: $0, kind: .bug, issue: "BUG-1", command: "c\($0)") }, status: "open", kind: .bug, issue: "BUG-1").blocked.map(\.time)
+                    == [8, 7, 6, 5, 4].map(at))
+        }
+
+        // MARK: Discrepancies and uncertain state (REQ-005)
+
+        do {
+            let outside = record(.external, "implementing", "implemented", LifecycleActor.system("Markdown edit"), minute: 60, verified: false)
+            let d = display([record(.applied, "ready", "implementing", agent, minute: 10, transition: .start), outside], status: "implemented",
+                            completion: "status edited outside MarkView, not verified")
+            check("an outside edit is a discrepancy until confirmed",
+                  d.discrepancies.contains { $0.contains("changed outside MarkView") && $0.contains("implementing → implemented") && $0.contains("unverified") })
+            check("an outside edit is shown in the history as unverified",
+                  d.history.first?.tone == .external && d.history.first?.notes.first == "Changed outside MarkView. Unverified until delivery evidence confirms it.")
+
+            let confirmed = record(.confirmed, "implemented", "implemented", robot, minute: 70, evidence: ["PR #12 merged"], message: "Evidence confirms the status.")
+            let after = display([outside, confirmed], status: "implemented", completion: "verified completion")
+            check("a confirmation closes the discrepancy", after.discrepancies.isEmpty)
+            check("a confirmation is shown as evidence-backed", after.history.first?.tone == .success && after.history.first?.notes.contains("Confirmed by evidence.") == true)
+
+            let pending = record(.begin, "implementing", "implemented", robot, minute: 80)
+            check("an operation that never closed is a discrepancy",
+                  display([pending], status: "implementing").discrepancies.contains { $0.contains("began") && $0.contains("not closed") })
+            check("caller discrepancies are kept", display([], status: "implemented", notes: ["GitHub #294 is closed, but export-pdf is not verified complete."]).discrepancies
+                  == ["GitHub #294 is closed, but export-pdf is not verified complete."])
+            check("a clean history has no discrepancies", display([record(.applied, "draft", "review", person, minute: 1, transition: .spec)], status: "review").discrepancies.isEmpty)
+            check("a begin record alone is not a history row", display([pending], status: "implementing").history.isEmpty)
+        }
+
+        // MARK: GitHub outcomes (REQ-004 criterion 4)
+
+        do {
+            let rows = display([
+                record(.github, "implemented", "implemented", robot, minute: 90, command: "g1", message: "closed and confirmed", target: "#294", outcome: .confirmed),
+                record(.github, "implemented", "implemented", robot, minute: 91, command: "g2", message: "GitHub refused", target: "#295", outcome: .failed),
+                record(.github, "implemented", "implemented", robot, minute: 92, command: "g3", message: "no answer", target: "#296", outcome: .unconfirmed),
+            ], status: "implemented").github
+            check("GitHub outcomes are listed newest first", rows.map(\.time) == [92, 91, 90].map(at))
+            check("a confirmed write reads as confirmed", rows.last?.headline == "GitHub #294: confirmed" && rows.last?.tone == .success)
+            check("a failed write reads as failed", rows[1].headline == "GitHub #295: failed" && rows[1].tone == .failure)
+            check("an unconfirmed write is neither success nor failure", rows.first?.headline == "GitHub #296: not confirmed (the outcome is unknown)" && rows.first?.tone == .unconfirmed)
+            check("a GitHub row keeps the message", rows[1].notes == ["GitHub refused"])
+            check("GitHub records are not part of the status history",
+                  display([record(.github, "implemented", "implemented", robot, minute: 90, target: "#294", outcome: .confirmed)], status: "implemented").history.isEmpty)
+        }
+
+        // MARK: Actions the section offers
+
+        do {
+            check("an implemented feature can be accepted", IssueLifecycleDisplay.acceptStatus(kind: .feature, status: "implemented") == "verified")
+            check("a fixed bug can be accepted", IssueLifecycleDisplay.acceptStatus(kind: .bug, status: "fixed") == "closed")
+            check("nothing else is accepted", ["idea", "exploring", "draft", "review", "resolving", "ready", "implementing", "verified", "archived"]
+                    .allSatisfy { IssueLifecycleDisplay.acceptStatus(kind: .feature, status: $0) == nil }
+                  && ["open", "fixing", "closed"].allSatisfy { IssueLifecycleDisplay.acceptStatus(kind: .bug, status: $0) == nil })
+            check("a completed feature reopens into implementing",
+                  IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "implemented") == "implementing" && IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "verified") == "implementing")
+            check("a completed bug reopens into open",
+                  IssueLifecycleDisplay.reopenStatus(kind: .bug, status: "fixed") == "open" && IssueLifecycleDisplay.reopenStatus(kind: .bug, status: "closed") == "open")
+            check("unfinished work is not reopened", IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "implementing") == nil && IssueLifecycleDisplay.reopenStatus(kind: .bug, status: "open") == nil)
+            check("only completed statuses are checked against the evidence",
+                  display([], status: "implemented").canCheckEvidence && display([], status: "fixed", kind: .bug, issue: "BUG-1").canCheckEvidence
+                    && !display([], status: "implementing").canCheckEvidence && !display([], status: "open", kind: .bug, issue: "BUG-1").canCheckEvidence)
+            check("the display carries the actions with the status", display([], status: "Implemented").acceptTarget == "verified" && display([], status: "Implemented").status == "implemented")
+        }
+
+        // MARK: Bounds
+
+        do {
+            let many = (0..<45).map { record(.applied, "draft", "review", person, minute: $0, command: "c\($0)", transition: .spec) }
+            let d = display(many, status: "review")
+            check("the history shows the latest rows only", d.history.count == IssueLifecycleDisplay.historyLimit && d.history.first?.time == at(44))
+            check("row ids are unique", Set(d.history.map(\.id)).count == d.history.count)
+        }
+
+        // MARK: Variant, note start and delivery event (feature-3)
+
+        do {
+            var workflow = ProjectWorkflow.standard
+            workflow.variants.append(VariantTemplate.manualWork.variant(kind: .feature, id: "by-hand"))
+            var confirmed = VariantTemplate.directToMain.variant(kind: .feature, id: "installed")
+            confirmed.delivery = .humanConfirmed(name: "installed")
+            workflow.variants.append(confirmed)
+            func make(_ status: String, variant: String?, _ records: [TransitionRecord] = []) -> IssueLifecycleDisplay {
+                IssueLifecycleDisplay.make(kind: .feature, issue: "export-pdf", status: status, history: IssueHistory(kind: .feature, issue: "export-pdf", all: records),
+                                           completion: "not complete", workflow: workflow, variantID: variant)
+            }
+            let standard = make("ready", variant: nil)
+            check("the standard variant is shown by default", standard.variantID == StandardWorkflow.featureVariantID && standard.variantName == "Standard feature")
+            check("the standard variant offers no start by note", !standard.canStartWithNote)
+            check("a variant that accepts a note offers one before the start", make("ready", variant: "by-hand").canStartWithNote)
+            check("but not once the work is under way", !make("implementing", variant: "by-hand").canStartWithNote)
+            check("a person-only variant still offers accepting an implemented item", make("implemented", variant: "by-hand").acceptTarget == "verified")
+            let installed = make("implementing", variant: "installed")
+            check("a variant with a delivery event a person confirms offers the confirmation", installed.eventToConfirm == "installed" && !installed.eventConfirmed)
+            let confirmation = record(.evidence, "", "", person, minute: 5, target: "installed")
+            var recorded = confirmation
+            recorded.humanEvidence = .delivery
+            check("a recorded confirmation is shown as confirmed", make("implementing", variant: "installed", [recorded]).eventConfirmed)
+            check("a variant without a delivery event offers no confirmation", make("implementing", variant: nil).eventToConfirm == nil)
+            check("reopening goes to the active status by role", IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "verified", workflow: workflow) == "implementing"
+                  && IssueLifecycleDisplay.reopenStatus(kind: .bug, status: "closed", workflow: workflow) == "open")
+            check("only a completed status can be reopened", IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "ready", workflow: workflow) == nil
+                  && IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "archived", workflow: workflow) == nil)
+
+            // A process with transitions of its own (BUG-108): accepting, reopening and starting by a note follow the item's process.
+            var withProcess = ProjectWorkflow.standard
+            var own = ProcessTemplate.quickFeature.variant(kind: .feature, id: "quick-feature", in: withProcess)
+            own.rules = own.rules!.filter { $0.kind != .acceptance }
+            withProcess.variants.append(own)
+            check("a process without an acceptance step offers none, while the standard feature does",
+                  IssueLifecycleDisplay.acceptStatus(kind: .feature, status: "implemented", workflow: withProcess, variantID: "quick-feature") == nil
+                  && IssueLifecycleDisplay.acceptStatus(kind: .feature, status: "implemented", workflow: withProcess, variantID: StandardWorkflow.featureVariantID) == "verified"
+                  && IssueLifecycleDisplay.acceptStatus(kind: .feature, status: "implemented", workflow: withProcess) == "verified")
+            check("a process reopens a completed item through its own transitions",
+                  IssueLifecycleDisplay.reopenStatus(kind: .feature, status: "implemented", workflow: withProcess, variantID: "quick-feature") == "implementing")
+            let noted = IssueLifecycleDisplay.make(kind: .feature, issue: "small", status: "ready", history: IssueHistory(kind: .feature, issue: "small", all: []),
+                                                   completion: "", workflow: withProcess, variantID: "quick-feature")
+            check("the display of an item shows the process it follows and its note start", noted.variantID == "quick-feature" && noted.variantName == "Quick feature"
+                  && noted.canStartWithNote)
+        }
+
+    }
+}

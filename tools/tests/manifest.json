@@ -2071,7 +2071,10 @@
         "MarkViewHostedTests/GitHubRemoteProfileHostTests.swift",
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
         "MarkView/Models/Lifecycle/WorkflowDescription.swift",
-        "MarkView/Models/Lifecycle/WorkflowProposal.swift"
+        "MarkView/Models/Lifecycle/WorkflowProposal.swift",
+        "MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift",
+        "MarkView/Models/Lifecycle/IssueLifecycleDisplay.swift",
+        "MarkView/Models/Lifecycle/IssueTransitionLog.swift"
       ]
     },
     {
