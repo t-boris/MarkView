@@ -52,7 +52,6 @@
   "document-translator-tests": 47.7,
   "feature-discovery-tests": 9.3,
   "feature-flow-coordinator-tests": 62.0,
-  "feature-jobs-tests": 5.9,
   "feature-store-schema-tests": 93.7,
   "file-operations-tests": 9.7,
   "finder-open-requests-tests": 2.7,

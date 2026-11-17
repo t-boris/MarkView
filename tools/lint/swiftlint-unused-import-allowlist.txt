@@ -35,7 +35,6 @@
 1 MarkView/Models/Insight/InsightSession.swift
 1 MarkView/Models/Insight/SemanticUsage.swift
 1 MarkView/Models/Lifecycle/FeatureIntake.swift
-1 MarkView/Models/Lifecycle/FeatureJobs.swift
 1 MarkView/Models/Lifecycle/HandoffPrompt.swift
 1 MarkView/Models/Lifecycle/IssueReconciler.swift
 1 MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift

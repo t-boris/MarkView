@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 193,
+  "suiteCount": 192,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1284,17 +1284,6 @@
         "tools/tests/FeatureFlowCoordinatorStubs.swift",
         "tools/tests/FeatureFlowCoordinatorTests.swift",
         "tools/tests/feature-flow-coordinator-tests.sh"
-      ]
-    },
-    {
-      "name": "feature-jobs-tests",
-      "script": "tools/tests/feature-jobs-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/FeatureJobs.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "tools/tests/FeatureJobsChecks.swift",
-        "tools/tests/feature-jobs-tests.sh"
       ]
     },
     {
