@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 110,
+  "suiteCount": 109,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -392,18 +392,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "tools/tests/CockpitInstrumentsChecks.swift",
         "tools/tests/cockpit-instruments-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "cockpit-plan-tests",
-      "script": "tools/tests/cockpit-plan-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "tools/tests/CockpitPlanChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
