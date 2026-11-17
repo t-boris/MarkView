@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 181,
+  "suiteCount": 180,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2771,7 +2771,8 @@
         "MarkView/Views/QA/QARunViews.swift",
         "MarkView/Models/Architecture/XRayCommand.swift",
         "MarkView/Models/Workspace/FileBrowserModel.swift",
-        "MarkView/Models/Workspace/WindowUIState.swift"
+        "MarkView/Models/Workspace/WindowUIState.swift",
+        "MarkView/Models/Workspace/WindowTitle.swift"
       ]
     },
     {
@@ -3885,16 +3886,6 @@
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "window-title-tests",
-      "script": "tools/tests/window-title-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Workspace/WindowTitle.swift",
-        "tools/tests/WindowTitleTests.swift",
-        "tools/tests/window-title-tests.sh"
       ]
     },
     {

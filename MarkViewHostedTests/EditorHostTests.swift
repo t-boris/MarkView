@@ -1140,3 +1140,29 @@ extension EditorHostTests {
 
     }
 }
+
+
+extension EditorHostTests {
+    func testWindowTitleUsesDisplayName() throws {
+        func check(_ name: String, _ got: String, _ want: String, line: UInt = #line) {
+            XCTAssertEqual(got, want, name, line: line)
+        }
+        check("folder open", WindowTitle.text(version: "1.4", folderName: "my-project"), "my-project — MarkView 1.4")
+        check("no folder", WindowTitle.text(version: "1.4", folderName: nil), "MarkView 1.4")
+        check("empty folder name", WindowTitle.text(version: "1.4", folderName: ""), "MarkView 1.4")
+        check("empty version, folder", WindowTitle.text(version: "", folderName: "foo"), "foo — MarkView")
+        check("empty version, no folder", WindowTitle.text(version: "", folderName: nil), "MarkView")
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)/my-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let name = WindowTitle.folderName(of: dir)
+        check("display name of a folder", name, "my-project")
+        let title = WindowTitle.text(version: "1.4", folderName: name)
+        check("full path never in the title", String(title.contains(dir.path) || title.contains("/")), "false")
+        let volume = WindowTitle.folderName(of: URL(fileURLWithPath: "/"))
+        check("root volume has a name, not '/'", String(!volume.isEmpty && volume != "/"), "true")
+        check("missing folder falls back to last component", WindowTitle.folderName(of: URL(fileURLWithPath: "/no/such/place-xyz")), "place-xyz")
+
+    }
+}
