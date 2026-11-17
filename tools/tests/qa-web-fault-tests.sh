@@ -14,4 +14,5 @@ MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme
   -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests -skip-testing:MarkViewHostedTests/UIStudioSessionHostTests \
   -skip-testing:MarkViewHostedTests/WorkflowEditorLayoutHostTests \
-  -skip-testing:MarkViewHostedTests/ResearchMapWebHostTests test
+  -skip-testing:MarkViewHostedTests/ResearchMapWebHostTests \
+  -skip-testing:MarkViewHostedTests/ThemeWebHostTests test

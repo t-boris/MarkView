@@ -1,28 +1,21 @@
 #!/bin/bash
-# The window themes in the shipped web pages (editor, discussion thread, terminal), in real WebKit with hidden windows:
-# every appearance paints the real elements with its tokens, text pairs are legible, an accent override and its reset
-# work, a theme change restyles without reloading or losing text and scroll, two pages hold different appearances,
-# and Classic Dark/Light still paint every sampled element as the page did before themes (DEC-003, DEC-004, DEC-006). The pages hold no
-# colours of their own: the test sends them what the app sends (WindowTheme, built from the Themes folder copied next to the program),
-# including two theme files with native colours only, written the way a person would (AR-32, DEC-003).
-#   tools/tests/theme-web-tests.sh                       check the page in the working tree
-#   tools/tests/theme-web-tests.sh <editor folder>       check another copy of the editor folder
-#   tools/tests/theme-web-tests.sh capture <editor folder> <out.json>
-#       write the computed colours of the Classic appearances (how Tests/Fixtures/themes/classic-computed.json was made,
-#       from the editor folder of origin/main before the themes existed)
+# Web-theme regression and optional classic capture in an isolated app-host process.
+# Usage: theme-web-tests.sh [editor-folder] | capture <editor-folder> <output.json>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-mkdir "$out/web"
-cp tools/tests/ThemeWebTests.swift "$out/web/main.swift"
-swiftc -O -module-cache-path /private/tmp/markview-swift-cache -o "$out/theme-web-tests" \
-  Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Appearance/WebThemeArguments.swift Packages/MarkViewCore/Sources/MarkViewCore/JS.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift \
-  MarkView/Models/Appearance/WindowTheme.swift MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift \
-  MarkView/Views/Appearance/AppPalette.swift MarkView/Views/Appearance/ThemePickerView.swift "$out/web/main.swift"
-cp -R MarkView/Resources/Themes "$out/Themes"
-if [ "${1:-}" = "capture" ]; then
-  "$out/theme-web-tests" capture "$2" "$3"
-else
-  "$out/theme-web-tests" "${1:-$PWD/MarkView/Resources/Editor}" "$PWD/Tests/Fixtures/themes/classic-computed.json"
-fi
+unset TEST_RUNNER_MARKVIEW_THEME_EDITOR TEST_RUNNER_MARKVIEW_THEME_CAPTURE MARKVIEW_THEME_EDITOR MARKVIEW_THEME_CAPTURE
+case "$#:${1:-}" in
+  0:) ;;
+  1:capture) echo 'Usage: theme-web-tests.sh capture <editor-folder> <output.json>' >&2; exit 2 ;;
+  1:*) export TEST_RUNNER_MARKVIEW_THEME_EDITOR="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$1")" ;;
+  3:capture)
+    export TEST_RUNNER_MARKVIEW_THEME_EDITOR="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$2")"
+    export TEST_RUNNER_MARKVIEW_THEME_CAPTURE="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$3")" ;;
+  *) echo 'Usage: theme-web-tests.sh [editor-folder] | capture <editor-folder> <output.json>' >&2; exit 2 ;;
+esac
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+socket_dir=$(mktemp -d /tmp/mvthemehost.XXXXXX)
+trap 'rm -rf "$socket_dir"' EXIT
+MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
+  -only-testing:MarkViewHostedTests/ThemeWebHostTests/testWebThemes test

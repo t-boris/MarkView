@@ -1385,7 +1385,7 @@
       "script": "tools/tests/theme-web-tests.sh",
       "tier": "gui",
       "sources": [
-        "tools/tests/ThemeWebTests.swift",
+        "MarkViewHostedTests/WorkspaceAppearanceHostTests.swift",
         "tools/tests/theme-web-tests.sh",
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/ThemeCatalog.swift",
@@ -1395,7 +1395,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
+        "Tests/Fixtures/themes/classic-computed.json"
       ]
     },
     {
