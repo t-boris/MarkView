@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 137,
+  "suiteCount": 136,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2236,7 +2236,13 @@
         "MarkView/Models/Insight/InsightHTMLTemplate.swift",
         "MarkView/Models/Insight/InsightTreeSnapshot.swift",
         "MarkView/Models/Architecture/UnderstandingAnswer.swift",
-        "MarkView/Models/Workspace/ArchiveModel.swift"
+        "MarkView/Models/Workspace/ArchiveModel.swift",
+        "MarkViewHostedTests/SemanticDatabaseHostTests.swift",
+        "tools/tests/fixtures/semantic-database/release-6.26-schema.sql",
+        "MarkView/Models/Shared/SemanticDatabase.swift",
+        "MarkView/Models/Architecture/SemanticDatabase+Architecture.swift",
+        "MarkView/Models/Shared/SemanticSchema.swift",
+        "MarkView/Models/Architecture/StructuralIndexer.swift"
       ]
     },
     {
@@ -3458,27 +3464,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "semantic-database-tests",
-      "script": "tools/tests/semantic-database-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Shared/SemanticDatabase.swift",
-        "MarkView/Models/Architecture/SemanticDatabase+Architecture.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Shared/SemanticSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
-        "tools/tests/SemanticDatabaseTestSupport.swift",
-        "tools/tests/SemanticDatabaseTests.swift",
-        "tools/tests/fixtures/semantic-database/release-6.26-schema.sql",
-        "tools/tests/semantic-database-tests.sh",
-        "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/Architecture/StructuralIndexer.swift",
-        "MarkView/Models/Shared/LinkedFolderStore.swift",
-        "MarkView/Models/Shared/LinkedFolders.swift",
-        "MarkView/Models/Appearance/ProjectColor.swift"
       ]
     },
     {

@@ -2,7 +2,7 @@
 # The open project of a window (MarkView/Models/Workspace/ProjectContext.swift, AR-14 step 8) on real folders, files and SQLite
 # databases: folder open with exclusions and recents, linked folders, the database lifecycle of a folder and of a single file,
 # and the stale-tree guard of the file tree store. Compiles the shipping ProjectContext, WorkspaceFileTreeStore, FileNode,
-# LinkedFolders and SemanticDatabase; only the unrelated model dependencies of the database are stubbed (as in semantic-database-tests).
+# LinkedFolders and SemanticDatabase; only unrelated model dependencies of the database are stubbed.
 #   tools/tests/project-context-tests.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
