@@ -87,8 +87,8 @@ AssistantChoice(project: nil).setTool("codex")
 check("no project writes defaults", Settings.standard.stored(Setting.aiBackend), "codex")
 check("beta follows the new default", AIAssistantPreferences.backend(project: b).rawValue, "codex")
 
-// Antigravity one-shot completion through its print mode (live: needs `agy` signed in; skipped without it).
-if CLIToolLocator.resolve(.antigravity) != nil {
+// Optional manual live check: MARKVIEW_LIVE_ANTIGRAVITY=1 requires a signed-in `agy` CLI.
+if ProcessInfo.processInfo.environment["MARKVIEW_LIVE_ANTIGRAVITY"] == "1", CLIToolLocator.resolve(.antigravity) != nil {
     check("antigravity binary name", CLITool.antigravity.binaryName, "agy")
     let schema: [String: Any] = ["type": "object", "properties": ["answer": ["type": "number"]], "required": ["answer"]]
     let request = CLICompletion.Request(project: nil, prompt: "What is 2+2? Answer with the number.", jsonSchema: schema,
