@@ -61,7 +61,6 @@
   "project-context-tests": 20.4,
   "project-operation-discovery-tests": 1.0,
   "project-operation-merge-tests": 2.6,
-  "project-operation-writes-tests": 6.5,
   "project-operations-store-tests": 8.2,
   "prototype-ownership-tests": 35.1,
   "qa-api-tests": 18.8,
