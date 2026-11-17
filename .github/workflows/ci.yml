@@ -133,11 +133,6 @@ jobs:
           set -o pipefail
           swift test --package-path Packages/MarkViewCore 2>&1 | tee "$RUNNER_TEMP/package-build.log"
 
-      - name: Run headless WebKit & window session regression suites
-        run: |
-          bash tools/tests/phase0-safety-tests.sh
-          bash tools/tests/window-session-tests.sh
-
       - name: Restore build cache
         id: cache
         uses: actions/cache/restore@v4

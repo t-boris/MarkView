@@ -3,6 +3,7 @@
 # the feature tests. It reads the working tree, lists every violation and exits 1 when there is one. CI runs it in the pure job.
 #
 # Rules that must hold:
+#   workflow-test-paths  literal test paths named in GitHub workflows exist
 #   no-loose-swift       no *.swift directly in MarkView/Models or MarkView/Views (every file lives in a domain folder)
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
 #   target-membership    every MarkView/**/*.swift on disk is a file reference and a Sources build file of the Xcode target in
@@ -100,6 +101,12 @@ sys.dont_write_bytecode = True   # importing domain-dependencies.py must not lea
 root, tighten, lint_dir = Path(sys.argv[1]), sys.argv[2] == "1", Path(sys.argv[3])
 violations = []   # (rule, message)
 notes = []
+
+# Literal test paths in workflow commands and path filters must not outlive their files.
+for workflow in sorted((root / ".github/workflows").glob("*.yml")):
+    for test_path in sorted(set(re.findall(r"tools/tests/[A-Za-z0-9_.-]+\.(?:sh|swift|py|js)", workflow.read_text()))):
+        if not (root / test_path).is_file():
+            violations.append(("workflow-test-paths", f"{workflow.relative_to(root)}: missing {test_path}"))
 
 def swift_files(*folders):
     found = []
@@ -752,7 +759,7 @@ if manager_file.is_file():
             violations.append(("tabs-direct", f"{rel(manager_file)}:{number}: forwards a part's changes into the manager's objectWillChange; the views that show the part observe it"))
 
 # --- report
-rules = ["no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
+rules = ["workflow-test-paths", "no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):
