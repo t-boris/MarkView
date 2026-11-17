@@ -568,6 +568,7 @@
 		A4DD9A6FAE364D6387E23DE1 /* StoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */; };
 		A4DD9A6FAE364D6387E23DE3 /* AssistantProviderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE4 /* AssistantProviderHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DE5 /* ProjectIndexHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE6 /* ProjectIndexHostTests.swift */; };
+		A4DD9A6FAE364D6387E23DE7 /* WorkspaceRedesignHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE8 /* WorkspaceRedesignHostTests.swift */; };
 		EEF54C9D03BF4C1BB64ABE38 /* WorkspaceStateHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */; };
 		2595E5D447984E99B63CD316 /* WorkspaceEditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */; };
 		F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000104 /* ControlToolRunnerTests.swift */; };
@@ -1278,6 +1279,7 @@
 		A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../tools/tests/StoreTestSupport.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DE4 /* AssistantProviderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DE6 /* ProjectIndexHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectIndexHostTests.swift; sourceTree = "<group>"; };
+		A4DD9A6FAE364D6387E23DE8 /* WorkspaceRedesignHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRedesignHostTests.swift; sourceTree = "<group>"; };
 		710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStateHostTests.swift; sourceTree = "<group>"; };
 		34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditorHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000104 /* ControlToolRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunnerTests.swift; sourceTree = "<group>"; };
@@ -2499,6 +2501,7 @@
 				F00000000000000000000102 /* EditorHostTests.swift */,
 				7F4A3B5E864347E5B88C8903 /* WorkspaceAppearanceHostTests.swift */,
 				710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */,
+				A4DD9A6FAE364D6387E23DE8 /* WorkspaceRedesignHostTests.swift */,
 				A4DD9A6FAE364D6387E23DE6 /* ProjectIndexHostTests.swift */,
 				A4DD9A6FAE364D6387E23DE4 /* AssistantProviderHostTests.swift */,
 				A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */,
@@ -3351,6 +3354,7 @@
 				F00000000000000000000101 /* EditorHostTests.swift in Sources */,
 				650928E0410D416BAAF02AFA /* WorkspaceAppearanceHostTests.swift in Sources */,
 				EEF54C9D03BF4C1BB64ABE38 /* WorkspaceStateHostTests.swift in Sources */,
+				A4DD9A6FAE364D6387E23DE7 /* WorkspaceRedesignHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DE5 /* ProjectIndexHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DE3 /* AssistantProviderHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DE1 /* StoreTestSupport.swift in Sources */,

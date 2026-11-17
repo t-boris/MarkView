@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 147,
+  "suiteCount": 146,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2296,7 +2296,11 @@
         "MarkViewHostedTests/ProjectIndexHostTests.swift",
         "MarkView/Models/Shared/LinkedFolderStore.swift",
         "MarkView/Models/Shared/ProjectSearch.swift",
-        "MarkView/Models/Shared/LinkedFolders.swift"
+        "MarkView/Models/Shared/LinkedFolders.swift",
+        "MarkViewHostedTests/WorkspaceRedesignHostTests.swift",
+        "MarkView/Models/Shared/ProjectChangeMonitor.swift",
+        "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
+        "MarkView/Models/Shared/FrontMatterFile.swift"
       ]
     },
     {
@@ -3505,27 +3509,6 @@
         "tools/tests/WorkflowTemplateChecks.swift",
         "tools/tests/workflow-template-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "workspace-redesign-tests",
-      "script": "tools/tests/workspace-redesign-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Shared/LinkedFolders.swift",
-        "MarkView/Models/Shared/LinkedFolderStore.swift",
-        "MarkView/Models/Architecture/ProjectChangeReview.swift",
-        "MarkView/Models/Shared/ProjectChangeMonitor.swift",
-        "MarkView/Models/Appearance/ProjectColor.swift",
-        "MarkView/Models/Shared/ProjectSearch.swift",
-        "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/WorkspaceRedesignTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "MarkView/Models/Shared/FrontMatterFile.swift"
       ]
     },
     {

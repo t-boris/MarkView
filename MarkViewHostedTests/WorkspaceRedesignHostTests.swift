@@ -3,13 +3,16 @@ import AppKit
 import CoreText
 import PDFKit
 import SQLite3
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
-@main struct WorkspaceRedesignTests {
+private struct WorkspaceRedesignFixture {
     static var checks = 0
 
-    static func check(_ condition: Bool, _ message: String) {
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
         checks += 1
-        if !condition { fatalError(message) }
+        XCTAssertTrue(condition, message, line: line)
     }
 
     /// The app writes the live status through the lifecycle service; the checks write it the same way (`FrontMatter.writeFile`), byte for byte.
@@ -41,7 +44,7 @@ import SQLite3
         try (data as Data).write(to: url)
     }
 
-    static func main() async throws {
+    static func run() async throws {
         let project = FileManager.default.temporaryDirectory.appendingPathComponent("markview-redesign-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: project) }
         let feature = project.appendingPathComponent("docs/features/demo")
@@ -225,6 +228,12 @@ import SQLite3
         let removed = try await changes.refresh()
         check(removed.contains { $0.path == "note.md" && $0.kind == .deleted },
               "review detects external deletion")
-        print("Workspace redesign checks: \(checks), failures: 0")
+        XCTAssertGreaterThan(checks, 0)
+    }
+}
+
+extension EditorHostTests {
+    func testWorkspaceRedesign() async throws {
+        try await WorkspaceRedesignFixture.run()
     }
 }
