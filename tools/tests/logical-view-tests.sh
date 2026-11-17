@@ -28,6 +28,6 @@ cp tools/tests/LogicalViewTests.swift "$out/main.swift"
 swiftc -o "$out/logical-view-tests" -target "$(uname -m)-apple-macos13.0" \
     MarkView/Models/Architecture/LogicalView.swift MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \
     MarkView/Models/Architecture/CodePathTags.swift MarkView/Models/Architecture/XRayCluster.swift MarkView/Models/Architecture/XRayDigest.swift \
-    Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Architecture/AutoAnalysisScheduler.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift \
     MarkView/Models/AI/DiagramAI.swift MarkView/Models/AI/AIOperation.swift tools/tests/DiagramCLIStub.swift "$out/Stubs.swift" "$out/main.swift"
 "$out/logical-view-tests"

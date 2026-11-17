@@ -4,17 +4,16 @@ import Foundation
 /// (DEC-003 of automatic-code-architecture): a local rescan after 60 seconds of quiet, an
 /// AI run at most once per 15 minutes, nothing while a run is active, nothing with the
 /// switch off or above the size cap. Pure: timestamps in, a decision out. `ArchitectureStore`
-/// keeps the clock and acts on the decision; `tools/tests/auto-analysis-scheduler-tests.sh`
-/// covers the decision table.
-struct AutoAnalysisScheduler: Equatable {
+/// keeps the clock and acts on the decision; the core package tests cover the decision table.
+public struct AutoAnalysisScheduler: Equatable {
     /// Quiet time after the last change before anything runs.
-    static let quietPeriod: TimeInterval = 60
+    public static let quietPeriod: TimeInterval = 60
     /// Least time between two AI runs of one project; local rescans are not bound by it.
-    static let aiRunInterval: TimeInterval = 15 * 60
+    public static let aiRunInterval: TimeInterval = 15 * 60
     /// Projects with more source files are left to the manual Refresh.
-    static let maximumSourceFiles = 5000
+    public static let maximumSourceFiles = 5000
 
-    enum Decision: Equatable {
+    public enum Decision: Equatable {
         /// Nothing to do, and why (switch off, size cap, no change recorded).
         case nothing(reason: String)
         /// A run is active: decide again when it ends.
@@ -28,35 +27,45 @@ struct AutoAnalysisScheduler: Equatable {
     }
 
     /// The `xray.autoAnalyze` switch.
-    var enabled = true
+    public var enabled = true
     /// Source files counted by the last scan; nil before the first scan.
-    var sourceFileCount: Int? = nil
+    public var sourceFileCount: Int? = nil
     /// Last change of the project's files that no AI run has handled yet.
-    var lastChange: Date? = nil
+    public var lastChange: Date? = nil
     /// When the last local rescan for `lastChange` started; nil before the first one.
-    var lastRescan: Date? = nil
+    public var lastRescan: Date? = nil
     /// When the last AI run started; nil before the first one.
-    var lastAIRun: Date? = nil
+    public var lastAIRun: Date? = nil
     /// A scan or analysis is in progress.
-    var runActive = false
+    public var runActive = false
+
+    public init(enabled: Bool = true, sourceFileCount: Int? = nil, lastChange: Date? = nil,
+                lastRescan: Date? = nil, lastAIRun: Date? = nil, runActive: Bool = false) {
+        self.enabled = enabled
+        self.sourceFileCount = sourceFileCount
+        self.lastChange = lastChange
+        self.lastRescan = lastRescan
+        self.lastAIRun = lastAIRun
+        self.runActive = runActive
+    }
 
     /// A run was requested while one was active (the X-Ray tab's scan at project open):
     /// record a change older than any quiet period, so the decision once the active run
     /// ends is to run at once.
-    mutating func requestRun() { lastChange = .distantPast }
+    public mutating func requestRun() { lastChange = .distantPast }
 
-    static let switchOffReason = "Automatic analysis is off in Settings"
+    public static let switchOffReason = "Automatic analysis is off in Settings"
 
     /// Why nothing ran above the size cap; `CodeArchitecture.coverage` repeats it in the
     /// "What was understood" reasons (DEC-003).
-    static func sizeCapReason(_ count: Int) -> String {
+    public static func sizeCapReason(_ count: Int) -> String {
         "Project has \(count) source files; automatic analysis stops at \(maximumSourceFiles), use Refresh"
     }
 
     /// Whether a project of `count` source files is analyzed automatically.
-    static func exceedsSizeCap(_ count: Int) -> Bool { count > maximumSourceFiles }
+    public static func exceedsSizeCap(_ count: Int) -> Bool { count > maximumSourceFiles }
 
-    func decision(at now: Date) -> Decision {
+    public func decision(at now: Date) -> Decision {
         guard enabled else { return .nothing(reason: Self.switchOffReason) }
         if let count = sourceFileCount, Self.exceedsSizeCap(count) { return .nothing(reason: Self.sizeCapReason(count)) }
         guard let lastChange else { return .nothing(reason: "No change recorded") }

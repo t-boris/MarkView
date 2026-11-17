@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 201,
+  "suiteCount": 200,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -222,16 +222,6 @@
         "tools/tests/archive-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "auto-analysis-scheduler-tests",
-      "script": "tools/tests/auto-analysis-scheduler-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
-        "tools/tests/AutoAnalysisSchedulerTests.swift",
-        "tools/tests/auto-analysis-scheduler-tests.sh"
       ]
     },
     {
@@ -672,7 +662,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Architecture/ArchitectureModel.swift",
-        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
@@ -1570,7 +1560,7 @@
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Architecture/ArchitectureModel.swift",
-        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
         "MarkView/Models/Insight/EmbeddingClient.swift",
@@ -2305,7 +2295,7 @@
         "MarkView/Models/Architecture/ArchitectureModel.swift",
         "MarkView/Models/Architecture/ArchitectureScanner.swift",
         "MarkView/Models/Architecture/ArchitectureStore.swift",
-        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
         "MarkView/Models/Architecture/BookAnnotator.swift",
         "MarkView/Models/Architecture/BookBuilder.swift",
         "MarkView/Models/Architecture/ChangeDiff.swift",
@@ -3217,7 +3207,7 @@
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Architecture/ArchitectureModel.swift",
-        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
         "MarkView/Models/Shared/SemanticDatabase.swift",
@@ -4421,7 +4411,7 @@
         "MarkView/Models/AI/DiagramAI.swift",
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Architecture/ArchitectureModel.swift",
-        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
         "MarkView/Models/Shared/SemanticDatabase.swift",
@@ -4518,7 +4508,7 @@
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/AI/DiagramAI.swift",
         "MarkView/Models/Architecture/ArchitectureModel.swift",
-        "MarkView/Models/Architecture/AutoAnalysisScheduler.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
         "MarkView/Models/Architecture/LogicalView.swift",

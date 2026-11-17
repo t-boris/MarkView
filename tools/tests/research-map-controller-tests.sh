@@ -30,6 +30,6 @@ swiftc -o "$out/research-map-controller-tests" -target "$(uname -m)-apple-macos1
     MarkView/Models/AI/AICallLog.swift MarkView/Models/AI/AIOperation.swift \
     MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/DiagramAI.swift \
     MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \
-    MarkView/Models/Architecture/CodePathTags.swift MarkView/Models/Architecture/AutoAnalysisScheduler.swift \
+    MarkView/Models/Architecture/CodePathTags.swift  \
     tools/tests/ProjectProvidingTestSupport.swift  tools/tests/SemanticDatabaseTestSupport.swift "$out/Stub.swift" "$out/main.swift"
 "$out/research-map-controller-tests"

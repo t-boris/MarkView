@@ -14,7 +14,7 @@ swiftc -O -o "$out/check" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Shared/SemanticDatabase.swift MarkView/Models/Architecture/SemanticDatabase+Architecture.swift MarkView/Models/Shared/SemanticSchema.swift MarkView/Models/Shared/SemanticModels.swift \
     MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \
-    MarkView/Models/Architecture/CodePathTags.swift MarkView/Models/Architecture/AutoAnalysisScheduler.swift \
+    MarkView/Models/Architecture/CodePathTags.swift  \
     MarkView/Models/AI/DiagramAI.swift MarkView/Models/AI/AIOperation.swift tools/tests/DiagramCLIStub.swift tools/tests/SemanticDatabaseTestSupport.swift \
     MarkView/Models/Architecture/StructuralIndexer.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Appearance/ProjectColor.swift "$out/main.swift"
 "$out/check" "$PWD/tools/tests/fixtures/semantic-database/release-6.26-schema.sql"
