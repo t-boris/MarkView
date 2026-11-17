@@ -9,6 +9,37 @@ private func projectOperationFixture(_ number: Int) -> ProjectOperation {
 }
 
 extension EditorHostTests {
+    func testProjectOperationDiscoveryScan() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("operation-scan-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("project", isDirectory: true)
+        let scripts = base.appendingPathComponent("infra/scripts", isDirectory: true)
+        let fm = FileManager.default
+        try fm.createDirectory(at: root.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("server"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: scripts, withIntermediateDirectories: true)
+        try "../infra contains the install procedure.\n".write(to: root.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        try "The scripts live in ../../infra/scripts as well.\n".write(to: root.appendingPathComponent("docs/runbook.md"), atomically: true, encoding: .utf8)
+        try #"{"scripts":{"build":"echo build"}}"#.write(to: root.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try "[project]\n".write(to: root.appendingPathComponent("server/pyproject.toml"), atomically: true, encoding: .utf8)
+        try "plugins {}\n".write(to: root.appendingPathComponent("server/build.gradle.kts"), atomically: true, encoding: .utf8)
+        try "echo install\n".write(to: scripts.appendingPathComponent("install.sh"), atomically: true, encoding: .utf8)
+        let secret = base.appendingPathComponent("infra/.env")
+        try "SECRET=do-not-read\n".write(to: secret, atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: scripts.appendingPathComponent("linked.env"), withDestinationURL: secret)
+        let first = ProjectOperationDiscovery.scan(root: root)
+        XCTAssertTrue(first.files.contains { $0.location == "package.json" })
+        XCTAssertTrue(first.files.contains { $0.location == "server/pyproject.toml" })
+        XCTAssertTrue(first.files.contains { $0.location == "server/build.gradle.kts" })
+        XCTAssertEqual(first.grantedFolders.count, 2)
+        XCTAssertEqual(Set(first.files.map(\.url.path)).count, first.files.count)
+        XCTAssertEqual(first.files.filter { $0.location.hasSuffix("install.sh") }.count, 1)
+        XCTAssertTrue(first.files.contains { $0.location.hasSuffix("install.sh") && $0.external })
+        XCTAssertFalse(first.files.contains { $0.location.hasSuffix(".env") || $0.location.hasSuffix("linked.env") })
+        try #"{"scripts":{"build":"echo changed"}}"#.write(to: root.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        XCTAssertNotEqual(first.signature, ProjectOperationDiscovery.scan(root: root).signature)
+    }
+
     @MainActor func testProjectOperationWritesAndHistory() async throws {
         func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "", line: UInt = #line) {
             XCTAssertTrue(condition, name + " " + detail(), line: line)

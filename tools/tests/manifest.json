@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 81,
+  "suiteCount": 80,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -851,15 +851,6 @@
       ]
     },
     {
-      "name": "project-operation-discovery-tests",
-      "script": "tools/tests/project-operation-discovery-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
       "name": "project-operation-merge-tests",
       "script": "tools/tests/project-operation-merge-tests.sh",
       "tier": "pure",
@@ -1687,7 +1678,8 @@
         "MarkView/Resources/Layouts/10-writing.json",
         "MarkView/Resources/Layouts/20-review.json",
         "MarkView/Resources/Layouts/30-qa.json",
-        "MarkView/Resources/Layouts/40-cockpit.json"
+        "MarkView/Resources/Layouts/40-cockpit.json",
+        "MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift"
       ]
     },
     {
