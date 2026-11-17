@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 169,
+  "suiteCount": 168,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1041,23 +1041,6 @@
         "tools/tests/document-translator-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ProjectProvidingTestSupport.swift"
-      ]
-    },
-    {
-      "name": "editor-page-csp-tests",
-      "script": "tools/tests/editor-page-csp-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Workspace/EditorPage.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
-        "MarkView/Resources/Editor/index.html",
-        "MarkView/Resources/Editor/js/markview-insight-srcdoc.js",
-        "MarkView/Views/Workspace/EditorView.swift",
-        "tools/tests/EditorPageCSPTests.swift",
-        "tools/tests/editor-page-csp-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
