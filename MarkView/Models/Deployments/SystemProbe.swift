@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// One read-only look at a machine: the script that collects it (run with `sh -s`, locally or over SSH),
 /// the parser of its output, and the health it adds up to. Foundation only, checked in

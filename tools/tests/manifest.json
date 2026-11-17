@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 190,
+  "suiteCount": 189,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -475,7 +475,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Deployments/CloudServices.swift",
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "tools/tests/CloudServicesTests.swift",
         "tools/tests/cloud-services-tests.sh"
@@ -715,16 +715,6 @@
       ]
     },
     {
-      "name": "command-policy-tests",
-      "script": "tools/tests/command-policy-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/CommandPolicy.swift",
-        "tools/tests/CommandPolicyTests.swift",
-        "tools/tests/command-policy-tests.sh"
-      ]
-    },
-    {
       "name": "control-agent-tools-tests",
       "script": "tools/tests/control-agent-tools-tests.sh",
       "tier": "pure",
@@ -818,7 +808,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Deployments/CloudServices.swift",
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DatabaseExplorer.swift",
         "MarkView/Models/Deployments/DatabaseKeychain.swift",
         "MarkView/Models/Deployments/DeploymentDiscovery.swift",
@@ -881,7 +871,7 @@
       "script": "tools/tests/deployment-discovery-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentDiscovery.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
@@ -895,7 +885,7 @@
       "script": "tools/tests/deployment-executor-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
@@ -910,7 +900,7 @@
       "script": "tools/tests/deployment-logs-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentLogs.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/Deployments/SystemProbe.swift",
@@ -923,7 +913,7 @@
       "script": "tools/tests/deployment-ssh-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
@@ -940,7 +930,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/Deployments/CloudServices.swift",
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DatabaseExplorer.swift",
         "MarkView/Models/Deployments/DatabaseKeychain.swift",
         "MarkView/Models/Deployments/DeploymentDiscovery.swift",
@@ -965,7 +955,7 @@
       "script": "tools/tests/deployment-task-ownership-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DatabaseExplorer.swift",
         "MarkView/Models/Deployments/DatabaseKeychain.swift",
         "MarkView/Models/Deployments/DeploymentDiscovery.swift",
@@ -3312,7 +3302,7 @@
       "script": "tools/tests/system-probe-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/SystemProbeTests.swift",
@@ -4446,7 +4436,7 @@
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/CommandPolicy.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/Deployments/SystemProbe.swift",

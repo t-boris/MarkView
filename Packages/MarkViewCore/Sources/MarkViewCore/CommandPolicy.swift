@@ -1,24 +1,24 @@
 import Foundation
 
 /// How risky a shell command is, decided before anything runs on a server or in a cloud CLI
-/// (Deployments). Foundation only; checked in `tools/tests/command-policy-tests.sh`.
+/// (Deployments). Foundation only; checked by the core package tests.
 ///
 /// - `readOnly`: on the short list of commands that only look (uptime, df, docker ps, journalctl…).
 ///   These run without asking.
 /// - `needsConfirmation`: anything else. It is shown to the person, with the host, and runs only after
 ///   they approve that very command.
 /// - `blocked`: never runs, approved or not (shutdown, rm -rf /, mkfs, a download piped into a shell).
-enum CommandRisk: Equatable {
+public enum CommandRisk: Equatable, Sendable {
     case readOnly
     case needsConfirmation(String)
     case blocked(String)
 
-    var isReadOnly: Bool { if case .readOnly = self { return true } else { return false } }
-    var isBlocked: Bool { if case .blocked = self { return true } else { return false } }
+    public var isReadOnly: Bool { if case .readOnly = self { return true } else { return false } }
+    public var isBlocked: Bool { if case .blocked = self { return true } else { return false } }
 }
 
-enum CommandPolicy {
-    static func classify(_ raw: String) -> CommandRisk {
+public enum CommandPolicy {
+    public static func classify(_ raw: String) -> CommandRisk {
         let command = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return .blocked("The command is empty.") }
         if let reason = blockedReason(command) { return .blocked(reason) }

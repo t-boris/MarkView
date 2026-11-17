@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Deployments: the places the project runs, and how each one is doing.
 struct DeploymentsView: View {
