@@ -1623,3 +1623,171 @@ extension EditorHostTests {
 
     }
 }
+
+
+extension EditorHostTests {
+    func testWorkflowEventPlanning() {
+        func check(_ message: String, _ condition: Bool, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+
+        let standard = ProjectWorkflow.standard
+        let inProgress = LifecycleRule(from: ["fixing"], to: "open", kind: .rollback, needs: [.human: [], .system: []], event: .workStarted)
+        let onMerge = LifecycleRule(from: ["fixing", "open"], to: "fixed", kind: .spec, needs: [.system: []], event: .pullRequestMerged)
+        let aiOnly = LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.ai: []], event: .workStarted)
+        var table = standard.bug
+        table.rules += [inProgress, onMerge, aiOnly]
+
+        check("an event finds the rule that names it and starts at the status", RuleEventPlanner.step(for: .workStarted, in: table, status: "fixing")?.id == inProgress.id)
+        check("the status is compared normalised", RuleEventPlanner.step(for: .workStarted, in: table, status: " Fixing ")?.id == inProgress.id)
+        check("an item in another status gets no step", RuleEventPlanner.step(for: .workStarted, in: table, status: "closed") == nil)
+        check("an event that no rule names changes nothing", RuleEventPlanner.step(for: .investigationFinished, in: table, status: "fixing") == nil)
+        let reviewed = LifecycleRule(from: ["backlog"], to: "ready", kind: .spec, needs: [.system: []], event: .reviewPassed)
+        let featureReview = IssueLifecycleDefinition(statuses: [WorkflowStatus(id: "backlog", role: .notStarted), WorkflowStatus(id: "ready", role: .notStarted)], rules: [reviewed])
+        check("a passed review selects the configured ready transition", RuleEventPlanner.step(for: .reviewPassed, in: featureReview, status: "backlog")?.to == "ready")
+        check("a rule that MarkView may not make is not an event step", RuleEventPlanner.step(for: .workStarted, in: table, status: "fixed") == nil)
+        check("a rule with several from-statuses applies from each", RuleEventPlanner.step(for: .pullRequestMerged, in: table, status: "open")?.to == "fixed")
+        check("the standard workflow has no event steps",
+              RuleEvent.known.allSatisfy { event in standard.bug.statusIDs.allSatisfy { RuleEventPlanner.step(for: event, in: standard.bug, status: $0) == nil } })
+
+        var firstWins = table
+        firstWins.rules.insert(LifecycleRule(from: ["fixing"], to: "closed", kind: .spec, needs: [.system: []], event: .workStarted), at: 0)
+        check("the first rule in the table wins when two match", RuleEventPlanner.step(for: .workStarted, in: firstWins, status: "fixing")?.to == "closed")
+
+        let first = RuleEventPlanner.command(.workStarted, kind: .bug, issue: "BUG-1", cause: "abc")
+        check("the command names the event, the item and the cause", first == "event:work-started:bug:BUG-1:abc")
+        check("the same cause gives the same command", first == RuleEventPlanner.command(.workStarted, kind: .bug, issue: "BUG-1", cause: "abc"))
+        check("another cause, item or event gives another command",
+              first != RuleEventPlanner.command(.workStarted, kind: .bug, issue: "BUG-1", cause: "abd")
+              && first != RuleEventPlanner.command(.workStarted, kind: .bug, issue: "BUG-2", cause: "abc")
+              && first != RuleEventPlanner.command(.pullRequestMerged, kind: .bug, issue: "BUG-1", cause: "abc"))
+        check("the reason names the event, the cause and the rule",
+              RuleEventPlanner.reason(.workStarted, rule: inProgress, cause: "abc").contains("work is started")
+              && RuleEventPlanner.reason(.workStarted, rule: inProgress, cause: "abc").contains("abc")
+              && RuleEventPlanner.reason(.workStarted, rule: inProgress, cause: "abc").contains(inProgress.id))
+
+        var watcher = MergedPullRequestWatcher()
+        check("the first look at an item only records what is merged", watcher.newlyMerged(item: "BUG-1", merged: [4, 5]).isEmpty)
+        check("nothing new, nothing reported", watcher.newlyMerged(item: "BUG-1", merged: [4, 5]).isEmpty)
+        check("a pull request merged since the last look is reported once", watcher.newlyMerged(item: "BUG-1", merged: [4, 5, 7]) == [7])
+        check("and not again", watcher.newlyMerged(item: "BUG-1", merged: [4, 5, 7]).isEmpty)
+        check("several new ones come oldest number first", watcher.newlyMerged(item: "BUG-1", merged: [4, 5, 7, 9, 8]) == [8, 9])
+        check("another item has its own first look", watcher.newlyMerged(item: "BUG-2", merged: [1]).isEmpty && watcher.newlyMerged(item: "BUG-2", merged: [1, 2]) == [2])
+        check("a pull request that drops out of the list and returns is not reported twice", {
+            var w = MergedPullRequestWatcher()
+            _ = w.newlyMerged(item: "x", merged: [1]); _ = w.newlyMerged(item: "x", merged: [1, 2]); _ = w.newlyMerged(item: "x", merged: [1])
+            return w.newlyMerged(item: "x", merged: [1, 2]).isEmpty
+        }())
+
+    }
+}
+
+
+extension EditorHostTests {
+    func testWorkflowDescription() {
+        func check(_ message: String, _ condition: Bool, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+
+        let standard = ProjectWorkflow.standard
+        let guide = WorkflowFormatGuide.text
+
+        // MARK: The guide names every value the code accepts
+
+        func guideNames(_ values: [String], _ what: String) {
+            for value in values { check("the guide names the \(what) \(value)", guide.contains("\"\(value)\"")) }
+        }
+        guideNames(LifecycleRole.allCases.map(\.rawValue), "role")
+        guideNames(TransitionKind.allCases.map(\.rawValue), "kind")
+        guideNames(LifecycleCondition.allCases.map(\.rawValue), "condition")
+        guideNames(RuleEvent.known.map(\.rawValue), "event")
+        guideNames(StartEvidenceMode.allCases.map(\.rawValue), "start mode")
+        guideNames(IntegrationPath.allCases.map(\.rawValue), "integration")
+        guideNames(AcceptanceMode.allCases.map(\.rawValue), "acceptance mode")
+        guideNames(DeliveryConfirmer.allCases.map(\.rawValue), "confirmer")
+        guideNames(DeliveryEvent.typeNames, "delivery type")
+        check("every delivery type in the list decodes",
+              DeliveryEvent.typeNames.allSatisfy { (try? JSONDecoder().decode(DeliveryEvent.self, from: Data("{\"type\":\"\($0)\"}".utf8))) != nil })
+        check("a delivery type that is not in the list does not decode", (try? JSONDecoder().decode(DeliveryEvent.self, from: Data(#"{"type":"teleport"}"#.utf8))) == nil)
+        check("every kind has a meaning", TransitionKind.allCases.allSatisfy { !$0.meaning.isEmpty })
+
+        for key in ["schema", "revision", "defaultFeatureVariant", "defaultBugVariant", "variants", "statuses", "rules", "confirmedBy", "markview_get_workflow",
+                    "markview_propose_workflow", "markview_confirm_delivery", "Workflow tab", "press Save"] {
+            check("the guide mentions \(key)", guide.contains(key))
+        }
+        check("the guide says that the assistant cannot save", guide.contains("you cannot save it") && guide.contains("Do not say that it is saved"))
+        check("the guide says what the model cannot express", guide.contains("WHAT THE MODEL CANNOT EXPRESS") && guide.contains("do not invent a field"))
+        check("the guide has examples", guide.contains("EXAMPLES") && guide.contains("investigation-finished") && guide.contains("work-started"))
+
+        // The examples in the guide are real rules: build the ones it describes and validate them.
+        var withExamples = standard
+        withExamples.bug.rules.append(LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.human: [], .ai: [], .system: []], event: .investigationFinished))
+        check("the investigation example is a valid rule", withExamples.validate().isEmpty)
+        withExamples.variants[1].delivery = .humanConfirmed(name: "Installed on mac")
+        withExamples.variants[1].confirmer = .personOrAI
+        check("the confirmation example is a valid process", withExamples.validate().isEmpty)
+
+        // MARK: A workflow in words
+
+        let described = WorkflowDescription.describe(standard)
+        check("the description names the workflow, its revision and the schema", described.contains("\u{201C}\(standard.name)\u{201D}") && described.contains("revision \(standard.revision)") && described.contains("schema 1"))
+        check("the description lists every status of both types", (standard.feature.statusIDs + standard.bug.statusIDs).allSatisfy { described.contains($0) })
+        check("the description lists the processes and their defaults", standard.variants.allSatisfy { described.contains($0.id) } && described.contains("default for bugs"))
+        check("a step says who may make it", WorkflowDescription.sentence(standard.bug.rules[0]).contains("a person:") && WorkflowDescription.sentence(standard.bug.rules[0]).contains("an AI:") && WorkflowDescription.sentence(standard.bug.rules[0]).contains("MarkView:"))
+        let eventRule = LifecycleRule(from: ["fixing"], to: "open", kind: .rollback, needs: [.human: [], .system: []], event: .workStarted)
+        check("a step with an event says that MarkView takes it itself", WorkflowDescription.sentence(eventRule).contains("MarkView takes this step itself when work is started"))
+        check("an actor without an entry is not allowed by the rules", WorkflowDescription.sentence(eventRule).contains("an AI: not by the rules"))
+        check("conditions are named in words", WorkflowDescription.sentence(standard.bug.rules.first { $0.kind == .completion }!).contains("delivery evidence"))
+
+        // MARK: Two workflows in words
+
+        check("a workflow has no difference from itself", WorkflowDescription.differences(from: standard, to: standard).isEmpty)
+        var revised = standard
+        revised.revision += 1
+        check("the revision alone is not a difference", WorkflowDescription.differences(from: standard, to: revised).isEmpty)
+        var changed = standard
+        changed.name = "Kanban"
+        check("a rename is told", WorkflowDescription.differences(from: standard, to: changed).contains { $0.contains("renamed") && $0.contains("Kanban") })
+        let newRule = LifecycleRule(from: ["fixed"], to: "fixing", kind: .spec, needs: [.human: [], .system: []], event: .workStarted)
+        changed.bug.rules.append(newRule)
+        let ruleAdded = WorkflowDescription.differences(from: standard, to: changed)
+        check("a new step is told with its event", ruleAdded.contains { $0.contains("Bug step added") && $0.contains("when work is started") })
+        var ruleChanged = changed
+        ruleChanged.bug.rules[ruleChanged.bug.rules.count - 1].event = .investigationFinished
+        check("a changed step is told", WorkflowDescription.differences(from: changed, to: ruleChanged).contains { $0.contains("Bug step fixed>fixing changes") && $0.contains("an investigation finishes") })
+        var ruleRemoved = changed
+        ruleRemoved.bug.rules.removeLast()
+        check("a removed step is told", WorkflowDescription.differences(from: changed, to: ruleRemoved).contains { $0.contains("Bug step removed: fixed>fixing") })
+
+        var statuses = standard
+        statuses.bug.statuses.append(WorkflowStatus(id: "in-review", title: "In review", role: .active))
+        check("a new status is told with its role", WorkflowDescription.differences(from: standard, to: statuses).contains { $0.contains("Bug status added: in-review") && $0.contains("active") })
+        check("a removed status says that items need a replacement",
+              WorkflowDescription.differences(from: statuses, to: standard).contains { $0.contains("Bug status removed: in-review") && $0.contains("replacement") })
+        var retitled = standard
+        retitled.bug.statuses[0].title = "Reported"
+        retitled.bug.statuses[1] = WorkflowStatus(id: standard.bug.statuses[1].id, title: standard.bug.statuses[1].title, role: .completed)
+        let statusChanges = WorkflowDescription.differences(from: standard, to: retitled)
+        check("a renamed status and a changed role are told", statusChanges.contains { $0.contains("renamed") && $0.contains("Reported") } && statusChanges.contains { $0.contains("changes its role") })
+
+        var processes = standard
+        processes.variants[1].delivery = .humanConfirmed(name: "Installed on mac")
+        processes.variants[1].confirmer = .personOrAI
+        processes.variants[1].checks = false
+        let processChanges = WorkflowDescription.differences(from: standard, to: processes)
+        check("a delivery event change is told", processChanges.contains { $0.contains("the delivery event changes") && $0.contains("Installed on mac") })
+        check("who confirms is told", processChanges.contains { $0.contains("confirmed by \u{201C}A person, or an AI with evidence\u{201D}") })
+        check("a checks change is told", processChanges.contains { $0.contains("checks become not required") })
+        var extra = standard
+        extra.variants.append(RuleVariant(id: "quick-fix", name: "Quick fix", kind: .bug, integration: .directToMain, checks: false))
+        check("a new process is told", WorkflowDescription.differences(from: standard, to: extra).contains { $0.contains("Process added: quick-fix") })
+        check("a removed process says that items need a replacement", WorkflowDescription.differences(from: extra, to: standard).contains { $0.contains("Process removed: quick-fix") && $0.contains("replacement") })
+        var own = extra
+        own.variants[own.variants.count - 1].rules = standard.bug.rules
+        check("a process that gets its own steps is told", WorkflowDescription.differences(from: extra, to: own).contains { $0.contains("gets its own") })
+        var defaults = extra
+        defaults.defaultBugVariant = "quick-fix"
+        check("a new default process is told", WorkflowDescription.differences(from: extra, to: defaults).contains { $0.contains("default bug process changes") && $0.contains("quick-fix") })
+
+    }
+}
