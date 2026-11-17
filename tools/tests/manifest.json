@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 58,
+  "suiteCount": 54,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1393,62 +1393,12 @@
       ]
     },
     {
-      "name": "research-map-document-tests",
-      "script": "tools/tests/research-map-document-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Research/ResearchDocument.swift",
-        "MarkView/Models/Research/ResearchMapDocument.swift",
-        "tools/tests/ResearchMapDocumentTests.swift",
-        "tools/tests/research-map-document-tests.sh"
-      ]
-    },
-    {
-      "name": "research-map-export-tests",
-      "script": "tools/tests/research-map-export-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Research/ResearchDocument.swift",
-        "MarkView/Models/Research/ResearchMapDocument.swift",
-        "MarkView/Models/Research/ResearchMapExport.swift",
-        "tools/tests/ResearchMapExportTests.swift",
-        "tools/tests/research-map-export-tests.sh"
-      ]
-    },
-    {
-      "name": "research-map-images-tests",
-      "script": "tools/tests/research-map-images-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Research/ResearchMapImages.swift",
-        "tools/tests/ResearchMapImagesTests.swift",
-        "tools/tests/research-map-images-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
       "name": "research-map-layout-tests",
       "script": "tools/tests/research-map-layout-tests.sh",
       "tier": "gui",
       "sources": [
         "tools/tests/research-map-layout-tests.sh",
         "tools/tests/research-map-layout.test.js"
-      ]
-    },
-    {
-      "name": "research-map-report-tests",
-      "script": "tools/tests/research-map-report-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Research/ResearchDocument.swift",
-        "MarkView/Models/Research/ResearchMapDocument.swift",
-        "MarkView/Models/Research/ResearchMapExport.swift",
-        "MarkView/Models/Research/ResearchMapReport.swift",
-        "tools/tests/ResearchMapReportTests.swift",
-        "tools/tests/research-map-report-tests.sh"
       ]
     },
     {

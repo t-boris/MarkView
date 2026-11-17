@@ -991,3 +991,929 @@ extension ResearchMapTranslationHostTests {
         check("the single-node format has no number", !ResearchMapPrompt.system(web: false, webRules: "", languageLine: "", singleNode: true).contains("\"number\""))
     }
 }
+
+extension ResearchMapTranslationHostTests {
+    func testResearchMapDocumentRules() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, name + " " + detail(), line: line)
+        }
+        func rejected(_ body: () throws -> Void) -> String? {
+            do { try body(); return nil } catch let r as ResearchMap.Rejection { return r.message } catch { return "other" }
+        }
+        typealias M = ResearchMap
+
+        func parsed(_ text: String) -> M? {
+            if case .success(let map) = M.parse(text) { return map }
+            return nil
+        }
+
+        // MARK: A new map
+
+        var map = M.new(id: "2026-11-04-docs", question: "How do we make the docs easier?\nSecond line", created: "2026-11-04",
+                        targets: ["docs/a.md"], attachments: [])
+        check("new map has one root", map.nodes.count == 1 && map.nodes[0].id == "n1" && map.nodes[0].parent.isEmpty)
+        check("root titled by the first line of the question", map.title == "How do we make the docs easier?")
+        check("new map is researching", map.status == .researching)
+        check("blank question gets a title", M.new(id: "x", question: "  ", created: "d", targets: [], attachments: []).title == "Research")
+
+        // MARK: Operations: adding
+
+        let nav = try! map.addChild(parent: "n1", title: "Navigation")
+        let search = try! map.addChild(parent: "n1", title: "Search")
+        let large = try! map.addChild(parent: nav, title: "Large repositories")
+        check("ids count up", nav == "n2" && search == "n3" && large == "n4")
+        check("outline order keeps a branch together", map.nodes.map(\.id) == ["n1", "n2", "n4", "n3"])
+        check("empty title refused", rejected { try map.addChild(parent: "n1", title: "   ") } != nil)
+        check("unknown parent refused", rejected { try map.addChild(parent: "n99", title: "x") } != nil)
+        check("title cut to 120", { var m = map; let id = try! m.addChild(parent: "n1", title: String(repeating: "a", count: 300)); return m.node(id)!.title.count == 120 }())
+        check("depth", map.depth(of: large) == 2 && map.depth(of: "n1") == 0)
+        check("descendants", map.descendants(of: "n2") == ["n4"] && map.descendants(of: "n1").count == 3)
+
+        // MARK: Operations: properties
+
+        try! map.update(id: nav, title: "Project navigation", tags: ["ux", "UX", " docs ", ""], color: "#AABBCC", description: "Find things fast.\n")
+        check("update title", map.node(nav)!.title == "Project navigation")
+        check("tags are trimmed and deduplicated", map.node(nav)!.tags == ["ux", "docs"])
+        check("colour lower-cased", map.node(nav)!.color == "#aabbcc")
+        check("description trimmed", map.node(nav)!.description == "Find things fast.")
+        check("bad colour refused", rejected { try map.update(id: nav, color: "red") } != nil)
+        check("empty colour clears", { var m = map; try! m.update(id: nav, color: ""); return m.node(nav)!.color.isEmpty }())
+        check("empty title refused on update", rejected { try map.update(id: nav, title: " ") } != nil)
+        check("root rename renames the map", { var m = map; try! m.update(id: "n1", title: "Docs"); return m.title == "Docs" }())
+        check("oversized description refused", rejected { try map.update(id: nav, description: String(repeating: "x", count: M.descriptionLimit + 1)) } != nil)
+
+        // MARK: Operations: moving (a node moves visually only; there is no move to another branch, DEC-010)
+
+        try! map.moveVisual(id: search, x: 120, y: -40)
+        check("visual move keeps the parent", map.node(search)!.parent == "n1" && map.node(search)!.x == 120 && map.node(search)!.y == -40)
+        check("visual move outside the map refused", rejected { try map.moveVisual(id: search, x: 5_000_000, y: 0) } != nil)
+
+        // MARK: Operations: connections
+
+        try! map.link(nav, search)
+        check("connection added", map.links == [M.Link(from: nav, to: search)])
+        check("same pair refused", rejected { try map.link(nav, search) } == "This connection already exists.")
+        check("reverse pair refused", rejected { try map.link(search, nav) } == "This connection already exists.")
+        check("self connection refused", rejected { try map.link(nav, nav) } != nil)
+        check("connection to a missing node refused", rejected { try map.link(nav, "n44") } != nil)
+        check("unlink either direction", { var m = map; m.unlink(search, nav); return m.links.isEmpty }())
+
+        // MARK: Operations: delete
+
+        var cascade = map
+        try! cascade.link(large, "n1")
+        let removed = try! cascade.delete(id: nav)
+        check("delete removes the branch", removed == 2 && cascade.nodes.map(\.id) == ["n1", "n3"])
+        check("delete removes the connections of removed nodes", cascade.links.isEmpty)
+        check("root cannot be deleted", rejected { try map.delete(id: "n1") } != nil)
+        check("delete keeps other connections", { var m = map; try! m.link(search, "n1"); try! m.delete(id: large); return m.links.count == 2 }())
+
+        // MARK: Operations: move a node under another parent (REQ-015, DEC-016)
+
+        var reparent = map
+        let grandchild = try! reparent.addChild(parent: large, title: "Grandchild")          // n5 under n4 under n2
+        let sibling2 = try! reparent.addChild(parent: search, title: "Sibling two")        // n6 under n3
+        try! reparent.moveVisual(id: nav, x: 10, y: 20)
+        try! reparent.moveVisual(id: large, x: 30, y: 40)
+        try! reparent.moveVisual(id: search, x: 50, y: 60)
+        try! reparent.update(id: nav, color: "#112233")
+        reparent.nodes[reparent.index(of: nav)!].evidence = [M.Evidence(label: .projectFact, text: "A fact.", source: "docs/a.md:3")]
+        let before = reparent
+        try! reparent.link(grandchild, sibling2)
+        let linksBefore = reparent.links
+        try! reparent.move(id: nav, to: search)
+        check("a moved branch becomes the last child of the new parent, with its subtree", reparent.nodes.map(\.id) == ["n1", "n3", "n6", "n2", "n4", "n5"] && reparent.node(nav)!.parent == search)
+        check("the descendants keep their parents", reparent.node(large)!.parent == nav && reparent.node(grandchild)!.parent == large)
+        check("the moved nodes lose their hand-placed positions and the others keep theirs", reparent.node(nav)!.x == nil && reparent.node(large)!.y == nil && reparent.node(search)!.x == 50 && reparent.node("n1")!.x == nil)
+        check("the other properties and the evidence stay", reparent.node(nav)!.color == "#112233" && reparent.node(nav)!.evidence.count == 1 && reparent.node(nav)!.title == "Project navigation")
+        check("the logical connections stay", reparent.links == linksBefore)
+        check("depth follows the new place", reparent.depth(of: nav) == 2 && reparent.depth(of: grandchild) == 4)
+        check("the old parent keeps its other children in order", { var m = before; let a = try! m.addChild(parent: "n1", title: "A"); try! m.move(id: search, to: a); return m.children(of: "n1").map(\.id) == ["n2", a] }())
+        check("a moved node is the last child, after the children the parent already has", reparent.children(of: search).map(\.id) == [sibling2, nav])
+        check("moving a leaf under a branch puts it after the branch's subtree", { var m = before; try! m.move(id: search, to: nav); return m.nodes.map(\.id) == ["n1", "n2", "n4", "n5", "n3", "n6"] }())
+
+        let unchanged = reparent
+        check("the root cannot be moved", rejected { var m = reparent; try m.move(id: "n1", to: search) } == "The root node cannot be moved.")
+        check("a node cannot become its own child", rejected { var m = reparent; try m.move(id: nav, to: nav) } == "A node cannot become its own child.")
+        check("a node cannot be moved under its own descendant", rejected { var m = reparent; try m.move(id: nav, to: grandchild) } == "A node cannot be moved under one of its own descendants.")
+        check("moving under the current parent is refused", rejected { var m = reparent; try m.move(id: nav, to: search) }?.contains("already the parent") == true)
+        check("an unknown node or parent is refused", rejected { var m = reparent; try m.move(id: "n99", to: search) } != nil && rejected { var m = reparent; try m.move(id: nav, to: "n99") } != nil)
+        check("a refused move changes nothing", { var m = reparent; _ = rejected { try m.move(id: nav, to: grandchild) }; return m == unchanged }())
+        check("the new parent survives a file round trip", { if case .success(let again) = M.parse(reparent.markdown()) { return again.nodes.map(\.id) == reparent.nodes.map(\.id) && again.nodes.map(\.parent) == reparent.nodes.map(\.parent) && again.links == reparent.links } else { return false } }())
+
+        // MARK: A picture beside the icon (REQ-017, DEC-018)
+
+        var pictured = map
+        try! pictured.update(id: nav, icon: "🧭", image: "images/nav.png")
+        check("a node keeps both its icon and its picture", pictured.node(nav)!.icon == "🧭" && pictured.node(nav)!.image == "images/nav.png")
+        check("the picture is one property line", pictured.markdown().contains("- image: images/nav.png"))
+        check("a map without pictures writes no image line", !map.markdown().contains("- image:"))
+        check("the picture survives a file round trip with the icon", { if case .success(let again) = M.parse(pictured.markdown()) { return again.node(nav)!.image == "images/nav.png" && again.node(nav)!.icon == "🧭" && again == pictured } else { return false } }())
+        check("the picture is in the snapshot for the page", ((pictured.snapshot()["nodes"] as? [[String: Any]])?.first { ($0["id"] as? String) == nav }?["image"] as? String) == "images/nav.png")
+        check("an https address is accepted", { var m = pictured; try! m.update(id: nav, image: "https://example.com/a.png"); return m.node(nav)!.image == "https://example.com/a.png" }())
+        check("an empty value clears the picture and keeps the icon", { var m = pictured; try! m.update(id: nav, image: ""); return m.node(nav)!.image.isEmpty && m.node(nav)!.icon == "🧭" }())
+        check("an absent value leaves the picture alone", { var m = pictured; try! m.update(id: nav, title: "Renamed"); return m.node(nav)!.image == "images/nav.png" }())
+        for bad in ["../secret.png", "images/../../secret.png", "/etc/passwd", "~/a.png", "file:///etc/passwd", "http://example.com/a.png", "javascript:alert(1)", "data:image/png;base64,AAAA", "images\\a.png", "images//a.png", "images/a.png?x=1", "https://", String(repeating: "a", count: 400)] {
+            check("a picture address is refused: \(bad.prefix(30))", rejected { var m = pictured; try m.update(id: nav, image: bad) } == "A picture is a file inside the project or an https address.")
+        }
+        check("a refused picture changes nothing", { var m = pictured; _ = rejected { try m.update(id: nav, title: "Changed", image: "../x.png") }; return m == pictured }())
+        check("a hand-written bad address is dropped when the file is read", { let text = pictured.markdown().replacingOccurrences(of: "- image: images/nav.png", with: "- image: ../secret.png"); if case .success(let again) = M.parse(text) { return again.node(nav)!.image.isEmpty } else { return false } }())
+        check("a path with a space is allowed", M.isImageAddress("images/my picture.png"))
+
+        // MARK: Operations: layouts (DEC-005, DEC-007)
+
+        var layouts = map
+        try! layouts.applyLayout(id: nav, layout: "radial")
+        try! layouts.moveVisual(id: large, x: 1, y: 1)
+        try! layouts.applyLayout(id: large, layout: "down")
+        try! layouts.applyLayout(id: "n1", layout: "right")
+        check("layout stored on the branch", layouts.node("n1")!.layout == "right")
+        check("layout of nested branches replaced", layouts.node(nav)!.layout.isEmpty && layouts.node(large)!.layout.isEmpty)
+        check("manual positions below the branch removed", layouts.node(large)!.x == nil && layouts.node(search)!.x == nil)
+        check("the branch node keeps its own position", { var m = map; try! m.moveVisual(id: nav, x: 5, y: 6); try! m.applyLayout(id: nav, layout: "up"); return m.node(nav)!.x == 5 }())
+        check("layout does not touch siblings", { var m = map; try! m.applyLayout(id: nav, layout: "up"); return m.node(search)!.x == 120 }())
+        check("unknown layout refused", rejected { try layouts.applyLayout(id: nav, layout: "zigzag") } != nil)
+        check("empty layout clears", { var m = layouts; try! m.applyLayout(id: "n1", layout: ""); return m.node("n1")!.layout.isEmpty }())
+        check("seven presets", M.layouts.count == 7 && Set(M.layouts.map(\.id)) == ["balanced", "right", "left", "down", "up", "radial", "outline"])
+
+        // MARK: Round trip (REQ-001, REQ-003, REQ-004)
+
+        var rich = map
+        try! rich.update(id: nav, description: "Intro paragraph.\n\n## A heading in the description\n### Another {#n2}\n#### Evidence\n\n```sh\n## not structure inside a fence\n```\n\nEnd.")
+        rich.nodes[rich.index(of: nav)!].evidence = [
+            M.Evidence(label: .projectFact, text: "The tree is built here.", source: "src/tree.swift:42"),
+            M.Evidence(label: .externalFact, text: "Mind maps have a centre.", source: "https://example.com/mind-maps"),
+            M.Evidence(label: .aiInference, text: "Probably useful, maybe", source: ""),
+            M.Evidence(label: .openAssumption, text: "Users have large repos.", source: ""),
+        ]
+        try! rich.applyLayout(id: search, layout: "outline")
+        try! rich.update(id: search, title: "Search [and] filters")
+        try! rich.moveVisual(id: large, x: -30, y: 70)
+        rich.addWebQueries(["mind map research", "mind map research", "docs navigation"])
+        rich.markIncomplete("timed out after 20 min")
+        rich.question = "How do we make the docs easier?\nSecond line"
+        rich.targets = ["docs/a.md"]
+        rich.attachments = ["docs/research/assets/x/y.png"]
+        rich.created = "2026-11-04"
+        rich.id = "2026-11-04-docs"
+        let text = rich.markdown()
+        let again = parsed(text)
+        check("written map is a map", M.isMap(text))
+        check("round trip equal", again == rich)
+        check("round trip is stable", again?.markdown() == text)
+        check("round trip keeps the structural lines of a description", again?.node(nav)?.description == rich.node(nav)!.description)
+        check("round trip keeps evidence", again?.node(nav)?.evidence == rich.node(nav)!.evidence)
+        check("round trip keeps titles with brackets", again?.node(search)?.title == "Search [and] filters")
+        check("round trip keeps status and reason", again?.status == .incomplete && again?.incompleteReason == "timed out after 20 min")
+        check("round trip keeps queries once", again?.webQueries == ["mind map research", "docs navigation"])
+        check("round trip keeps positions and layouts", again?.node(large)?.x == -30 && again?.node(search)?.layout == "outline")
+        check("front matter has the map type", text.hasPrefix("---\ntype: research-map\n"))
+        check("outline is a nested list with anchors", text.contains("- [How do we make the docs easier?](#n1)\n  - [Project navigation](#n2)\n    - [Large repositories](#n4)\n  - [Search \\[and\\] filters](#n3)"))
+        check("connection written with both anchors", text.contains("- [Project navigation](#n2) ↔ [Search \\[and\\] filters](#n3)"))
+        check("evidence written with its labels and sources", text.contains("- [Project fact] The tree is built here. — `src/tree.swift:42`") && text.contains("— <https://example.com/mind-maps>"))
+        check("a dash in evidence without a source is normalised", { var m = rich; m.nodes[1].evidence = [M.Evidence(label: .aiInference, text: "a — b", source: "")]; return parsed(m.markdown())?.nodes[1].evidence.first?.text == "a – b" }())
+        check("a dash inside the text of a sourced finding survives", { var m = rich; m.nodes[1].evidence = [M.Evidence(label: .projectFact, text: "a — b — c", source: "src/tree.swift:1")]; return parsed(m.markdown())?.nodes[1].evidence == m.nodes[1].evidence }())
+        check("empty connection section omitted", !M(front: FrontMatter(), nodes: [M.Node(id: "n1", parent: "", title: "A")]).markdown().contains("## Connections"))
+
+        // MARK: Edits outside the map (DEC-006)
+
+        let edited = """
+        ---
+        type: research-map
+        id: hand
+        title: Old title
+        created: 2026-11-04
+        status: complete
+        owner: boris
+        ---
+
+        # Anything
+
+        Some intro text that is not a section.
+
+        ## Question
+
+        Why?
+
+        ## Map
+
+        - [Root](#n1)
+          - [First](#n2)
+          - A new idea typed by hand
+            - [Deeper](#n7)
+        * [Second top level](#n9)
+        - [Clone of root](#n1)
+
+        ## Notes
+
+        My own notes stay.
+
+        ## Connections
+
+        - [First](#n2) ↔ [Deeper](#n7)
+        - [First](#n2) ↔ [First](#n2)
+        - [Deeper](#n7) ↔ [First](#n2)
+        - [First](#n2) ↔ [Ghost](#n55)
+        - plain text
+
+        ## Nodes
+
+        ### Root {#n1}
+
+        - tags: a, b
+        - color: #112233
+
+        Root text.
+
+        ### First {#n2}
+
+        - layout: zigzag
+        - position: 10, nope
+
+        First text
+        ### Plain heading
+        still First.
+
+        ### Orphan {#n40}
+
+        Orphan text.
+        """
+        let hand = parsed(edited)!
+        check("hand edit: root", hand.root?.id == "n1" && hand.root?.title == "Root")
+        check("hand edit: item without id gets a fresh id above every id in the file, orphan sections included", hand.nodes.contains { $0.title == "A new idea typed by hand" && $0.id == "n41" })
+        check("hand edit: nested under its parent", hand.node("n41")?.parent == "n1" && hand.node("n7")?.parent == "n41")
+        check("hand edit: second top-level item hangs under the root", hand.nodes.first { $0.title == "Second top level" }?.parent == "n1")
+        check("hand edit: repeated id gets a new one", hand.nodes.filter { $0.title == "Clone of root" }.count == 1 && hand.node("n1")?.title == "Root")
+        check("hand edit: outline order is a pre-order", hand.nodes.map(\.title) == ["Root", "First", "A new idea typed by hand", "Deeper", "Second top level", "Clone of root"])
+        check("hand edit: properties", hand.node("n1")?.tags == ["a", "b"] && hand.node("n1")?.color == "#112233")
+        check("hand edit: unknown layout ignored, bad position ignored", hand.node("n2")?.layout == "" && hand.node("n2")?.x == nil)
+        check("hand edit: a heading without an id stays in the description", hand.node("n2")?.description == "First text\n### Plain heading\nstill First.")
+        check("hand edit: orphan section dropped with its text", !hand.nodes.contains { $0.id == "n40" } && !hand.markdown().contains("Orphan text"))
+        check("hand edit: plain headings are not escaped on rewrite", hand.markdown().contains("\n### Plain heading\n"))
+        check("hand edit: only valid distinct connections", hand.links == [M.Link(from: "n2", to: "n7")])
+        check("hand edit: unknown section kept", hand.extraSections == ["## Notes\n\nMy own notes stay."])
+        check("hand edit: unknown front matter kept", hand.markdown().contains("owner: boris"))
+        check("hand edit: rewritten file reads back the same", parsed(hand.markdown()) == hand)
+        check("hand edit: question from its section", hand.question == "Why?")
+        check("hand edit: rewritten file keeps the note section", hand.markdown().contains("## Notes\n\nMy own notes stay."))
+
+        // MARK: Not a map
+
+        check("other front matter is not a map", { if case .failure = M.parse("---\ntype: research\n---\n\n# T\n") { return true }; return false }())
+        check("no front matter is not a map", { if case .failure = M.parse("# T\n\n## Map\n\n- a\n") { return true }; return false }())
+        check("no map list is not a map", { if case .failure(let p) = M.parse("---\ntype: research-map\n---\n\n# T\n"), p.message.contains("Map") { return true }; return false }())
+        check("empty map list is not a map", { if case .failure = M.parse("---\ntype: research-map\n---\n\n## Map\n\nnothing\n") { return true }; return false }())
+        check("front matter with a comment is refused", { if case .failure = M.parse("---\ntype: research-map\n# comment\n---\n\n## Map\n\n- a\n") { return true }; return false }())
+        check("isMap only for the map type", !M.isMap("---\ntype: research\n---\n") && M.isMap("---\ntype: research-map\n---\n"))
+        check("CRLF files read", parsed("---\r\ntype: research-map\r\n---\r\n\r\n## Map\r\n\r\n- [A](#n1)\r\n  - [B](#n2)\r\n")?.nodes.count == 2)
+        check("tabs indent the outline", parsed("---\ntype: research-map\n---\n\n## Map\n\n- [A](#n1)\n\t- [B](#n2)\n")?.node("n2")?.parent == "n1")
+
+        // MARK: Evidence verification
+
+        let files: Set<String> = ["src/tree.swift"]
+        let exists: (String) -> Bool = { files.contains($0) }
+        check("project fact with an existing file stays", M.verified(label: .projectFact, text: "Built here", source: "src/tree.swift:3", pathExists: exists).label == .projectFact)
+        let ghost = M.verified(label: .projectFact, text: "Built there", source: "src/ghost.swift", pathExists: exists)
+        check("project fact with a missing file becomes inference", ghost.label == .aiInference && ghost.text.contains("labelled as inference"))
+        check("external fact without a URL becomes inference", M.verified(label: .externalFact, text: "It is so", source: "", pathExists: exists).label == .aiInference)
+        check("external fact with a URL stays", M.verified(label: .externalFact, text: "It is so", source: "https://example.com/a", pathExists: exists).label == .externalFact)
+        check("inference stays", M.verified(label: .aiInference, text: "I think", source: "", pathExists: exists).label == .aiInference)
+
+        // MARK: Snapshot for the page (DEC-009)
+
+        let snap = rich.snapshot(job: M.JobInfo(kind: "research", label: "Research: x", step: "Reading", startedAt: 5), created: "n4", notice: "hello")
+        let snapJSON = M.json(snap)
+        let back = try! JSONSerialization.jsonObject(with: Data(snapJSON.utf8)) as! [String: Any]
+        check("snapshot is ok with the title", back["ok"] as? Bool == true && back["title"] as? String == rich.title)
+        check("snapshot lists nodes in outline order", (back["nodes"] as? [[String: Any]])?.map { $0["id"] as! String } == rich.nodes.map(\.id))
+        check("snapshot nodes carry null positions", ((back["nodes"] as? [[String: Any]])?.first?["x"]) is NSNull)
+        check("snapshot carries evidence labels", ((back["nodes"] as? [[String: Any]])?.first { $0["id"] as? String == "n2" }?["evidence"] as? [[String: String]])?.first?["label"] == "Project fact")
+        check("snapshot carries links, layouts, queries", (back["links"] as? [Any])?.count == 1 && (back["layouts"] as? [Any])?.count == 7 && (back["webQueries"] as? [String])?.count == 2)
+        check("snapshot carries the job and the answer fields", (back["job"] as? [String: Any])?["step"] as? String == "Reading" && back["created"] as? String == "n4" && back["notice"] as? String == "hello")
+        check("snapshot without a job has null", (try! JSONSerialization.jsonObject(with: Data(M.json(rich.snapshot()).utf8)) as! [String: Any])["job"] is NSNull)
+        let bad = try! JSONSerialization.jsonObject(with: Data(M.json(M.unreadableSnapshot(problem: "No map")).utf8)) as! [String: Any]
+        check("unreadable snapshot says why", bad["ok"] as? Bool == false && bad["problem"] as? String == "No map")
+        check("line separators are escaped for JavaScript", !M.json(["a": "x\u{2028}y"]).contains("\u{2028}"))
+
+        // MARK: Status
+
+        var status = M.new(id: "x", question: "Q", created: "d", targets: [], attachments: [])
+        status.markIncomplete("cancelled\nafter 1:02")
+        check("incomplete keeps the reason on one line", status.status == .incomplete && status.incompleteReason == "cancelled after 1:02")
+        status.markResearching()
+        check("researching clears the reason", status.status == .researching && status.incompleteReason.isEmpty)
+        status.markComplete()
+        check("complete", status.status == .complete && parsed(status.markdown())?.status == .complete)
+
+        // MARK: Icons and numbers (REQ-008, DEC-011)
+
+        var badges = M.new(id: "b", question: "Q", created: "d", targets: [], attachments: [])
+        let stepA = try! badges.addChild(parent: "n1", title: "Plan")
+        let stepB = try! badges.addChild(parent: "n1", title: "Build")
+        let stepC = try! badges.addChild(parent: "n1", title: "Ship")
+        let deep = try! badges.addChild(parent: stepB, title: "Compile")
+        check("a new node has no icon and no number", badges.node(stepA)!.icon.isEmpty && badges.node(stepA)!.number == nil)
+        try! badges.update(id: stepA, icon: "bug", number: .some(1))
+        check("a built-in icon and a number are set", badges.node(stepA)!.icon == "bug" && badges.node(stepA)!.number == 1)
+        try! badges.update(id: stepB, icon: "🔥")
+        check("one emoji is an icon", badges.node(stepB)!.icon == "🔥")
+        for emoji in ["❤️", "👩‍💻", "🇩🇪", "1️⃣"] { check("\(emoji) is accepted as one emoji", M.isIcon(emoji)) }
+        for bad in ["", "a", "1", "ab", "🔥🔥", "nonsense", "<b>", "🔥 x", "bug icon"] { check("'\(bad)' is not an icon", !M.isIcon(bad)) }
+        check("an unknown icon is refused with a message", rejected { try badges.update(id: stepC, icon: "nonsense") } != nil && badges.node(stepC)!.icon.isEmpty)
+        check("an icon is trimmed", { var m = badges; try! m.update(id: stepC, icon: "  star \n"); return m.node(stepC)!.icon == "star" }())
+        try! badges.update(id: stepA, icon: "")
+        check("an empty icon clears it", badges.node(stepA)!.icon.isEmpty && badges.node(stepA)!.number == 1)
+        check("a number outside 1…999 is refused", rejected { try badges.update(id: stepA, number: .some(0)) } != nil && rejected { try badges.update(id: stepA, number: .some(1000)) } != nil && rejected { try badges.update(id: stepA, number: .some(-3)) } != nil && badges.node(stepA)!.number == 1)
+        try! badges.update(id: stepA, number: .some(nil))
+        check("a nil number clears it", badges.node(stepA)!.number == nil)
+        try! badges.update(id: stepA, title: "Plan it")
+        check("leaving icon and number out changes neither", badges.node(stepB)!.icon == "🔥" && { var m = badges; try! m.update(id: stepB, number: .some(7)); try! m.update(id: stepB, title: "Build it"); return m.node(stepB)!.number == 7 }())
+
+        let changed = try! badges.numberChildren(of: "n1")
+        check("Number children numbers the children 1, 2, 3 in map order and nothing deeper", changed == 3 && [stepA, stepB, stepC].map { badges.node($0)!.number } == [1, 2, 3] && badges.node(deep)!.number == nil && badges.node("n1")!.number == nil)
+        check("numbering again changes nothing", try! badges.numberChildren(of: "n1") == 0)
+        try! badges.update(id: stepC, number: .some(9))
+        check("a hand-set number is renumbered by the action", try! badges.numberChildren(of: "n1") == 1 && badges.node(stepC)!.number == 3)
+        check("Remove numbers clears only the children", try! badges.numberChildren(of: "n1", clear: true) == 3 && [stepA, stepB, stepC].allSatisfy { badges.node($0)!.number == nil })
+        check("numbering a node that is gone is refused", rejected { _ = try badges.numberChildren(of: "zz") } != nil)
+
+        try! badges.update(id: stepA, icon: "rocket", number: .some(1))
+        try! badges.update(id: stepB, icon: "🔥", number: .some(2))
+        let stored = badges.markdown()
+        check("the file stores the icon and the number as properties", stored.contains("- icon: rocket") && stored.contains("- number: 1") && stored.contains("- icon: 🔥") && stored.contains("- number: 2"))
+        let badgeBack = parsed(stored)
+        check("icons and numbers survive a rewrite", badgeBack?.node(stepA)?.icon == "rocket" && badgeBack?.node(stepA)?.number == 1 && badgeBack?.node(stepB)?.icon == "🔥" && badgeBack?.node(stepB)?.number == 2 && badgeBack == badges)
+        check("a node without them writes neither line", !stored.components(separatedBy: "\n").contains { $0.hasPrefix("- icon: ") && $0.contains("star") })
+        let hostile = stored.replacingOccurrences(of: "- icon: rocket", with: "- icon: <script>").replacingOccurrences(of: "- number: 2", with: "- number: 99999")
+        let sanitised = parsed(hostile)
+        check("a bad icon or number in a hand-edited file is dropped on read, the rest is kept", sanitised?.node(stepA)?.icon == "" && sanitised?.node(stepB)?.number == nil && sanitised?.node(stepA)?.number == 1 && sanitised?.node(stepB)?.icon == "🔥")
+        check("a map written before icons existed reads as it did", { var m = badges; for i in m.nodes.indices { m.nodes[i].icon = ""; m.nodes[i].number = nil }; let text = m.markdown(); return !text.contains("- icon:") && !text.contains("- number:") && parsed(text) == m }())
+        let badgeSnap = badges.snapshot()
+        let snapNodes = badgeSnap["nodes"] as? [[String: Any]] ?? []
+        check("the snapshot carries icon and number (null when there is none)", snapNodes.first { ($0["id"] as? String) == stepA }?["number"] as? Int == 1 && snapNodes.first { ($0["id"] as? String) == stepA }?["icon"] as? String == "rocket" && snapNodes.first { ($0["id"] as? String) == "n1" }?["number"] is NSNull)
+        check("the snapshot lists the built-in icon ids", (badgeSnap["icons"] as? [String]) == M.iconIDs && Set(M.iconIDs).count == M.iconIDs.count && M.iconIDs.count == 41)
+        check("a draft with a number sets it; an invalid one is dropped", { var m = badges; let a = try! m.addNode(parent: "n1", draft: M.Draft(title: "A", number: 4)); let b = try! m.addNode(parent: "n1", draft: M.Draft(title: "B", number: 0)); return m.node(a)!.number == 4 && m.node(b)!.number == nil }())
+        check("deleting a node takes its icon and number with it", { var m = badges; _ = try! m.delete(id: stepA); return m.node(stepA) == nil && m.nodes.count == badges.nodes.count - 1 }())
+
+        // MARK: Shape and size (REQ-009, DEC-012)
+
+        var boxes = M.new(id: "s", question: "Q", created: "d", targets: [], attachments: [])
+        let boxA = try! boxes.addChild(parent: "n1", title: "Decide")
+        let boxB = try! boxes.addChild(parent: "n1", title: "Build")
+        check("a new node has the default shape and an automatic size", boxes.node(boxA)!.shape.isEmpty && boxes.node(boxA)!.width == nil && boxes.node(boxA)!.height == nil)
+        check("the shape list starts with the default and has five shapes with distinct ids", M.shapes.first?.id == M.defaultShape && M.shapes.count == 5 && Set(M.shapes.map { $0.id }).count == 5)
+        try! boxes.update(id: boxA, shape: "diamond", width: .some(240), height: .some(120))
+        check("a shape, a width and a height are set", boxes.node(boxA)!.shape == "diamond" && boxes.node(boxA)!.width == 240 && boxes.node(boxA)!.height == 120)
+        for id in M.shapes.map({ $0.id }) where id != M.defaultShape {
+            check("\(id) is stored as it is", { var m = boxes; try! m.update(id: boxB, shape: id); return m.node(boxB)!.shape == id }())
+        }
+        check("the default shape is stored as empty", { var m = boxes; try! m.update(id: boxA, shape: "rounded"); return m.node(boxA)!.shape.isEmpty }())
+        check("an empty shape restores the default", { var m = boxes; try! m.update(id: boxA, shape: ""); return m.node(boxA)!.shape.isEmpty }())
+        check("a shape is trimmed and case-insensitive", { var m = boxes; try! m.update(id: boxB, shape: "  Ellipse \n"); return m.node(boxB)!.shape == "ellipse" }())
+        check("an unknown shape is refused with a message", rejected { try boxes.update(id: boxA, shape: "star") } != nil && boxes.node(boxA)!.shape == "diamond")
+        check("a width outside \(M.widthRange) is refused", rejected { try boxes.update(id: boxA, width: .some(59)) } != nil && rejected { try boxes.update(id: boxA, width: .some(801)) } != nil && rejected { try boxes.update(id: boxA, width: .some(0)) } != nil && boxes.node(boxA)!.width == 240)
+        check("a height outside \(M.heightRange) is refused", rejected { try boxes.update(id: boxA, height: .some(27)) } != nil && rejected { try boxes.update(id: boxA, height: .some(601)) } != nil && boxes.node(boxA)!.height == 120)
+        check("the limits themselves are accepted", { var m = boxes; try! m.update(id: boxB, width: .some(60), height: .some(28)); try! m.update(id: boxB, width: .some(800), height: .some(600)); return m.node(boxB)!.width == 800 && m.node(boxB)!.height == 600 }())
+        check("a refused value changes none of shape, width and height", { var m = boxes; _ = rejected { try m.update(id: boxA, shape: "ellipse", width: .some(300), height: .some(5)) }; return m.node(boxA) == boxes.node(boxA) }())
+        try! boxes.update(id: boxA, width: .some(nil))
+        check("a nil width clears only the width", boxes.node(boxA)!.width == nil && boxes.node(boxA)!.height == 120 && boxes.node(boxA)!.shape == "diamond")
+        try! boxes.update(id: boxA, title: "Decide now")
+        check("leaving shape and size out changes neither", boxes.node(boxA)!.shape == "diamond" && boxes.node(boxA)!.height == 120)
+        try! boxes.update(id: boxA, width: .some(240))
+        try! boxes.update(id: boxB, shape: "pill", height: .some(90))
+
+        let boxText = boxes.markdown()
+        check("the file stores the shape, the width and the height as properties", boxText.contains("- shape: diamond") && boxText.contains("- width: 240") && boxText.contains("- height: 120") && boxText.contains("- shape: pill") && boxText.contains("- height: 90"))
+        let boxBack = parsed(boxText)
+        check("shape and size survive a rewrite", boxBack?.node(boxA)?.shape == "diamond" && boxBack?.node(boxA)?.width == 240 && boxBack?.node(boxA)?.height == 120 && boxBack?.node(boxB)?.shape == "pill" && boxBack?.node(boxB)?.width == nil && boxBack == boxes)
+        check("a node with the default look writes none of the lines", !boxText.components(separatedBy: "\n").contains("- shape: rounded") && { var m = boxes; for i in m.nodes.indices { m.nodes[i].shape = ""; m.nodes[i].width = nil; m.nodes[i].height = nil }; let t = m.markdown(); return !t.contains("- shape:") && !t.contains("- width:") && !t.contains("- height:") && parsed(t) == m }())
+        let boxHostile = boxText.replacingOccurrences(of: "- shape: diamond", with: "- shape: <script>").replacingOccurrences(of: "- width: 240", with: "- width: 99999").replacingOccurrences(of: "- height: 90", with: "- height: ten")
+        let boxClean = parsed(boxHostile)
+        check("a bad shape, width or height in a hand-edited file is dropped on read, the rest is kept", boxClean?.node(boxA)?.shape == "" && boxClean?.node(boxA)?.width == nil && boxClean?.node(boxA)?.height == 120 && boxClean?.node(boxB)?.height == nil && boxClean?.node(boxB)?.shape == "pill")
+        check("the default shape written by hand reads as the default", parsed(boxText.replacingOccurrences(of: "- shape: pill", with: "- shape: rounded"))?.node(boxB)?.shape == "")
+        let boxSnap = boxes.snapshot()
+        let boxNodes = boxSnap["nodes"] as? [[String: Any]] ?? []
+        let boxNodeA = boxNodes.first { ($0["id"] as? String) == boxA }
+        check("the snapshot carries shape, width and height (null when automatic)", boxNodeA?["shape"] as? String == "diamond" && boxNodeA?["width"] as? Int == 240 && boxNodeA?["height"] as? Int == 120 && boxNodes.first { ($0["id"] as? String) == "n1" }?["width"] is NSNull && boxNodes.first { ($0["id"] as? String) == boxB }?["width"] is NSNull)
+        check("the snapshot lists the shapes and the size limits", (boxSnap["shapes"] as? [[String: String]])?.map { $0["id"] ?? "" } == M.shapes.map { $0.id } && ((boxSnap["sizeLimits"] as? [String: Any])?["width"] as? [Int]) == [60, 800] && ((boxSnap["sizeLimits"] as? [String: Any])?["height"] as? [Int]) == [28, 600])
+        check("a node the AI adds has the default look", { var m = boxes; let a = try! m.addNode(parent: "n1", draft: M.Draft(title: "AI")); return m.node(a)!.shape.isEmpty && m.node(a)!.width == nil && m.node(a)!.height == nil }())
+        check("an update that names no shape or size leaves a node's look alone", { var m = boxes; try! m.update(id: boxA, title: "Renamed", tags: ["x"], description: "d"); return m.node(boxA)!.shape == "diamond" && m.node(boxA)!.width == 240 && m.node(boxA)!.height == 120 }())
+        check("deleting a node takes its shape and size with it", { var m = boxes; _ = try! m.delete(id: boxA); return m.node(boxA) == nil }())
+
+        // ---- diagram and image nodes (REQ-012, DEC-013) -------------------------------------------------------------------------------------
+        var vis = M.new(id: "v", question: "Q", created: "d", targets: [], attachments: [])
+        let visA = try! vis.addChild(parent: "n1", title: "Login flow")
+        let visB = try! vis.addChild(parent: "n1", title: "Screenshot")
+        let flowText = "```mermaid\nsequenceDiagram\n  participant U as User\n  participant S as Server\n  U->>S: sign in\n  S-->>U: token\n```\n\nThe flow in short."
+        check("a new node is a text node", vis.node(visA)!.visual.isEmpty)
+        try! vis.update(id: visA, description: flowText, visual: "diagram")
+        try! vis.update(id: visB, description: "![Login screen](images/login.png)", visual: " Image ")
+        check("a diagram and an image node are set (trimmed, case-insensitive)", vis.node(visA)!.visual == "diagram" && vis.node(visB)!.visual == "image")
+        check("an unknown visual is refused with a message and changes nothing", rejected { try vis.update(id: visA, visual: "video") } != nil && vis.node(visA)!.visual == "diagram")
+        check("an empty visual turns the node back into a text node and keeps its description", { var m = vis; try! m.update(id: visA, visual: ""); return m.node(visA)!.visual.isEmpty && m.node(visA)!.description == vis.node(visA)!.description }())
+        check("leaving visual out changes nothing", { var m = vis; try! m.update(id: visA, title: "Renamed"); return m.node(visA)!.visual == "diagram" }())
+        let visText = vis.markdown()
+        check("the file stores the property", visText.contains("- visual: diagram") && visText.contains("- visual: image"))
+        let visBack = parsed(visText)
+        check("the visual and the Mermaid fence survive a rewrite", visBack?.node(visA)?.visual == "diagram" && visBack?.node(visA)?.description == vis.node(visA)!.description && visBack == vis)
+        check("a text node writes no visual line", { var m = vis; for i in m.nodes.indices { m.nodes[i].visual = "" }; return !m.markdown().contains("- visual:") }())
+        check("a bad visual in a hand-edited file is dropped on read, the rest is kept", parsed(visText.replacingOccurrences(of: "- visual: diagram", with: "- visual: <b>"))?.node(visA)?.visual == "" && parsed(visText.replacingOccurrences(of: "- visual: diagram", with: "- visual: <b>"))?.node(visB)?.visual == "image")
+        check("the diagram source is the first mermaid fence", M.diagramSource(in: flowText) == "sequenceDiagram\n  participant U as User\n  participant S as Server\n  U->>S: sign in\n  S-->>U: token")
+        check("text without a mermaid fence has no diagram source, and neither has an unclosed or an empty one", M.diagramSource(in: "just text") == nil && M.diagramSource(in: "```mermaid\nflowchart LR") == nil && M.diagramSource(in: "```mermaid\n```") == nil && M.diagramSource(in: "```swift\nlet a = 1\n```") == nil)
+        check("the image source is the first Markdown image: alt and address, a title is cut off", M.imageSource(in: "intro ![Login screen](images/login.png \"a title\") and ![second](b.png)")?.alt == "Login screen" && M.imageSource(in: "intro ![Login screen](images/login.png \"a title\")")?.src == "images/login.png")
+        check("text without an image has no image source", M.imageSource(in: "no picture [link](x.png)") == nil && M.imageSource(in: "![](  )") == nil)
+        let visNodes = vis.snapshot()["nodes"] as? [[String: Any]] ?? []
+        check("the snapshot carries the visual", visNodes.first { ($0["id"] as? String) == visA }?["visual"] as? String == "diagram" && visNodes.first { ($0["id"] as? String) == "n1" }?["visual"] as? String == "")
+        check("the AI describing a text node's description keeps a visual node's kind", { var m = vis; try! m.update(id: visA, description: "A new description."); return m.node(visA)!.visual == "diagram" }())
+        check("a node the AI adds is a text node", { var m = vis; let a = try! m.addNode(parent: "n1", draft: M.Draft(title: "AI")); return m.node(a)!.visual.isEmpty }())
+    }
+}
+
+extension ResearchMapTranslationHostTests {
+    func testResearchMapReportRules() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, name + " " + detail(), line: line)
+        }
+        typealias M = ResearchMap
+        typealias R = ResearchMapReport
+
+        func codes(_ problems: [R.Problem]) -> Set<String> { Set(problems.map { $0.code.rawValue }) }
+        func has(_ problems: [R.Problem], _ code: R.Problem.Code) -> Bool { problems.contains { $0.code == code } }
+        func message(_ problems: [R.Problem], _ code: R.Problem.Code) -> String { problems.first { $0.code == code }?.message ?? "" }
+        func setNode(_ map: inout M, _ id: String, _ change: (inout M.Node) -> Void) {
+            guard let i = map.nodes.firstIndex(where: { $0.id == id }) else { return }
+            change(&map.nodes[i])
+        }
+        func repeated(_ text: String, _ times: Int) -> String { Array(repeating: text, count: times).joined(separator: " ") }
+
+        // MARK: Fixture 1: a small hand-built map with a diagram node and an image node
+
+        var small = M.new(id: "release", question: "How should we make releases safer?", created: "2026-11-05", targets: [], attachments: [])
+        let nBuild = try! small.addChild(parent: "n1", title: "Build")
+        let nTest = try! small.addChild(parent: "n1", title: "Test")
+        let nFlow = try! small.addChild(parent: "n1", title: "Deploy flow")
+        let nShot = try! small.addChild(parent: nFlow, title: "Staging screenshot")
+        let nBack = try! small.addChild(parent: "n1", title: "Rollback")
+        let nNotary = try! small.addChild(parent: nBuild, title: "Notarization")
+        let nRisk = try! small.addChild(parent: "n1", title: "Open risks")
+        let flowSource = "flowchart LR\n  A[Build] --> B[Test]\n  B --> C[Deploy]"
+        setNode(&small, "n1") { $0.description = "Releases are built by one script and published by hand." }
+        setNode(&small, nBuild) {
+            $0.description = "The build script signs the app."
+            $0.evidence = [M.Evidence(label: .projectFact, text: "The script signs the app with the developer identity.", source: "release.sh:12")]
+        }
+        setNode(&small, nTest) {
+            $0.description = "Standalone suites run the pure modules."
+            $0.evidence = [M.Evidence(label: .projectFact, text: "Suites live under tools/tests.", source: "tools/tests/run.sh:3"),
+                           M.Evidence(label: .aiInference, text: "Coverage of the UI is thin.", source: "")]
+        }
+        setNode(&small, nFlow) {
+            $0.visual = "diagram"
+            $0.description = "```mermaid\n\(flowSource)\n```\n\nThe flow in short."
+        }
+        setNode(&small, nShot) {
+            $0.visual = "image"
+            $0.description = "![Staging dashboard](images/staging.png)"
+        }
+        setNode(&small, nBack) {
+            $0.description = "A bad release must be undone quickly."
+            $0.evidence = [M.Evidence(label: .externalFact, text: "Blue-green deployment allows an instant rollback.", source: "https://example.com/blue-green"),
+                           M.Evidence(label: .projectFact, text: "The script can republish the previous build.", source: "release.sh:30")]
+        }
+        setNode(&small, nNotary) {
+            $0.evidence = [M.Evidence(label: .projectFact, text: "Notarization is waited for.", source: "release.sh:45")]
+        }
+        setNode(&small, nRisk) {
+            $0.evidence = [M.Evidence(label: .openAssumption, text: "The notary service stays available.", source: "")]
+        }
+        let smallIDs = small.nodes.map { $0.id }
+
+        let smallDraft = R.Draft(
+            title: "Safer releases",
+            sections: [
+                R.Draft.Section(heading: "Why releases need care", markdown: "Shipping the app is a chain of small steps that one person runs by hand, so a mistake in any of them reaches every user. This report follows the chain from the build to the way back after a bad release and says what is known and what is only assumed.", covers: ["n1"]),
+                R.Draft.Section(heading: "Building and testing", markdown: "The build script signs the app with the developer identity and then waits for notarization [1]. The standalone suites under the test folder cover the pure modules [2], although the coverage of the interface looks thin, which is an inference and not something measured.", covers: [nBuild, nTest, nNotary]),
+                R.Draft.Section(heading: "Deploying and going back", markdown: "The deployment runs in the order shown below, and a screenshot of the staging dashboard shows what a good run looks like.\n\n{{node:\(nFlow)}}\n\n{{node:\(nShot)}}\n\nIf a release turns out bad, the script can publish the previous build again [1], and a blue-green set-up would make that instant [3].\n\n{{diagram:d1}}", covers: [nFlow, nShot, nBack]),
+                R.Draft.Section(heading: "What stays open", markdown: "Everything above assumes that the notary service stays available when a release is made. If it does not, the release waits, and nothing in the process says for how long. That risk is the main open question, and it should be settled before the process is called safe.", covers: [nRisk]),
+            ],
+            diagrams: [R.Draft.Diagram(id: "d1", kind: "flowchart", what: "The decision to roll back a bad release")])
+
+        // MARK: Fixture 2: a larger generated map (6 branches, 61 nodes) and, when present, the real map of the project
+
+        var big = M.new(id: "big", question: "What does the system do?", created: "2026-11-05", targets: [], attachments: [])
+        var bigBranches: [String] = []
+        for b in 1...6 {
+            let branch = try! big.addChild(parent: "n1", title: "Branch \(b)")
+            bigBranches.append(branch)
+            setNode(&big, branch) { $0.description = "The \(b). branch." }
+            for c in 1...3 {
+                let child = try! big.addChild(parent: branch, title: "Topic \(b).\(c)")
+                setNode(&big, child) {
+                    $0.description = "What topic \(b).\(c) found."
+                    $0.evidence = [M.Evidence(label: .projectFact, text: "Fact \(b).\(c)", source: "src/branch\(b)/file\(c).swift:\(c * 10)")]
+                }
+                for d in 1...2 {
+                    let leaf = try! big.addChild(parent: child, title: "Detail \(b).\(c).\(d)")
+                    setNode(&big, leaf) { $0.evidence = [M.Evidence(label: .aiInference, text: "Inference \(b).\(c).\(d)", source: "")] }
+                }
+            }
+        }
+
+        func subtree(_ map: M, _ id: String) -> [String] { [id] + map.children(of: id).flatMap { subtree(map, $0.id) } }
+
+        /// A report in the shape of a story: an introduction, one section per branch of the root, a closing section.
+        func narrative(_ map: M) -> R.Draft {
+            let paragraph = "Эта часть карты собрана из нескольких связанных наблюдений, и вместе они показывают, как устроена соответствующая часть процесса: сначала описано нынешнее состояние, затем то, что из него следует, и наконец то, что остаётся неясным и требует проверки [1]. "
+            var sections = [R.Draft.Section(heading: "Введение", markdown: repeated(paragraph, 4), covers: ["n1"])]
+            for branch in map.children(of: "n1") {
+                sections.append(R.Draft.Section(heading: branch.title, markdown: repeated(paragraph, 5) + "\n\n" + repeated(paragraph, 3), covers: subtree(map, branch.id)))
+            }
+            sections.append(R.Draft.Section(heading: "Выводы и открытые вопросы", markdown: repeated(paragraph, 4), covers: []))
+            return R.Draft(title: "Отчёт", sections: sections, diagrams: [])
+        }
+
+        /// The old one-to-one report (ResearchMapExport.swift) reshaped into the answer format: a section per heading of the report.
+        func reshaped(_ map: M) -> R.Draft {
+            let lines = map.report(mapName: "map.md").components(separatedBy: "\n")
+            var sections: [R.Draft.Section] = []
+            var heading = "Question"
+            var body: [String] = []
+            var covers = ["n1"]
+            var next = 1
+            func flush() {
+                sections.append(R.Draft.Section(heading: heading, markdown: body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines), covers: covers))
+                body = []
+            }
+            for line in lines.dropFirst() {
+                if line.hasPrefix("##") {
+                    flush()
+                    heading = String(line.drop { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+                    covers = next < map.nodes.count ? [map.nodes[next].id] : []
+                    next += 1
+                } else {
+                    body.append(line)
+                }
+            }
+            flush()
+            return R.Draft(title: map.title, sections: sections, diagrams: [])
+        }
+
+        // MARK: Sources
+
+        let smallSources = R.sources(of: small)
+        check("sources are the distinct files and addresses of the evidence, numbered in map order", smallSources.map { $0.location } == ["release.sh", "tools/tests/run.sh", "https://example.com/blue-green"] && smallSources.map { $0.number } == [1, 2, 3])
+        check("a file keeps the lines that are cited, once each, ascending (the evidence is spread over the map in another order)", smallSources[0].lines == ["12", "30", "45"] && smallSources[2].lines.isEmpty)
+        check("a source keeps the label of each piece of evidence", smallSources[0].labels == [.projectFact, .projectFact, .projectFact] && smallSources[2].labels == [.externalFact] && smallSources[2].isWeb && !smallSources[0].isWeb)
+        check("evidence without a source is not a source", smallSources.count == 3)
+        check("a line range is split off the path", R.splitSource("a/b.swift:10-20").location == "a/b.swift" && R.splitSource("a/b.swift:10-20").lines == "10-20" && R.splitSource("a/b.swift").lines == nil)
+        check("a web address keeps its colons", R.splitSource("https://x.org:8080/a").location == "https://x.org:8080/a" && R.splitSource("https://x.org:8080/a").isWeb)
+
+        // MARK: The request
+
+        let smallPrompt = R.prompt(map: small, mapName: "release.md")
+        check("the request names every node id", smallIDs.allSatisfy { smallPrompt.user.contains("NODE \($0) |") })
+        let bigPrompt = R.prompt(map: big, mapName: "big.md")
+        check("the request names every node id of a large map", big.nodes.allSatisfy { bigPrompt.user.contains("NODE \($0.id) |") })
+        check("the request numbers the sources", smallPrompt.user.contains("[1] release.sh (lines 12, 30, 45)") && smallPrompt.user.contains("[3] https://example.com/blue-green"))
+        check("evidence in the request says which source it cites", smallPrompt.user.contains("The script signs the app with the developer identity. [source 1]") && smallPrompt.user.contains("Coverage of the UI is thin.\n") )
+        check("the request carries the question and the map's file name", smallPrompt.user.contains("How should we make releases safer?") && smallPrompt.user.contains("MAP FILE: release.md"))
+        check("the request lists the diagram and image nodes for placeholders", smallPrompt.user.contains("\(nFlow) \"Deploy flow\" (diagram)") && smallPrompt.user.contains("\(nShot) \"Staging screenshot\" (image)"))
+        check("the request does not hand over a diagram's source or an image's path", !smallPrompt.user.contains("flowchart LR") && !smallPrompt.user.contains("images/staging.png") && smallPrompt.user.contains("[the diagram]"))
+        check("the system prompt forbids a node-by-node outline and a bullet per node", smallPrompt.system.contains("NEVER write a node-by-node outline or a bullet per node"))
+        check("the system prompt asks for paragraphs, a conclusion and open questions", smallPrompt.system.contains("narrative") && smallPrompt.system.contains("open questions"))
+        check("the system prompt names the placeholders, the diagram limit and the kinds", smallPrompt.system.contains("{{node:ID}}") && smallPrompt.system.contains("{{diagram:d1}}") && smallPrompt.system.contains("At most \(R.maxDiagrams) diagrams") && R.diagramKinds.allSatisfy { smallPrompt.system.contains($0) })
+        check("the system prompt asks for citations by number and for JSON only", smallPrompt.system.contains("Cite only numbers from that list") && smallPrompt.system.contains("one JSON object and nothing else"))
+        let russianPrompt = R.prompt(map: small, mapName: "release.md", language: "Русский")
+        check("with no language chosen the report follows the language of the question", smallPrompt.system.contains("Write the whole report in the language of the question.") && !smallPrompt.system.contains("Write the whole report in Русский") && R.prompt(map: small, mapName: "m", language: "  ").system.contains("in the language of the question"))
+        check("a language chosen at export time is the instruction, headings included, and what must not be translated is named", russianPrompt.system.contains("Write the whole report in Русский: the title, the section headings") && russianPrompt.system.contains("Keep node titles you quote, file paths, web addresses, Mermaid code and code identifiers exactly as they are") && !russianPrompt.system.contains("in the language of the question"))
+        check("the language does not change the map part of the request", russianPrompt.user == smallPrompt.user)
+        check("a map without sources tells the model to cite nothing", R.prompt(map: M.new(id: "e", question: "Q", created: "d", targets: [], attachments: []), mapName: "e.md").user.contains("write no citations"))
+        check("an incomplete map says so in the request", { var m = small; m.markIncomplete("stopped"); return R.prompt(map: m, mapName: "x").user.contains("STATUS: incomplete (stopped)") }())
+        check("a long description is cut", { var m = small; setNode(&m, nTest) { $0.description = String(repeating: "word ", count: 1000) }; let p = R.prompt(map: m, mapName: "x").user; return p.count < R.prompt(map: small, mapName: "x").user.count + 1500 && p.contains("…") }())
+        check("connections are in the request", { var m = small; try! m.link(nBuild, nTest); let user = R.prompt(map: m, mapName: "x").user; return user.contains("CONNECTIONS") && user.contains("\(nBuild) \"Build\" <-> \(nTest) \"Test\"") }())
+        check("a map without connections has no such block", !smallPrompt.user.contains("CONNECTIONS"))
+        check("the answer schema is valid JSON Schema data", JSONSerialization.isValidJSONObject(R.answerSchema))
+
+        // MARK: Reading the answer
+
+        func json(_ draft: R.Draft) -> String {
+            var object: [String: Any] = [
+                "title": draft.title,
+                "sections": draft.sections.map { ["heading": $0.heading, "markdown": $0.markdown, "covers": $0.covers] as [String: Any] },
+                "diagrams": draft.diagrams.map { ["id": $0.id, "kind": $0.kind, "what": $0.what] },
+            ]
+            if !draft.sourcesHeading.isEmpty { object["sourcesHeading"] = draft.sourcesHeading }
+            return String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+        }
+        func parsedDraft(_ text: String) -> R.Draft? { if case .success(let d) = R.parse(text) { return d }; return nil }
+        func failure(_ text: String) -> R.Failure? { if case .failure(let f) = R.parse(text) { return f }; return nil }
+
+        let smallJSON = json(smallDraft)
+        check("plain JSON is read back to the same draft", parsedDraft(smallJSON) == smallDraft)
+        check("a fenced json block with prose around it is read", parsedDraft("Here is the report:\n\n```json\n\(smallJSON)\n```\n\nI hope it helps.") == smallDraft)
+        check("prose with braces before the object does not hide it", parsedDraft("The {map} has {{x}} nodes. Answer: \(smallJSON)") == smallDraft)
+        check("placeholders and braces inside strings do not end the object early", parsedDraft(smallJSON)?.sections[2].markdown.contains("{{diagram:d1}}") == true)
+        check("garbage has no JSON", failure("no json at all") == .noJSON && failure("") == .noJSON && failure("{ \"title\": ") == .noJSON)
+        check("an object without sections is not an answer", failure("{\"title\": \"x\"}") == .noJSON)
+        check("empty sections are malformed", { if case .malformed? = failure("{\"sections\": []}") { return true }; return false }())
+        check("a section of the wrong shape is malformed and says which", { if case .malformed(let why)? = failure("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\", \"covers\": []}, {\"heading\": 3}]}") { return why.contains("section 2") }; return false }())
+        check("covers of the wrong type are malformed", { if case .malformed? = failure("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\", \"covers\": \"n1\"}]}") { return true }; return false }())
+        check("a missing covers list is an empty one", parsedDraft("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\"}]}")?.sections.first?.covers == [])
+        check("a diagram of the wrong shape is malformed", { if case .malformed? = failure("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\"}], \"diagrams\": [{\"id\": \"d1\"}]}") { return true }; return false }())
+        check("the diagram kind is lower-cased and trimmed", parsedDraft("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\"}], \"diagrams\": [{\"id\": \" d1 \", \"kind\": \" Flowchart \", \"what\": \"x\"}]}")?.diagrams.first == R.Draft.Diagram(id: "d1", kind: "flowchart", what: "x"))
+        check("a null diagrams list is none", parsedDraft("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\"}], \"diagrams\": null}")?.diagrams == [])
+        check("the Sources heading is kept when it is plain and dropped when it is not", parsedDraft("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\"}], \"sourcesHeading\": \"Источники\"}")?.sourcesHeading == "Источники" && parsedDraft("{\"sections\": [{\"heading\": \"a\", \"markdown\": \"b\"}], \"sourcesHeading\": \"<b>Sources</b>\"}")?.sourcesHeading == "")
+        check("a failure has a message for the repair round", R.Failure.noJSON.message.contains("JSON") && R.Failure.malformed("x").message.contains("x"))
+
+        // MARK: Checks: a good narrative passes
+
+        check("a narrative of the small map passes every check", R.check(draft: smallDraft, map: small).isEmpty)
+        check("a narrative of the large map passes every check", R.check(draft: narrative(big), map: big).isEmpty)
+
+        // MARK: Checks: the old one-to-one report is rejected
+
+        let bigOutline = reshaped(big)
+        check("the old numbered-heading report reshaped into the answer format is rejected as an outline", has(R.check(draft: bigOutline, map: big), .headingPerNode))
+        check("the rejection says how many headings there are and what to do", message(R.check(draft: bigOutline, map: big), .headingPerNode).contains("61 nodes") && message(R.check(draft: bigOutline, map: big), .headingPerNode).contains("fewer sections"))
+        var smallOutlineMap = small
+        setNode(&smallOutlineMap, nFlow) { $0.visual = ""; $0.description = "How the deployment runs." }
+        setNode(&smallOutlineMap, nShot) { $0.visual = ""; $0.description = "The staging dashboard." }
+        let smallOutline = reshaped(smallOutlineMap)
+        check("the old report of a small map reshaped the same way is rejected too", has(R.check(draft: smallOutline, map: smallOutlineMap), .headingPerNode))
+
+        func bullets(_ count: Int) -> String { (1...count).map { "- Finding number \($0) is stated here as a short line of about eighty characters long" }.joined(separator: "\n") }
+        let listDraft = R.Draft(title: "t", sections: [
+            R.Draft.Section(heading: "Introduction", markdown: "This report lists what the map found about releases and how sure we are of each point in it.\n\n" + bullets(6), covers: ["n1", nBuild]),
+            R.Draft.Section(heading: "Body", markdown: "The findings of the body of the map follow in the list below, one line each, in map order.\n\n" + bullets(8), covers: [nTest, nFlow, nShot]),
+            R.Draft.Section(heading: "Conclusions", markdown: "The open points are listed here, and each of them needs a decision before the release process is changed.\n\n" + bullets(6), covers: [nBack, nNotary, nRisk]),
+        ], diagrams: [])
+        let listProblems = R.check(draft: listDraft, map: small)
+        check("a draft that is mostly bullet points is rejected", has(listProblems, .nodeList) && !has(listProblems, .headingPerNode))
+        check("the bullet rejection gives the share", message(listProblems, .nodeList).contains("% of the text is bullet points"))
+        check("a short list inside a narrative is fine", { var d = smallDraft; d.sections[3].markdown += "\n\n- First, ask the notary service for its limits.\n- Second, decide how long a release may wait.\n- Third, write the answer into the process."; return R.check(draft: d, map: small).isEmpty }())
+        check("a list continued on indented lines still counts as one list", { var d = listDraft; d.sections = d.sections.map { var s = $0; s.markdown = s.markdown.replacingOccurrences(of: "long", with: "long\n  and a second line of the same item"); return s }; return has(R.check(draft: d, map: small), .nodeList) }())
+
+        let thinDraft = R.Draft(title: "t", sections: [
+            R.Draft.Section(heading: "Introduction", markdown: "The question and the answer in brief, written in a couple of sentences so that the introduction has prose to start with.", covers: ["n1", nBuild, nTest]),
+            R.Draft.Section(heading: "A", markdown: "Short.", covers: [nFlow]),
+            R.Draft.Section(heading: "B", markdown: "Short.", covers: [nShot, nBack]),
+            R.Draft.Section(heading: "C", markdown: "Short.", covers: [nNotary, nRisk]),
+        ], diagrams: [])
+        check("sections with almost no prose are rejected", has(R.check(draft: thinDraft, map: small), .thinProse))
+        check("a report too short for its map is rejected", has(R.check(draft: thinDraft, map: small), .tooShort) && has({ var d = narrative(big); d.sections = d.sections.map { var s = $0; s.markdown = String(s.markdown.prefix(150)); return s }; return R.check(draft: d, map: big) }(), .tooShort))
+
+        // MARK: Checks: structure and coverage
+
+        check("fewer than three sections is rejected", has(R.check(draft: R.Draft(title: "t", sections: Array(smallDraft.sections.prefix(2)), diagrams: []), map: small), .structure))
+        check("an empty introduction is rejected", { var d = smallDraft; d.sections[0].markdown = ""; return has(R.check(draft: d, map: small), .structure) }())
+        check("a section without a heading is rejected", { var d = smallDraft; d.sections[1].heading = ""; return has(R.check(draft: d, map: small), .structure) }())
+        check("a dropped node is reported with its id and title", { var d = smallDraft; d.sections[1].covers = [nBuild, nTest]; let p = R.check(draft: d, map: small); return has(p, .missingNodes) && message(p, .missingNodes).contains("\(nNotary) \"Notarization\"") && !message(p, .missingNodes).contains("\(nTest) \"Test\"") }())
+        check("a node that is covered twice is fine", { var d = smallDraft; d.sections[3].covers.append(nBuild); return R.check(draft: d, map: small).isEmpty }())
+        check("an id that is not a node is reported", { var d = smallDraft; d.sections[3].covers.append("n99"); let p = R.check(draft: d, map: small); return has(p, .unknownNodes) && message(p, .unknownNodes).contains("n99") }())
+        check("a large map reports how many nodes are missing beyond the list", { var d = narrative(big); d.sections = [d.sections[0], d.sections[1]]; return message(R.check(draft: d, map: big), .missingNodes).contains("and 10 more") }())
+
+        // MARK: Checks: citations
+
+        check("a citation of a source the map does not have is reported", { var d = smallDraft; d.sections[1].markdown += " It was also said elsewhere [47]."; let p = R.check(draft: d, map: small); return has(p, .badCitation) && message(p, .badCitation).contains("[47]") && message(p, .badCitation).contains("[1] to [3]") }())
+        check("citation [0] is reported", { var d = smallDraft; d.sections[1].markdown += " Zero [0]."; return has(R.check(draft: d, map: small), .badCitation) }())
+        check("several citations in one bracket and ranges are checked one by one", { var d = smallDraft; d.sections[1].markdown += " Both [1, 2] and [1-3] are fine."; let ok = R.check(draft: d, map: small).isEmpty; d.sections[1].markdown += " But [2, 5] and [3-6] are not."; return ok && has(R.check(draft: d, map: small), .badCitation) }())
+        check("the numbers of a citation are read from the text", R.citations(in: "A [1] b [2, 3] c [4-6] d [7](http://x.org) e `x[9]`") == [1, 2, 3, 4, 5, 6])
+        check("code and links are not citations", { var d = smallDraft; d.sections[1].markdown += " The array `items[7]` and [8](https://example.com/blue-green) are no citations.\n\n```\nlet a = b[12]\n```"; return !has(R.check(draft: d, map: small), .badCitation) }())
+        check("a map without sources allows no citation", { var d = smallDraft; d.sections[1].markdown = "Plain text without sources is fine and long enough to be prose for the check [1]."; return has(R.check(draft: d, map: M.new(id: "e", question: "Q", created: "d", targets: [], attachments: [])), .badCitation) }())
+
+        // MARK: Checks: placeholders and diagrams
+
+        func with(_ edit: (inout R.Draft) -> Void) -> [R.Problem] { var d = smallDraft; edit(&d); return R.check(draft: d, map: small) }
+        check("a placeholder of an unknown kind is malformed", has(with { $0.sections[1].markdown += "\n\n{{picture:x}}" }, .badPlaceholder))
+        check("a placeholder without an id is malformed", has(with { $0.sections[1].markdown += "\n\n{{node}}" }, .badPlaceholder))
+        check("the old placeholder with a pipe is malformed", has(with { $0.sections[1].markdown += "\n\n{{diagram:flowchart|the flow}}" }, .badPlaceholder))
+        check("a placeholder inside a sentence is malformed", has(with { $0.sections[1].markdown += " See {{node:\(nFlow)}} for the flow." }, .badPlaceholder))
+        check("an unclosed placeholder is malformed", has(with { $0.sections[1].markdown += "\n\n{{node:\(nFlow)" }, .badPlaceholder))
+        check("{{node:ID}} of a node without a picture is reported", { let p = with { $0.sections[1].markdown += "\n\n{{node:\(nTest)}}" }; return has(p, .badNodePlaceholder) && message(p, .badNodePlaceholder).contains(nTest) }())
+        check("{{node:ID}} of a node that does not exist is reported", has(with { $0.sections[1].markdown += "\n\n{{node:n99}}" }, .badNodePlaceholder))
+        check("{{node:ID}} of the same picture twice is allowed", with { $0.sections[2].markdown += "\n\n{{node:\(nFlow)}}" }.isEmpty)
+        check("a diagram requested and not placed is reported", { let p = with { $0.sections[2].markdown = $0.sections[2].markdown.replacingOccurrences(of: "{{diagram:d1}}", with: "") }; return has(p, .diagramNotPlaced) && message(p, .diagramNotPlaced).contains("d1") }())
+        check("a diagram placed twice is reported", { let p = with { $0.sections[3].markdown += "\n\n{{diagram:d1}}" }; return has(p, .diagramPlacedTwice) && message(p, .diagramPlacedTwice).contains("2 times") }())
+        check("a placeholder for a diagram that was never requested is reported", has(with { $0.sections[3].markdown += "\n\n{{diagram:d7}}" }, .badDiagramRequest))
+        check("a diagram with an unknown kind is reported", has(with { $0.diagrams[0].kind = "mindmap" }, .badDiagramRequest))
+        check("a diagram with a bad id, no description or a repeated id is reported", has(with { $0.diagrams[0].id = "flow" }, .badDiagramRequest) && has(with { $0.diagrams[0].what = "" }, .badDiagramRequest) && has(with { $0.diagrams.append($0.diagrams[0]) }, .badDiagramRequest))
+        check("every diagram kind that DiagramKind knows is accepted", R.diagramKinds.allSatisfy { kind in with { $0.diagrams[0].kind = kind }.isEmpty })
+        check("more than the maximum of diagrams is reported", { let p = with { d in for n in 2...(R.maxDiagrams + 1) { d.diagrams.append(R.Draft.Diagram(id: "d\(n)", kind: "flowchart", what: "x")); d.sections[3].markdown += "\n\n{{diagram:d\(n)}}" } }; return has(p, .tooManyDiagrams) && R.maxDiagrams == 8 }())
+        check("exactly the maximum is fine", with { d in for n in 2...R.maxDiagrams { d.diagrams.append(R.Draft.Diagram(id: "d\(n)", kind: "pipeline", what: "x")); d.sections[3].markdown += "\n\n{{diagram:d\(n)}}" } }.isEmpty)
+        check("a placeholder inside a code block is not one", { let p = with { $0.sections[1].markdown += "\n\n```\n{{broken\n```" }; return !has(p, .badPlaceholder) }())
+
+        // MARK: Checks: nothing the map does not contain
+
+        check("an HTML tag is reported", has(with { $0.sections[1].markdown += " <div class=\"x\">boxed</div>" }, .unsafe))
+        check("a script tag is reported", has(with { $0.sections[1].markdown += " <script>alert(1)</script>" }, .unsafe))
+        check("a javascript: link is reported", has(with { $0.sections[1].markdown += " [click](javascript:alert(1))" }, .unsafe))
+        check("a click directive is reported", has(with { $0.sections[1].markdown += "\n\nclick A href \"http://evil.example\"" }, .unsafe))
+        check("HTML in a heading or in the title is reported", has(with { $0.sections[1].heading = "<b>Build</b>" }, .unsafe) && has(with { $0.title = "<img src=x>" }, .unsafe))
+        check("an autolink, a comparison and code with angle brackets are fine", with { $0.sections[1].markdown += " See <https://example.com/blue-green> for it; 3 < 4 and a > b hold, and `List<Int>` is code." }.isEmpty)
+        check("a Mermaid block written by the model is reported", has(with { $0.sections[1].markdown += "\n\n```mermaid\nflowchart LR\n A --> B\n```" }, .rawDiagram))
+        check("an image written by the model is reported", has(with { $0.sections[1].markdown += "\n\n![x](images/x.png)" }, .rawImage))
+        check("a link to an address that is not in the map is reported", { let p = with { $0.sections[1].markdown += " Read [this](https://invented.example/page)." }; return has(p, .invented) && message(p, .invented).contains("invented.example") }())
+        check("a bare address that is not in the map is reported", has(with { $0.sections[1].markdown += " See https://invented.example/page." }, .invented))
+        check("a file path that is not in the map is reported", { let p = with { $0.sections[1].markdown += " The code is in `Sources/Invented.swift:12`." }; return has(p, .invented) && message(p, .invented).contains("Sources/Invented.swift") }())
+        check("an address and a path that the map names are fine", with { $0.sections[1].markdown += " See https://example.com/blue-green and `tools/tests/run.sh:3` and `release.sh`." }.isEmpty)
+        check("a path that a description names is fine", { var m = small; setNode(&m, nTest) { $0.description = "Suites live in docs/features/slug/overview.md too." }; var d = smallDraft; d.sections[1].markdown += " See `docs/features/slug/overview.md`."; return R.check(draft: d, map: m).isEmpty }())
+
+        // MARK: Repair
+
+        let repairProblems = with { $0.sections[1].covers = [nBuild]; $0.sections[1].markdown += " <b>x</b>" }
+        let repair = R.repairPrompt(problems: repairProblems, previousAnswer: "{\"old\": true}")
+        check("the repair prompt lists every problem and the previous answer", repairProblems.count >= 2 && repairProblems.enumerated().allSatisfy { repair.contains("\($0.offset + 1). \($0.element.message)") } && repair.contains("YOUR PREVIOUS ANSWER:") && repair.contains("{\"old\": true}"))
+        check("the repair prompt without a previous answer has no such block", !R.repairPrompt(problems: repairProblems).contains("PREVIOUS ANSWER"))
+
+        // MARK: Assembly
+
+        let supplied = ["d1": "flowchart TD\n  Bad[Bad release] --> Undo[Republish previous build]"]
+        let built = R.assemble(draft: smallDraft, map: small, diagrams: supplied, mapName: "release.md", date: "2026-11-05")
+        let text = built.markdown
+        check("the report starts with the title and the byline", text.hasPrefix("# Safer releases\n\n*`release.md` · 2026-11-05*\n\n## Why releases need care\n"))
+        check("every section has its heading in order", ["## Why releases need care", "## Building and testing", "## Deploying and going back", "## What stays open", "## Sources"].map { text.range(of: $0)?.lowerBound }.compactMap { $0 }.count == 5 && text.range(of: "## Why releases")! .lowerBound < text.range(of: "## What stays open")!.lowerBound)
+        check("a diagram node is placed as its Mermaid block", text.contains("```mermaid\n\(flowSource)\n```"))
+        check("an image node is placed as its image line", text.contains("![Staging dashboard](images/staging.png)"))
+        check("a requested diagram is placed as a Mermaid block where the placeholder stood", text.contains("```mermaid\nflowchart TD\n  Bad[Bad release] --> Undo[Republish previous build]\n```") && text.contains("instant [3].\n\n```mermaid"))
+        check("no placeholder is left in the report", !text.contains("{{") && !text.contains("}}") && built.droppedDiagrams.isEmpty && built.emptyVisuals.isEmpty)
+        check("the pictures stand between the sentences they belong to", text.contains("what a good run looks like.\n\n```mermaid\nflowchart LR") && text.contains("```\n\n![Staging dashboard]"))
+        check("the Sources list is built from the evidence", text.contains("## Sources\n\n- [1] `release.sh` (12, 30, 45) — Project fact ×3\n- [2] `tools/tests/run.sh` (3) — Project fact\n- [3] <https://example.com/blue-green> — External fact\n"))
+        check("citations in the text stay as they are", text.contains("waiting for notarization [1]") || text.contains("waits for notarization [1]"))
+        var lying = smallDraft
+        lying.sections[3].markdown += "\n\n## Sources\n\n- [9] `invented/path.swift` — Project fact"
+        let lied = R.assemble(draft: lying, map: small, diagrams: supplied).markdown
+        let liedList = lied.components(separatedBy: "\n## Sources\n").last ?? ""
+        check("a Sources list the model wrote is caught by the checks, and the final list comes from the evidence only", has(R.check(draft: lying, map: small), .invented) && liedList.hasPrefix("\n- [1] `release.sh` (12, 30, 45) — Project fact ×3\n") && !liedList.contains("[9]") && lied.components(separatedBy: "\n## Sources\n").count == 2)
+        check("headings the model writes are kept below the section's own", { var d = smallDraft; d.sections[1].markdown += "\n\n# Big\n\n## Medium"; let t = R.assemble(draft: d, map: small, diagrams: supplied).markdown; return t.contains("\n### Big\n") && t.contains("\n### Medium\n") && !t.contains("\n# Big") && !t.contains("\n## Medium") }())
+        check("a diagram that was not supplied is dropped quietly and reported", { let a = R.assemble(draft: smallDraft, map: small, diagrams: [:]); return a.droppedDiagrams == ["d1"] && !a.markdown.contains("Undo[") && !a.markdown.contains("{{") && !a.markdown.contains("\n\n\n") }())
+        check("a supplied diagram that is empty or unsafe is dropped", { let a = R.assemble(draft: smallDraft, map: small, diagrams: ["d1": "  "]); let b = R.assemble(draft: smallDraft, map: small, diagrams: ["d1": "flowchart LR\n  A --> B\n  click A href \"http://x\""]); return a.droppedDiagrams == ["d1"] && b.droppedDiagrams == ["d1"] && !b.markdown.contains("click A") }())
+        check("a supplied diagram that is already fenced is not fenced twice", { let a = R.assemble(draft: smallDraft, map: small, diagrams: ["d1": "```mermaid\nflowchart LR\n  A --> B\n```"]); return a.markdown.contains("```mermaid\nflowchart LR\n  A --> B\n```") && !a.markdown.contains("```mermaid\n```mermaid") && a.droppedDiagrams.isEmpty }())
+        check("a picture the model did not place goes to the end of the section that covers it", { var d = smallDraft; d.sections[2].markdown = "The deployment runs in the order the map describes and a bad release can be undone [1]; a blue-green set-up would make that instant [3].\n\n{{diagram:d1}}"; let a = R.assemble(draft: d, map: small, diagrams: supplied).markdown; let at = a.range(of: "```mermaid\n\(flowSource)")?.lowerBound; let sec = a.range(of: "## Deploying and going back")!.lowerBound; let next = a.range(of: "## What stays open")!.lowerBound; return at != nil && at! > sec && at! < next && a.contains("![Staging dashboard](images/staging.png)") }())
+        check("a picture is placed once even when the model names it twice", { var d = smallDraft; d.sections[2].markdown += "\n\n{{node:\(nFlow)}}"; let a = R.assemble(draft: d, map: small, diagrams: supplied).markdown; return a.components(separatedBy: "flowchart LR\n  A[Build]").count == 2 }())
+        check("a visual node without content is left out and reported", { var m = small; setNode(&m, nFlow) { $0.description = "No diagram here." }; let a = R.assemble(draft: smallDraft, map: m, diagrams: supplied); return a.emptyVisuals == [nFlow] && !a.markdown.contains("flowchart LR\n  A[Build]") }())
+        check("an empty title falls back to the map's and the byline is optional", { var d = smallDraft; d.title = " "; let t = R.assemble(draft: d, map: small, diagrams: supplied).markdown; return t.hasPrefix("# How should we make releases safer?\n\n## Why releases need care") }())
+        check("the Sources heading is the one in the report's language", { var d = smallDraft; d.sourcesHeading = "Источники"; return R.assemble(draft: d, map: small, diagrams: supplied).markdown.contains("## Источники\n\n- [1]") }())
+        check("a map without sources has no Sources section", { var m = small; for i in m.nodes.indices { m.nodes[i].evidence = [] }; return !R.assemble(draft: smallDraft, map: m, diagrams: supplied).markdown.contains("## Sources") }())
+        check("the report ends with one newline and never has two blank lines in a row", text.hasSuffix("\n") && !text.hasSuffix("\n\n") && !text.contains("\n\n\n"))
+        check("the assembled report passes the same text checks as the model's text", R.unsafeReason(text.replacingOccurrences(of: "<https://example.com/blue-green>", with: "")) == nil)
+        check("an alt text cannot break out of the image syntax", { var m = small; setNode(&m, nShot) { $0.description = "![bad ] alt [x](y)](images/staging.png)" }; let line = R.assemble(draft: smallDraft, map: m, diagrams: supplied).markdown.components(separatedBy: "\n").first { $0.hasPrefix("![") } ?? ""; return line.range(of: #"^!\[[^\[\]]*\]\([^)]*\)$"#, options: .regularExpression) != nil }())
+        let bigBuilt = R.assemble(draft: narrative(big), map: big, diagrams: [:])
+        check("a narrative of the large map assembles with every branch and a Sources list", bigBuilt.markdown.contains("## Branch 6") && bigBuilt.markdown.contains("## Sources") && bigBuilt.markdown.contains("`src/branch1/file1.swift` (10)"))
+
+        // MARK: The real map of the project, when its copy is present
+
+        // A copy of a large real map, given by the environment (RESEARCH_MAP_REAL) or found in the project; the checks are skipped without one.
+        let realPath = ProcessInfo.processInfo.environment["RESEARCH_MAP_REAL"] ?? "docs/research/2026-11-05-issues-management.md"
+        if let realText = try? String(contentsOfFile: realPath, encoding: .utf8), case .success(let real) = M.parse(realText) {
+            check("real map: the request names every node id", R.prompt(map: real, mapName: "real.md").user.contains("NODES: \(real.nodes.count)") && real.nodes.allSatisfy { R.prompt(map: real, mapName: "real.md").user.contains("NODE \($0.id) |") })
+            check("real map: a story with a section per branch passes", R.check(draft: narrative(real), map: real).isEmpty)
+            check("real map: the old report reshaped into sections is rejected", has(R.check(draft: reshaped(real), map: real), .headingPerNode))
+            check("real map: a draft that drops a node is reported", { var d = narrative(real); d.sections[1].covers.removeLast(); return has(R.check(draft: d, map: real), .missingNodes) }())
+            check("real map: the assembled report has a Sources list with the files of the project", R.assemble(draft: narrative(real), map: real, diagrams: [:]).markdown.contains("## Sources"))
+        } else {
+            print("skip  real map copy not found; the generated map stood in for it")
+        }
+    }
+}
+
+extension ResearchMapTranslationHostTests {
+    func testResearchMapExportRules() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, name + " " + detail(), line: line)
+        }
+        typealias M = ResearchMap
+
+        var map = M.new(id: "x", question: "How should we cache?\nSecond line.", created: "2026-11-04", targets: [], attachments: [])
+        try! map.update(id: "n1", title: "Caching strategy", description: "The short answer.\n\n# Heading inside\nBody.")
+        let a = try! map.addChild(parent: "n1", title: "Memory cache")
+        let aa = try! map.addChild(parent: a, title: "Eviction")
+        let b = try! map.addChild(parent: "n1", title: "Disk cache")
+        try! map.update(id: a, tags: ["perf", "ram"], description: "Fast but small.")
+        map.nodes[map.index(of: a)!].evidence = [
+            M.Evidence(label: .projectFact, text: "The cache is a dictionary.", source: "src/cache.swift:12"),
+            M.Evidence(label: .externalFact, text: "LRU is common.", source: "https://example.com/lru(1)"),
+            M.Evidence(label: .aiInference, text: "Likely enough\nfor us.", source: ""),
+        ]
+        try! map.link(aa, b)
+        map.addWebQueries(["lru cache swift", "disk cache trade-offs"])
+        map.markComplete()
+
+        let report = map.report(mapName: "map.md")
+        let lines = report.components(separatedBy: "\n")
+
+        check("the report starts with the root as the only H1", lines[0] == "# Caching strategy" && lines.filter { $0.hasPrefix("# ") }.count == 1)
+        check("the question follows as a quote, every line", lines.contains("> How should we cache?") && lines.contains("> Second line."))
+        check("branches are numbered headings in map order", lines.contains("## 1 Memory cache") && lines.contains("### 1.1 Eviction") && lines.contains("## 2 Disk cache")
+              && lines.firstIndex(of: "## 1 Memory cache")! < lines.firstIndex(of: "### 1.1 Eviction")! && lines.firstIndex(of: "### 1.1 Eviction")! < lines.firstIndex(of: "## 2 Disk cache")!)
+        check("the root's description is kept and its own headings cannot break the outline", report.contains("The short answer.") && report.contains("**Heading inside**") && !lines.contains("# Heading inside"))
+        check("tags are listed", report.contains("Tags: `perf`, `ram`"))
+        check("findings carry their label", report.contains("- **Project fact**: The cache is a dictionary. (`src/cache.swift:12`)") && report.contains("- **AI inference**: Likely enough for us."))
+        check("a web source is a link, brackets kept valid", report.contains("([source](https://example.com/lru(1%29))") || report.contains("([source](https://example.com/lru(1%29)))"))
+        check("connections are written as See also on both ends", report.contains("See also: 2 Disk cache") && report.contains("See also: 1.1 Eviction"))
+        check("web searches are numbered", report.contains("1. lru cache swift") && report.contains("2. disk cache trade-offs"))
+        check("the report names the map and counts the nodes", report.contains("4 nodes") && report.contains("`map.md`"))
+        check("a complete research has no incomplete note", !report.contains("Incomplete research"))
+
+        var incomplete = map
+        incomplete.markIncomplete("stopped")
+        check("an incomplete run is noted at the top", incomplete.report(mapName: "m.md").contains("**Incomplete research:** stopped."))
+        var running = map
+        running.markResearching()
+        check("a running research is noted", running.report(mapName: "m.md").contains("still running"))
+
+        var deep = M.new(id: "d", question: "Q", created: "2026-11-04", targets: [], attachments: [])
+        var parent = "n1"
+        for level in 1...8 { parent = try! deep.addChild(parent: parent, title: "L\(level)") }
+        check("heading levels stop at six", deep.report(mapName: "d.md").components(separatedBy: "\n").allSatisfy { !$0.hasPrefix("#######") })
+
+        check("folding is not a concept of the report: every node is there", map.nodes.allSatisfy { report.contains($0.title) })
+        check("a fenced block inside a description keeps its hash lines", {
+            var m = M.new(id: "f", question: "Q", created: "2026-11-04", targets: [], attachments: [])
+            try! m.update(id: "n1", description: "```\n# comment\n```")
+            return m.report(mapName: "f.md").contains("\n# comment\n")
+        }())
+        check("the report file sits next to the map", M.reportURL(forMap: URL(fileURLWithPath: "/p/docs/research/2026-11-05-why.md")).path == "/p/docs/research/2026-11-05-why-report.md")
+        check("exporting does not change the map", map.report(mapName: "map.md") == report)
+
+        // MARK: Icons and numbers in the report (REQ-008)
+
+        var badged = M.new(id: "i", question: "Q", created: "2026-11-04", targets: [], attachments: [])
+        let plan = try! badged.addChild(parent: "n1", title: "Plan")
+        let fire = try! badged.addChild(parent: "n1", title: "Fix")
+        try! badged.update(id: "n1", icon: "target")
+        try! badged.update(id: plan, tags: ["x"], icon: "bug", number: .some(1))
+        try! badged.update(id: fire, icon: "🔥", number: .some(2))
+        let badgedLines = badged.report(mapName: "i.md").components(separatedBy: "\n")
+        check("a built-in icon is written as its name in brackets before the title", badgedLines.contains("## 1 [bug] Plan") && badgedLines[0] == "# [target] Q" || badgedLines[0].hasPrefix("# [target] "))
+        check("an emoji icon is written as it is", badgedLines.contains("## 2 🔥 Fix"))
+        check("the number is a fact line, with the tags when there are some", badgedLines.contains("Number: 1 · Tags: `x`") && badgedLines.contains("Number: 2"))
+    }
+}
+
+extension ResearchMapTranslationHostTests {
+    func testResearchMapImagesRules() {
+        func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, name + " " + detail(), line: line)
+        }
+        typealias I = ResearchMapImages
+
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] + Array(repeating: 7, count: 40))
+        let png2 = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] + Array(repeating: 9, count: 40))
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0] + Array(repeating: 1, count: 30))
+        let gif = Data("GIF89a".utf8 + Array(repeating: 2, count: 30))
+        let webp = Data("RIFF".utf8 + [0, 0, 0, 0] + "WEBP".utf8 + Array(repeating: 3, count: 20))
+        let svg = Data("<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>".utf8)
+        let html = Data("<html><body>hi</body></html>".utf8)
+
+        check("PNG by its bytes", I.fileExtension(of: png) == "png")
+        check("JPEG by its bytes", I.fileExtension(of: jpeg) == "jpg")
+        check("GIF by its bytes", I.fileExtension(of: gif) == "gif")
+        check("WebP by its bytes", I.fileExtension(of: webp) == "webp")
+        check("SVG is refused (it can carry scripts)", I.fileExtension(of: svg) == nil)
+        check("HTML is refused", I.fileExtension(of: html) == nil)
+        check("an empty or tiny file is refused", I.fileExtension(of: Data()) == nil && I.fileExtension(of: Data([0x89])) == nil)
+
+        check("a name is cut to a safe base", I.safeBase("My Screen Shot (1).PNG") == "My-Screen-Shot-1")
+        check("a path in the name is dropped", I.safeBase("../../etc/passwd.png") == "passwd" && I.safeBase("C:\\Users\\a\\pic.jpg") == "pic")
+        check("a name with nothing usable becomes image", I.safeBase("???.png") == "image" && I.safeBase("") == "image" && I.safeBase("...") == "image")
+        check("a long name is cut", I.safeBase(String(repeating: "a", count: 200) + ".png").count == 48)
+        check("non-ASCII letters do not reach the file system", I.safeBase("снимок экрана.png") == "image")
+
+        check("a good picture decodes", { if case .success(let data) = I.decode(base64: png.base64EncodedString()) { return data == png } else { return false } }())
+        check("text that is not Base64 is refused", { if case .failure(let f) = I.decode(base64: "%%% not base64 %%%") { return f.message == "The picture could not be read." } else { return false } }())
+        check("other file types are refused", { if case .failure(let f) = I.decode(base64: svg.base64EncodedString()) { return f.message == "Use a PNG, JPEG, GIF or WebP picture." } else { return false } }())
+        check("an oversized picture is refused", { if case .failure(let f) = I.decode(base64: (png + Data(repeating: 0, count: I.sizeLimit)).base64EncodedString()) { return f.message == "The picture is larger than 6 MB." } else { return false } }())
+        check("an empty picture is refused", { if case .failure = I.decode(base64: "") { return true } else { return false } }())
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-images-\(UUID().uuidString)")
+        try! FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let map = root.appendingPathComponent("docs/research/map.md")
+        try! FileManager.default.createDirectory(at: map.deletingLastPathComponent(), withIntermediateDirectories: true)
+        func stored(_ data: Data, _ name: String) -> String {
+            if case .success(let path) = I.store(base64: data.base64EncodedString(), suggestedName: name, besideMap: map) { return path }
+            return "FAILED"
+        }
+        let first = stored(png, "Screen Shot.PNG")
+        check("a picture is stored in images/ beside the map", first == "images/Screen-Shot.png" && FileManager.default.fileExists(atPath: map.deletingLastPathComponent().appendingPathComponent(first).path), first)
+        check("the stored bytes are the picture", (try? Data(contentsOf: map.deletingLastPathComponent().appendingPathComponent(first))) == png)
+        check("the same picture under the same name is reused", stored(png, "Screen Shot.PNG") == first)
+        let second = stored(png2, "Screen Shot.png")
+        check("a different picture with the same name gets a number", second == "images/Screen-Shot-2.png", second)
+        check("…and the first is not overwritten", (try? Data(contentsOf: map.deletingLastPathComponent().appendingPathComponent(first))) == png)
+        check("the kind comes from the bytes, not from the name", stored(jpeg, "photo.png") == "images/photo.jpg")
+        check("a hostile name stays inside images/", stored(gif, "../../../outside.gif") == "images/outside.gif" && !FileManager.default.fileExists(atPath: root.appendingPathComponent("outside.gif").path))
+        check("nothing was written outside images/", { let files = (try? FileManager.default.contentsOfDirectory(atPath: map.deletingLastPathComponent().path)) ?? []; return files == ["images"] }())
+        check("a refused picture writes nothing", { if case .failure = I.store(base64: svg.base64EncodedString(), suggestedName: "x.svg", besideMap: map) { return !FileManager.default.fileExists(atPath: map.deletingLastPathComponent().appendingPathComponent("images/x.svg").path) } else { return false } }())
+
+        // A folder that refuses the file: the picture is not stored, nothing partial stays and the earlier pictures keep their bytes.
+        let imagesFolder = map.deletingLastPathComponent().appendingPathComponent("images")
+        let imagesBefore = ((try? FileManager.default.contentsOfDirectory(atPath: imagesFolder.path)) ?? []).sorted()
+        chmod(imagesFolder.path, 0o555)
+        let refused = I.store(base64: png2.base64EncodedString(), suggestedName: "Refused.png", besideMap: map)
+        chmod(imagesFolder.path, 0o755)
+        check("a folder that refuses the file gives no picture", { if case .failure(let f) = refused { return f.message == "The picture could not be saved next to the map." } else { return false } }())
+        check("…and keeps what it held", ((try? FileManager.default.contentsOfDirectory(atPath: imagesFolder.path)) ?? []).sorted() == imagesBefore
+              && (try? Data(contentsOf: map.deletingLastPathComponent().appendingPathComponent(first))) == png)
+    }
+}

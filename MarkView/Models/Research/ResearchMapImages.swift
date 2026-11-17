@@ -8,7 +8,7 @@ import MarkViewCore
 /// The page sends a picture it was given (chosen, dropped or pasted) as Base64. This module checks it, works out the
 /// kind of picture from its first bytes (never from the name the page gives), and writes it into `images/` next to the
 /// map file under a safe, unique name. It touches nothing else; the node is changed by `ResearchMap.update`.
-/// Foundation only, so `tools/tests/research-map-images-tests.sh` can compile it on its own.
+/// The app-hosted tests exercise it with temporary map folders.
 enum ResearchMapImages {
     /// The folder, next to the map file, that receives the pictures.
     static let folder = "images"
