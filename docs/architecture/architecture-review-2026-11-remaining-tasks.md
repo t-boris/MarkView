@@ -93,7 +93,7 @@ Automated verification update 2026-11-16: the full `gui` tier passed 73/73 while
   and `git diff --exit-code` after a rebuild is clean in CI; `tsc --checkJs` error count equals its allow-list; inline CSS lines in
   `index.html` = 0.
 - Risk: the editor loads scripts in a fixed order and wraps entry points; a bundle that reorders anything breaks the editor silently. The
-  `editor-page-csp-tests`, app-hosted `WebPreviewHostTests` and `bridge-contract-web-tests` suites plus a hidden app-probe run (rules in `tasks/lessons.md`) must pass
+  `editor-page-csp-tests` and app-hosted `WebPreviewHostTests` and `BridgeContractHostTests` plus a hidden app-probe run (rules in `tasks/lessons.md`) must pass
   before merge.
 
 ## Group C: window architecture (D6, and D7 after it). Size L, highest risk
@@ -133,6 +133,7 @@ Move the commands to `WindowCommands` (`@Environment(\.windowCommands)`), as the
 Acceptance: the stated number of domains in the largest cycle, or a written decision that the remainder is accepted.
 
 **C5. AR-44 step 4: an app-hosted test target (D7).**
+- Editor/discussion bridge-contract WebKit checks now use shipping discussion and theme models in the app host; all 20 checks passed. The standalone suite was removed; its shared recorder and conditional stand-ins remain for other suites. The manifest now has 210 suites; its 15 checks, the pure bridge-contract suite, both affected GUI suites, all 47 hosted tests and architecture lint passed.
 - X-Ray content hierarchy checks now use the shipping `ArchNode` in the app host. All 23 checks passed; the bundled editor page is used instead of a working-directory-relative path. The standalone suite and its `ArchNode` stand-in were removed. The manifest now has 211 suites and its 15 checks passed; all 46 hosted tests and architecture lint passed.
 - The prototype runtime's WebKit and scheme-handler checks now use shipping assistant types in the app host; all 37 checks passed. The standalone suite was removed; `PrototypeCLIStub` remains for other suites. The manifest now has 212 suites and its 15 checks passed; all 45 hosted tests and architecture lint passed.
 - The main prototype file, manifest, version and prompt checks now run in the app host with shipping types; 345 checks passed. The standalone suite was removed; its shared assistant stand-in remains for other suites. The manifest now has 213 suites and its 15 checks passed; all 44 hosted tests and architecture lint passed.

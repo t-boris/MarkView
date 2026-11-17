@@ -1,13 +1,18 @@
 import Foundation
 import SwiftUI
+#if canImport(MarkView)
+@testable import MarkView
+#endif
 
 // Shared by tools/tests/bridge-contract-tests.sh and bridge-contract-web-tests.sh.
 
 // Stand-ins for types that cannot be compiled on their own (they pull in the whole app).
+#if !canImport(MarkView)
 struct HeadingItem { let id: String; let level: Int; let text: String }
 struct DiscussionTurn: Equatable { var question: String; var answer: String }
 enum DiscussionStore { struct Live: Equatable { var question: String; var text: String; var status: String } }
 final class WindowTheme: ObservableObject { var firstPaintScript = ""; var webArguments = WebThemeArguments(id: "", accent: nil, payload: "{}") }
+#endif
 
 /// What the delegate was told, in order.
 final class RecordingDelegate: WebViewBridgeDelegate {

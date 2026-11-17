@@ -2,7 +2,7 @@
 # AR-28: one declared bridge contract (MarkView/Resources/Editor/js/bridge-contract.json) used by both sides of the bridge.
 #   Both directions (every handler in the contract, every contract message with a handler), real delivery through the typed
 #   handlers, refusals logged without values, and the page's validator (mv-kit.js in JavaScriptCore) against the app's validator
-#   on the same cases. The window-less part; the shipped pages are driven by bridge-contract-web-tests.sh.
+#   on the same cases. The window-less part; the shipped pages are driven by BridgeContractHostTests.
 #   tools/tests/bridge-contract-tests.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."

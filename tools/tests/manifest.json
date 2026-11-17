@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 211,
+  "suiteCount": 210,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2968,7 +2968,19 @@
         "MarkView/Views/Prototype/PrototypeStudioView.swift",
         "MarkViewHostedTests/PrototypeRuntimeHostTests.swift",
         "MarkView/Models/Architecture/XRayContent.swift",
-        "MarkViewHostedTests/XRayContentHostTests.swift"
+        "MarkViewHostedTests/XRayContentHostTests.swift",
+        "MarkView/Bridge/DataFileSchemeHandler.swift",
+        "MarkView/Bridge/WebViewBridge.swift",
+        "MarkView/Models/Insight/InsightModels.swift",
+        "MarkView/Models/Shared/SemanticModels.swift",
+        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
+        "MarkView/Resources/Editor/discussion.html",
+        "MarkView/Resources/Editor/js/markview-bridge.js",
+        "MarkView/Resources/Editor/js/markview-discussion.js",
+        "MarkView/Resources/Editor/js/mv-kit.js",
+        "MarkView/Views/Discussion/DiscussionThreadView.swift",
+        "tools/tests/BridgeContractSupport.swift",
+        "MarkViewHostedTests/BridgeContractHostTests.swift"
       ]
     },
     {
@@ -4418,38 +4430,6 @@
         "tools/tests/BridgeContractSupport.swift",
         "tools/tests/BridgeContractTests.swift",
         "tools/tests/bridge-contract-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
-      ]
-    },
-    {
-      "name": "bridge-contract-web-tests",
-      "script": "tools/tests/bridge-contract-web-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Bridge/DataFileSchemeHandler.swift",
-        "MarkView/Bridge/PageMessages.swift",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Bridge/WebViewBridge.swift",
-        "MarkView/Models/Appearance/AppFontScale.swift",
-        "MarkView/Models/Insight/InsightModels.swift",
-        "MarkView/Models/Shared/SemanticModels.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
-        "MarkView/Resources/Editor/discussion.html",
-        "MarkView/Resources/Editor/index.html",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/markview-bridge.js",
-        "MarkView/Resources/Editor/js/markview-discussion.js",
-        "MarkView/Resources/Editor/js/mv-kit.js",
-        "MarkView/Views/Discussion/DiscussionThreadView.swift",
-        "tools/tests/BridgeContractSupport.swift",
-        "tools/tests/BridgeContractWebTests.swift",
-        "tools/tests/bridge-contract-web-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",

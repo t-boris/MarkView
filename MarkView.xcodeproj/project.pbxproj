@@ -597,6 +597,8 @@
 		E9C491E621914931A1A491FA /* PrototypeFilesHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */; };
 		3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */; };
 		18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */; };
+		888D7D7293164640BA1D1FDB /* BridgeContractHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */; };
+		3BD2BE7605384CD59567FAB3 /* BridgeContractSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1309,6 +1311,8 @@
 		9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFilesHostTests.swift; sourceTree = "<group>"; };
 		706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeRuntimeHostTests.swift; sourceTree = "<group>"; };
 		193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayContentHostTests.swift; sourceTree = "<group>"; };
+		4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeContractHostTests.swift; sourceTree = "<group>"; };
+		B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BridgeContractSupport.swift; path = ../tools/tests/BridgeContractSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2534,6 +2538,8 @@
 				9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */,
 				706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */,
 				193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */,
+				4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */,
+				B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3391,6 +3397,8 @@
 				E9C491E621914931A1A491FA /* PrototypeFilesHostTests.swift in Sources */,
 				3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */,
 				18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */,
+				888D7D7293164640BA1D1FDB /* BridgeContractHostTests.swift in Sources */,
+				3BD2BE7605384CD59567FAB3 /* BridgeContractSupport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

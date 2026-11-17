@@ -1,29 +1,21 @@
 import AppKit
 import WebKit
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-// AR-28 in real WebKit (hidden window): the shipped pages send through mvBridge, the typed handlers take what the contract allows
-// and refuse what it does not.
-//   - The editor page (index.html) with the real WebViewBridge: a document loaded the way the app loads it makes the page itself send
-//     contentChanged and headingsUpdated, and the delegate gets them; a message the contract allows reaches its handler; a message
-//     that is mistyped or undeclared is refused by the page (console, nothing posted) and, when posted around mvBridge, by the app
-//     (logged by type and field name, never by value); a top-frame-only message from a sub-frame is refused.
-//   - The discussion page (discussion.html) with the real coordinator: the page's own `ready` message reaches its typed handler,
-//     which sends the turns, and they appear in the page.
-// Run through tools/tests/bridge-contract-web-tests.sh (argument 1: the bundled editor folder).
-MainActor.assumeIsolated {
-setvbuf(stdout, nil, _IONBF, 0)
-let editor = CommandLine.arguments[1]
+final class BridgeContractHostTests: XCTestCase {
+    @MainActor func testEditorAndDiscussionBridge() throws {
+let editor = try XCTUnwrap(Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor")).deletingLastPathComponent().path
 var failures = 0
+var checks = 0
 func check(_ ok: Bool, _ message: String, _ detail: String = "") {
+    checks += 1
     if !ok { failures += 1 }
     print("\(ok ? "ok  " : "FAIL") \(message) \(ok ? "" : String(detail.prefix(700)))")
 }
-DispatchQueue.global().asyncAfter(deadline: .now() + 150) {
-    print("TIMEOUT: no result after 150 s")
-    exit(1)
-}
-
-NSApplication.shared.setActivationPolicy(.prohibited)
+let previousContract = BridgeContract.bundledURL
+defer { BridgeContract.bundledURL = previousContract }
 BridgeContract.bundledURL = URL(fileURLWithPath: editor + "/js/bridge-contract.json")
 let contract = try! BridgeContract(contentsOf: BridgeContract.bundledURL!)
 
@@ -48,10 +40,11 @@ final class Loaded: NSObject, WKNavigationDelegate {
         config.userContentController.addUserScript(contract.userScript)
         web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1100, height: 760), configuration: config)
         window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.alphaValue = 0
         window.contentView = web
         web.navigationDelegate = loaded
-        web.loadFileURL(URL(fileURLWithPath: CommandLine.arguments[1] + "/" + file), allowingReadAccessTo: URL(fileURLWithPath: CommandLine.arguments[1]))
+        web.loadFileURL(Bundle.main.url(forResource: (file as NSString).deletingPathExtension, withExtension: (file as NSString).pathExtension, subdirectory: "Editor")!, allowingReadAccessTo: Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor")!.deletingLastPathComponent())
     }
     func js(_ body: String, timeout: TimeInterval = 20) -> String {
         var out: String?
@@ -74,6 +67,7 @@ bridge.delegate = delegate
 var refusals: [String] = []
 bridge.messages.reject = { refusals.append($0) }
 let editorPage = Page(file: "index.html", handlerName: "bridge", handler: bridge.messages, contract: contract)
+defer { editorPage.web.stopLoading(); editorPage.window.close() }
 spin(30) { editorPage.loaded.done }
 check(editorPage.loaded.done, "the shipping editor page loaded")
 spin(2)
@@ -152,8 +146,9 @@ check(delegate.calls == ["didClickLink"], "a message any frame may send is taken
 
 let coordinator = DiscussionThreadView.Coordinator()
 let discussion = Page(file: "discussion.html", handlerName: "discussion", handler: coordinator.messages, contract: contract)
+defer { discussion.web.stopLoading(); discussion.window.close() }
 coordinator.view = discussion.web
-coordinator.update(turns: [DiscussionTurn(question: "Which contract?", answer: "The one in bridge-contract.json.")], live: nil, theme: WebThemeArguments(id: "classic-dark", accent: nil, payload: "{}"))
+coordinator.update(turns: [DiscussionTurn(id: 1, question: "Which contract?", answer: "The one in bridge-contract.json.", createdAt: Date())], live: nil, theme: WebThemeArguments(id: "classic-dark", accent: nil, payload: "{}"))
 var discussionRefusals: [String] = []
 coordinator.messages.reject = { discussionRefusals.append($0) }
 spin(30) { discussion.loaded.done }
@@ -168,14 +163,14 @@ check(refusedByPage == "false:false:2", "the discussion page refuses an empty co
 
 // A hostile turn: the page shows markup and quote characters as text (AR-29: it escapes through mvKit.escapeHtml).
 let hostileQuestion = "<img src=x onerror=window.__pwn=1> it's \"quoted\" & <b>bold</b>"
-coordinator.update(turns: [DiscussionTurn(question: hostileQuestion, answer: "plain answer")], live: nil, theme: WebThemeArguments(id: "classic-dark", accent: nil, payload: "{}"))
+coordinator.update(turns: [DiscussionTurn(id: 2, question: hostileQuestion, answer: "plain answer", createdAt: Date())], live: nil, theme: WebThemeArguments(id: "classic-dark", accent: nil, payload: "{}"))
 spin(10) { discussion.js("return document.getElementById('thread').textContent;").contains("plain answer") }
 let hostile = discussion.js("const q = document.querySelector('#thread .q'); return JSON.stringify({ text: q ? q.textContent : null, imgs: document.querySelectorAll('#thread img, #thread .q b').length, ran: window.__pwn === undefined });")
 let hostileResult = (try? JSONSerialization.jsonObject(with: Data(hostile.utf8))) as? [String: Any] ?? [:]
 check(hostileResult["text"] as? String == hostileQuestion && hostileResult["imgs"] as? Int == 0 && hostileResult["ran"] as? Bool == true,
       "a question with markup and both quote characters is shown as text and runs nothing", hostile)
 
-print("\(failures) failures")
-exit(failures == 0 ? 0 : 1)
-
+        print("Bridge contract hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
 }
