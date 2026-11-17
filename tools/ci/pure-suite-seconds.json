@@ -24,7 +24,6 @@
   "discussion-tests": 5.4,
   "document-files-tests": 0.1,
   "feature-flow-coordinator-tests": 62.0,
-  "file-operations-tests": 9.7,
   "git-task-ownership-tests": 16.2,
   "github-command-tests": 13.7,
   "insight-coordinator-tests": 67.3,

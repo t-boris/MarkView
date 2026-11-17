@@ -1,17 +1,14 @@
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
 /// Behaviour of the shipping `FileOperationsController` (`AR-14` step 2) on real temporary folders and the real `TabsController`: moving,
 /// copying, dropping, renaming, trashing and creating, with the tabs that follow or close and the refresh of the file tree. Nothing here
 /// shows a dialog or a window; the Trash is a folder of the check, so no file reaches the person's Trash.
-@main
-enum FileOperationsChecks {
-    nonisolated(unsafe) static var failures = 0
-
-    static func check(_ condition: Bool, _ message: String) {
-        if !condition {
-            failures += 1
-            FileHandle.standardError.write(Data("FAIL: \(message)\n".utf8))
-        }
+private enum FileOperationsChecks {
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
 
     /// The window around the controller: it only counts how often the file tree was asked to read the disk.
@@ -81,18 +78,14 @@ enum FileOperationsChecks {
         do { try await body(Window(root: url)) } catch { check(false, "a fixture could not be made: \(error)") }
     }
 
-    static func main() async {
+    static func run() async {
         await movingAndCopying()
         await dropping()
         await renaming()
         await trashing()
         await creating()
         await archives()
-        if failures > 0 {
-            FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
-            exit(1)
-        }
-        print("FileOperationsController: move, copy, drop, rename, trash, create, archives, tabs and refreshes passed")
+
     }
 
     @MainActor
@@ -320,4 +313,7 @@ enum FileOperationsChecks {
     }
 }
 
-actor SemanticDatabase {}
+
+extension EditorHostTests {
+    func testFileOperationsLifecycle() async { await FileOperationsChecks.run() }
+}

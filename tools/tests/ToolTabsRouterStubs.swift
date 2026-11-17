@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 // Compile-time stand-ins for what the tools' hosts and the router hold but the checks do not exercise: the sessions a tab can carry
-// (they replace TabsControllerStubs.swift, with the classes the hosts build), the QA model and Feature store the router wires, the
+// (including the classes the hosts build), the QA model and Feature store the router wires, the
 // Cockpit's window contract, the assistant and its usage record, and Prototype Studio's files. The shipping router, hosts, tabs
 // controller, panels, deployment store and discussion store run unchanged beside them.
 struct InsightSession {

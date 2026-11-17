@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 94,
+  "suiteCount": 93,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -704,42 +704,6 @@
         "tools/tests/FeatureFlowCoordinatorStubs.swift",
         "tools/tests/FeatureFlowCoordinatorTests.swift",
         "tools/tests/feature-flow-coordinator-tests.sh"
-      ]
-    },
-    {
-      "name": "file-operations-tests",
-      "script": "tools/tests/file-operations-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "MarkView/Models/Architecture/XRayScope.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "MarkView/Models/Workspace/FileOperationsController.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/FileTransfer.swift",
-        "MarkView/Models/Shared/ProjectProviding.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
-        "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "tools/tests/FileOperationsTests.swift",
-        "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/file-operations-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ProjectProvidingTestSupport.swift"
       ]
     },
     {
@@ -1886,7 +1850,10 @@
         "MarkView/Models/Insight/SemanticUsage.swift",
         "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
         "tools/tests/ProjectProvidingTestSupport.swift",
-        "MarkViewHostedTests/DocumentTranslatorHostTests.swift"
+        "MarkViewHostedTests/DocumentTranslatorHostTests.swift",
+        "MarkView/Models/Workspace/FileOperationsController.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/FileTransfer.swift",
+        "MarkViewHostedTests/FileOperationsHostTests.swift"
       ]
     },
     {
