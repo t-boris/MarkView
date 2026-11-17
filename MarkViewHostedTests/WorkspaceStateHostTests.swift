@@ -710,3 +710,142 @@ extension EditorHostTests {
 
     }
 }
+
+
+extension EditorHostTests {
+    func testIssueReferenceAndOutcomeParsingOffline() {
+        func check(_ name: String, _ condition: Bool, line: UInt = #line) {
+            XCTAssertTrue(condition, name, line: line)
+        }
+        let origin = "t-boris/MarkView"
+        func t(_ number: Int, _ repo: String? = nil) -> IssueSyncTarget { IssueSyncTarget(repo: repo ?? origin, number: number) }
+        func feature(_ id: String, _ status: String, fields: [String] = [], texts: [String] = []) -> IssueSyncItem {
+            IssueSyncItem(kind: .feature, id: id, title: id, status: status, fieldValues: fields, texts: texts)
+        }
+        func bug(_ id: String, _ status: String, fields: [String] = [], texts: [String] = []) -> IssueSyncItem {
+            IssueSyncItem(kind: .bug, id: id, title: id, status: status, fieldValues: fields, texts: texts)
+        }
+        func targets(_ item: IssueSyncItem) -> [IssueSyncTarget] { IssueSyncLinks.references(of: item, origin: origin).map(\.target) }
+
+        // MARK: Explicit references (REQ-002, DEC-001, DEC-006)
+
+        check("field #n resolves to origin", targets(feature("f", "", fields: ["#36"])) == [t(36)])
+        check("field bare number resolves to origin", targets(feature("f", "", fields: ["12"])) == [t(12)])
+        check("field owner/repo#n", targets(feature("f", "", fields: ["t-boris/MarkView#7"])) == [t(7)])
+        check("field full issue URL", targets(feature("f", "", fields: ["https://github.com/t-boris/MarkView/issues/9"])) == [t(9)])
+        check("field several values in one string", targets(feature("f", "", fields: ["#1, #2"])) == [t(1), t(2)])
+        check("repository compared without case", t(5, "T-Boris/markview") == t(5))
+        check("text issue URL resolves", targets(feature("f", "", texts: ["See https://github.com/t-boris/MarkView/issues/40 here"])) == [t(40)])
+        check("text URL with comment anchor", targets(feature("f", "", texts: ["https://github.com/t-boris/MarkView/issues/41#issuecomment-1"])) == [t(41)])
+        check("text 'issue #n' is not a link", targets(feature("f", "", texts: ["Fixes issue #12 and #13"])).isEmpty)
+        check("text PR URL is not an issue reference", targets(feature("f", "", texts: ["https://github.com/t-boris/MarkView/pull/51"])).isEmpty)
+        check("duplicates across fields and text kept once",
+              targets(feature("f", "", fields: ["#3", "3"], texts: ["https://github.com/t-boris/MarkView/issues/3"])) == [t(3)])
+        check("item linked to several issues keeps each",
+              targets(feature("f", "", fields: ["#1", "#2"], texts: ["https://github.com/t-boris/MarkView/issues/4"])) == [t(1), t(2), t(4)])
+        let pullField = IssueSyncLinks.fieldReferences(["https://github.com/t-boris/MarkView/pull/8"], origin: origin)
+        check("field PR URL is a pull link", pullField.count == 1 && pullField[0].isPullLink && pullField[0].target == t(8))
+
+        // MARK: Explicit fields hold references, not prose (BUG-033, REQ-002)
+        // Sync closes issues without a preview, so a number inside an anchor, a version or a sentence must
+        // never become a link. A field value is either a list of references or prose; in prose only full
+        // issue and pull request URLs count.
+
+        func fieldTargets(_ value: String) -> [IssueSyncTarget] { targets(feature("f", "", fields: [value])) }
+        let home = "https://github.com/t-boris/MarkView"
+        check("field URL with comment anchor links only its issue", fieldTargets("\(home)/issues/41#issuecomment-1234") == [t(41)])
+        check("field URL with query links only its issue", fieldTargets("\(home)/issues/9?notification_referrer_id=77") == [t(9)])
+        check("field URL with trailing slash", fieldTargets("\(home)/issues/9/") == [t(9)])
+        check("field URL without scheme", fieldTargets("github.com/t-boris/MarkView/issues/9") == [t(9)])
+        let anchoredPull = IssueSyncLinks.fieldReferences(["\(home)/pull/8#issuecomment-5"], origin: origin)
+        check("field PR URL with anchor is one pull link", anchoredPull.count == 1 && anchoredPull[0].isPullLink && anchoredPull[0].target == t(8))
+        check("field URL followed by letters is not a link", fieldTargets("\(home)/issues/41abc").isEmpty)
+        check("field sentence with a bare number is not a link", fieldTargets("see issue 12 in v2.3").isEmpty)
+        check("field version is not a link", fieldTargets("v2.3").isEmpty && fieldTargets("2.3").isEmpty && fieldTargets("1.0.4").isEmpty)
+        check("field sentence with #n is not a link", fieldTargets("see #12 for details").isEmpty)
+        check("field #n with a note is not a link", fieldTargets("#36 (main)").isEmpty)
+        check("field words between references make it prose", fieldTargets("#1 and #2").isEmpty)
+        check("field owner/repo#n inside prose is not a link", fieldTargets("part of t-boris/MarkView#7").isEmpty)
+        check("field owner/repo#n with a suffix is not a link", fieldTargets("t-boris/MarkView#7.1").isEmpty)
+        check("field number with a suffix is not a link", fieldTargets("12abc").isEmpty && fieldTargets("#12abc").isEmpty && fieldTargets("12.").isEmpty)
+        check("field URL inside prose still links", fieldTargets("fixed in \(home)/issues/41, released in v2.3") == [t(41)])
+        check("field list separators", fieldTargets("#1; #2") == [t(1), t(2)] && fieldTargets("1 2") == [t(1), t(2)]
+              && fieldTargets("1, 2,") == [t(1), t(2)] && fieldTargets("t-boris/MarkView#3, 4") == [t(3), t(4)])
+        check("field mixed list keeps its order", fieldTargets("#1, \(home)/issues/2#issuecomment-5, 3") == [t(1), t(2), t(3)])
+        check("separate field values are judged apart", targets(feature("f", "", fields: ["#5", "see issue 12", "#6"])) == [t(5), t(6)])
+        check("field with prose only leaves the item unlinked",
+              IssueSyncPlan(items: [feature("f", "implemented", fields: ["see issue 12 in v2.3"])], origin: origin).pairs.map(\.target) == [nil])
+
+        // MARK: Plan: other repositories, pull links, unlinked (DEC-006, DEC-010)
+
+        let plan = IssueSyncPlan(items: [
+            feature("done-a", "implemented", fields: ["#10"]),
+            feature("wip", "implementing", fields: ["#10", "#11"]),
+            bug("BUG-001", "fixed", fields: ["#12"]),
+            bug("BUG-002", "closed", fields: ["upstream/MarkView#5"]),
+            feature("text-only", "verified", texts: ["issue #99"]),
+            feature("pr-link", "archived", fields: ["https://github.com/t-boris/MarkView/pull/20"]),
+            feature("fork", "implemented", texts: ["https://github.com/someone/MarkView/issues/3"]),
+        ], origin: origin)
+        check("lookups are unique origin issues in order", plan.lookups == [t(10), t(11), t(12)])
+        check("other repository skipped", plan.known[t(5, "upstream/MarkView")] == .otherRepository)
+        check("fork is another repository", plan.known[t(3, "someone/MarkView")] == .otherRepository)
+        check("PR link skipped as pull request", plan.known[t(20)] == .pullRequest)
+        let unlinkedPairs = plan.pairs.filter { $0.target == nil }.map { plan.items[$0.item].id }
+        check("text-only item is the only unlinked one", unlinkedPairs == ["text-only"])
+        check("rejected-only items get no unlinked row", !unlinkedPairs.contains("BUG-002") && !unlinkedPairs.contains("pr-link"))
+
+        // MARK: Eligibility (REQ-003, DEC-005, owner answer on bugs)
+
+        check("feature statuses done", ["implemented", "verified", "archived", "done", " Implemented ", " Done "].allSatisfy { feature("f", $0).isDone })
+        check("feature earlier statuses not done", ["", "idea", "ready", "implementing"].allSatisfy { !feature("f", $0).isDone })
+        check("bug fixed/closed done", bug("b", "fixed").isDone && bug("b", "closed").isDone)
+        check("bug open/fixing not done", !bug("b", "open").isDone && !bug("b", "fixing").isDone)
+        check("a number that is a PR settles as a pull request", IssueSyncRemote.pullRequest.settledOutcome == .pullRequest)
+        check("a missing issue settles as not found", IssueSyncRemote.notFound.settledOutcome == .notFound)
+        check("a lookup failure settles as failed with its message", IssueSyncRemote.failed("HTTP 403").settledOutcome == IssueSyncOutcome(kind: .failed, detail: "HTTP 403"))
+        check("an answer about a real issue settles nothing: the lifecycle decides", IssueSyncRemote.issue(open: true).settledOutcome == nil && IssueSyncRemote.issue(open: false).settledOutcome == nil)
+
+        // MARK: GitHub answers
+
+        check("open issue parsed", IssueSyncRemote.parse(json: #"{"number":1,"state":"open"}"#) == .issue(open: true))
+        check("closed issue parsed", IssueSyncRemote.parse(json: #"{"number":1,"state":"closed","state_reason":"completed"}"#) == .issue(open: false))
+        check("pull request parsed", IssueSyncRemote.parse(json: #"{"number":1,"state":"open","pull_request":{"url":"x"}}"#) == .pullRequest)
+        check("garbage is a failure", { if case .failed = IssueSyncRemote.parse(json: "<html>") { return true }; return false }())
+        check("404 is not found", IssueSyncRemote.failure(message: "gh: Not Found (HTTP 404)") == .notFound)
+        check("410 is not found", IssueSyncRemote.failure(message: "gh: This issue was deleted (HTTP 410)") == .notFound)
+        check("403 is a failure, not 'not found'",
+              IssueSyncRemote.failure(message: "gh: Resource not accessible by integration (HTTP 403)") != .notFound)
+        check("403 message kept", IssueSyncRemote.failure(message: "HTTP 403: Forbidden") == .failed("HTTP 403: Forbidden"))
+        check("write access allows closing", IssueSyncPreflight.permissionProblem(json: #"{"viewerPermission":"WRITE"}"#, repo: origin) == nil)
+        check("triage access allows closing", IssueSyncPreflight.permissionProblem(json: #"{"viewerPermission":"TRIAGE"}"#, repo: origin) == nil)
+        check("read access blocks the run", IssueSyncPreflight.permissionProblem(json: #"{"viewerPermission":"READ"}"#, repo: origin) != nil)
+
+        // MARK: Report (REQ-004, DEC-008, DEC-010)
+
+        var outcomes = plan.known
+        outcomes[t(10)] = IssueSyncOutcome(kind: .skipped, detail: "not done yet: wip (implementing)")
+        outcomes[t(11)] = .alreadyClosed
+        outcomes[t(12)] = .closed
+        let report = IssueSyncReport(plan: plan, outcomes: outcomes)
+        check("one row per item–issue pair plus unlinked", report.rows.count == plan.pairs.count && report.rows.count == 8)
+        check("shared issue counted once", report.count(.skipped) == 4)  // #10, #20, upstream#5, someone#3
+        check("closed counted", report.count(.updated) == 1)
+        check("unchanged counted", report.count(.unchanged) == 1)
+        check("unlinked counted apart", report.unlinkedCount == 1)
+        check("both items of a shared issue have rows", report.rows.filter { $0.target == t(10) }.map(\.item.id) == ["done-a", "wip"])
+        check("closed rows come first after failures", report.linkedRows.first?.outcome == .closed)
+        check("summary", report.summary == "1 closed · 1 unchanged · 4 skipped · 1 unlinked")
+        check("preflight error report has no rows", IssueSyncReport(origin: origin, error: "Not signed in").rows.isEmpty)
+        check("label in origin is #n", t(12).label(origin: origin) == "#12")
+        check("label elsewhere names the repo", t(5, "upstream/MarkView").label(origin: origin) == "upstream/markview#5")
+
+        // The role of the status in the project's workflow decides whether an item is done (feature-3).
+        func roled(_ item: IssueSyncItem, _ role: LifecycleRole) -> IssueSyncItem { var copy = item; copy.role = role; return copy }
+        check("a completed role is done under any name", roled(feature("f", "shipped"), .completed).isDone && roled(bug("b", "accepted"), .completed).isDone)
+        check("a cancelled role is done", roled(feature("f", "shelved"), .cancelled).isDone)
+        check("an active or not-started role is not done, even under a finished-sounding name", !roled(feature("f", "implemented"), .active).isDone && !roled(bug("b", "closed"), .notStarted).isDone)
+        check("a status without a role is read by name", feature("f", "verified").isDone && bug("b", "fixed").isDone && !bug("b", "fixing").isDone)
+
+    }
+}
