@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 178,
+  "suiteCount": 177,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2773,7 +2773,9 @@
         "MarkView/Models/Workspace/FileBrowserModel.swift",
         "MarkView/Models/Workspace/WindowUIState.swift",
         "MarkView/Models/Workspace/WindowTitle.swift",
-        "MarkView/Views/Appearance/ThemePickerView.swift"
+        "MarkView/Views/Appearance/ThemePickerView.swift",
+        "MarkView/Models/Workspace/ExcludedFolders.swift",
+        "MarkView/Views/Shared/WindowStorage.swift"
       ]
     },
     {
@@ -3846,25 +3848,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/WindowSessionTests.swift",
         "MarkView/Models/Appearance/ThemeDefinition.swift"
-      ]
-    },
-    {
-      "name": "window-ui-state-tests",
-      "script": "tools/tests/window-ui-state-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
-        "MarkView/Models/Workspace/ExcludedFolders.swift",
-        "MarkView/Models/Workspace/WindowUIState.swift",
-        "MarkView/Views/Shared/WindowStorage.swift",
-        "tools/tests/WindowUIStateTests.swift",
-        "tools/tests/window-ui-state-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/mv-kit.js",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
