@@ -7,7 +7,7 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
-At the 6.30.144 checkpoint, the complete pure tier passed 24/24 suites and the complete MarkViewCore package passed 135 tests with 0 failures after the TestSupport consolidation. Full verification of the subsequent 6.30.145 editor change remains open. At the earlier 6.30.126 checkpoint, the complete pure tier passed 54/54 suites. The previous general hosted GUI suite passed 180 tests with 3 optional skips and 0 failures; the current general host run had one failure among 213 tests and 3 optional skips ([F-005](../features/architecture-review-2026-11/findings/F-005.md)); the subsequent full GUI run was interrupted after a compilation failure, later fixed and checked with focused tests. The full GUI run was stopped after that failure; a corrected repeat, final CI and release remain open.
+The complete MarkViewCore package passed 136 tests with 0 failures on the current 6.30.146 source. At the 6.30.144 checkpoint, the complete pure tier passed 24/24 suites and the package passed 135 tests with 0 failures. Full verification of the subsequent editor and test changes remains open. At the earlier 6.30.126 checkpoint, the complete pure tier passed 54/54 suites. The previous general hosted GUI suite passed 180 tests with 3 optional skips and 0 failures; the current general host run had one failure among 213 tests and 3 optional skips ([F-005](../features/architecture-review-2026-11/findings/F-005.md)); the subsequent full GUI run was interrupted after a compilation failure, later fixed and checked with focused tests. The full GUI run was stopped after that failure; a corrected repeat, final CI and release remain open.
 
 The work is not finished. The latest published and installed release is 6.30.97; later changes, including the 6.30.146 version bump, are local. Historical dated notes below record the evidence available at each step and are superseded by later status entries.
 
@@ -325,6 +325,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
   unchecked count at a stated lower number.
 
 **D4. AR-44 steps 3-4 and the stubs.**
+
+WebHost WebKit behavior checks moved into core package tests; the GUI wrapper runs both Debug and Release. An initial async main-actor version did not complete within the original 90-second limit; a sample showed it waiting for a WebKit scheme load. The synchronous main-thread XCTest version passed in both configurations, including the Debug-only inspector rule. The complete package passed 136 tests with 0 failures, and architecture lint, SwiftLint, manifest paths and pure-shard assignments passed. Final full GUI and CI verification remain open.
 
 QA off-screen WebKit window checks moved to the app host. The first build exposed a closure capture error; after correction and idempotent fixture cleanup, the focused test passed. Repository hygiene, architecture lint, SwiftLint, manifest paths and pure-shard assignments passed. Optional regression and screenshot modes remain available to the focused XCTest via `TEST_RUNNER_MARKVIEW_QA_SYSTEM_WINDOW=1` and `TEST_RUNNER_MARKVIEW_QA_SCREENSHOT_DIR`, respectively; they were not run. The manifest now lists 49 suites: 24 pure, 20 GUI and 5 live. Final full GUI and CI verification remain open.
 

@@ -1,38 +1,30 @@
 import AppKit
 import WebKit
+import XCTest
+@testable import MarkViewCore
 
-// AR-27 in real WebKit (hidden window, no page of the app): what WebHost.makeConfiguration and WebHost.makeWebView give a host.
-//   - the settings a host names (data store, JavaScript, popups, user agent, inspector) are what the page then sees;
-//   - handlers are registered weakly: a host whose handler owns its web view is released with it, which the same host
-//     registered the way WebKit's own `add(_:name:)` does is not (the control proves the test would notice a cycle);
-//   - a handler delivers in its content world only, a handler with a reply answers and, once its host is gone, rejects;
-//   - user scripts run in the order given and a scheme handler serves its scheme.
-// Run through tools/tests/web-host-tests.sh (argument 1: "debug" when the sources are compiled with -DDEBUG, else "release").
-setvbuf(stdout, nil, _IONBF, 0)
-let debugBuild = CommandLine.arguments[1] == "debug"
-var failures = 0
-func check(_ ok: Bool, _ message: String, _ detail: String = "") {
-    if !ok { failures += 1 }
-    print("\(ok ? "ok  " : "FAIL") \(message) \(ok ? "" : String(detail.prefix(500)))")
-}
-DispatchQueue.global().asyncAfter(deadline: .now() + 90) {
-    print("TIMEOUT: no result after 90 s")
-    exit(1)
-}
-NSApplication.shared.setActivationPolicy(.prohibited)
+#if DEBUG
+private let debugBuild = true
+#else
+private let debugBuild = false
+#endif
 
-func spin(_ seconds: TimeInterval, until done: () -> Bool = { false }) {
+private func check(_ condition: Bool, _ message: String, _ detail: String = "", line: UInt = #line) {
+    XCTAssertTrue(condition, message + (detail.isEmpty ? "" : ": " + detail), line: line)
+}
+
+@MainActor private func spin(_ seconds: TimeInterval, until done: () -> Bool = { false }) {
     let end = Date().addingTimeInterval(seconds)
     while !done() && Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
 }
 
-final class Loaded: NSObject, WKNavigationDelegate {
+@MainActor private final class Loaded: NSObject, WKNavigationDelegate {
     var done = false
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { done = true }
 }
 
 /// A web view in a hidden window that has loaded `html` (base `https://host.test/`, so that a page has an origin).
-@MainActor func load(_ html: String, configuration: WKWebViewConfiguration, baseURL: URL? = URL(string: "https://host.test/")) -> (WKWebView, NSWindow) {
+@MainActor private func load(_ html: String, configuration: WKWebViewConfiguration, baseURL: URL? = URL(string: "https://host.test/")) -> (WKWebView, NSWindow) {
     let web = WebHost.makeWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
     let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
     window.alphaValue = 0
@@ -47,7 +39,7 @@ final class Loaded: NSObject, WKNavigationDelegate {
     return (web, window)
 }
 
-@MainActor func evaluate(_ web: WKWebView, _ script: String) -> Any? {
+@MainActor private func evaluate(_ web: WKWebView, _ script: String) -> Any? {
     var out: Any?
     var finished = false
     web.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
@@ -60,7 +52,7 @@ final class Loaded: NSObject, WKNavigationDelegate {
 
 // MARK: - Settings
 
-@MainActor func settingsChecks() {
+@MainActor private func settingsChecks() {
     let plain = WebHost.makeConfiguration()
     check(plain.websiteDataStore.isPersistent, "the default data store is WebKit's persistent one")
     check(plain.websiteDataStore === WKWebsiteDataStore.default(), "and it is the shared default store (the browser tabs' common sign-in)")
@@ -97,7 +89,7 @@ final class Loaded: NSObject, WKNavigationDelegate {
 
 // MARK: - User scripts and a scheme handler
 
-final class Scheme: NSObject, WKURLSchemeHandler {
+@MainActor private final class Scheme: NSObject, WKURLSchemeHandler {
     var served: [String] = []
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         served.append(task.request.url?.path ?? "")
@@ -109,7 +101,7 @@ final class Scheme: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 }
 
-@MainActor func schemeChecks() {
+@MainActor private func schemeChecks() {
     func script(_ code: String, _ time: WKUserScriptInjectionTime = .atDocumentStart) -> WKUserScript {
         WKUserScript(source: code, injectionTime: time, forMainFrameOnly: true)
     }
@@ -134,17 +126,17 @@ final class Scheme: NSObject, WKURLSchemeHandler {
 
 // MARK: - Handlers deliver in their world, with a reply, and weakly
 
-final class Recorder: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
+@MainActor private final class Recorder: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     var received: [(name: String, body: String, isClient: Bool)] = []
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         received.append((message.name, "\(message.body)", message.world != .page))
     }
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         replyHandler("pong:\(message.body)", nil)
     }
 }
 
-@MainActor func handlerChecks() {
+@MainActor private func handlerChecks() {
     let recorder = Recorder()
     let client = Recorder()
     let replies = Recorder()
@@ -177,18 +169,18 @@ final class Recorder: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWi
 
 /// A coordinator as the app has them: it is the page's message handler and keeps its web view (a cycle through the content controller
 /// if the controller retains it).
-final class Coordinator: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
+@MainActor private final class Coordinator: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     var web: WKWebView?
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {}
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) { replyHandler(nil, nil) }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) { replyHandler(nil, nil) }
 }
 
-func gone(_ weakRefs: [() -> AnyObject?], within seconds: TimeInterval = 8) -> Bool {
+@MainActor private func gone(_ weakRefs: [() -> AnyObject?], within seconds: TimeInterval = 8) -> Bool {
     spin(seconds) { weakRefs.allSatisfy { $0() == nil } }
     return weakRefs.allSatisfy { $0() == nil }
 }
 
-@MainActor func releaseTest(_ name: String, register: (Coordinator) -> WKWebViewConfiguration, expectReleased: Bool) {
+@MainActor private func releaseTest(_ name: String, register: (Coordinator) -> WKWebViewConfiguration, expectReleased: Bool) {
     weak var weakCoordinator: Coordinator?
     weak var weakWeb: WKWebView?
     autoreleasepool {
@@ -208,7 +200,7 @@ func gone(_ weakRefs: [() -> AnyObject?], within seconds: TimeInterval = 8) -> B
     }
 }
 
-@MainActor func releaseChecks() {
+@MainActor private func releaseChecks() {
 releaseTest("through WebHost a message handler that owns its web view is released with it",
             register: { WebHost.makeConfiguration(handlers: [.message("host", $0)]) }, expectReleased: true)
 releaseTest("through WebHost a handler with a reply that owns its web view is released with it",
@@ -223,11 +215,13 @@ releaseTest("control: the same host registered with WebKit's own add(_:name:) is
             }, expectReleased: false)
 }
 
-MainActor.assumeIsolated {
-    settingsChecks()
-    schemeChecks()
-    handlerChecks()
-    releaseChecks()
+
+@MainActor final class WebHostIntegrationTests: XCTestCase {
+    func testWebHostInCurrentBuild() {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        settingsChecks()
+        schemeChecks()
+        handlerChecks()
+        releaseChecks()
+    }
 }
-print("\(failures) failures")
-exit(failures == 0 ? 0 : 1)

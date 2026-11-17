@@ -1885,7 +1885,7 @@
       "tier": "gui",
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "tools/tests/WebHostTests.swift",
+        "Packages/MarkViewCore/Tests/MarkViewCoreTests/WebHostIntegrationTests.swift",
         "tools/tests/web-host-tests.sh"
       ]
     },
