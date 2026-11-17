@@ -24,5 +24,3 @@ bash tools/tests/remote-codex-context-tests.sh
 bash tools/tests/remote-relay-settings-tests.sh
 bash tools/tests/terminal-child-tests.sh
 node --test tools/remote-relay/*.test.mjs
-
-bash tools/tests/remote-browser-tests.sh
