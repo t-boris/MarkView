@@ -141,18 +141,16 @@ enum GitHubSettings {
 }
 
 /// The project database as the stores see it: what it holds, and how many times it was written to.
-actor SemanticDatabase {
-    private(set) var snapshot: ArchitectureSnapshot?
-    private(set) var snapshotSaves = 0
-    private(set) var reviews: [String: String] = [:]
-    private(set) var reviewSaves = 0
-    private(set) var usageRuns = 0
-
-    func loadArchitecture() -> ArchitectureSnapshot? { snapshot }
-    func saveArchitecture(_ next: ArchitectureSnapshot) throws { snapshot = next; snapshotSaves += 1 }
+extension SemanticDatabase {
+    func loadArchitecture() -> ArchitectureSnapshot? {
+        snapshotData.flatMap { try? JSONDecoder().decode(ArchitectureSnapshot.self, from: $0) }
+    }
+    func saveArchitecture(_ next: ArchitectureSnapshot) throws {
+        snapshotData = try JSONEncoder().encode(next)
+        snapshotSaves += 1
+    }
     func loadArchitectureReview(key: String) -> String? { reviews[key] }
     func saveArchitectureReview(key: String, json: String) { reviews[key] = json; reviewSaves += 1 }
-    func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) { usageRuns += 1 }
 }
 
 // Where the stores save an answer as a document; the checks never save one.

@@ -324,6 +324,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+The X-Ray SemanticDatabase stand-in now uses the shared fixture, preserving snapshot and review save counters through serialized snapshots. The nine previously separate definitions in standalone Swift files and shell scripts are now one in package TestSupport. All nine affected pure suites passed, including X-Ray cancellation and save checks; repository hygiene, architecture lint, manifest paths and shard assignments passed. The two affected live scripts passed shell syntax checks and remain manual; they were not compiled or run.
+
 The two SemanticDatabase stand-ins embedded in assistant-choice and terminal-controller scripts now use the shared fixture, bringing the nine formerly screened definitions to two: the shared fixture and the distinct X-Ray fixture. The shared document-ID behavior was aligned with production path handling; contained and sibling path checks passed. All eight affected pure suites passed, as did repository hygiene, architecture lint, manifest paths and shard assignments. The two affected live scripts passed shell syntax checks and remain manual; they were not compiled or run.
 
 Six standalone SemanticDatabase stand-ins were consolidated into one fixture in package TestSupport (6 → 1), retaining usage recording and document IDs. All six affected pure suites passed; repository hygiene, architecture lint, manifest paths and pure-shard assignments passed. Both affected live scripts passed shell syntax checks and remain manual under DEC-013; they were not compiled or run. Other database stand-ins, including definitions embedded in shell scripts, remain open.
