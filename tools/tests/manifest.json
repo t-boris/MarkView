@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 173,
+  "suiteCount": 172,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1567,21 +1567,6 @@
       ]
     },
     {
-      "name": "mermaid-svg-tests",
-      "script": "tools/tests/mermaid-svg-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Resources/Editor/index.html",
-        "MarkView/Resources/Editor/js/markview-render.js",
-        "MarkView/Resources/Editor/js/mv-kit.js",
-        "tools/tests/MermaidSvgWebTests.swift",
-        "tools/tests/mermaid-svg-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
-      ]
-    },
-    {
       "name": "new-project-tests",
       "script": "tools/tests/new-project-tests.sh",
       "tier": "pure",
@@ -2727,7 +2712,8 @@
         "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
         "MarkView/Resources/Editor/js/markview-data.js",
         "MarkViewHostedTests/WorkspaceEditorHostTests.swift",
-        "MarkView/Resources/Editor/js/markview-document-files.js"
+        "MarkView/Resources/Editor/js/markview-document-files.js",
+        "MarkView/Resources/Editor/js/markview-render.js"
       ]
     },
     {
