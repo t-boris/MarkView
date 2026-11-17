@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The X-Ray's ⚡ search filter: the AI reads the project (read-only) and returns the
 /// places that really matter for the query; the X-Ray colours their files red and

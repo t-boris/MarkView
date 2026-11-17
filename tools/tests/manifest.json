@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 199,
+  "suiteCount": 198,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2316,7 +2316,7 @@
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/Insight/SemanticUsage.swift",
         "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Git/PullRequestHistory.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PullRequestHistory.swift",
         "MarkView/Models/AI/DiagramAI.swift",
         "MarkView/Models/Shared/FileType.swift",
         "MarkView/Models/Shared/FrontMatter.swift",
@@ -2475,16 +2475,6 @@
         "MarkView/Models/Terminal/PTYWriter.swift",
         "tools/tests/PTYWriterTests.swift",
         "tools/tests/pty-writer-tests.sh"
-      ]
-    },
-    {
-      "name": "pull-request-history-tests",
-      "script": "tools/tests/pull-request-history-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Git/PullRequestHistory.swift",
-        "tools/tests/PullRequestHistoryTests.swift",
-        "tools/tests/pull-request-history-tests.sh"
       ]
     },
     {

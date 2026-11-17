@@ -22,7 +22,7 @@ done
 cp tools/tests/XRayOwnershipTests.swift "$out/main.swift"
 swiftc -O -target "$target" -I "$out" -o "$out/xray-task-ownership-tests" "$out/MarkViewCore.o" \
     "${architecture[@]}" MarkView/Models/AI/AIOperation.swift MarkView/Models/AI/OutputLanguage.swift MarkView/Models/Insight/SemanticUsage.swift \
-    MarkView/Models/Git/GitHubClient.swift MarkView/Models/Git/PullRequestHistory.swift MarkView/Models/AI/DiagramAI.swift \
+    MarkView/Models/Git/GitHubClient.swift MarkView/Models/AI/DiagramAI.swift \
     MarkView/Models/Shared/FileType.swift MarkView/Models/Shared/FrontMatter.swift MarkView/Models/Shared/WikiLinkResolver.swift \
     MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift MarkView/Models/Shared/ArchiveSupport.swift tools/tests/XRayStoreStubs.swift "$out/main.swift"
 "$out/xray-task-ownership-tests"

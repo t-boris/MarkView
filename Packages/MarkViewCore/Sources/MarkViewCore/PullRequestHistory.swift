@@ -8,16 +8,16 @@ import Foundation
 /// is told that no PR data was available, as it is when `gh` is missing or offline (DEC-001:
 /// degrade gracefully). `fetch` is the only place `gh` is started, so a caller that passes
 /// `enabled: false` cannot start it.
-enum PullRequestHistory {
-    struct Section: Equatable {
+public enum PullRequestHistory {
+    public struct Section: Equatable, Sendable {
         /// Appended to the history context; starts with a blank line.
-        var text: String
+        public var text: String
         /// GitHub URLs of the pull requests listed in `text`. The answer may cite only these.
-        var urls: Set<String>
+        public var urls: Set<String>
     }
 
     /// What `fetch` returns: the exit status and standard output of `gh pr list --json ...`.
-    typealias Fetched = (status: Int32, stdout: String)
+    public typealias Fetched = (status: Int32, stdout: String)
 
     static let integrationOffNote = "PR data unavailable: the GitHub integration is turned off in MarkView settings, so pull requests were not read. Do not invent PRs."
     static let unavailableNote = "PR data unavailable (gh missing, unauthenticated, offline, or no GitHub repository). Do not invent PRs."
@@ -27,7 +27,7 @@ enum PullRequestHistory {
     static let recordLimit = 50
     static let bodyLimit = 1600
 
-    static func section(enabled: Bool, fetch: () async -> Fetched) async -> Section {
+    public static func section(enabled: Bool, fetch: () async -> Fetched) async -> Section {
         guard enabled else { return Section(text: "\n\n" + integrationOffNote, urls: []) }
         let output = await fetch()
         guard output.status == 0,
