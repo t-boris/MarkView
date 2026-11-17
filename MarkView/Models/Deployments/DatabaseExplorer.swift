@@ -1,7 +1,7 @@
 import Foundation
 
 // Looking into a PostgreSQL database from the Deployments tab: how big it is, what tables it has, a few rows, and
-// read-only queries. Foundation only, checked in `tools/tests/database-explorer-tests.sh`.
+// read-only queries. Foundation only; checked by the app-hosted Database Explorer tests.
 //
 // The connection URL holds a password. It is read when the person asks to look (from a project `.env` file or from
 // the Keychain), lives in memory for the call, is handed to `psql` through standard input (never in an argument,

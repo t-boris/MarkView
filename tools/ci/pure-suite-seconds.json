@@ -10,7 +10,6 @@
   "cockpit-build-phase-tests": 0.0,
   "cockpit-qa-attempt-tests": 6.6,
   "cockpit-runtime-integration-tests": 0.0,
-  "database-explorer-tests": 25.8,
   "document-files-tests": 0.1,
   "feature-flow-coordinator-tests": 62.0,
   "no-process-outside-subprocess-lint": 0.5,
