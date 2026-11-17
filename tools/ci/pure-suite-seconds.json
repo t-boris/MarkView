@@ -39,7 +39,6 @@
   "definition-of-done-tests": 13.8,
   "deployment-discovery-tests": 2.9,
   "deployment-executor-tests": 15.2,
-  "deployment-logs-tests": 3.0,
   "deployment-ssh-tests": 17.3,
   "deployment-store-tests": 21.6,
   "deployment-task-ownership-tests": 17.3,

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 163,
+  "suiteCount": 162,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -847,19 +847,6 @@
         "tools/tests/deployment-executor-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "deployment-logs-tests",
-      "script": "tools/tests/deployment-logs-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
-        "MarkView/Models/Deployments/DeploymentLogs.swift",
-        "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/Deployments/SystemProbe.swift",
-        "tools/tests/DeploymentLogsTests.swift",
-        "tools/tests/deployment-logs-tests.sh"
       ]
     },
     {
@@ -2622,7 +2609,9 @@
         "MarkView/Models/Git/GitStatusModel.swift",
         "MarkView/Models/Deployments/CloudServices.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
-        "MarkView/Models/Deployments/DeploymentModels.swift"
+        "MarkView/Models/Deployments/DeploymentModels.swift",
+        "MarkView/Models/Deployments/DeploymentLogs.swift",
+        "MarkView/Models/Deployments/SystemProbe.swift"
       ]
     },
     {
