@@ -13,7 +13,6 @@
   "cockpit-runtime-integration-tests": 0.0,
   "control-agent-tools-tests": 42.2,
   "database-explorer-tests": 25.8,
-  "deployment-ssh-tests": 17.3,
   "deployment-store-tests": 21.6,
   "deployment-task-ownership-tests": 17.3,
   "document-files-tests": 0.1,

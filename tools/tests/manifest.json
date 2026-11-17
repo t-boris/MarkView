@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 77,
+  "suiteCount": 76,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -360,22 +360,6 @@
         "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/DatabaseExplorerTests.swift",
         "tools/tests/database-explorer-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "deployment-ssh-tests",
-      "script": "tools/tests/deployment-ssh-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
-        "MarkView/Models/Deployments/DeploymentExecutor.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/Deployments/SystemProbe.swift",
-        "tools/tests/DeploymentSSHTests.swift",
-        "tools/tests/deployment-ssh-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
