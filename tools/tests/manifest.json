@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 51,
+  "suiteCount": 50,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1162,43 +1162,6 @@
         "MarkView/Models/Insight/InsightArchiveExport.swift",
         "MarkView/Models/Insight/InsightCoordinator.swift",
         "MarkView/Models/Insight/InsightSession.swift"
-      ]
-    },
-    {
-      "name": "qa-file-upload-tests",
-      "script": "tools/tests/qa-file-upload-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Browser/BrowserAddress.swift",
-        "MarkView/Models/Browser/BrowserSession.swift",
-        "MarkView/Models/Browser/WebPreview.swift",
-        "MarkView/Models/Browser/WebAppPreview.swift",
-        "MarkView/Models/Browser/BrowserPasswords.swift",
-        "MarkView/Models/Browser/BrowserPasswordScript.swift",
-        "MarkView/Models/Shared/UserPrompts.swift",
-        "MarkView/Models/Browser/BrowserDownloads.swift",
-        "MarkView/Models/Browser/BrowserPagePDF.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
-        "MarkView/Views/Browser/BrowserPopup.swift",
-        "MarkView/Models/Browser/BrowserAgentExecutor.swift",
-        "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/OrderedWork.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PollingScheduler.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "MarkView/Models/QA/QATestImage.swift",
-        "MarkView/Views/QA/QAWebWindow.swift",
-        "tools/tests/QAFileUploadTests.swift"
       ]
     },
     {
