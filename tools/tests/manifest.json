@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 69,
+  "suiteCount": 68,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -941,41 +941,6 @@
       ]
     },
     {
-      "name": "qa-api-tests",
-      "script": "tools/tests/qa-api-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/QA/QAAPI.swift",
-        "MarkView/Models/QA/QAAPIActor.swift",
-        "MarkView/Models/QA/QAAPIClient.swift",
-        "MarkView/Models/QA/QAActions.swift",
-        "MarkView/Models/QA/QATestImage.swift",
-        "MarkView/Models/QA/QACredentials.swift",
-        "MarkView/Models/QA/QAEffort.swift",
-        "MarkView/Models/QA/QAGate.swift",
-        "MarkView/Models/QA/QAGeneration.swift",
-        "MarkView/Models/QA/QAGenerator.swift",
-        "MarkView/Models/QA/QAInputMark.swift",
-        "MarkView/Models/QA/QALanguage.swift",
-        "MarkView/Models/QA/QAPageEvidence.swift",
-        "MarkView/Models/QA/QAPlan.swift",
-        "MarkView/Models/QA/QARun.swift",
-        "MarkView/Models/QA/QARunner.swift",
-        "MarkView/Models/QA/QAScenario.swift",
-        "MarkView/Models/QA/QAStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/QA/QATriage.swift",
-        "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/AIOperationStub.swift",
-        "tools/tests/QAAPIChecks.swift",
-        "tools/tests/QANativeKeychainStub.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "tools/tests/QAEventRecorder.swift"
-      ]
-    },
-    {
       "name": "qa-evidence-web-tests",
       "script": "tools/tests/qa-evidence-web-tests.sh",
       "tier": "gui",
@@ -1504,7 +1469,12 @@
         "MarkView/Models/Git/GitClient.swift",
         "MarkView/Models/Git/GitHubStore.swift",
         "MarkView/Models/ProjectOps/ProjectOperationsStore.swift",
-        "MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift"
+        "MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift",
+        "MarkView/Models/QA/QAAPIActor.swift",
+        "MarkView/Models/QA/QAAPIClient.swift",
+        "tools/tests/QAEventRecorder.swift",
+        "Tests/Fixtures/qa-api-demo/server.py",
+        "Tests/Fixtures/qa-api-demo/scenario-proposal.json"
       ]
     },
     {
