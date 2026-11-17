@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 99,
+  "suiteCount": 98,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1468,36 +1468,6 @@
       ]
     },
     {
-      "name": "qa-retention-tests",
-      "script": "tools/tests/qa-retention-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/BugReportWriter.swift",
-        "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "MarkView/Models/Cockpit/CockpitResults.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/QA/QAAPI.swift",
-        "MarkView/Models/QA/QABugFiler.swift",
-        "MarkView/Models/QA/QABugs.swift",
-        "MarkView/Models/QA/QAEffort.swift",
-        "MarkView/Models/QA/QARun.swift",
-        "MarkView/Models/QA/QARunCleanup.swift",
-        "MarkView/Models/QA/QARunRetention.swift",
-        "MarkView/Models/QA/QAScenario.swift",
-        "MarkView/Models/QA/QAStore.swift",
-        "MarkView/Models/QA/QATriage.swift",
-        "tools/tests/StoreTestSupport.swift",
-        "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/QARetentionChecks.swift",
-        "tools/tests/qa-retention-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
       "name": "qa-run-archive-ownership-tests",
       "script": "tools/tests/qa-run-archive-ownership-tests.sh",
       "tier": "pure",
@@ -1966,7 +1936,11 @@
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/QA/QABugFiler.swift",
         "MarkView/Models/QA/QABugs.swift",
-        "MarkViewHostedTests/QABugsHostTests.swift"
+        "MarkViewHostedTests/QABugsHostTests.swift",
+        "MarkView/Models/Cockpit/CockpitResults.swift",
+        "MarkView/Models/QA/QARunCleanup.swift",
+        "MarkView/Models/QA/QARunRetention.swift",
+        "MarkViewHostedTests/QARetentionHostTests.swift"
       ]
     },
     {
