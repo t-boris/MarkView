@@ -1,16 +1,13 @@
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
 /// Behaviour of the shipping `DocumentTranslator` (`AR-14` step 1) on the real `TabsController`, the real `MarkdownDocumentChunker` and the
 /// real `AIOperation`: the assistant is a script that answers each section. Nothing here starts a CLI, shows a dialog or a window.
-@main
-enum DocumentTranslatorChecks {
-    nonisolated(unsafe) static var failures = 0
-
-    static func check(_ condition: Bool, _ message: String) {
-        if !condition {
-            failures += 1
-            FileHandle.standardError.write(Data("FAIL: \(message)\n".utf8))
-        }
+private enum DocumentTranslatorChecks {
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
 
     /// An open project that is only a folder: no database, no linked folders.
@@ -49,13 +46,13 @@ enum DocumentTranslatorChecks {
         let assistant = Assistant()
         let translator: DocumentTranslator
 
-        init(folder: URL) {
+        init(folder: URL, toolAvailable: Bool = true) {
             self.folder = folder
             let tabs = TabsController(prompts: NoPrompts())
             self.tabs = tabs
             let assistant = self.assistant
             translator = DocumentTranslator(tabs: tabs, project: StubProject(root: folder, aiProjectTracksRoot: true), tasks: tasks,
-                                            runner: { request, onDelta, onActivity in try await assistant.run(request, onDelta, onActivity) })
+                                            toolAvailable: { _ in toolAvailable }, runner: { request, onDelta, onActivity in try await assistant.run(request, onDelta, onActivity) })
         }
 
         /// Opens `text` as a document of the folder and makes it the shown tab.
@@ -84,7 +81,7 @@ enum DocumentTranslatorChecks {
         return String(repeating: line, count: max(1, size / line.count)).trimmingCharacters(in: .whitespaces) + "\n\n"
     }
 
-    static func main() async {
+    static func run() async {
         await nothingToTranslate()
         await missingCLI()
         await translatesIntoANewTab()
@@ -92,11 +89,7 @@ enum DocumentTranslatorChecks {
         await failedSectionKeepsTheSource()
         await closingTheWindowStopsTheJob()
         await twoDocumentsTranslateTogether()
-        if failures > 0 {
-            FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
-            exit(1)
-        }
-        print("DocumentTranslator: empty document, missing CLI, new tab with progress, strict retry, failed sections, stop on close and parallel jobs passed")
+
     }
 
     @MainActor
@@ -115,9 +108,7 @@ enum DocumentTranslatorChecks {
     @MainActor
     static func missingCLI() async {
         await folder { dir in
-            setenv("MARKVIEW_TEST_CLI_MISSING", "1", 1)
-            defer { unsetenv("MARKVIEW_TEST_CLI_MISSING") }
-            let window = Window(folder: dir)
+            let window = Window(folder: dir, toolAvailable: false)
             _ = try? await window.open("# Title\n\nText.\n")
             let tabsBefore = window.tabs.openTabs.count
             let message = await window.translator.translate(markdown: "# Title\n\nText.\n", targetLang: "German")
@@ -267,4 +258,8 @@ enum DocumentTranslatorChecks {
             check(window.translator.progress == nil && window.tasks.activeCount == 0, "both jobs ended cleanly")
         }
     }
+}
+
+extension EditorHostTests {
+    func testDocumentTranslatorLifecycle() async { await DocumentTranslatorChecks.run() }
 }

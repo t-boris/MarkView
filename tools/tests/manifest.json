@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 95,
+  "suiteCount": 94,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -592,69 +592,6 @@
       "sources": [
         "MarkView/Resources/Editor/js/markview-document-files.js",
         "tools/tests/document-files.test.js"
-      ]
-    },
-    {
-      "name": "document-translator-tests",
-      "script": "tools/tests/document-translator-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
-        "MarkView/Models/AI/ACPAssistant.swift",
-        "MarkView/Models/AI/AIOperation.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
-        "MarkView/Models/AI/CLICompletion.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "MarkView/Models/Architecture/XRayScope.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/DocumentTranslator.swift",
-        "MarkView/Models/Insight/SemanticUsage.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
-        "MarkView/Models/Shared/ProjectProviding.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
-        "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "tools/tests/CLICompletionTestSupport.swift",
-        "tools/tests/DocumentTranslatorTests.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/document-translator-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ProjectProvidingTestSupport.swift"
       ]
     },
     {
@@ -1944,7 +1881,12 @@
         "MarkViewHostedTests/WindowSessionHostTests.swift",
         "MarkView/Models/Workspace/WindowSessionSnapshotter.swift",
         "MarkViewHostedTests/WindowSessionSnapshotHostTests.swift",
-        "MarkViewHostedTests/TabsControllerHostTests.swift"
+        "MarkViewHostedTests/TabsControllerHostTests.swift",
+        "MarkView/Models/Workspace/DocumentTranslator.swift",
+        "MarkView/Models/Insight/SemanticUsage.swift",
+        "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
+        "tools/tests/ProjectProvidingTestSupport.swift",
+        "MarkViewHostedTests/DocumentTranslatorHostTests.swift"
       ]
     },
     {

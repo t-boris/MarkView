@@ -586,6 +586,8 @@
 		A4DD9A6FAE364D6387E23E05 /* FeatureStoreLifecycleHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */; };
+		C16A57BD3D044D9C8E6F9133 /* DocumentTranslatorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9134 /* DocumentTranslatorHostTests.swift */; };
+		C16A57BD3D044D9C8E6F9135 /* ProjectProvidingTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9136 /* ProjectProvidingTestSupport.swift */; };
 		C16A57BD3D044D9C8E6F9131 /* TabsControllerHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9132 /* TabsControllerHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9129 /* WindowSessionSnapshotHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9130 /* WindowSessionSnapshotHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9127 /* WindowSessionHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9128 /* WindowSessionHostTests.swift */; };
@@ -1328,6 +1330,8 @@
 		A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStoreLifecycleHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHostBridgeHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleSyncHostTests.swift; sourceTree = "<group>"; };
+		C16A57BD3D044D9C8E6F9134 /* DocumentTranslatorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentTranslatorHostTests.swift; sourceTree = "<group>"; };
+		C16A57BD3D044D9C8E6F9136 /* ProjectProvidingTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = tools/tests/ProjectProvidingTestSupport.swift; sourceTree = SOURCE_ROOT; };
 		C16A57BD3D044D9C8E6F9132 /* TabsControllerHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabsControllerHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9130 /* WindowSessionSnapshotHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionSnapshotHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9128 /* WindowSessionHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionHostTests.swift; sourceTree = "<group>"; };
@@ -2566,6 +2570,8 @@
 				A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */,
 				C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */,
 				C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */,
+				C16A57BD3D044D9C8E6F9134 /* DocumentTranslatorHostTests.swift */,
+				C16A57BD3D044D9C8E6F9136 /* ProjectProvidingTestSupport.swift */,
 				C16A57BD3D044D9C8E6F9132 /* TabsControllerHostTests.swift */,
 				C16A57BD3D044D9C8E6F9130 /* WindowSessionSnapshotHostTests.swift */,
 				C16A57BD3D044D9C8E6F9128 /* WindowSessionHostTests.swift */,
@@ -3450,6 +3456,8 @@
 				A4DD9A6FAE364D6387E23E05 /* FeatureStoreLifecycleHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */,
+				C16A57BD3D044D9C8E6F9133 /* DocumentTranslatorHostTests.swift in Sources */,
+				C16A57BD3D044D9C8E6F9135 /* ProjectProvidingTestSupport.swift in Sources */,
 				C16A57BD3D044D9C8E6F9131 /* TabsControllerHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9129 /* WindowSessionSnapshotHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9127 /* WindowSessionHostTests.swift in Sources */,
@@ -3550,7 +3558,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.124;
+				CURRENT_PROJECT_VERSION = 6.30.125;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3565,7 +3573,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.124;
+				MARKETING_VERSION = 6.30.125;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3633,7 +3641,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.124;
+				CURRENT_PROJECT_VERSION = 6.30.125;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3654,7 +3662,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.124;
+				MARKETING_VERSION = 6.30.125;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3755,7 +3763,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.124;
+				CURRENT_PROJECT_VERSION = 6.30.125;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3776,7 +3784,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.124;
+				MARKETING_VERSION = 6.30.125;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

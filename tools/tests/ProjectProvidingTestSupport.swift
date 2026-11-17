@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkView)
+@testable import MarkView
+#endif
 
 /// One configurable project fake shared by the standalone coordinator tests.
 @MainActor

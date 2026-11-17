@@ -47,14 +47,17 @@ final class DocumentTranslator: ObservableObject {
     private let project: any ProjectProviding
     private let tasks: TaskBag
     private let runner: AIOperation<CLICompletion.Request, CLICompletion.Result>.Runner
+    private let toolAvailable: (CLITool) -> Bool
 
     /// `runner` asks the assistant; the app's own is the default, a check supplies another.
     init(tabs: TabsController, project: any ProjectProviding, tasks: TaskBag,
+         toolAvailable: @escaping (CLITool) -> Bool = { CLIToolLocator.resolve($0) != nil },
          runner: @escaping AIOperation<CLICompletion.Request, CLICompletion.Result>.Runner = AIAssistantRunner.run) {
         self.tabs = tabs
         self.project = project
         self.tasks = tasks
         self.runner = runner
+        self.toolAvailable = toolAvailable
     }
 
     /// Translate the whole document to `targetLang` and open the result in a new tab. The source file is never modified; the new
@@ -73,7 +76,7 @@ final class DocumentTranslator: ObservableObject {
         let aiProject = project.aiProject
         let tool = AIAssistantPreferences.backend(project: aiProject)
         let engine = Engine(tool: tool, model: AIAssistantPreferences.model(for: tool, project: aiProject))
-        guard CLIToolLocator.resolve(tool) != nil else {
+        guard toolAvailable(tool) else {
             AppLog.workspace.error("Translation aborted: \(tool.binaryName) not found")
             return "\(tool.displayName) was not found. Set its path in DDE Settings → AI CLI Tools."
         }
