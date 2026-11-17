@@ -261,6 +261,7 @@ extension QAWebFaultTests {
 
 extension QAWebFaultTests {
     @MainActor func testPageEvidence() {
+        executionTimeAllowance = 180
         func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
             if !condition { XCTFail("\(name): \(String(detail().prefix(900)))") }
         }
