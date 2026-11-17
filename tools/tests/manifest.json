@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 140,
+  "suiteCount": 139,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2247,7 +2247,8 @@
         "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
         "MarkView/Models/Insight/InsightCache.swift",
         "MarkView/Models/Insight/InsightHTMLTemplate.swift",
-        "MarkView/Models/Insight/InsightTreeSnapshot.swift"
+        "MarkView/Models/Insight/InsightTreeSnapshot.swift",
+        "MarkView/Models/Architecture/UnderstandingAnswer.swift"
       ]
     },
     {
@@ -3175,17 +3176,6 @@
         "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-api.js"
-      ]
-    },
-    {
-      "name": "understanding-answer-tests",
-      "script": "tools/tests/understanding-answer-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Architecture/UnderstandingAnswer.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/UnderstandingAnswerTests.swift"
       ]
     },
     {
