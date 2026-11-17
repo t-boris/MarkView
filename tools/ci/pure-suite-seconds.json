@@ -14,7 +14,6 @@
   "cli-completion-timeout-tests": 18.9,
   "cockpit-build-phase-tests": 0.0,
   "cockpit-child-tests": 11.6,
-  "cockpit-host-bridge-tests": 5.7,
   "cockpit-instruments-tests": 3.8,
   "cockpit-plan-tests": 3.9,
   "cockpit-planning-tests": 3.5,
