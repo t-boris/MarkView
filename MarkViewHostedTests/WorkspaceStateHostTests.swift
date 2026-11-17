@@ -1316,3 +1316,40 @@ extension EditorHostTests {
         check("prompt without a checklist is unchanged", HandoffPrompt.feature("docs/features/x", tool: CLITool(rawValue: "claude")!) == HandoffPrompt.feature("docs/features/x", tool: CLITool(rawValue: "claude")!, done: DefinitionOfDone(items: [])))
     }
 }
+
+extension EditorHostTests {
+    func testHandoffPromptsRespectRecordedAnswers() {
+        func check(_ name: String, _ condition: Bool, line: UInt = #line) {
+            XCTAssertTrue(condition, name, line: line)
+        }
+        let path = "docs/features/csv-export"
+        for backend in ["claude", "codex", "cline", "copilot"].map { CLITool(rawValue: $0)! } {
+            let p = HandoffPrompt.feature(path, tool: backend)
+            let who = backend.rawValue
+            check("\(who): feature prompt names the folder", p.contains(path))
+            check("\(who): feature prompt is one line (pasted and submitted at once)", !p.contains("\n"))
+            for record in ["questions/", "decisions/", "findings/", "discussion.md"] {
+                check("\(who): feature prompt names \(record)", p.contains(record))
+            }
+            check("\(who): answers are binding and not asked again", p.contains("binding") && p.contains("do not ask them again"))
+            check("\(who): new answers are written back", p.contains("back into the specification"))
+            check("\(who): no open invitation to ask anything", !p.contains("ask any question if you are in doubt"))
+            let b = HandoffPrompt.bug("docs/bugs/BUG-011-x.md", tool: backend)
+            check("\(who): bug prompt names the report", b.contains("docs/bugs/BUG-011-x.md"))
+            check("\(who): bug prompt keeps reproduce / root cause / verify", b.contains("reproduce") && b.contains("root cause") && b.contains("verify"))
+            check("\(who): bug clarifications are binding", b.contains("## Clarifications") && b.contains("do not ask them again"))
+            check("\(who): bug prompt is one line", !b.contains("\n"))
+        }
+        check("claude feature prompt is a /goal", HandoffPrompt.feature(path, tool: CLITool(rawValue: "claude")!).hasPrefix("/goal "))
+        check("codex feature prompt is a /goal", HandoffPrompt.feature(path, tool: CLITool(rawValue: "codex")!).hasPrefix("/goal "))
+        check("copilot feature prompt is an autopilot objective", HandoffPrompt.feature(path, tool: CLITool(rawValue: "copilot")!).hasPrefix("/autopilot "))
+        check("cline feature prompt sets a task goal", HandoffPrompt.feature(path, tool: CLITool(rawValue: "cline")!).hasPrefix("Goal for this Cline task:"))
+        check("claude bug prompt is a /goal", HandoffPrompt.bug("x.md", tool: CLITool(rawValue: "claude")!).hasPrefix("/goal fix the bug"))
+        // A goal of the person's own words, for markview_agent_send.
+        check("claude goal is /goal <text>", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "claude")!) == "/goal tests pass")
+        check("codex goal is /goal <text>", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "codex")!) == "/goal tests pass")
+        check("copilot goal is /autopilot <text>", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "copilot")!) == "/autopilot tests pass")
+        check("antigravity goal is the text, asked to continue", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "antigravity")!).hasPrefix("tests pass ") && !HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "antigravity")!).hasPrefix("/"))
+        check("cline goal is a task goal", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "cline")!).hasPrefix("Goal for this Cline task: tests pass"))
+    }
+}
