@@ -17,7 +17,6 @@
   "cockpit-instruments-tests": 3.8,
   "cockpit-policy-tests": 4.3,
   "cockpit-qa-attempt-tests": 6.6,
-  "cockpit-run-tests": 9.3,
   "cockpit-runtime-integration-tests": 0.0,
   "control-agent-tools-tests": 42.2,
   "cycle-time-tests": 7.4,
