@@ -2078,7 +2078,10 @@
         "MarkViewHostedTests/LifecycleSyncHostTests.swift",
         "tools/tests/IssueLogSupport.swift",
         "MarkView/Models/Lifecycle/IssueGitHubSync.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycleContext.swift"
+        "MarkView/Models/Lifecycle/IssueLifecycleContext.swift",
+        "MarkViewHostedTests/LifecycleTransitionHostTests.swift",
+        "MarkView/Models/Lifecycle/IssueCompletion.swift",
+        "MarkView/Models/Lifecycle/IssueReconciler.swift"
       ]
     },
     {
