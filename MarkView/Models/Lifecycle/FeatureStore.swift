@@ -29,20 +29,20 @@ final class FeatureStore: ObservableObject {
     @Published var activeSlug: String? {
         didSet {
             guard let root, let activeSlug else { return }
-            Settings.standard.set(activeSlug, for: Self.activeKey(root))
+            settings.set(activeSlug, for: Self.activeKey(root))
         }
     }
     /// Funnel filter and order of the Issues list, kept per project (REQ-005).
     @Published var issueFilter = IssueFilter() {
         didSet {
             guard let root else { return }
-            Settings.standard.set(issueFilter.storedValue, for: Setting.issueFilter(project: Self.projectHash(root)))
+            settings.set(issueFilter.storedValue, for: Setting.issueFilter(project: Self.projectHash(root)))
         }
     }
     @Published var issueSort = IssueSort.default {
         didSet {
             guard let root else { return }
-            Settings.standard.set(issueSort.storedValue, for: Setting.issueSort(project: Self.projectHash(root)))
+            settings.set(issueSort.storedValue, for: Setting.issueSort(project: Self.projectHash(root)))
         }
     }
     @Published var lastError: String?
@@ -71,8 +71,11 @@ final class FeatureStore: ObservableObject {
     /// The AI side of the workspaces (explore, review, actions…).
     private(set) lazy var assistant = FeatureAssistant(store: self)
 
-    init(gitHub: (any GitHubClientSource)? = nil) {
+    private let settings: Settings
+
+    init(gitHub: (any GitHubClientSource)? = nil, settings: Settings = .standard) {
         self.gitHub = gitHub
+        self.settings = settings
     }
     /// Every status change of a feature or a bug goes through it (Models/FeatureStore+Lifecycle.swift).
     private(set) lazy var lifecycle = IssueLifecycleCoordinator(store: self)
@@ -102,10 +105,10 @@ final class FeatureStore: ObservableObject {
         reset()
         // Restored while `root` is nil, so restoring does not write them back.
         let project = Self.projectHash(root)
-        issueFilter = IssueFilter(stored: Settings.standard.stored(Setting.issueFilter(project: project)))
-        issueSort = IssueSort(stored: Settings.standard.stored(Setting.issueSort(project: project)))
+        issueFilter = IssueFilter(stored: settings.stored(Setting.issueFilter(project: project)))
+        issueSort = IssueSort(stored: settings.stored(Setting.issueSort(project: project)))
         self.root = root
-        activeSlug = Settings.standard.stored(Self.activeKey(root))
+        activeSlug = settings.stored(Self.activeKey(root))
         reload()
         loadGitUser()
         let prefix = root.standardizedFileURL.resolvingSymlinksInPath().path

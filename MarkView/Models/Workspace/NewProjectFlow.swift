@@ -27,9 +27,10 @@ final class NewProjectFlow: ObservableObject {
     @Published var parentFolder: URL
     @Published var folderName = ""
 
-    let store = FeatureStore()
+    let store: FeatureStore
     var assistant: FeatureAssistant { store.assistant }
-    private let drafts = ProjectDraftStore.shared
+    private let drafts: ProjectDraftStore
+    private let settings: Settings
     /// The step the sheet started (the analysis of the idea, the brief, creating the project) and the discarding of the draft: one step runs at
     /// a time, a new one replaces the one in flight, and closing the sheet ends it (`AR-19`). The draft is saved before the first AI call, so
     /// a step that is cut off leaves what was saved, and Analyze Again or Retry continues from there.
@@ -39,16 +40,19 @@ final class NewProjectFlow: ObservableObject {
     /// sheet's buttons (Confirm Brief) follow them through this flow.
     private var forwarding: [AnyCancellable] = []
 
-    init(resume id: UUID? = nil) {
+    init(resume id: UUID? = nil, settings: Settings = .standard, drafts: ProjectDraftStore? = nil) {
+        self.settings = settings
+        self.drafts = drafts ?? .shared
+        self.store = FeatureStore(settings: settings)
         store.recordsLifecycle = false
-        let saved = Settings.standard.stored(Setting.newProjectParentFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let saved = settings.stored(Setting.newProjectParentFolder).map { URL(fileURLWithPath: $0, isDirectory: true) }
         parentFolder = saved.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? Self.defaultParent
         assistant.projectDiscovery = true
         forwarding = [
             store.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
             assistant.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
         ]
-        if let id, let draft = drafts.draft(id) { load(draft) }
+        if let id, let draft = self.drafts.draft(id) { load(draft) }
     }
 
     /// ~/Developer when it exists, else ~/Documents.
@@ -195,7 +199,7 @@ final class NewProjectFlow: ObservableObject {
         draft.folderName = folderName
         draft.stage = .creating
         draft.lastError = nil
-        Settings.standard.set(parentFolder.path, for: Setting.newProjectParentFolder)
+        settings.set(parentFolder.path, for: Setting.newProjectParentFolder)
         let readme = ProjectFoundation.readme(
             title: feature.title, idea: goal,
             problem: ProjectFoundation.section("Problem", of: feature.overviewBody),

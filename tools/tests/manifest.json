@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 114,
+  "suiteCount": 112,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2132,7 +2132,20 @@
         "MarkViewHostedTests/PrototypeDataHostTests.swift",
         "MarkView/Models/Prototype/PrototypeImages.swift",
         "MarkView/Models/Prototype/PrototypeReference.swift",
-        "MarkViewHostedTests/PrototypeWebHostTests.swift"
+        "MarkViewHostedTests/PrototypeWebHostTests.swift",
+        "MarkViewHostedTests/FeatureStoreLifecycleHostTests.swift",
+        "MarkView/Models/AI/ACPAssistant.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/StreamedText.swift",
+        "MarkView/Models/Workspace/NewProject.swift",
+        "MarkView/Models/Workspace/ProjectBootstrap.swift",
+        "MarkView/Models/Workspace/NewProjectFlow.swift",
+        "MarkView/Models/Workspace/ProjectDraftStore.swift",
+        "MarkView/Models/Lifecycle/FeatureStore.swift",
+        "MarkView/Models/Lifecycle/FeatureAI.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/FeatureJobs.swift",
+        "MarkView/Models/Dictation/OnDeviceSpeech.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/DictationLanguage.swift",
+        "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift"
       ]
     },
     {
@@ -3363,49 +3376,6 @@
         "tools/tests/window-composition-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift"
-      ]
-    },
-    {
-      "name": "new-project-close-tests",
-      "script": "tools/tests/new-project-close-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/ACPAssistant.swift",
-        "MarkView/Models/AI/CLICompletion.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StreamedText.swift",
-        "MarkView/Models/Workspace/NewProject.swift",
-        "MarkView/Models/Workspace/ProjectBootstrap.swift",
-        "MarkView/Models/Workspace/NewProjectFlow.swift",
-        "MarkView/Models/Workspace/ProjectDraftStore.swift",
-        "MarkView/Models/Lifecycle/FeatureStore.swift",
-        "MarkView/Models/Lifecycle/FeatureAI.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/FeatureJobs.swift",
-        "MarkView/Models/Lifecycle/FeatureIntake.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "tools/tests/NewProjectCloseChecks.swift",
-        "tools/tests/new-project-close-tests.sh",
-        "MarkView/Models/Dictation/OnDeviceSpeech.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/DictationLanguage.swift"
-      ]
-    },
-    {
-      "name": "feature-store-schema-tests",
-      "script": "tools/tests/feature-store-schema-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/FeatureStore.swift",
-        "MarkView/Models/Lifecycle/FeatureModels.swift",
-        "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift",
-        "MarkView/Models/Lifecycle/FeatureIntake.swift",
-        "MarkView/Models/Lifecycle/SpecificationHandoff.swift",
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Shared/FrontMatterFile.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/FeatureStoreSchemaChecks.swift",
-        "tools/tests/feature-store-schema-tests.sh",
-        "MarkView/Models/Dictation/OnDeviceSpeech.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/DictationLanguage.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/FeatureJobs.swift"
       ]
     },
     {
