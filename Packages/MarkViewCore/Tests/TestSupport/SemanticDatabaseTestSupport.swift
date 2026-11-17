@@ -7,6 +7,9 @@ actor SemanticDatabase {
         usage.append((inputTokens, outputTokens, costCents))
     }
     nonisolated static func documentId(for fileURL: URL, root: URL) -> String {
-        fileURL.path.replacingOccurrences(of: root.path + "/", with: "")
+        let rootPath = root.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        return filePath.hasPrefix(prefix) ? String(filePath.dropFirst(prefix.count)) : fileURL.lastPathComponent
     }
 }

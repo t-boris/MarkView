@@ -129,10 +129,6 @@ enum AgentBrowserRegistration {
     static func ensureRegistered(_ tool: CLITool, executable: String) {}
 }
 enum TerminalBrowserBridge { static var isEnabled: Bool { true } }
-actor SemanticDatabase {
-    func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
-    nonisolated static func documentId(for url: URL, root: URL) -> String { url.path }
-}
 enum ACPAssistant {
     static func cachedModels(_ tool: CLITool) -> [AIModelOption] { [] }
     static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] { [] }
@@ -143,7 +139,7 @@ enum ACPAssistant {
 enum AgentModelProbe { static func hasClaudeSession(cwd: URL) -> Bool { false } }
 SWIFT
 swiftc -o "$out/ai-terminals-controller-tests" -target "$(uname -m)-apple-macos13.0" \
-    Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
+    Packages/MarkViewCore/Sources/MarkViewCore/*.swift Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift \
     MarkView/Models/Workspace/AITerminalsController.swift MarkView/Models/Terminal/AssistantProviding.swift MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/Shared/UserPrompts.swift tools/tests/ScriptedPrompts.swift \
     MarkView/Models/Shared/ProjectProviding.swift \
     MarkView/Models/Remote/RemoteAssistantHost.swift MarkView/Models/Remote/RemoteProtocol.swift \

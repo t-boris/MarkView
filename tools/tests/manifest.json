@@ -90,7 +90,8 @@
         "tools/tests/ai-terminals-controller-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ScriptedPrompts.swift"
+        "tools/tests/ScriptedPrompts.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -489,7 +490,8 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {

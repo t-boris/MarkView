@@ -17,16 +17,7 @@ enum ACPAssistant {
                     onDelta: (@Sendable (String) -> Void)?, onActivity: (@Sendable (CLICompletion.Activity) -> Void)?)
         async throws -> CLICompletion.Result { fatalError("not used by the checks") }
 }
-actor SemanticDatabase {
-    func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {}
-    nonisolated static func documentId(for fileURL: URL, root: URL) -> String {
-        let rootPath = root.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
-        return filePath.hasPrefix(prefix) ? String(filePath.dropFirst(prefix.count)) : fileURL.lastPathComponent
-    }
-}
 SWIFT
-swiftc -o "$out/project-ai-choice-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/AI/AICallLog.swift \
+swiftc -o "$out/project-ai-choice-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift MarkView/Models/AI/AIAssistants.swift MarkView/Models/AI/Providers/*.swift MarkView/Models/Appearance/ProjectColor.swift MarkView/Models/Shared/LinkedFolders.swift MarkView/Models/Shared/LinkedFolderStore.swift MarkView/Models/AI/AICallLog.swift \
     MarkView/Models/AI/CLICompletion.swift "$out/Stub.swift" "$out/main.swift"
 "$out/project-ai-choice-tests"
