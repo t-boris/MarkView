@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 72,
+  "suiteCount": 71,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -497,25 +497,6 @@
         "tools/tests/FeatureFlowCoordinatorStubs.swift",
         "tools/tests/FeatureFlowCoordinatorTests.swift",
         "tools/tests/feature-flow-coordinator-tests.sh"
-      ]
-    },
-    {
-      "name": "git-task-ownership-tests",
-      "script": "tools/tests/git-task-ownership-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/StreamedText.swift",
-        "MarkView/Models/Git/GitClient.swift",
-        "MarkView/Models/Git/GitHubStore.swift",
-        "MarkView/Models/Git/GitHubClient.swift",
-        "MarkView/Models/Git/GitStatusModel.swift",
-        "tools/tests/CLIToolLocatorStub.swift",
-        "tools/tests/GitStoreStubs.swift",
-        "tools/tests/GitTaskOwnershipTests.swift",
-        "tools/tests/git-task-ownership-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
       ]
     },
     {
@@ -1545,7 +1526,9 @@
         "MarkView/Models/Deployments/DeploymentStore+Databases.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/Git/GitHubConnection.swift",
-        "MarkView/Models/Shared/ProjectNaming.swift"
+        "MarkView/Models/Shared/ProjectNaming.swift",
+        "MarkView/Models/Git/GitClient.swift",
+        "MarkView/Models/Git/GitHubStore.swift"
       ]
     },
     {
