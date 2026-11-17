@@ -1,38 +1,15 @@
 import Foundation
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-struct ArchNode {
-    var id: String
-    var parent: String?
-    var kind: String
-    var name: String
-    var path: String?
-    var files: Int
-    var summary: String?
-    var line: Int?
-    var anchor: String?
-
-    init(id: String, parent: String?, kind: String, name: String, path: String? = nil,
-         files: Int = 0, summary: String? = nil) {
-        self.id = id
-        self.parent = parent
-        self.kind = kind
-        self.name = name
-        self.path = path
-        self.files = files
-        self.summary = summary
-    }
-}
-
-extension String {
-    var editorLines: [Substring] {
-        replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-            .split(separator: "\n", omittingEmptySubsequences: false)
-    }
-}
-
+final class XRayContentHostTests: XCTestCase {
+    func testContentHierarchy() throws {
 var failures = 0
+var checks = 0
 func check(_ name: String, _ condition: Bool) {
     print("\(condition ? "ok" : "FAIL")  \(name)")
+    checks += 1
     if !condition { failures += 1 }
 }
 
@@ -94,7 +71,7 @@ check("useful named group remains under file", untypedNodes.first { $0.name == "
 
 // BUG-015: the shipping index.html used to enter the 300-second AI queue on every
 // analysis without a successful outline cache, despite its useful local structure.
-let html = try String(contentsOfFile: "MarkView/Resources/Editor/index.html", encoding: .utf8)
+let html = try String(contentsOf: XCTUnwrap(Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor")), encoding: .utf8)
 let htmlOutline = XRayContent.localOutline(text: html, language: "html", signature: "fixture")
 let htmlItems = htmlOutline?.collections.flatMap(\.groups).flatMap(\.items) ?? []
 check("shipping index.html has local regions", htmlOutline?.source == "structure" && htmlItems.count >= 10)
@@ -154,4 +131,7 @@ check("AI timeout is identified as outlining rather than reading",
       message.contains("Could not outline index.html") && message.contains("60 s") &&
       !message.contains("Could not read"))
 
-if failures > 0 { exit(1) }
+        print("X-Ray content hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
+}

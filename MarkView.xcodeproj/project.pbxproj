@@ -596,6 +596,7 @@
 		9E95D0AD559447BAB4E1BC8A /* PrototypeStaticHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17B246DC1A948F49A6AD3CC /* PrototypeStaticHostTests.swift */; };
 		E9C491E621914931A1A491FA /* PrototypeFilesHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */; };
 		3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */; };
+		18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1307,6 +1308,7 @@
 		C17B246DC1A948F49A6AD3CC /* PrototypeStaticHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStaticHostTests.swift; sourceTree = "<group>"; };
 		9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFilesHostTests.swift; sourceTree = "<group>"; };
 		706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeRuntimeHostTests.swift; sourceTree = "<group>"; };
+		193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayContentHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2531,6 +2533,7 @@
 				C17B246DC1A948F49A6AD3CC /* PrototypeStaticHostTests.swift */,
 				9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */,
 				706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */,
+				193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3387,6 +3390,7 @@
 				9E95D0AD559447BAB4E1BC8A /* PrototypeStaticHostTests.swift in Sources */,
 				E9C491E621914931A1A491FA /* PrototypeFilesHostTests.swift in Sources */,
 				3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */,
+				18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

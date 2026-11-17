@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 212,
+  "suiteCount": 211,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2966,7 +2966,9 @@
         "MarkViewHostedTests/PrototypeFilesHostTests.swift",
         "MarkView/Bridge/PrototypeSchemeHandler.swift",
         "MarkView/Views/Prototype/PrototypeStudioView.swift",
-        "MarkViewHostedTests/PrototypeRuntimeHostTests.swift"
+        "MarkViewHostedTests/PrototypeRuntimeHostTests.swift",
+        "MarkView/Models/Architecture/XRayContent.swift",
+        "MarkViewHostedTests/XRayContentHostTests.swift"
       ]
     },
     {
@@ -4344,18 +4346,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "xray-content-tests",
-      "script": "tools/tests/xray-content-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Architecture/XRayContent.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/XRayContentTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
