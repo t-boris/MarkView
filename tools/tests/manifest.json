@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 182,
+  "suiteCount": 181,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1233,23 +1233,6 @@
         "tools/tests/FeatureFlowCoordinatorStubs.swift",
         "tools/tests/FeatureFlowCoordinatorTests.swift",
         "tools/tests/feature-flow-coordinator-tests.sh"
-      ]
-    },
-    {
-      "name": "file-browser-tests",
-      "script": "tools/tests/file-browser-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/FileBrowserModel.swift",
-        "MarkView/Models/Workspace/FileNode.swift",
-        "MarkView/Models/Workspace/WindowUIState.swift",
-        "tools/tests/FileBrowserTests.swift",
-        "tools/tests/file-browser-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2786,7 +2769,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift",
         "MarkView/Models/QA/QARunModel.swift",
         "MarkView/Views/QA/QARunViews.swift",
-        "MarkView/Models/Architecture/XRayCommand.swift"
+        "MarkView/Models/Architecture/XRayCommand.swift",
+        "MarkView/Models/Workspace/FileBrowserModel.swift",
+        "MarkView/Models/Workspace/WindowUIState.swift"
       ]
     },
     {
