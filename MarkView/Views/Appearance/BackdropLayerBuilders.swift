@@ -380,3 +380,35 @@ final class NetworkBackdrop: BackdropDrawing {
     static let descriptor = BackdropDescriptor.scene("network", title: "Network", symbol: "point.3.connected.trianglepath.dotted", order: 40)
     static func layers(_ builder: BackdropBuilder) -> [CALayer] { builder.network() }
 }
+
+#if MARKVIEW_HOSTED_TEST_HOST && MARKVIEW_BACKDROP_FIXTURE
+// Registered only in the isolated hosted test image to exercise runtime discovery.
+/// A scene that draws one named layer.
+final class FakeSceneBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("fake-scene", title: "Fake Scene", symbol: "star", order: 900)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] {
+        let layer = CALayer()
+        layer.name = "fake-scene-\(builder.seed)-\(builder.detail)"
+        return [layer]
+    }
+}
+
+/// A scene that is listed but is not animated, so Shuffle must not pick it.
+final class FakeStillBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("fake-still", title: "Fake Still", symbol: "photo", order: 910, animated: false)
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { [CALayer()] }
+}
+
+/// A scene that By Project draws for one project identity, before every rule of the app.
+final class FakeProjectBackdrop: BackdropDrawing {
+    static let descriptor = BackdropDescriptor.scene("fake-project", title: "Fake Project", symbol: "folder", order: 920, animated: false,
+        project: .init(priority: 1, matches: { $0.identity == "fake-project" }, reason: { "Fake Project: \($0.features) features" }))
+    static func layers(_ builder: BackdropBuilder) -> [CALayer] { [CALayer()] }
+}
+
+/// A registration that does not draw: it is listed, and the builder draws nothing for it.
+final class FakeUndrawnBackdrop: BackdropRegistration {
+    static let descriptor = BackdropDescriptor.scene("fake-undrawn", title: "Fake Undrawn", symbol: "questionmark", order: 930, animated: false)
+}
+
+#endif

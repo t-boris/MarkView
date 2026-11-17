@@ -1,16 +1,17 @@
 #!/bin/bash
-# The welcome backdrops as a registry (AR-34, DEC-001): the backdrops the app registers keep their stored names, titles, symbols, order,
-# Shuffle pool and By Project rules; and a backdrop that is only registered (fakes in the test) appears in the picker list, in Shuffle's
-# pool, in By Project and in the layer builder's dispatch with no list, enum or switch edited. The real model and scene files are compiled;
-# no window is made.
-#   tools/tests/backdrop-registry-tests.sh
+# Isolated app image with test-only registrations: verifies real runtime discovery.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-cp tools/tests/BackdropRegistryTests.swift "$out/main.swift"
-swiftc -suppress-warnings -module-cache-path /private/tmp/markview-swift-cache -target "$(uname -m)-apple-macos13.0" \
-    MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/ProjectBackdrop.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift \
-    MarkView/Views/Appearance/BackdropLayerBuilders.swift MarkView/Views/Appearance/ProjectBackdropLayers.swift MarkView/Views/Appearance/DevBackdropLayers.swift MarkView/Views/Appearance/AtmosphereBackdropLayers.swift \
-    "$out/main.swift" -o "$out/backdrop-registry-tests"
-"$out/backdrop-registry-tests"
+derived="${MARKVIEW_BACKDROP_HOSTED_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewBackdropHosted}"
+tmp=$(mktemp -d /tmp/mvbackdrophost.XXXXXX)
+trap 'rm -rf "$tmp"' EXIT
+MARKVIEW_SOCKET_DIR="$tmp" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
+  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MARKVIEW_HOSTED_TEST_HOST MARKVIEW_BACKDROP_FIXTURE' \
+  -test-timeouts-enabled YES -only-testing:MarkViewHostedTests/BackdropRegistryHostTests/testRuntimeDiscovery test | tee "$tmp/test.log"
+python3 - "$tmp/test.log" <<'PY'
+import pathlib,sys
+log=pathlib.Path(sys.argv[1]).read_text(errors='replace')
+if "BackdropRegistryHostTests testRuntimeDiscovery]' passed" not in log:
+    sys.exit('Backdrop runtime-discovery test was not executed and passed')
+PY

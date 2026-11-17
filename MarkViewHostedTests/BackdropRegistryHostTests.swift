@@ -1,46 +1,14 @@
 import AppKit
 import QuartzCore
+import XCTest
+@testable import MarkView
 
-// The welcome backdrops as a registry (architecture review AR-34, DEC-001): what the app registers, and that a backdrop that is only
-// registered (the fakes below) appears in the picker list, in Shuffle's pool, in By Project and in the layer builder's dispatch, with no
-// list, enum or switch edited. Run through tools/tests/backdrop-registry-tests.sh, which compiles the real model and scene files.
-
-var failures = 0
-func check(_ ok: Bool, _ message: String, _ detail: String = "") {
-    if !ok { failures += 1 }
-    print("\(ok ? "ok  " : "FAIL") \(message)\(ok || detail.isEmpty ? "" : " - " + detail)")
-}
-
-// MARK: - Fakes: registered the way a scene registers itself, in a file of its own
-
-/// A scene that draws one named layer.
-final class FakeSceneBackdrop: BackdropDrawing {
-    static let descriptor = BackdropDescriptor.scene("fake-scene", title: "Fake Scene", symbol: "star", order: 900)
-    static func layers(_ builder: BackdropBuilder) -> [CALayer] {
-        let layer = CALayer()
-        layer.name = "fake-scene-\(builder.seed)-\(builder.detail)"
-        return [layer]
-    }
-}
-
-/// A scene that is listed but is not animated, so Shuffle must not pick it.
-final class FakeStillBackdrop: BackdropDrawing {
-    static let descriptor = BackdropDescriptor.scene("fake-still", title: "Fake Still", symbol: "photo", order: 910, animated: false)
-    static func layers(_ builder: BackdropBuilder) -> [CALayer] { [CALayer()] }
-}
-
-/// A scene that By Project draws for one project identity, before every rule of the app.
-final class FakeProjectBackdrop: BackdropDrawing {
-    static let descriptor = BackdropDescriptor.scene("fake-project", title: "Fake Project", symbol: "folder", order: 920, animated: false,
-        project: .init(priority: 1, matches: { $0.identity == "fake-project" }, reason: { "Fake Project: \($0.features) features" }))
-    static func layers(_ builder: BackdropBuilder) -> [CALayer] { [CALayer()] }
-}
-
-/// A registration that does not draw: it is listed, and the builder draws nothing for it.
-final class FakeUndrawnBackdrop: BackdropRegistration {
-    static let descriptor = BackdropDescriptor.scene("fake-undrawn", title: "Fake Undrawn", symbol: "questionmark", order: 930, animated: false)
-}
-
+#if MARKVIEW_BACKDROP_FIXTURE
+final class BackdropRegistryHostTests: XCTestCase {
+    @MainActor func testRuntimeDiscovery() {
+        func check(_ ok: Bool, _ message: String, _ detail: String = "") {
+            if !ok { XCTFail(detail.isEmpty ? message : message + " — " + detail) }
+        }
 func backdrop(_ id: String) -> WelcomeBackdrop { WelcomeBackdrop(rawValue: id)! }
 func isFake(_ backdrop: WelcomeBackdrop) -> Bool { backdrop.rawValue.hasPrefix("fake-") }
 
@@ -122,5 +90,7 @@ check(WelcomeBackdrop.stored(nil).rawValue == "matrix" && WelcomeBackdrop.stored
       "a missing or unknown stored name is Matrix Rain")
 check((expectedScenes + expectedModes).allSatisfy { WelcomeBackdrop.stored($0.id).rawValue == $0.id }, "every name an earlier build stored is read back as itself")
 
-print(failures == 0 ? "all backdrop registry checks passed" : "\(failures) check(s) failed")
-exit(failures == 0 ? 0 : 1)
+
+    }
+}
+#endif

@@ -1878,7 +1878,7 @@
         "MarkView/Views/Appearance/BackdropLayerBuilders.swift",
         "MarkView/Views/Appearance/DevBackdropLayers.swift",
         "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
-        "tools/tests/BackdropRegistryTests.swift",
+        "MarkViewHostedTests/BackdropRegistryHostTests.swift",
         "tools/tests/backdrop-registry-tests.sh"
       ]
     },

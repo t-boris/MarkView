@@ -620,6 +620,7 @@
 		F00000000000000000000130 /* UIStudioFeatureInspection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000131 /* UIStudioFeatureInspection.swift */; };
 		B0E44B5715124C2EBA72585E /* UIStudioWebHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F3ACCF522DF4B05BDB1D33C /* UIStudioWebHostTests.swift */; };
 		68836DD76A034F8BB78D8635 /* WelcomeScreenHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07BC6B013B345FDB13D36C1 /* WelcomeScreenHostTests.swift */; };
+		2767FF78F45D4130891A2A11 /* BackdropRegistryHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF941D25CD994146878C7B8B /* BackdropRegistryHostTests.swift */; };
 		F00000000000000000000132 /* UIStudioSessionHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000133 /* UIStudioSessionHostTests.swift */; };
 		F00000000000000000000134 /* GraphPerformanceProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000135 /* GraphPerformanceProbe.swift */; };
 		B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */; };
@@ -1373,6 +1374,7 @@
 		F00000000000000000000131 /* UIStudioFeatureInspection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioFeatureInspection.swift; sourceTree = "<group>"; };
 		6F3ACCF522DF4B05BDB1D33C /* UIStudioWebHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioWebHostTests.swift; sourceTree = "<group>"; };
 		B07BC6B013B345FDB13D36C1 /* WelcomeScreenHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeScreenHostTests.swift; sourceTree = "<group>"; };
+		FF941D25CD994146878C7B8B /* BackdropRegistryHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackdropRegistryHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000133 /* UIStudioSessionHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioSessionHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000135 /* GraphPerformanceProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphPerformanceProbe.swift; sourceTree = "<group>"; };
 		6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReaderHostTests.swift; sourceTree = "<group>"; };
@@ -2639,6 +2641,7 @@
 				F00000000000000000000131 /* UIStudioFeatureInspection.swift */,
 				6F3ACCF522DF4B05BDB1D33C /* UIStudioWebHostTests.swift */,
 				B07BC6B013B345FDB13D36C1 /* WelcomeScreenHostTests.swift */,
+				FF941D25CD994146878C7B8B /* BackdropRegistryHostTests.swift */,
 				F00000000000000000000133 /* UIStudioSessionHostTests.swift */,
 				F00000000000000000000135 /* GraphPerformanceProbe.swift */,
 				6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */,
@@ -3534,6 +3537,7 @@
 				F00000000000000000000130 /* UIStudioFeatureInspection.swift in Sources */,
 				B0E44B5715124C2EBA72585E /* UIStudioWebHostTests.swift in Sources */,
 				68836DD76A034F8BB78D8635 /* WelcomeScreenHostTests.swift in Sources */,
+				2767FF78F45D4130891A2A11 /* BackdropRegistryHostTests.swift in Sources */,
 				F00000000000000000000132 /* UIStudioSessionHostTests.swift in Sources */,
 				F00000000000000000000134 /* GraphPerformanceProbe.swift in Sources */,
 				B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */,
@@ -3594,7 +3598,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.146;
+				CURRENT_PROJECT_VERSION = 7.0.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3609,7 +3613,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.146;
+				MARKETING_VERSION = 7.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3677,7 +3681,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.146;
+				CURRENT_PROJECT_VERSION = 7.0.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3698,7 +3702,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.146;
+				MARKETING_VERSION = 7.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3799,7 +3803,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.146;
+				CURRENT_PROJECT_VERSION = 7.0.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3820,7 +3824,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.146;
+				MARKETING_VERSION = 7.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
