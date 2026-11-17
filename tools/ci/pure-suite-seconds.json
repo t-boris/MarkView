@@ -36,7 +36,6 @@
   "control-agent-tools-tests": 42.2,
   "cycle-time-tests": 7.4,
   "database-explorer-tests": 25.8,
-  "definition-of-done-tests": 13.8,
   "deployment-executor-tests": 15.2,
   "deployment-ssh-tests": 17.3,
   "deployment-store-tests": 21.6,

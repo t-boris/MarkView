@@ -565,6 +565,7 @@
 		698EA768F99E5859772A9DB6 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E42C20AB8A45BCBDDF7DCBDE /* Cocoa.framework */; };
 		F00000000000000000000101 /* EditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000102 /* EditorHostTests.swift */; };
 		650928E0410D416BAAF02AFA /* WorkspaceAppearanceHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F4A3B5E864347E5B88C8903 /* WorkspaceAppearanceHostTests.swift */; };
+		A4DD9A6FAE364D6387E23DE1 /* StoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */; };
 		EEF54C9D03BF4C1BB64ABE38 /* WorkspaceStateHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */; };
 		2595E5D447984E99B63CD316 /* WorkspaceEditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */; };
 		F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000104 /* ControlToolRunnerTests.swift */; };
@@ -1272,6 +1273,7 @@
 		FDC4E2EE931C68C12939307E /* MarkViewHostedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkViewHostedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000102 /* EditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorHostTests.swift; sourceTree = "<group>"; };
 		7F4A3B5E864347E5B88C8903 /* WorkspaceAppearanceHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceHostTests.swift; sourceTree = "<group>"; };
+		A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../tools/tests/StoreTestSupport.swift; sourceTree = "<group>"; };
 		710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStateHostTests.swift; sourceTree = "<group>"; };
 		34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditorHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000104 /* ControlToolRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunnerTests.swift; sourceTree = "<group>"; };
@@ -2493,6 +2495,7 @@
 				F00000000000000000000102 /* EditorHostTests.swift */,
 				7F4A3B5E864347E5B88C8903 /* WorkspaceAppearanceHostTests.swift */,
 				710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */,
+				A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */,
 				34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */,
 				F00000000000000000000104 /* ControlToolRunnerTests.swift */,
 				F00000000000000000000121 /* WorkflowEditorLayoutHostTests.swift */,
@@ -3342,6 +3345,7 @@
 				F00000000000000000000101 /* EditorHostTests.swift in Sources */,
 				650928E0410D416BAAF02AFA /* WorkspaceAppearanceHostTests.swift in Sources */,
 				EEF54C9D03BF4C1BB64ABE38 /* WorkspaceStateHostTests.swift in Sources */,
+				A4DD9A6FAE364D6387E23DE1 /* StoreTestSupport.swift in Sources */,
 				2595E5D447984E99B63CD316 /* WorkspaceEditorHostTests.swift in Sources */,
 				F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */,
 				F00000000000000000000120 /* WorkflowEditorLayoutHostTests.swift in Sources */,
