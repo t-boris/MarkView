@@ -6,10 +6,6 @@ import Foundation
 // (named like them) and record what the host asks of them; the host, the tabs, the panels, the project's web-app discovery, the
 // control window it registers and the browser tool it hands to agents are the shipping code.
 
-struct InsightSession {
-    let id = UUID()
-    func cancel() async {}
-}
 struct PrototypeSession { let slug: String }
 struct StudioSession { func close() async {} }
 struct CockpitSession { func cancel() {} }

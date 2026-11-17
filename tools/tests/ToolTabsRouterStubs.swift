@@ -5,10 +5,6 @@ import Foundation
 // (including the classes the hosts build), the QA model and Feature store the router wires, the
 // Cockpit's window contract, the assistant and its usage record, and Prototype Studio's files. The shipping router, hosts, tabs
 // controller, panels, deployment store and discussion store run unchanged beside them.
-struct InsightSession {
-    let id = UUID()
-    func cancel() async {}
-}
 struct BrowserSession {
     var url: URL?
     func close() {}

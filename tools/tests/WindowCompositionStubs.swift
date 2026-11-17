@@ -24,7 +24,6 @@ enum Journal {
     static func reset() { built = []; shutdown = [] }
 }
 
-struct InsightSession { let id = UUID() }
 struct GitHubRepo: Equatable { let slug: String }
 
 @MainActor final class StandInFileTree {

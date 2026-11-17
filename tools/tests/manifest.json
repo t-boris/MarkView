@@ -321,7 +321,8 @@
         "tools/tests/browser-host-tests.sh",
         "MarkView/Models/AgentTools/AgentToolWindow.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ScriptedPrompts.swift"
+        "tools/tests/ScriptedPrompts.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift"
       ]
     },
     {
@@ -2150,7 +2151,8 @@
         "tools/tests/ToolTabsRouterTests.swift",
         "tools/tests/tool-tabs-router-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ProjectProvidingTestSupport.swift"
+        "tools/tests/ProjectProvidingTestSupport.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift"
       ]
     },
     {
@@ -2180,7 +2182,8 @@
         "tools/tests/WindowCompositionTests.swift",
         "tools/tests/window-composition-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ScriptedPrompts.swift"
+        "tools/tests/ScriptedPrompts.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift"
       ]
     },
     {
