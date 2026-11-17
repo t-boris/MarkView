@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 196,
+  "suiteCount": 195,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -3347,16 +3347,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "structure-outline-tests",
-      "script": "tools/tests/structure-outline-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/StructureOutline.swift",
-        "tools/tests/StructureOutlineTests.swift",
-        "tools/tests/structure-outline-tests.sh"
       ]
     },
     {

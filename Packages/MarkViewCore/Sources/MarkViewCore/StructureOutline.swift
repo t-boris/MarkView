@@ -1,25 +1,25 @@
 import Foundation
 
 /// The structure of a JSON or YAML file for the Contents panel: its keys, nested, each with the line it
-/// sits on so a click can jump there. Foundation only, checked in `tools/tests/structure-outline-tests.sh`.
-enum StructureOutline {
+/// sits on so a click can jump there. Foundation only, checked by the core package tests.
+public enum StructureOutline {
     /// A step of a key path: an object key or an array index (the tree viewer addresses nodes this way).
-    enum Step: Equatable {
+    public enum Step: Equatable, Sendable {
         case key(String)
         case index(Int)
     }
 
-    struct Item: Equatable, Identifiable {
-        let id: Int
-        let title: String
+    public struct Item: Equatable, Identifiable, Sendable {
+        public let id: Int
+        public let title: String
         /// 1-based line in the file.
-        let line: Int
-        let depth: Int
+        public let line: Int
+        public let depth: Int
         /// Where the key sits from the root: `["services", "web", "ports", 0]`.
         var path: [Step] = []
 
         /// The path as JSON, as the page's tree viewer stores it in `data-path`.
-        var pathJSON: String {
+        public var pathJSON: String {
             let parts: [Any] = path.map { step in
                 switch step {
                 case .key(let name): return name
@@ -35,19 +35,19 @@ enum StructureOutline {
     static let jsonExtensions: Set<String> = ["json", "jsonc", "json5", "geojson"]
     static let yamlExtensions: Set<String> = ["yml", "yaml"]
 
-    static func supports(_ url: URL) -> Bool {
+    public static func supports(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
         return jsonExtensions.contains(ext) || yamlExtensions.contains(ext)
     }
 
-    static func items(for url: URL, text: String) -> [Item] {
+    public static func items(for url: URL, text: String) -> [Item] {
         yamlExtensions.contains(url.pathExtension.lowercased()) ? yaml(text) : json(text)
     }
 
     // MARK: JSON
 
     /// Object keys down to `maxDepth` levels, and "[n]" for the objects and arrays inside an array.
-    static func json(_ text: String, maxDepth: Int = 5) -> [Item] {
+    public static func json(_ text: String, maxDepth: Int = 5) -> [Item] {
         var items: [Item] = []
         // One entry per open container: true = object, false = array; with the next array index.
         var stack: [(isObject: Bool, index: Int, current: Step?)] = []
@@ -116,7 +116,7 @@ enum StructureOutline {
     // MARK: YAML
 
     /// Mapping keys by indentation; block scalars (`|`, `>`) are skipped, so their text is not read as keys.
-    static func yaml(_ text: String) -> [Item] {
+    public static func yaml(_ text: String) -> [Item] {
         var items: [Item] = []
         var levels: [(column: Int, name: String, dashes: Int)] = []
         var skipBelow: Int?

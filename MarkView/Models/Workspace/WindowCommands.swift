@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What a view asks of its window as a whole: the commands that cut across the window's parts (show a file in a tab with the panels that
 /// go with it, open a tool's tab, delete the folder's metadata). A view that only issues one of these takes this and not the
