@@ -4579,7 +4579,7 @@
         "MarkView/Models/Workspace/ProjectDraftStore.swift",
         "MarkView/Models/Lifecycle/FeatureStore.swift",
         "MarkView/Models/Lifecycle/FeatureAI.swift",
-        "MarkView/Models/Lifecycle/FeatureJobs.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/FeatureJobs.swift",
         "MarkView/Models/Lifecycle/FeatureIntake.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/NewProjectCloseChecks.swift",
