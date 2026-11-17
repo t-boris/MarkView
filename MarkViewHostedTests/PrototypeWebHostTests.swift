@@ -242,3 +242,57 @@ extension EditorHostTests {
         check(baseline.first?.contains("undefinedFunction") == false, "baseline: file:// hides the text (the cause of BUG-047)")
     }
 }
+
+extension EditorHostTests {
+    /// Run the shipping audit in Chromium as well as the WebKit coverage above.
+    func testPrototypeAuditInHeadlessChrome() async throws {
+        let fm = FileManager.default
+        let chrome = ProcessInfo.processInfo.environment["CHROME"] ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        guard fm.isExecutableFile(atPath: chrome) else { throw XCTSkip("Google Chrome is not installed") }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let work = fm.temporaryDirectory.appendingPathComponent("mv-audit-chrome-\(UUID().uuidString)", isDirectory: true)
+        let site = work.appendingPathComponent("site", isDirectory: true)
+        defer { try? fm.removeItem(at: work) }
+        try fm.createDirectory(at: work, withIntermediateDirectories: true)
+        try fm.copyItem(at: root.appendingPathComponent("Tests/Fixtures/prototype-audit"), to: site)
+        try PrototypeAudit.script.write(to: site.appendingPathComponent("audit.js"), atomically: true, encoding: .utf8)
+        let index = site.appendingPathComponent("index.html")
+        var html = try String(contentsOf: index, encoding: .utf8)
+        XCTAssertTrue(html.contains("<!--AUDIT-->") && html.contains("<!--RUN-->"), "Audit fixture placeholders must exist")
+        html = html.replacingOccurrences(of: "<!--AUDIT-->", with: #"<script src="audit.js"></script>"#)
+        html = html.replacingOccurrences(of: "<!--RUN-->", with: """
+        <script>
+        function result(value) {
+          const pre = document.createElement('pre'); pre.id = 'mv-audit-result';
+          pre.textContent = btoa(unescape(encodeURIComponent(JSON.stringify(value)))); document.body.appendChild(pre);
+        }
+        __mvAudit().then(result, function (error) { result({ error: String(error) }); });
+        </script>
+        """)
+        try html.write(to: index, atomically: true, encoding: .utf8)
+        let result = await Subprocess.run(.init(executable: chrome, arguments: [
+            "--headless=new", "--disable-gpu", "--allow-file-access-from-files", "--virtual-time-budget=120000",
+            "--user-data-dir=" + work.appendingPathComponent("profile").path, "--dump-dom", index.absoluteString
+        ], timeout: 180, maxOutputBytes: 4 * 1024 * 1024))
+        XCTAssertTrue(result.succeeded && !result.truncated, "Chrome did not complete the audit (exit \(result.exitCode), timeout \(result.timedOut))")
+        let expression = try NSRegularExpression(pattern: #"<pre id="mv-audit-result">([A-Za-z0-9+/=]+)</pre>"#)
+        let range = NSRange(result.stdout.startIndex..., in: result.stdout)
+        let match = try XCTUnwrap(expression.firstMatch(in: result.stdout, range: range), "The audit did not produce a result")
+        let payloadRange = try XCTUnwrap(Range(match.range(at: 1), in: result.stdout))
+        let payload = try XCTUnwrap(Data(base64Encoded: String(result.stdout[payloadRange])))
+        let report = try XCTUnwrap(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        XCTAssertNil(report["error"], "The audit returned an error")
+        let problems = try XCTUnwrap(report["problems"] as? [[String: Any]])
+        XCTAssertTrue(problems.allSatisfy { $0["id"] is String && $0["kind"] is String }, "Every finding must name its screen and kind")
+        let found = Dictionary(problems.compactMap { problem -> (String, String)? in
+            guard let id = problem["id"] as? String, let kind = problem["kind"] as? String else { return nil }
+            return (id, kind)
+        }, uniquingKeysWith: { _, last in last })
+        XCTAssertEqual(found, ["settings": "unbuilt", "trade": "blank", "risky": "error", "stuck": "loading", "ghost": "unbuilt", "chain": "clipped"])
+        XCTAssertEqual(report["checked"] as? Int, 14)
+        XCTAssertEqual(report["skipped"] as? Int, 2)
+        let chain = try XCTUnwrap(problems.first { ($0["id"] as? String) == "chain" })
+        let detail = try XCTUnwrap(chain["detail"] as? String)
+        XCTAssertTrue(detail.contains("chain-body") && detail.contains("0px"), "The clipped finding must name the collapsed box and its height")
+    }
+}

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 46,
+  "suiteCount": 45,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -465,14 +465,6 @@
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
         "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
-      ]
-    },
-    {
-      "name": "prototype-audit-check",
-      "script": "tools/tests/prototype-audit-check.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeAudit.swift"
       ]
     },
     {
@@ -1139,7 +1131,22 @@
         "MarkView/Models/Insight/InsightSession.swift",
         "MarkViewHostedTests/UIStudioLifetimeHostTests.swift",
         "MarkView/Models/UIStudio/UIStudioGateway.swift",
-        "MarkView/Models/UIStudio/UIStudioGatewayStreams.swift"
+        "MarkView/Models/UIStudio/UIStudioGatewayStreams.swift",
+        "Tests/Fixtures/prototype-audit/app.js",
+        "Tests/Fixtures/prototype-audit/index.html",
+        "Tests/Fixtures/prototype-audit/screens/chain.js",
+        "Tests/Fixtures/prototype-audit/screens/customers.js",
+        "Tests/Fixtures/prototype-audit/screens/dashboard.js",
+        "Tests/Fixtures/prototype-audit/screens/folded.js",
+        "Tests/Fixtures/prototype-audit/screens/gate.js",
+        "Tests/Fixtures/prototype-audit/screens/orders.js",
+        "Tests/Fixtures/prototype-audit/screens/rail.js",
+        "Tests/Fixtures/prototype-audit/screens/reports.js",
+        "Tests/Fixtures/prototype-audit/screens/risky.js",
+        "Tests/Fixtures/prototype-audit/screens/scroller.js",
+        "Tests/Fixtures/prototype-audit/screens/settings.js",
+        "Tests/Fixtures/prototype-audit/screens/stuck.js",
+        "Tests/Fixtures/prototype-audit/screens/trade.js"
       ]
     },
     {
