@@ -1758,7 +1758,7 @@
         "MarkView/Models/UIStudio/UIStudioSelection.swift",
         "MarkView/Models/UIStudio/UIStudioSimulation.swift",
         "MarkView/Views/UIStudio/UIStudioPreviewHost.swift",
-        "tools/tests/UIStudioWebHarness.swift",
+        "MarkViewHostedTests/UIStudioWebHostTests.swift",
         "tools/tests/ui-studio-web-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",

@@ -5,33 +5,34 @@
 import AppKit
 import Network
 import WebKit
+import XCTest
+@testable import MarkView
 
 // CI runners give no clue when a windowed WebKit test hangs: print every line at once and stop with the last step reached.
-setvbuf(stdout, nil, _IONBF, 0)
-final class Watchdog: @unchecked Sendable {
+private final class UIStudioWebWatchdog: @unchecked Sendable {
     private let lock = NSLock()
     private var step = "start"
-    init(seconds: Double) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [self] in
-            print("TIMEOUT: no result after \(Int(seconds)) s; last step: \(lock.withLock { step })")
+    private var timer: DispatchSourceTimer?
+    func start(seconds: Double) {
+        let timer = DispatchSource.makeTimerSource(queue: .global())
+        timer.schedule(deadline: .now() + seconds)
+        timer.setEventHandler { [self] in
+            FileHandle.standardError.write(Data("TIMEOUT: UI Studio web test; last step: \(lock.withLock { step })\n".utf8))
             exit(1)
         }
+        self.timer = timer
+        timer.resume()
     }
+    func stop() { timer?.cancel(); timer = nil }
     func reached(_ name: String) {
         lock.withLock { step = name }
-        print("--  \(name)")
+        FileHandle.standardError.write(Data("--  \(name)\n".utf8))
     }
 }
-let watchdog = Watchdog(seconds: 240)
+private let watchdog = UIStudioWebWatchdog()
 
-var failures = 0
-func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
-    if condition {
-        print("ok  \(name)")
-    } else {
-        failures += 1
-        print("FAIL \(name) \(detail())")
-    }
+private func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+    if !condition { XCTFail("\(name): \(detail())") }
 }
 
 /// Resumes a continuation the first time it is asked to, however often the listener's state changes.
@@ -47,7 +48,7 @@ private final class ResumeOnce: @unchecked Sendable {
 
 /// A minimal HTTP server on the loopback interface that answers every request with one HTML page. The port is chosen by the
 /// system, so a check never collides with a development server running on the Mac.
-final class LoopbackServer: @unchecked Sendable {
+private final class LoopbackServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "ui-studio-harness-loopback")
     private let lock = NSLock()
@@ -93,7 +94,7 @@ final class LoopbackServer: @unchecked Sendable {
 }
 
 @MainActor
-final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
+private final class UIStudioWebHarness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
     let token = "harness-session"
     let origin: StudioBridge.Origin
     /// When set, the page is served from this loopback server instead of being loaded as a string: only a served page loads under
@@ -131,6 +132,9 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         host = StudioPreviewScrollView(webView: webView)
         window = NSWindow(contentRect: CGRect(x: 80, y: 80, width: 1000, height: 760), styleMask: [.titled, .resizable],
                           backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
         super.init()
         configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: StudioBridge.handlerName)
         webView.navigationDelegate = self
@@ -140,6 +144,13 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         host.viewport = CGSize(width: 800, height: 600)
         host.zoom = 0.5
         if visible { window.orderFrontRegardless() }
+    }
+
+    func close() {
+        deliveries?.cancel(); channelHub?.closeAll(); server = nil
+        webView.stopLoading(); webView.navigationDelegate = nil
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: StudioBridge.handlerName, contentWorld: .page)
+        window.contentView = nil; window.close()
     }
 
     func load(_ html: String, seed: Int = 7, browser: StudioBrowserProfile = StudioBrowserProfile(),
@@ -221,6 +232,10 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         let expected = StudioBridge.Expectation(session: token, generation: simulator.generation, origin: origin)
         switch StudioBridge.validate(message.body, isMainFrame: message.frameInfo.isMainFrame, origin: sender, expecting: expected) {
         case .failure(let rejection):
+            if case .stale(let generation) = rejection {
+                let kind = (message.body as? [String: Any])?["type"] as? String ?? "unknown"
+                print("UI Studio fixture rejected stale generation \(generation), expected \(simulator.generation), type \(kind)")
+            }
             rejected.append(rejection.description)
             replyHandler(nil, "rejected")
         case .success(.event(let event)):
@@ -299,8 +314,8 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
     }
 }
 
-let page = """
-<!doctype html><html><head><meta charset="utf-8"><title>Harness</title>
+private let page = """
+<!doctype html><html><head><meta charset="utf-8"><title>UIStudioWebHarness</title>
 <style>body{margin:0;font:14px sans-serif} #buy{position:absolute;left:100px;top:100px;width:200px;height:50px}
 #name{position:absolute;left:100px;top:200px;width:200px} .row{height:20px}
 #far{position:absolute;left:100px;top:900px;width:200px;height:50px} #chart{position:absolute;left:400px;top:100px;width:100px;height:50px}
@@ -314,14 +329,13 @@ window.loadedItems = fetch('/api/items').then(function (r) { return r.json(); })
 """
 
 @MainActor
-func run() async {
-    guard let url = CommandLine.arguments.dropFirst().first.map(URL.init(fileURLWithPath:)),
-          let source = StudioRuntime.source(in: url) else {
-        print("usage: ui-studio-web-harness <Editor/js folder with the markview-ui-studio-*.js parts>")
-        exit(2)
-    }
+private func runUIStudioWebHarness() async {
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("MarkView/Resources/Editor/js")
+    guard let source = StudioRuntime.source(in: url) else { XCTFail("UI Studio runtime source is missing"); return }
     watchdog.reached("Open a window and load the page")
-    let harness = Harness(source: source)
+    let harness = UIStudioWebHarness(source: source)
+    defer { harness.close() }
     await harness.load(page)
     await harness.settle()
 
@@ -537,7 +551,11 @@ func run() async {
 
     await browserChecks(harness)
     await realtimeChecks(harness)
-    await ipcChecks(harness)
+    // The previous page can still report its old-generation idle event while a new
+    // simulator is installed. Use a fresh page so IPC validation covers only IPC traffic.
+    let ipcHarness = UIStudioWebHarness(source: source)
+    defer { ipcHarness.close() }
+    await ipcChecks(ipcHarness)
 
     // Messages of an earlier generation are rejected after Reset (SIM-10).
     watchdog.reached("Messages of an earlier generation are rejected after Reset")
@@ -552,7 +570,9 @@ func run() async {
     watchdog.reached("The application connection policy as a WebKit content rule list")
     let allowed = ["https://fonts.googleapis.com/*", "https://*.example.net/*"]
     let json = StudioConnectionPolicy.ruleListJSON(appOrigin: harness.origin, allowed: allowed)
-    let list = await StudioConnectionPolicy.compile(identifier: "markview-ui-studio-harness", json: json)
+    let identifier = "markview-ui-studio-harness-" + UUID().uuidString
+    defer { StudioConnectionPolicy.remove(identifier: identifier) }
+    let list = await StudioConnectionPolicy.compile(identifier: identifier, json: json)
     check("the connection policy compiles as a content rule list", list != nil, json)
     check("DEC-011 pictures of any address pass; documents, scripts and data of other origins stay blocked",
           json.contains(#""resource-type":["image"]"#) && json.components(separatedBy: "resource-type").count == 2, json)
@@ -572,19 +592,17 @@ func run() async {
         check("the development server is not blocked", server?.code != blockedCode, "\(server?.domain ?? "loaded") \(server?.code ?? 0)")
         let otherPort = await harness.navigate("http://localhost:5174/")
         check("another local port is blocked", otherPort?.code == blockedCode, "\(otherPort?.domain ?? "loaded") \(otherPort?.code ?? 0)")
-        StudioConnectionPolicy.remove(identifier: "markview-ui-studio-harness")
     }
 
     await standInChecks(source: source)
 
-    print(failures == 0 ? "All UI Studio page checks passed." : "\(failures) UI Studio page check(s) failed.")
-    exit(failures == 0 ? 0 : 1)
+
 }
 
 /// Location, permissions, clipboard, camera and microphone, and notifications answer from the scenario's browser settings
 /// and are reported to Studio; the kept localStorage is written once per generation (REQ-008).
 @MainActor
-func browserChecks(_ harness: Harness) async {
+private func browserChecks(_ harness: UIStudioWebHarness) async {
     let browserPage = """
     <!doctype html><html><head><meta charset="utf-8"><title>Browser</title></head><body><p id="t">Browser</p>
     <script>window.consentAtStart = localStorage.getItem('consent');</script></body></html>
@@ -747,7 +765,7 @@ func browserChecks(_ harness: Harness) async {
 
 /// The loader of @stripe/stripe-js, as it is written there: inject https://js.stripe.com/v3, resolve on load when `window.Stripe`
 /// exists, reject on error. Nobody catches the promise, as in react-stripe-js's <Elements stripe={promise}>.
-let stripePage = #"""
+private let stripePage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Pay</title></head><body><div id="pay"></div>
 <script>
 window.flags = { load: 0, error: 0 };
@@ -763,7 +781,7 @@ window.stripeReady = new Promise(function (resolve, reject) {
 
 /// A tag in the document. WebKit raises its `error` event only after the page's `load`, so the global has to be there when the tag
 /// is inserted: the inline script that follows it, DOMContentLoaded and load all see it.
-let staticStripePage = #"""
+private let staticStripePage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Static</title>
 <script src="https://js.stripe.com/v3"></script>
 <script>window.seenAtOnce = typeof Stripe; document.addEventListener('DOMContentLoaded', function () { window.seenLater = typeof Stripe; });
@@ -772,7 +790,7 @@ window.addEventListener('load', function () { window.seenOnLoad = typeof Stripe;
 """#
 
 /// Google's inline bootstrap loader for the Maps JavaScript API (the official snippet), then the dynamic import of a library.
-let mapsPage = #"""
+private let mapsPage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Map</title></head><body><div id="map" style="height:240px"></div>
 <script>
 (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({key:"AIzaTEST",v:"weekly"});
@@ -780,7 +798,7 @@ let mapsPage = #"""
 """#
 
 /// The older form: a script tag with `callback=initMap`.
-let mapsCallbackPage = #"""
+private let mapsCallbackPage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Map</title></head><body><div id="map" style="height:200px"></div>
 <script>
 window.initMap = function () { window.initialised = typeof google.maps.places.Autocomplete + ' ' + typeof google.maps.Map; };
@@ -789,7 +807,7 @@ document.head.appendChild(s);
 </script></body></html>
 """#
 
-let recaptchaPage = #"""
+private let recaptchaPage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Captcha</title></head><body><div id="box"></div>
 <script>
 window.onRecaptcha = function () { grecaptcha.render('box', { sitekey: 'k', callback: function (token) { window.solved = token; } }); };
@@ -798,7 +816,7 @@ document.head.appendChild(v2);
 </script></body></html>
 """#
 
-let analyticsPage = #"""
+private let analyticsPage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Analytics</title></head><body>
 <script>
 window.dataLayer = window.dataLayer || []; function gtag() { dataLayer.push(arguments); } gtag('js', new Date());
@@ -815,7 +833,7 @@ window.loaded = [];
 """#
 
 /// An invisible reCAPTCHA button (Google's own snippet) beside a checkbox widget.
-let recaptchaInvisiblePage = #"""
+private let recaptchaInvisiblePage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Captcha</title></head><body>
 <form id="f"><button id="go" class="g-recaptcha" data-sitekey="k" data-callback="onSubmit" data-size="invisible">Send</button></form>
 <div id="checkbox" class="g-recaptcha" data-sitekey="k" data-callback="onChecked"></div>
@@ -830,7 +848,7 @@ function onChecked(token) { log.push('checked'); }
 """#
 
 /// The "track, then navigate" pattern of every analytics SDK: the page waits for the completion callback.
-let analyticsCallbackPage = #"""
+private let analyticsCallbackPage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Analytics</title></head><body>
 <script>
 window.dataLayer = window.dataLayer || []; function gtag() { dataLayer.push(arguments); }
@@ -843,14 +861,14 @@ window.done = [];
 """#
 
 /// A tag a modern browser skips never runs, so nothing stands in for it.
-let nomodulePage = #"""
+private let nomodulePage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Legacy</title></head><body>
 <script nomodule src="https://js.stripe.com/v3"></script>
 <script>window.seen = typeof Stripe;</script></body></html>
 """#
 
 /// Scripts the runtime has no stand-in for, and look-alikes of an address it has one for.
-let unregisteredPage = #"""
+private let unregisteredPage = #"""
 <!doctype html><html><head><meta charset="utf-8"><title>Other</title></head><body>
 <script>
 window.outcome = [];
@@ -866,16 +884,17 @@ window.outcome = [];
 /// BUG-103 in a real WebKit page: the page is served over HTTP and the application connection policy is installed as a content
 /// rule list, so a script of an SDK is blocked exactly as in a session; the runtime then stands in for the registered SDKs.
 @MainActor
-func standInChecks(source: String) async {
+private func standInChecks(source: String) async {
     watchdog.reached("BUG-103 stand-ins for blocked SDK scripts")
     guard let server = try? LoopbackServer(), let port = await server.start() else {
         check("BUG-103 a loopback server starts", false)
         return
     }
     defer { server.stop() }
-    let studio = Harness(source: source, port: port, visible: false)
+    let studio = UIStudioWebHarness(source: source, port: port, visible: false)
+    defer { studio.close() }
     studio.server = server
-    let identifier = "markview-ui-studio-standins-harness"
+    let identifier = "markview-ui-studio-standins-harness-" + UUID().uuidString
     let json = StudioConnectionPolicy.ruleListJSON(appOrigin: studio.origin, allowed: [])
     guard let list = await StudioConnectionPolicy.compile(identifier: identifier, json: json) else {
         check("BUG-103 the connection policy compiles", false, json)
@@ -1159,14 +1178,10 @@ func standInChecks(source: String) async {
           "\(other) \(studio.events.dropFirst(mark).map { "\($0.kind.rawValue): \($0.detail)" })")
 }
 
-let application = NSApplication.shared
-application.setActivationPolicy(.accessory)
-Task { @MainActor in await run() }
-application.run()
 
 // MARK: - Real-time channels and GraphQL (REQ-015)
 
-extension Harness {
+private extension UIStudioWebHarness {
     /// The session's channel handling, without preparation: an address no channel answers fails like a refused socket.
     func handleChannel(_ message: StudioBridge.Channel, reply: @escaping (Any?, String?) -> Void) {
         guard let hub = channelHub else { return reply(["ok": false, "code": 1006, "reason": "no channels"], nil) }
@@ -1231,7 +1246,7 @@ extension Harness {
 }
 
 @MainActor
-func realtimeChecks(_ harness: Harness) async {
+private func realtimeChecks(_ harness: UIStudioWebHarness) async {
     func text(_ script: String) async -> String { (await harness.js(script) as? String) ?? "nil" }
     func json(_ text: String) -> StudioJSON { StudioJSON(text: text) ?? .null }
     let saved = harness.simulator
@@ -1447,7 +1462,7 @@ func realtimeChecks(_ harness: Harness) async {
 /// simulation over the shared state, callbacks listen to simulated channels, and the encoding is the one the map and the
 /// prompts describe.
 @MainActor
-func ipcChecks(_ harness: Harness) async {
+private func ipcChecks(_ harness: UIStudioWebHarness) async {
     func text(_ script: String) async -> String { (await harness.js(script) as? String) ?? "nil" }
     func json(_ text: String) -> StudioJSON { StudioJSON(text: text) ?? .null }
     let saved = harness.simulator
@@ -1623,4 +1638,13 @@ func ipcChecks(_ harness: Harness) async {
     harness.simulator = saved
     await harness.load(page)
     await harness.settle()
+}
+
+final class UIStudioWebHostTests: XCTestCase {
+    @MainActor func testUIStudioWebRuntime() async {
+        _ = NSApplication.shared
+        watchdog.start(seconds: 240)
+        defer { watchdog.stop() }
+        await runUIStudioWebHarness()
+    }
 }
