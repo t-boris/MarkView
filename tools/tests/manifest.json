@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 112,
+  "suiteCount": 111,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -356,23 +356,6 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
-      "name": "cockpit-agent-registry-tests",
-      "script": "tools/tests/cockpit-agent-registry-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Cockpit/CockpitAgentRegistry.swift",
-        "MarkView/Models/Cockpit/CockpitHostBridge.swift",
-        "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
-        "MarkView/Models/Cockpit/CockpitSupervisor.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/CockpitAgentRegistryChecks.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2145,7 +2128,12 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/FeatureJobs.swift",
         "MarkView/Models/Dictation/OnDeviceSpeech.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/DictationLanguage.swift",
-        "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift"
+        "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift",
+        "MarkView/Models/Cockpit/CockpitAgentRegistry.swift",
+        "MarkView/Models/Cockpit/CockpitHostBridge.swift",
+        "MarkView/Models/Cockpit/CockpitPlan.swift",
+        "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
+        "MarkView/Models/Cockpit/CockpitSupervisor.swift"
       ]
     },
     {
