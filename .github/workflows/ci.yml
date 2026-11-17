@@ -64,14 +64,6 @@ jobs:
         if: matrix.shard == 0
         run: ./tools/lint/architecture-lint.sh
 
-      - name: Install SwiftLint
-        if: matrix.shard == 0
-        run: brew install swiftlint
-
-      - name: Run SwiftLint ratchet
-        if: matrix.shard == 0
-        run: ./tools/lint/swiftlint-ratchet.py
-
       - name: Run pure regression test suite
         env:
           SHARD: ${{ matrix.shard }}
@@ -159,6 +151,25 @@ jobs:
 
       - name: Build warnings ratchet
         run: ./tools/lint/build-warnings.sh --log "$RUNNER_TEMP/app-build.log" --log "$RUNNER_TEMP/package-build.log"
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint ratchet
+        run: ./tools/lint/swiftlint-ratchet.py
+
+      - name: Test unused-import analyzer ratchet
+        run: python3 tools/tests/swiftlint-unused-import-ratchet-tests.py
+
+      - name: Check unused imports in changed app sources
+        timeout-minutes: 15
+        env:
+          BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_COMMIT" ] || [ "$BASE_COMMIT" = 0000000000000000000000000000000000000000 ]; then
+            BASE_COMMIT=HEAD^
+          fi
+          python3 tools/ci/unused-import-changes.py --base "$BASE_COMMIT" --compiler-log "$RUNNER_TEMP/app-build.log"
 
       - name: Record build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"

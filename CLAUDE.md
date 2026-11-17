@@ -186,6 +186,10 @@ suite with `./tools/tests/run.sh <name>`; `--list` and `--dry-run` show what wou
 a focused check for behavior that compilation does not cover.
 
 Install SwiftLint with `brew install swiftlint` and run `./tools/lint/swiftlint-ratchet.py`; its warning baseline may only shrink.
+For analyzer-only unused imports, make a clean Debug build with its full output in a compiler log, then run
+`./tools/lint/swiftlint-unused-import-ratchet.py --compiler-log <log> --all`. The analyzer requires absolute source paths, which the
+wrapper supplies; it fails on timeouts or when SwiftLint analyzes fewer files than requested. CI checks the changed app and package
+Swift files against the per-file baseline. That incremental check does not replace a full audit after dependency or build changes.
 
 The structural rules are `./tools/lint/architecture-lint.sh` (CI runs it in the pure job): zero-count rules such as
 `process` and `clicompletion`, and ratchets whose allow-lists in `tools/lint/*.txt` may only shrink (`--tighten` rewrites them to
