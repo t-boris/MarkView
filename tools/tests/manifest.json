@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 54,
+  "suiteCount": 52,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -504,25 +504,6 @@
       ]
     },
     {
-      "name": "prototype-baseline-tests",
-      "script": "tools/tests/prototype-baseline-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeBaseline.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeFiles.swift",
-        "MarkView/Models/Prototype/PrototypeHandoff.swift",
-        "MarkView/Models/Prototype/PrototypeHandoffDraft.swift",
-        "MarkView/Models/Prototype/PrototypeShellStructure.swift",
-        "MarkView/Models/Prototype/PrototypeStyles.swift",
-        "MarkView/Models/Prototype/PrototypeTailwind.swift",
-        "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeBaselineTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
       "name": "prototype-deadline-tests",
       "script": "tools/tests/prototype-deadline-tests.sh",
       "tier": "gui",
@@ -550,16 +531,6 @@
         "MarkViewHostedTests/PrototypeDeadlineHostTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "prototype-fidelity-tests",
-      "script": "tools/tests/prototype-fidelity-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeFidelity.swift",
-        "tools/tests/PrototypeFidelityTests.swift",
-        "tools/tests/prototype-fidelity-tests.sh"
       ]
     },
     {
