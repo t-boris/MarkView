@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import MarkViewCore
+import os
 import XCTest
 @testable import MarkView
 
@@ -123,4 +124,81 @@ private enum GitHubRemoteProfileChecks {
 
 extension EditorHostTests {
     func testGitHubRemoteProfiles() throws { try GitHubRemoteProfileChecks.run() }
+}
+
+extension EditorHostTests {
+    func testGitHubCommandLocalFixture() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("github-command-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = root.appendingPathComponent("gh-fixture")
+        let script = #"""
+        #!/usr/bin/python3
+        import os, signal, sys
+        case = sys.argv[-1]
+        if case == "inherited-writer":
+            os.execv("/bin/sh", ["/bin/sh", "-c", "/bin/sleep 4 & printf '[]'"])
+        elif case == "both-pipes":
+            for _ in range(64):
+                os.write(1, b"A" * 16384)
+                os.write(2, b"A" * 16384)
+            sys.exit(7)
+        elif case == "mark":
+            open("started", "wb").close()
+            os.write(1, b"marked\n")
+        elif case == "ignore-term":
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            with open("hung.pid", "w") as f:
+                f.write(str(os.getpid()))
+            while True:
+                signal.pause()
+        else:
+            os.write(1, "ready é\n".encode())
+        """#
+        try script.write(to: fixture, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.path)
+        let expected = Date(timeIntervalSince1970: 1_700_000_000)
+        let dateErrors = OSAllocatedUnfairLock(initialState: 0)
+        DispatchQueue.concurrentPerform(iterations: 200) { index in
+            let stamp = index.isMultiple(of: 2) ? "2023-11-14T22:13:20Z" : "2023-11-14T22:13:20.000Z"
+            if GHDate.parse(stamp) != expected { dateErrors.withLock { $0 += 1 } }
+        }
+        XCTAssertEqual(dateErrors.withLock { $0 }, 0)
+        let started = Date()
+        let inherited = await GitHubClient.execute(["--fixture", "inherited-writer"], in: root, timeout: 2, ghExecutable: fixture)
+        XCTAssertEqual(inherited.status, 0); XCTAssertEqual(inherited.stdout, "[]")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+        let large = await GitHubClient.execute(["--fixture", "both-pipes"], in: root, timeout: 5, ghExecutable: fixture)
+        XCTAssertEqual(large.status, 7); XCTAssertEqual(large.stdout.utf8.count, 1_048_576); XCTAssertEqual(large.stderr.utf8.count, 1_048_576)
+        let timeoutStart = Date()
+        let hung = await GitHubClient.execute(["--fixture", "ignore-term"], in: root, timeout: 1, ghExecutable: fixture)
+        XCTAssertEqual(hung.status, -1); XCTAssertTrue(hung.stderr.contains("did not answer within"))
+        XCTAssertLessThan(Date().timeIntervalSince(timeoutStart), 3)
+        let pid = try XCTUnwrap(pid_t(String(contentsOf: root.appendingPathComponent("hung.pid"), encoding: .utf8)))
+        XCTAssertTrue(kill(pid, 0) == -1 && errno == ESRCH)
+        await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    let output = await GitHubClient.execute(["--fixture", "success"], in: root, timeout: 3, ghExecutable: fixture)
+                    return output.status == 0 && output.stdout == "ready é\n"
+                }
+            }
+            for await success in group { XCTAssertTrue(success) }
+        }
+        let invalid = await GitHubClient.execute(["--fixture", "success"], in: root.appendingPathComponent("missing"), timeout: 0.1, ghExecutable: fixture)
+        XCTAssertTrue(invalid.status != 0 && !invalid.stderr.isEmpty)
+        let marker = root.appendingPathComponent("started")
+        func output(_ mode: String, enabled: Bool, timeout: TimeInterval) async -> String? {
+            await Task.detached { GitHubClient.output(["--fixture", mode], in: root, enabled: enabled, timeout: timeout, ghExecutable: fixture) }.value
+        }
+        let off = await output("mark", enabled: false, timeout: 2)
+        XCTAssertNil(off); XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        let on = await output("mark", enabled: true, timeout: 2)
+        XCTAssertEqual(on, "marked\n"); XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        let failed = await output("both-pipes", enabled: true, timeout: 5)
+        XCTAssertNil(failed)
+        let hungStart = Date()
+        let blocked = await output("ignore-term", enabled: true, timeout: 1)
+        XCTAssertNil(blocked); XCTAssertLessThan(Date().timeIntervalSince(hungStart), 3)
+    }
 }

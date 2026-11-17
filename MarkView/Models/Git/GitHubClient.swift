@@ -532,8 +532,8 @@ struct GitHubClient: Sendable {
     /// Run `gh` (or, with `git: true`, git) in `root` through the shared runner (`Subprocess`). Never waits for a prompt:
     /// stdin is closed and git's terminal prompt is off. A process that hangs (offline, stalled proxy) is ended with its
     /// whole group after `timeout` seconds, and one that answers with more than 64 MB is ended too.
-    static func execute(_ arguments: [String], in root: URL, git: Bool = false, timeout: TimeInterval = 60) async -> Output {
-        guard let spec = spec(arguments, in: root, git: git, timeout: timeout) else { return missingGitHubCLI }
+    static func execute(_ arguments: [String], in root: URL, git: Bool = false, timeout: TimeInterval = 60, ghExecutable: URL? = nil) async -> Output {
+        guard let spec = spec(arguments, in: root, git: git, timeout: timeout, ghExecutable: ghExecutable) else { return missingGitHubCLI }
         return output(of: await Subprocess.run(spec), timeout: timeout)
     }
 
@@ -541,8 +541,8 @@ struct GitHubClient: Sendable {
     /// diffs): the runner of `execute`, blocking that thread. Standard output when `gh` exits with 0,
     /// nil otherwise. GitHub is opt-in: `enabled` is `GitHubSettings.enabled`, read on the main
     /// actor by the caller, and while it is false `gh` is not started at all.
-    static func output(_ arguments: [String], in root: URL, enabled: Bool, timeout: TimeInterval = 20) -> String? {
-        guard enabled, let spec = spec(arguments, in: root, git: false, timeout: timeout) else { return nil }
+    static func output(_ arguments: [String], in root: URL, enabled: Bool, timeout: TimeInterval = 20, ghExecutable: URL? = nil) -> String? {
+        guard enabled, let spec = spec(arguments, in: root, git: false, timeout: timeout, ghExecutable: ghExecutable) else { return nil }
         let output = output(of: Subprocess.runBlocking(spec), timeout: timeout)
         return output.status == 0 ? output.stdout : nil
     }
@@ -552,12 +552,12 @@ struct GitHubClient: Sendable {
     private static let responseLimit = 64 * 1024 * 1024
 
     /// The command line and environment of one `gh`/`git` run; nil when `gh` is not installed.
-    private static func spec(_ arguments: [String], in root: URL, git: Bool, timeout: TimeInterval) -> SubprocessSpec? {
+    private static func spec(_ arguments: [String], in root: URL, git: Bool, timeout: TimeInterval, ghExecutable: URL?) -> SubprocessSpec? {
         let executable: String
         if git {
             executable = "/usr/bin/git"
         } else {
-            guard let gh = ghPath() else { return nil }
+            guard let gh = ghExecutable?.path ?? ghPath() else { return nil }
             executable = gh
         }
         let inherited = ProcessInfo.processInfo.environment
