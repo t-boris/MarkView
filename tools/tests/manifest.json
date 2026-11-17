@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 104,
+  "suiteCount": 103,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -503,34 +503,6 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
-      "name": "cycle-time-tests",
-      "script": "tools/tests/cycle-time-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/CycleTime.swift",
-        "MarkView/Models/Lifecycle/CycleTimeReport.swift",
-        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/IssueTransitionLog.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
-        "MarkView/Models/Lifecycle/WorkflowDone.swift",
-        "MarkView/Models/Lifecycle/WorkflowFlow.swift",
-        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
-        "tools/tests/StoreTestSupport.swift",
-        "tools/tests/CycleTimeChecks.swift",
-        "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/cycle-time-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -2047,7 +2019,11 @@
         "MarkView/Models/Lifecycle/ProjectWorkflowStore.swift",
         "MarkView/Models/Lifecycle/IssueEvidenceCollector.swift",
         "tools/tests/IssueChecksSupport.swift",
-        "MarkViewHostedTests/IssueCollectorHostTests.swift"
+        "MarkViewHostedTests/IssueCollectorHostTests.swift",
+        "MarkView/Models/Lifecycle/CycleTime.swift",
+        "MarkView/Models/Lifecycle/CycleTimeReport.swift",
+        "MarkView/Models/Lifecycle/EvidenceTimings.swift",
+        "MarkViewHostedTests/CycleTimeHostTests.swift"
       ]
     },
     {
