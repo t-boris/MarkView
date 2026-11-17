@@ -31,7 +31,6 @@
 1 MarkView/Models/Deployments/DeploymentPrompt.swift
 1 MarkView/Models/Deployments/DeploymentStore.swift
 1 MarkView/Models/Discussion/Discussion.swift
-1 MarkView/Models/Git/ConflictPrompt.swift
 1 MarkView/Models/Git/GitHubStore.swift
 1 MarkView/Models/Insight/InsightHTMLTemplate.swift
 1 MarkView/Models/Insight/InsightSession.swift

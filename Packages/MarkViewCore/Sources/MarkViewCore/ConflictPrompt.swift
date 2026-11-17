@@ -1,10 +1,8 @@
-import Foundation
-
 /// The prompt that hands Git merge conflicts to the assistant (Git tab → Conflicts → Resolve with AI).
 /// The assistant resolves and stages; it never commits, pushes or aborts, so the person reviews first.
-enum ConflictPrompt {
+public enum ConflictPrompt {
     /// `operation` is what Git is in the middle of ("merge", "rebase", "cherry-pick", "revert"), if known.
-    static func make(files: [String], operation: String?, branch: String) -> String {
+    public static func make(files: [String], operation: String?, branch: String) -> String {
         let list = files.prefix(60).map { "- \($0)" }.joined(separator: "\n")
         let more = files.count > 60 ? "\n- … and \(files.count - 60) more (run `git diff --name-only --diff-filter=U`)" : ""
         let state = operation.map { "Git is in the middle of a \($0) on branch \(branch)." } ?? "The work tree is on branch \(branch)."

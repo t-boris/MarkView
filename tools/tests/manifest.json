@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 200,
+  "suiteCount": 199,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -725,16 +725,6 @@
       ]
     },
     {
-      "name": "conflict-prompt-tests",
-      "script": "tools/tests/conflict-prompt-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Git/ConflictPrompt.swift",
-        "tools/tests/ConflictPromptTests.swift",
-        "tools/tests/conflict-prompt-tests.sh"
-      ]
-    },
-    {
       "name": "control-agent-tools-tests",
       "script": "tools/tests/control-agent-tools-tests.sh",
       "tier": "pure",
@@ -1275,7 +1265,7 @@
         "MarkView/Models/Appearance/ThemeCatalog.swift",
         "MarkView/Models/Appearance/ThemeDefinition.swift",
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
-        "MarkView/Models/Git/ConflictPrompt.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/ConflictPrompt.swift",
         "MarkView/Models/Git/GitHubClient.swift",
         "MarkView/Models/Git/GitHubStore.swift",
         "MarkView/Models/Git/GitStatusModel.swift",
