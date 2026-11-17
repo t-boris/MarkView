@@ -324,6 +324,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+Six standalone SemanticDatabase stand-ins were consolidated into one fixture in package TestSupport (6 → 1), retaining usage recording and document IDs. All six affected pure suites passed; repository hygiene, architecture lint, manifest paths and pure-shard assignments passed. Both affected live scripts passed shell syntax checks and remain manual under DEC-013; they were not compiled or run. Other database stand-ins, including definitions embedded in shell scripts, remain open.
+
 The old CLIToolLocator test stub was no longer compiled by any suite after the Git and new-project migrations, so it and its stale manifest reference were removed. Repository hygiene, all 59 manifest entries and architecture lint passed; final full-suite verification remains open.
 
 Three standalone InsightSession stand-ins were consolidated into one fixture in the package TestSupport target (3 → 1). The browser-host, tool-router and window-composition pure suites all passed with that fixture; repository hygiene and architecture lint passed. The remaining fake consolidation and final full-suite verification remain open.

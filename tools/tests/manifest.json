@@ -34,7 +34,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -152,7 +153,8 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -215,7 +217,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -322,7 +325,8 @@
         "MarkView/Models/AgentTools/AgentToolWindow.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift"
+        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -386,7 +390,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "tools/tests/FeatureFlowCoordinatorStubs.swift",
         "tools/tests/FeatureFlowCoordinatorTests.swift",
-        "tools/tests/feature-flow-coordinator-tests.sh"
+        "tools/tests/feature-flow-coordinator-tests.sh",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -1670,7 +1675,8 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -2084,7 +2090,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {
@@ -2151,7 +2158,8 @@
         "tools/tests/tool-tabs-router-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ProjectProvidingTestSupport.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift"
+        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {

@@ -37,6 +37,6 @@ swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/feature-
     MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Shared/SchemaVersionedStore.swift MarkView/Models/Workspace/ToolRegistry.swift \
     MarkView/Models/Workspace/WindowSession.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift \
     MarkView/Models/Git/GitHubItem.swift "$out/IntakeRequest.swift" "$out/HandoffResume.swift" "$out/GitHubSettings.swift" \
-    tools/tests/ProjectProvidingTestSupport.swift tools/tests/FeatureFlowCoordinatorStubs.swift "$out/FeatureFlowCoordinatorTests.swift" 2>&1 | head -80
+    tools/tests/ProjectProvidingTestSupport.swift Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift tools/tests/FeatureFlowCoordinatorStubs.swift "$out/FeatureFlowCoordinatorTests.swift" 2>&1 | head -80
 cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/feature-flow-coordinator-tests"

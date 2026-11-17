@@ -10,7 +10,6 @@ struct PrototypeSession { let slug: String }
 struct StudioSession { func close() async {} }
 struct CockpitSession { func cancel() {} }
 
-actor SemanticDatabase {}
 
 /// A browser tab that loads nothing: the pages it was asked to show are recorded.
 @MainActor

@@ -13,5 +13,5 @@ swiftc -parse-as-library -o "$out/assistant-provider-extension-tests" Packages/M
     $providers tools/tests/FakeAssistantProviderList.swift tools/tests/FakeAssistantProvider.swift \
     MarkView/Models/AI/CLICompletion.swift MarkView/Models/AI/ACPAssistant.swift \
     MarkView/Models/Terminal/TerminalProfile.swift MarkView/Models/Lifecycle/HandoffPrompt.swift MarkView/Models/Lifecycle/DefinitionOfDone.swift MarkView/Models/Shared/SchemaVersionedStore.swift \
-    tools/tests/CLICompletionTestSupport.swift tools/tests/AssistantExtensionTests.swift
+    Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift tools/tests/CLICompletionTestSupport.swift tools/tests/AssistantExtensionTests.swift
 "$out/assistant-provider-extension-tests"

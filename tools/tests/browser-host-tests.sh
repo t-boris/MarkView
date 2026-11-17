@@ -22,6 +22,6 @@ swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/browser-
     MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Appearance/BackdropRegistry.swift MarkView/Models/Appearance/ProjectBackdrop.swift \
     MarkView/Models/Workspace/PanelLayout.swift MarkView/Models/Shared/SchemaVersionedStore.swift \
     MarkView/Models/Workspace/WindowSession.swift MarkView/Models/Workspace/WindowUIState.swift MarkView/Models/Workspace/WindowChrome.swift \
-    tools/tests/ProjectProvidingTestSupport.swift Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift tools/tests/BrowserHostStubs.swift "$out/BrowserHostTests.swift" 2>&1 | { grep -E "error:" -A3 || true; } | head -60
+    tools/tests/ProjectProvidingTestSupport.swift Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift tools/tests/BrowserHostStubs.swift "$out/BrowserHostTests.swift" 2>&1 | { grep -E "error:" -A3 || true; } | head -60
 cp -R MarkView/Resources/Themes "$out/Themes"
 "$out/browser-host-tests"

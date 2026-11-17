@@ -6,7 +6,6 @@ import Foundation
 // them) and record what the coordinator asks of them; the coordinator, the prompts it builds, the GitHub client that runs git, the panels,
 // the batch rules and the Git status are the shipping code.
 
-actor SemanticDatabase {}
 
 /// The assistants' settings: the tool a project without its own choice uses.
 enum AIAssistantPreferences {

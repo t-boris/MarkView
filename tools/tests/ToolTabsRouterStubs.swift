@@ -122,12 +122,6 @@ final class WindowRequests {
     var prototypeCreatorMode: PrototypeFiles.Mode = .requirements
 }
 
-actor SemanticDatabase {
-    private(set) var usage: [(input: Int, output: Int, cents: Double)] = []
-    func addUsage(inputTokens: Int, outputTokens: Int, costCents: Double) {
-        usage.append((inputTokens, outputTokens, costCents))
-    }
-}
 
 @MainActor
 final class TerminalSession: Identifiable {
