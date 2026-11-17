@@ -159,9 +159,12 @@ final class ProjectOperationsStore: ObservableObject {
     private var refreshInFlight = false
     private var stalenessTick = 0
     private var stalenessInFlight = false
+    @TaskLocal static var suppressSystemNotifications = false
     private var suppressNotifications = false
+    private let notificationsEnabled: Bool
 
     private init(root: URL, prompts: any UserPrompts) {
+        notificationsEnabled = !Self.suppressSystemNotifications
         self.root = root
         self.prompts = prompts
         writes = ProjectOperationWrites(root: root)
@@ -533,7 +536,7 @@ final class ProjectOperationsStore: ObservableObject {
         lastRuns[id] = history
         writes.record(history)
         // task: asks the system once for notification permission; it holds nothing of its own and ends with the answer
-        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+        if notificationsEnabled { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) } }
         run.session.exitEvents.sink { [weak self, weak run] code in
             guard let self, let run else { return }
             run.finish(exitCode: code)
@@ -593,7 +596,7 @@ final class ProjectOperationsStore: ObservableObject {
         lastRuns[run.id] = summary
         writes.record(summary)
         revision += 1
-        guard !suppressNotifications, !NSApp.isActive else { return }
+        guard notificationsEnabled, !suppressNotifications, !NSApp.isActive else { return }
         let content = UNMutableNotificationContent()
         content.title = root.lastPathComponent + " · " + run.snapshot.label
         let environment = run.snapshot.environment.map { " (\($0))" } ?? ""

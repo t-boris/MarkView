@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 70,
+  "suiteCount": 69,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1502,7 +1502,9 @@
         "MarkView/Models/Git/GitHubConnection.swift",
         "MarkView/Models/Shared/ProjectNaming.swift",
         "MarkView/Models/Git/GitClient.swift",
-        "MarkView/Models/Git/GitHubStore.swift"
+        "MarkView/Models/Git/GitHubStore.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationsStore.swift",
+        "MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift"
       ]
     },
     {
@@ -2562,26 +2564,6 @@
         "tools/tests/window-composition-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift"
-      ]
-    },
-    {
-      "name": "project-operations-store-tests",
-      "script": "tools/tests/project-operations-store-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/ProjectOps/ProjectOperationsStore.swift",
-        "MarkView/Models/ProjectOps/ProjectOperation.swift",
-        "MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift",
-        "MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift",
-        "MarkView/Models/ProjectOps/ProjectOperationHistory.swift",
-        "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
-        "MarkView/Models/Shared/UserPrompts.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "tools/tests/ProjectOperationsStoreStubs.swift",
-        "tools/tests/ScriptedPrompts.swift",
-        "tools/tests/ProjectOperationsStoreTests.swift",
-        "tools/tests/project-operations-store-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {

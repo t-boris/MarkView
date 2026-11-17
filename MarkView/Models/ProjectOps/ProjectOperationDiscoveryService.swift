@@ -21,6 +21,12 @@ struct ProjectOperationDiscoveryReport: Codable {
 }
 
 enum ProjectOperationDiscoveryService {
+    struct Fixture: Sendable {
+        let canSearchWeb: Bool
+        let next: @Sendable () async throws -> Data
+    }
+    @TaskLocal static var fixture: Fixture?
+
     private struct Candidate: Decodable {
         var id: String
         var label: String
@@ -68,8 +74,7 @@ enum ProjectOperationDiscoveryService {
         try Task.checkCancellation()
         var candidates = local.operations.map { ($0, false) }
         var unknowns = local.notDetermined
-        let tool = AIAssistantPreferences.backend(project: root)
-        let canSearchWeb = tool.provider.canSearchWeb
+        let canSearchWeb = fixture?.canSearchWeb ?? AIAssistantPreferences.backend(project: root).provider.canSearchWeb
         var webSearched = false
         if canSearchWeb && !unknowns.isEmpty {
             phase("web")
@@ -183,7 +188,8 @@ enum ProjectOperationDiscoveryService {
     /// One discovery round: the answer must be the operations JSON; a round that does not return it is not repeated, the person
     /// re-discovers.
     private static func ask(_ request: CLICompletion.Request, name: String) async throws -> Answer {
-        try await AIOperation<CLICompletion.Request, Answer>(name: name, parse: { try parse($0) }).execute(request).output
+        if let fixture { return try JSONDecoder().decode(Answer.self, from: await fixture.next()) }
+        return try await AIOperation<CLICompletion.Request, Answer>(name: name, parse: { try parse($0) }).execute(request).output
     }
 
     private static func parse(_ result: CLICompletion.Result) throws -> Answer {
