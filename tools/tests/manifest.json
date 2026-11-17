@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 132,
+  "suiteCount": 131,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -531,32 +531,6 @@
         "tools/tests/CockpitRuntimeChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "code-architecture-tests",
-      "script": "tools/tests/code-architecture-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Architecture/ArchitectureModel.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
-        "MarkView/Models/Architecture/CodeArchitecture.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Architecture/CodePathTags.swift",
-        "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/DiagramAI.swift",
-        "tools/tests/CodeArchitectureTestSupport.swift",
-        "tools/tests/CodeArchitectureTests.swift",
-        "tools/tests/CodeArchitectureWebTests.swift",
-        "tools/tests/DiagramCLIStub.swift",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/markview-architecture-model.js",
-        "MarkView/Resources/Editor/js/markview-architecture-graph.js",
-        "MarkView/Resources/Editor/js/markview-architecture-panels.js",
-        "MarkView/Resources/Editor/js/markview-architecture-details.js",
-        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
       ]
     },
     {
@@ -2210,7 +2184,13 @@
         "MarkViewHostedTests/DiagramAIHostTests.swift",
         "MarkView/Models/Architecture/LogicalView.swift",
         "MarkView/Models/Architecture/XRayCluster.swift",
-        "MarkView/Models/Architecture/XRayDigest.swift"
+        "MarkView/Models/Architecture/XRayDigest.swift",
+        "MarkViewHostedTests/CodeArchitectureHostTests.swift",
+        "MarkView/Resources/Editor/js/markview-architecture-model.js",
+        "MarkView/Resources/Editor/js/markview-architecture-graph.js",
+        "MarkView/Resources/Editor/js/markview-architecture-panels.js",
+        "MarkView/Resources/Editor/js/markview-architecture-details.js",
+        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
       ]
     },
     {
