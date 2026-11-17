@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 129,
+  "suiteCount": 128,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2195,7 +2195,8 @@
         "MarkViewHostedTests/XRayComparisonHostTests.swift",
         "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
         "MarkView/Models/Lifecycle/WorkflowFlow.swift",
-        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift"
+        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
+        "MarkViewHostedTests/InsightPageHostTests.swift"
       ]
     },
     {
@@ -3633,26 +3634,6 @@
         "MarkView/Models/Dictation/OnDeviceSpeech.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/DictationLanguage.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/FeatureJobs.swift"
-      ]
-    },
-    {
-      "name": "insight-page-web-tests",
-      "script": "tools/tests/insight-page-web-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Insight/InsightCache.swift",
-        "MarkView/Models/Insight/InsightHTMLTemplate.swift",
-        "MarkView/Models/Insight/InsightModels.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "tools/tests/InsightPageWebTests.swift",
-        "tools/tests/insight-page-web-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
