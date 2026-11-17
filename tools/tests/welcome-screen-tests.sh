@@ -1,18 +1,15 @@
 #!/bin/bash
-# The welcome screen (feature welcome-screen-with-action-tiles-and-a-falling): the scenes of the four animated backdrops, the list of
-# actions, the Core Animation layers a scene becomes, and the shipping WelcomeScreen hosted off screen (a borderless window far outside
-# the display, never shown). The files are compiled as they ship; no XCTest target exists.
-#   tools/tests/welcome-screen-tests.sh
-#   SNAPSHOT_DIR=/some/dir tools/tests/welcome-screen-tests.sh    # also saves a picture of each backdrop and theme
+# Welcome screen, accessibility and optional fixture snapshots in an isolated app host.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-cp tools/tests/WelcomeScreenTests.swift "$out/main.swift"
-swiftc -suppress-warnings -target "$(uname -m)-apple-macos13.0" \
-    Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift MarkView/Models/Appearance/WebThemeArguments.swift Packages/MarkViewCore/Sources/MarkViewCore/JS.swift MarkView/Models/Appearance/ProjectBackdrop.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift MarkView/Models/Appearance/WelcomeBackdrop.swift MarkView/Models/Workspace/WelcomeActions.swift MarkView/Models/Workspace/ToolRegistry.swift MarkView/Models/Appearance/BackdropRegistry.swift \
-    MarkView/Views/Appearance/ProjectBackdropLayers.swift MarkView/Views/Appearance/DevBackdropLayers.swift MarkView/Views/Appearance/AtmosphereBackdropLayers.swift MarkView/Views/Appearance/BackdropLayerBuilders.swift MarkView/Views/Appearance/WelcomeBackdropView.swift MarkView/Views/Workspace/WelcomeView.swift \
-    MarkView/Models/Appearance/AppFontScale.swift MarkView/Views/Appearance/AppFontScaleView.swift MarkView/Models/Appearance/AppTheme.swift MarkView/Models/Appearance/ThemeDefinition.swift MarkView/Models/Appearance/ThemeCatalog.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift MarkView/Models/Appearance/WindowTheme.swift MarkView/Views/Appearance/AppPalette.swift \
-    "$out/main.swift" -o "$out/welcome-tests"
-cp -R MarkView/Resources/Themes "$out/Themes"
-"$out/welcome-tests"
+unset TEST_RUNNER_SNAPSHOT_DIR TEST_RUNNER_WELCOME_SCROLL_ONLY
+if [[ ${SNAPSHOT_DIR+x} ]]; then
+  export TEST_RUNNER_SNAPSHOT_DIR="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$SNAPSHOT_DIR")"
+fi
+if [[ ${WELCOME_SCROLL_ONLY+x} ]]; then export TEST_RUNNER_WELCOME_SCROLL_ONLY="$WELCOME_SCROLL_ONLY"; fi
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+socket_dir=$(mktemp -d /tmp/mvwelcomehost.XXXXXX)
+trap 'rm -rf "$socket_dir"' EXIT
+MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
+  -only-testing:MarkViewHostedTests/WelcomeScreenHostTests test

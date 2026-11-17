@@ -1791,7 +1791,7 @@
         "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
         "MarkView/Views/Appearance/WelcomeBackdropView.swift",
         "MarkView/Views/Workspace/WelcomeView.swift",
-        "tools/tests/WelcomeScreenTests.swift",
+        "MarkViewHostedTests/WelcomeScreenHostTests.swift",
         "tools/tests/welcome-screen-tests.sh",
         "MarkView/Models/Appearance/BackdropRegistry.swift",
         "MarkView/Models/Appearance/ThemeDefinition.swift",

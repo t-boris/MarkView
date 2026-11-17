@@ -1,40 +1,36 @@
 import AppKit
 import SwiftUI
 import ObjectiveC
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
-// The welcome screen (feature welcome-screen-with-action-tiles-and-a-falling): the scenes of the four backdrops and the list of actions as
-// plain values, the layers a scene becomes, and the shipping WelcomeScreen hosted off screen (a borderless window far outside the
-// display, never shown). Run through tools/tests/welcome-screen-tests.sh, which compiles the real files.
-// With SNAPSHOT_DIR set, every backdrop in a dark and a light theme is saved as a picture, to be looked at.
-
-var failures = 0
-func check(_ ok: Bool, _ message: String, _ detail: String = "") {
-    if !ok { failures += 1 }
-    print("\(ok ? "ok  " : "FAIL") \(message)\(ok || detail.isEmpty ? "" : " — " + detail)")
+private func check(_ ok: Bool, _ message: String, _ detail: String = "") {
+    if !ok { XCTFail(detail.isEmpty ? message : message + " — " + detail) }
 }
 
-func finite(_ value: CGFloat) -> Bool { value.isFinite }
+private func finite(_ value: CGFloat) -> Bool { value.isFinite }
 
 // MARK: - The themes (files in MarkView/Resources/Themes, copied next to this program by the script)
 
-extension AppTheme { static let midnight = AppTheme("midnight") }
+private extension AppTheme { static let midnight = AppTheme("midnight") }
 
 /// Shorthand for the backdrops the app registers: the app's code names none of them (AR-34); a check names the ones it looks at.
-extension WelcomeBackdrop {
+private extension WelcomeBackdrop {
     static let matrix = WelcomeBackdrop(rawValue: "matrix")!, aurora = WelcomeBackdrop(rawValue: "aurora")!, bugs = WelcomeBackdrop(rawValue: "bugs")!
     static let network = WelcomeBackdrop(rawValue: "network")!, blueprint = WelcomeBackdrop(rawValue: "blueprint")!, circuit = WelcomeBackdrop(rawValue: "circuit")!
     static let gitflow = WelcomeBackdrop(rawValue: "gitflow")!, typewriter = WelcomeBackdrop(rawValue: "typewriter")!
     static let deepsea = WelcomeBackdrop(rawValue: "deepsea")!, warp = WelcomeBackdrop(rawValue: "warp")!
 }
-let shippedThemes = ThemeLibrary.load(builtInFolder: ThemeCatalog.bundledFolder, userFolder: nil)
+private let shippedThemes = ThemeLibrary.load(builtInFolder: ThemeCatalog.bundledFolder, userFolder: nil)
 /// The palette of a shipped theme, as a window with that theme draws it.
-func themePalette(_ theme: AppTheme, accent: ThemeColor? = nil) -> ThemePalette {
+private func themePalette(_ theme: AppTheme, accent: ThemeColor? = nil) -> ThemePalette {
     ThemePalette.make(shippedThemes.resolve(theme, systemIsDark: true).definition, accent: accent)
 }
 
 // MARK: - The choice
 
-func choiceChecks() {
+private func choiceChecks() {
     check(WelcomeBackdrop.stored(nil) == .matrix, "no stored choice: Matrix Rain is the default")
     check(WelcomeBackdrop.stored("bogus") == .matrix, "a stored value that names nothing: the default")
     check(WelcomeBackdrop.stored("aurora") == .aurora, "a stored name is read back")
@@ -55,7 +51,7 @@ func choiceChecks() {
 
 // MARK: - Matrix rain
 
-func matrixChecks() {
+private func matrixChecks() {
     let cell = CGSize(width: 16, height: 19)
     for size in [CGSize(width: 800, height: 600), CGSize(width: 1142, height: 1068), CGSize(width: 2600, height: 1400), CGSize(width: 300, height: 200)] {
         let name = "\(Int(size.width))x\(Int(size.height))"
@@ -92,7 +88,7 @@ func matrixChecks() {
 
 // MARK: - Aurora, bugs, network
 
-func auroraChecks() {
+private func auroraChecks() {
     let scene = AuroraScene.make(seed: 5)
     check(scene == AuroraScene.make(seed: 5), "aurora: one seed, one scene")
     check(scene.blobs.count >= 5 && scene.rays.count >= 20 && scene.stars.count >= 30, "aurora: bands, rays and stars", "\(scene.blobs.count)/\(scene.rays.count)/\(scene.stars.count)")
@@ -103,7 +99,7 @@ func auroraChecks() {
     check(scene.stars.allSatisfy { $0.point.x >= 0 && $0.point.x <= 1 && $0.point.y >= 0 && $0.point.y <= 1 && $0.radius > 0 }, "aurora: stars are inside the window")
 }
 
-func bugChecks() {
+private func bugChecks() {
     for size in [CGSize(width: 800, height: 600), CGSize(width: 1142, height: 1068), CGSize(width: 2600, height: 1400)] {
         let name = "\(Int(size.width))x\(Int(size.height))"
         let scene = BugScene.make(size: size, seed: 9)
@@ -163,7 +159,7 @@ func bugChecks() {
     check(BugScene.make(size: CGSize(width: 10, height: 10), seed: 1).colonies.isEmpty, "bugs: a window too small has no colonies")
 }
 
-func networkChecks() {
+private func networkChecks() {
     for size in [CGSize(width: 800, height: 600), CGSize(width: 1142, height: 1068), CGSize(width: 2600, height: 1400)] {
         let name = "\(Int(size.width))x\(Int(size.height))"
         let scene = NetworkScene.make(size: size, seed: 3)
@@ -185,7 +181,7 @@ func networkChecks() {
 
 // MARK: - The list of actions
 
-func catalogueChecks() {
+private func catalogueChecks() {
     let withGit = WelcomeCatalogue.project(isGitRepo: true), withoutGit = WelcomeCatalogue.project(isGitRepo: false)
     let idsWith = withGit.flatMap { $0.actions.map(\.id) }, idsWithout = withoutGit.flatMap { $0.actions.map(\.id) }
     check(withGit.map(\.section) == WelcomeSection.allCases, "catalogue: Start, Explore and Build & Run, in that order")
@@ -214,7 +210,8 @@ func catalogueChecks() {
           all.filter { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: nil) == nil }.map(\.symbol).joined(separator: ","))
     check(withGit[0].actions.first?.isProminent == true && Set(all.filter(\.isProminent).map(\.id)) == [.terminal, .openFolder], "catalogue: Open Terminal (and Open Folder, in its own window) stand out")
     // A shortcut a tile shows must be one the app's menus really have: a tool's comes from the registry that generates its menu item.
-    let menus = (try? String(contentsOfFile: "MarkView/App/MarkViewApp.swift")) ?? ""
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let menus = (try? String(contentsOf: root.appendingPathComponent("MarkView/App/MarkViewApp.swift"), encoding: .utf8)) ?? ""
     let toolShortcuts = Set(ToolRegistry.shared.tools.compactMap { $0.shortcut?.hint })
     for action in all {
         guard let shortcut = action.shortcut, let key = shortcut.last else { continue }
@@ -224,7 +221,7 @@ func catalogueChecks() {
 
 // MARK: - Layers
 
-@MainActor func pixels(of image: CGImage) -> (alphaTop: Double, alphaBottom: Double, brightBottom: Double, alphaAll: Double)? {
+@MainActor private func pixels(of image: CGImage) -> (alphaTop: Double, alphaBottom: Double, brightBottom: Double, alphaAll: Double)? {
     let width = image.width, height = image.height
     guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
@@ -250,9 +247,9 @@ func catalogueChecks() {
     return (alpha(rows: 0..<band), alpha(rows: bottomRows), bright, alpha(rows: 0..<height))
 }
 
-func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []).flatMap(allLayers) }
+private func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []).flatMap(allLayers) }
 
-@MainActor func layerChecks() {
+@MainActor private func layerChecks() {
     let darkColors = BackdropColors(AppPalette(themePalette(.classicDark)))
     let lightColors = BackdropColors(AppPalette(themePalette(.classicLight)))
     check(darkColors.isDark && !lightColors.isDark, "colours: the theme says whether it is dark")
@@ -371,7 +368,7 @@ func allLayers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []
 
 // MARK: - Live project context
 
-@MainActor final class ProjectContextFixture: ObservableObject {
+@MainActor private final class ProjectContextFixture: ObservableObject {
     @Published var context = ProjectBackdropContext(identity: "/projects/mobile", signals: .init(platform: .ios, sourceFiles: 40, inspected: true),
                                                      openBugs: 0, criticalBugs: 0, features: 4, completedFeatures: 1)
 }
@@ -384,7 +381,7 @@ private struct ProjectContextScreen: View {
     }
 }
 
-@MainActor func projectContextChecks() {
+@MainActor private func projectContextChecks() {
     let fixture = ProjectContextFixture()
     let hosting = NSHostingView(rootView: ProjectContextScreen(fixture: fixture).environment(\.palette, AppPalette(themePalette(.midnight))))
     let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1000, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -418,13 +415,13 @@ private struct ProjectContextScreen: View {
 
 // MARK: - The hosted screen
 
-@MainActor func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+@MainActor private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
-@MainActor func settle(_ view: NSView, seconds: Double = 0.2) {
+@MainActor private func settle(_ view: NSView, seconds: Double = 0.2) {
     for _ in 0..<5 { view.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 }
 
-@MainActor func host(project: String?, git: Bool, theme: AppTheme, accent: ThemeColor? = nil, size: NSSize, still: Bool, backdrop: WelcomeBackdrop = .matrix,
+@MainActor private func host(project: String?, git: Bool, theme: AppTheme, accent: ThemeColor? = nil, size: NSSize, still: Bool, backdrop: WelcomeBackdrop = .matrix,
                       perform: @escaping (WelcomeActionID) -> Void = { _ in })
     -> (NSWindow, NSHostingView<AnyView>) {
     let screen = WelcomeScreen(projectName: project, isGitRepo: git, backdrop: .constant(backdrop), still: still, sceneSeed: 11, perform: perform) {
@@ -449,13 +446,13 @@ private struct ProjectContextScreen: View {
     return (window, hosting)
 }
 
-@MainActor func snapshot(_ view: NSView, _ name: String) {
+@MainActor private func snapshot(_ view: NSView, _ name: String) {
     guard let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
     view.cacheDisplay(in: view.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
 }
 
-@MainActor func hostedChecks() {
+@MainActor private func hostedChecks() {
     // Every backdrop, in a dark and a light theme, in a project window and in a window without a folder.
     for backdrop in WelcomeBackdrop.all where backdrop != .shuffle {
         for theme in [AppTheme.classicDark, .classicLight, .midnight] {
@@ -484,7 +481,7 @@ private struct ProjectContextScreen: View {
 
 /// BUG-120: the background belongs to the window that chose it. The screen shows only the binding it is given, so the stored value that
 /// the old @AppStorage shared with every window cannot reach it, and two windows hold two different choices at once.
-@MainActor func perWindowChecks() {
+@MainActor private func perWindowChecks() {
     let settings = Settings.standard
     let previous = settings.stored(Setting.welcomeBackdrop)
     defer { settings.set(previous, for: Setting.welcomeBackdrop) }
@@ -506,7 +503,7 @@ private struct ProjectContextScreen: View {
 
 /// Real motion, without a screen: a window that is ordered in (far outside every display) lets Core Animation compute the presentation
 /// layer, the values the render server shows. Two readings a moment apart must differ the way the animation says.
-@MainActor func motionChecks() {
+@MainActor private func motionChecks() {
     for backdrop in WelcomeBackdrop.animated {
         let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 1000, height: 800), still: false, backdrop: backdrop)
         settle(hosting)
@@ -541,7 +538,7 @@ private struct ProjectContextScreen: View {
 }
 
 /// A window that is resized gets a backdrop of its new size, and not a rebuild for every pixel on the way.
-@MainActor func resizeChecks() {
+@MainActor private func resizeChecks() {
     let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 700, height: 600), still: false)
     defer { window.close() }
     settle(hosting)
@@ -564,7 +561,7 @@ private struct ProjectContextScreen: View {
 
 /// The tiles really run what they are given: real mouse clicks on a grid of points over the hosted window (a window that is ordered
 /// in, far outside every display), and every action of the catalogue must fire from some point.
-@MainActor func tileChecks() {
+@MainActor private func tileChecks() {
     NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
     // With a backdrop drawn, so the check also proves that the backdrop lets every click through.
     for (git, project) in [(true, "MarkView"), (false, "MarkView"), (false, nil)] as [(Bool, String?)] {
@@ -606,7 +603,7 @@ private struct ProjectContextScreen: View {
 // MARK: - Frames Core Animation really composes
 
 /// The presentation layer tree (what the render server shows now, animations applied) drawn into a bitmap.
-@MainActor func presentationImage(_ root: CALayer, size: CGSize, background: NSColor) -> CGImage? {
+@MainActor private func presentationImage(_ root: CALayer, size: CGSize, background: NSColor) -> CGImage? {
     guard let space = CGColorSpace(name: CGColorSpace.sRGB),
           let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -617,7 +614,7 @@ private struct ProjectContextScreen: View {
 }
 
 /// The share of pixels that differ between two pictures of the same size.
-func differingShare(_ a: CGImage, _ b: CGImage) -> Double {
+private func differingShare(_ a: CGImage, _ b: CGImage) -> Double {
     let width = a.width, height = a.height
     guard b.width == width, b.height == height, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return 0 }
     func bytes(_ image: CGImage) -> [UInt8] {
@@ -636,18 +633,18 @@ func differingShare(_ a: CGImage, _ b: CGImage) -> Double {
     return Double(differing) / Double(width * height)
 }
 
-func savePNG(_ image: CGImage, _ name: String) {
+private func savePNG(_ image: CGImage, _ name: String) {
     guard let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"] else { return }
     try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
 }
 
-func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
+private func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
     var difference = abs(a - b).truncatingRemainder(dividingBy: 2 * .pi)
     if difference > .pi { difference = 2 * .pi - difference }
     return difference
 }
 
-@MainActor func animatedFrameChecks() {
+@MainActor private func animatedFrameChecks() {
     let size = NSSize(width: 1000, height: 800)
     for backdrop in WelcomeBackdrop.animated {
         let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: size, still: false, backdrop: backdrop)
@@ -719,14 +716,15 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 
 /// Reduce Motion: with the system setting on, the screen must hold still; off again, it moves. The setting is read through
 /// NSWorkspace, so the check swaps that one getter for the length of the run and announces the change as the system does.
-@MainActor func reduceMotionChecks() {
+@MainActor private func reduceMotionChecks() {
     let selector = NSSelectorFromString("accessibilityDisplayShouldReduceMotion")
     guard let method = class_getInstanceMethod(NSWorkspace.self, selector) else { check(false, "reduce motion: the system getter exists"); return }
     let original = method_getImplementation(method)
     var reduce = false
     let replacement: @convention(block) (AnyObject) -> Bool = { _ in reduce }
-    method_setImplementation(method, imp_implementationWithBlock(replacement))
-    defer { method_setImplementation(method, original) }
+    let replacementIMP = imp_implementationWithBlock(replacement)
+    method_setImplementation(method, replacementIMP)
+    defer { method_setImplementation(method, original); _ = imp_removeBlock(replacementIMP) }
     let (window, hosting) = host(project: "MarkView", git: false, theme: .classicDark, size: NSSize(width: 900, height: 700), still: false, backdrop: .bugs)
     defer { window.close() }
     settle(hosting)
@@ -750,7 +748,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 }
 
 /// How the screen looks in Boris's theme as his screenshot shows it (dark, green accent), at the size of that window.
-@MainActor func borisThemeSnapshot() {
+@MainActor private func borisThemeSnapshot() {
     for backdrop in [WelcomeBackdrop.matrix, .aurora, .bugs, .network] {
         let (window, hosting) = host(project: "vivaa-internals", git: true, theme: .midnight, accent: ThemeColor(0x3FB950), size: NSSize(width: 1142, height: 1068), still: true, backdrop: backdrop)
         settle(hosting)
@@ -762,7 +760,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 // MARK: - The Background pill never sits on a tile
 
 /// The accessibility elements under a view, with their screen frames (SwiftUI builds the tree once an assistive client is assumed).
-@MainActor func accessibilityButtons(_ root: NSObject, depth: Int = 0) -> [(label: String, frame: NSRect)] {
+@MainActor private func accessibilityButtons(_ root: NSObject, depth: Int = 0) -> [(label: String, frame: NSRect)] {
     // SwiftUI's accessibility nodes answer the NSAccessibility selectors without declaring the protocol, so they are asked by selector.
     func value(_ object: NSObject, _ key: String) -> Any? { object.responds(to: Selector((key))) ? object.value(forKey: key) : nil }
     guard depth < 16, let children = value(root, "accessibilityChildren") as? [NSObject] else { return [] }
@@ -781,7 +779,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 
 /// Found in the running app (5.53.0): in a pane narrower or shorter than the tile list, the pill pinned to the window's corner covered the last
 /// visible tile. It now sits beside the app icon inside the scrolled column.
-@MainActor func pillChecks() {
+@MainActor private func pillChecks() {
     NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
     let titles = Set(WelcomeCatalogue.project(isGitRepo: true).flatMap { $0.actions.map(\.title) })
     for size in [NSSize(width: 520, height: 520), NSSize(width: 620, height: 800), NSSize(width: 1000, height: 640), NSSize(width: 460, height: 900)] {
@@ -805,7 +803,7 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
 
 /// E2E clients send these actions to every advertised scroll container, including grids below the fold.
 /// On macOS 27, the welcome screen's nested lazy grids trapped in ForEachState.item during this walk.
-@MainActor func accessibilityScrollChecks() {
+@MainActor private func accessibilityScrollChecks() {
     NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
     func scroll(_ element: NSObject, depth: Int = 0) {
         guard depth < 20 else { return }
@@ -854,34 +852,24 @@ func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
     }
 }
 
-if ProcessInfo.processInfo.environment["WELCOME_SCROLL_ONLY"] != nil {
-    let app = NSApplication.shared
-    app.setActivationPolicy(.accessory)
-    MainActor.assumeIsolated { accessibilityScrollChecks() }
-    exit(failures == 0 ? 0 : 1)
-}
 
-choiceChecks()
-matrixChecks()
-auroraChecks()
-bugChecks()
-networkChecks()
-catalogueChecks()
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-MainActor.assumeIsolated {
-    layerChecks()
-    hostedChecks()
-    perWindowChecks()
-    projectContextChecks()
-    motionChecks()
-    resizeChecks()
-    tileChecks()
-    pillChecks()
-    accessibilityScrollChecks()
-    animatedFrameChecks()
-    reduceMotionChecks()
-    borisThemeSnapshot()
+final class WelcomeScreenHostTests: XCTestCase {
+    @MainActor func testWelcomeCatalogue() throws {
+        if ProcessInfo.processInfo.environment["WELCOME_SCROLL_ONLY"] != nil { throw XCTSkip("Accessibility-only run") }
+        catalogueChecks()
+    }
+
+    @MainActor func testWelcomeScreen() {
+        let app = NSApplication.shared
+        let previousPolicy = app.activationPolicy()
+        _ = app.setActivationPolicy(.accessory)
+        defer { _ = app.setActivationPolicy(previousPolicy) }
+        if ProcessInfo.processInfo.environment["WELCOME_SCROLL_ONLY"] != nil {
+            accessibilityScrollChecks()
+            return
+        }
+        choiceChecks(); matrixChecks(); auroraChecks(); bugChecks(); networkChecks()
+        layerChecks(); hostedChecks(); perWindowChecks(); projectContextChecks(); motionChecks(); resizeChecks()
+        tileChecks(); pillChecks(); accessibilityScrollChecks(); animatedFrameChecks(); reduceMotionChecks(); borisThemeSnapshot()
+    }
 }
-print(failures == 0 ? "\nall checks passed" : "\n\(failures) check(s) FAILED")
-exit(failures == 0 ? 0 : 1)
