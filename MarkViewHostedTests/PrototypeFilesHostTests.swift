@@ -1,9 +1,16 @@
 import CryptoKit
 import Foundation
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
+final class PrototypeFilesHostTests: XCTestCase {
+    @MainActor func testPrototypeFiles() throws {
 var failures = 0
+var checks = 0
 func check(_ ok: Bool, _ name: String) {
     print((ok ? "ok   " : "FAIL ") + name)
+    checks += 1
     if !ok { failures += 1 }
 }
 func throwsFailure(_ body: () throws -> Void) -> PrototypeFiles.Failure? {
@@ -921,5 +928,7 @@ do {
           "requirements mode has nothing to update from")
 }
 
-print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
-exit(failures == 0 ? 0 : 1)
+        print("Prototype files hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
+}

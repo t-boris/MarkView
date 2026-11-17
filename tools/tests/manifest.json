@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 214,
+  "suiteCount": 213,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2560,37 +2560,6 @@
       ]
     },
     {
-      "name": "prototype-tests",
-      "script": "tools/tests/prototype-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Prototype/PrototypeAI.swift",
-        "MarkView/Models/Prototype/PrototypePrompts.swift",
-        "MarkView/Models/Prototype/PrototypeSchemas.swift",
-        "MarkView/Models/Prototype/PrototypePlan.swift",
-        "MarkView/Models/Prototype/PrototypeProgress.swift",
-        "MarkView/Models/Prototype/PrototypeExport.swift",
-        "MarkView/Models/Prototype/PrototypeAudit.swift",
-        "MarkView/Models/Prototype/PrototypeBaseline.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeEmbedded.swift",
-        "MarkView/Models/Prototype/PrototypeFiles.swift",
-        "MarkView/Models/Prototype/PrototypeHandoff.swift",
-        "MarkView/Models/Prototype/PrototypeHandoffDraft.swift",
-        "MarkView/Models/Prototype/PrototypeRuntime.swift",
-        "MarkView/Models/Prototype/PrototypeShellStructure.swift",
-        "MarkView/Models/Prototype/PrototypeStyles.swift",
-        "MarkView/Models/Prototype/PrototypeTailwind.swift",
-        "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/PrototypeCLIStub.swift",
-        "tools/tests/PrototypeTests.swift",
-        "tools/tests/prototype-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
       "name": "prototype-themes-tests",
       "script": "tools/tests/prototype-themes-tests.sh",
       "tier": "gui",
@@ -3026,7 +2995,8 @@
         "MarkView/Models/Prototype/PrototypeStyles.swift",
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "MarkViewHostedTests/PrototypeStaticHostTests.swift"
+        "MarkViewHostedTests/PrototypeStaticHostTests.swift",
+        "MarkViewHostedTests/PrototypeFilesHostTests.swift"
       ]
     },
     {
