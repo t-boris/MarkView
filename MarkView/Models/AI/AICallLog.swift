@@ -33,18 +33,21 @@ enum AICallLog {
     /// Writes in order, off the caller's thread.
     private static let queue = DispatchQueue(label: "markview.ai-call-log")
 
-    static func record(_ entry: Entry) {
+    static func record(_ entry: Entry, to destination: URL? = nil) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(entry) else { return }
-        let url = url
+        let url = destination ?? url
         queue.async { try? AtomicFile.append(data + Data("\n".utf8), to: url) }
     }
 
+    /// Wait for queued writes before removing a temporary destination.
+    static func waitForPendingWrites() { queue.sync {} }
+
     /// Entries of the log, oldest first; damaged lines are skipped.
-    static func read() -> [Entry] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+    static func read(from source: URL? = nil) -> [Entry] {
+        guard let text = try? String(contentsOf: source ?? url, encoding: .utf8) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return JSONLinesFile.decode(Entry.self, from: text, using: decoder, owner: "AI call log").records

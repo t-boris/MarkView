@@ -5,6 +5,58 @@ import XCTest
 @testable import MarkView
 
 extension EditorHostTests {
+    func testAICallLogWrites() throws {
+        func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ai-call-log-" + UUID().uuidString, isDirectory: true)
+        let logURL = folder.appendingPathComponent("ai-calls.jsonl")
+        defer { AICallLog.waitForPendingWrites(); try? FileManager.default.removeItem(at: folder) }
+        func entry(_ label: String) -> AICallLog.Entry {
+            AICallLog.Entry(timestamp: Date(timeIntervalSince1970: 1_800_000_000), project: "demo", label: label, tool: "claude", model: "m",
+                            effort: "low", seconds: 1.5, inputTokens: 10, outputTokens: 20, costUSD: nil, outcome: "ok")
+        }
+
+        /// `record` writes on its own queue: wait until the log shows `count` entries (or give up after five seconds).
+        func entries(waitingFor count: Int) -> [AICallLog.Entry] {
+            var found = AICallLog.read(from: logURL)
+            let deadline = Date().addingTimeInterval(5)
+            while found.count < count && Date() < deadline { Thread.sleep(forTimeInterval: 0.02); found = AICallLog.read(from: logURL) }
+            return found
+        }
+
+        check(logURL.path.hasPrefix(folder.path), "the log lives under the temporary folder")
+        check(AICallLog.read(from: logURL).isEmpty, "a log that does not exist yet reads as empty")
+
+        // The first call creates the folder and the file; the next ones follow in order.
+        AICallLog.record(entry("first"), to: logURL)
+        AICallLog.record(entry("second"), to: logURL)
+        AICallLog.record(entry("third"), to: logURL)
+        check(entries(waitingFor: 3).map(\.label) == ["first", "second", "third"], "the calls are written in order")
+        let text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        check(text.hasSuffix("\n") && text.split(separator: "\n").count == 3, "one line per call")
+
+        // Many threads at once: the file is neither cut nor does a call overwrite another.
+        DispatchQueue.concurrentPerform(iterations: 8) { thread in
+            for call in 0..<25 { AICallLog.record(entry("t\(thread)-c\(call)"), to: logURL) }
+        }
+        let all = entries(waitingFor: 3 + 200)
+        check(all.count == 203 && Set(all.map(\.label)).count == 203, "200 calls from 8 threads are all in the log, once each (\(all.count))")
+        check(Array(all.prefix(3).map(\.label)) == ["first", "second", "third"], "the earlier calls stay in front")
+
+        // A log that cannot be written keeps what it holds; the call is dropped, and the next one that can be written follows.
+        let before = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        chmod(logURL.path, 0o444)
+        AICallLog.record(entry("dropped"), to: logURL)
+        AICallLog.waitForPendingWrites()
+        chmod(logURL.path, 0o644)
+        check((try? String(contentsOf: logURL, encoding: .utf8)) == before, "a log the file system refuses is left as it was")
+        AICallLog.record(entry("after"), to: logURL)
+        let last = entries(waitingFor: 204)
+        check(last.count == 204 && last.last?.label == "after" && !last.contains { $0.label == "dropped" }, "the next call is added after the old lines")
+
+    }
+
     func testTranscriptionFailureMessages() {
         func check(_ name: String, _ condition: Bool, _ detail: String = "", line: UInt = #line) {
             XCTAssertTrue(condition, name + " " + detail, line: line)

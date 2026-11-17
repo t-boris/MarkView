@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 75,
+  "suiteCount": 74,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -35,18 +35,6 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
-      "name": "ai-call-log-tests",
-      "script": "tools/tests/ai-call-log-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/AI/AICallLog.swift",
-        "tools/tests/AICallLogTests.swift"
       ]
     },
     {
@@ -1586,7 +1574,8 @@
         "MarkView/Models/Deployments/DatabaseExplorer.swift",
         "MarkView/Models/Deployments/DatabaseKeychain.swift",
         "MarkView/Models/Deployments/DeploymentStore.swift",
-        "MarkView/Models/Deployments/DeploymentStore+Databases.swift"
+        "MarkView/Models/Deployments/DeploymentStore+Databases.swift",
+        "MarkView/Models/AI/AICallLog.swift"
       ]
     },
     {
