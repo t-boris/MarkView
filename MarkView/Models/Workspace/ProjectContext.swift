@@ -37,6 +37,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     static let maxRecentProjects = 30
     static let maxRecentFiles = 20
 
+    private let settings: Settings
     private let recentFilesURL: URL
     /// How the project tells the person that a folder could not be linked (`AR-22`).
     private let prompts: any UserPrompts
@@ -52,12 +53,13 @@ final class ProjectContext: ObservableObject, ProjectProviding {
 
 
     /// `recentFilesURL` is where the recently opened files are kept; the window uses the shared file in Application Support.
-    init(prompts: any UserPrompts, recentFilesURL: URL? = nil) {
+    init(prompts: any UserPrompts, recentFilesURL: URL? = nil, settings: Settings = .standard) {
+        self.settings = settings
         self.prompts = prompts
         self.recentFilesURL = recentFilesURL ?? Self.defaultRecentFilesURL
-        let fileTree = WorkspaceFileTreeStore()
+        let fileTree = WorkspaceFileTreeStore(settings: settings)
         self.fileTree = fileTree
-        recentProjects = Settings.standard.value(Setting.recentProjects)
+        recentProjects = settings.value(Setting.recentProjects)
         treeChanges = fileTree.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         loadRecentFiles()
     }
@@ -180,7 +182,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     /// A folder is chosen: it is remembered as the last folder and in the recents, and the previous tree is cleared so that the
     /// progress spinner shows.
     func beginOpening(_ url: URL) {
-        Settings.standard.set(url.standardizedFileURL.path, for: Setting.lastFolder)
+        settings.set(url.standardizedFileURL.path, for: Setting.lastFolder)
         var recent = recentProjects
         recent.removeAll { $0 == url.standardizedFileURL.path }
         recent.insert(url.standardizedFileURL.path, at: 0)
@@ -295,7 +297,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
     // MARK: - Linked folders (Task 59)
 
     func loadLinkedFolders() {
-        linkedFolders = LinkedFolders.load(project: projectFolder).filter { FileManager.default.fileExists(atPath: $0.path) }
+        linkedFolders = LinkedFolders.load(project: projectFolder, settings: settings).filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Link `urls` to the open project. Returns the reasons for the ones that could not be linked.
@@ -360,7 +362,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
 
     /// Persist the list, then index the linked folders (the search index follows `searchRootsKey`).
     private func linkedFoldersChanged(_ project: URL) {
-        LinkedFolders.save(linkedFolders, project: project)
+        LinkedFolders.save(linkedFolders, project: project, settings: settings)
         if let root, database != nil { runStructuralIndex(at: root) }
     }
 
@@ -501,7 +503,7 @@ final class ProjectContext: ObservableObject, ProjectProviding {
 
     private func setRecentProjects(_ paths: [String]) {
         recentProjects = paths
-        Settings.standard.set(paths, for: Setting.recentProjects)
+        settings.set(paths, for: Setting.recentProjects)
     }
 
     func addRecentFile(_ url: URL) {

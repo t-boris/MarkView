@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 135,
+  "suiteCount": 134,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2210,7 +2210,15 @@
         "MarkView/Models/Architecture/StructuralIndexer.swift",
         "MarkViewHostedTests/AssistantPipelineHostTests.swift",
         "MarkView/Models/AI/AIAssistants.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
+        "MarkViewHostedTests/ProjectContextHostTests.swift",
+        "MarkView/Models/AI/DiagramAI.swift",
+        "MarkView/Models/Architecture/ArchitectureModel.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
+        "MarkView/Models/Architecture/CodeArchitecture.swift",
+        "MarkView/Models/Architecture/CodePathTags.swift",
+        "MarkView/Models/Workspace/ProjectContext.swift",
+        "MarkView/Models/Shared/ProjectProviding.swift"
       ]
     },
     {
@@ -3499,44 +3507,6 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
-      "name": "project-context-tests",
-      "script": "tools/tests/project-context-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/DiagramAI.swift",
-        "MarkView/Models/Appearance/ProjectColor.swift",
-        "MarkView/Models/Architecture/ArchitectureModel.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AutoAnalysisScheduler.swift",
-        "MarkView/Models/Architecture/CodeArchitecture.swift",
-        "MarkView/Models/Architecture/CodePathTags.swift",
-        "MarkView/Models/Shared/SemanticDatabase.swift",
-        "MarkView/Models/Shared/SemanticModels.swift",
-        "MarkView/Models/Shared/SemanticSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/ExcludedFolders.swift",
-        "MarkView/Models/Workspace/FileNode.swift",
-        "MarkView/Models/Shared/LinkedFolders.swift",
-        "MarkView/Models/Shared/LinkedFolderStore.swift",
-        "MarkView/Models/Workspace/ProjectContext.swift",
-        "MarkView/Models/Shared/ProjectProviding.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "MarkView/Models/Workspace/WorkspaceFileTreeStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SQLiteSchema.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "tools/tests/DiagramCLIStub.swift",
-        "tools/tests/ProjectContextTests.swift",
-        "tools/tests/SemanticDatabaseTestSupport.swift",
-        "tools/tests/project-context-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ScriptedPrompts.swift"
       ]
     },
     {

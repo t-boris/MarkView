@@ -1,20 +1,16 @@
-// Behaviour of the open project of a window (MarkView/Models/Workspace/ProjectContext.swift, AR-14 step 8) on real folders, real
-// files and real SQLite databases: opening a folder with its exclusions and recents, linked folders, the project's database from
-// open to release (a folder's and a single file's), and what a feature reads through ProjectProviding. The index process
-// (`--dde-index`) is the app's own binary and is covered by the app probe, not here.
 import Foundation
-
-/// Stand-ins for app types the checked modules mention but this check never exercises: the assistant list that LinkedFolders.swift
-/// extends, and the file-type table that decides which files the tree shows (the fixtures here are all Markdown).
-enum CLITool { case claude, codex, cline, copilot, antigravity }
-enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].contains(url.pathExtension.lowercased()) } }
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
 @MainActor
-@main enum ProjectContextTests {
-    static var failures = 0
+private enum ProjectContextFixture {
+    private static let suiteName = "project-context-host-" + UUID().uuidString
+    private static let defaultsSuite = UserDefaults(suiteName: suiteName)!
+    private static let testSettings = Settings(defaultsSuite)
 
-    static func check(_ condition: Bool, _ message: String, line: Int = #line) {
-        if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message) (line \(line))") }
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
 
     /// Polls `condition` until it holds or `seconds` have passed.
@@ -37,15 +33,14 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         (project.root, project.searchRoots, project.database != nil)
     }
 
-    static func main() async throws {
+    static func run() async throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("pc-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
-        let defaults = UserDefaults.standard
-        for key in [Setting.lastFolder.name, Setting.recentProjects.name] { defaults.removeObject(forKey: key) }
+        defaultsSuite.removePersistentDomain(forName: suiteName)
         defer {
             try? fm.removeItem(at: base)
-            for key in [Setting.lastFolder.name, Setting.recentProjects.name, Setting.linkedFolders.name] { defaults.removeObject(forKey: key) }
+            defaultsSuite.removePersistentDomain(forName: suiteName)
         }
 
         try await openFolderWithExclusions(base)
@@ -56,8 +51,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         try await staleTreeReload(base)
         try await watchPoll(base)
 
-        if failures > 0 { print("\(failures) check(s) FAILED"); exit(1) }
-        print("Project context checks passed")
+
     }
 
     // MARK: - A folder opens, a folder is excluded, the exclusion outlives the window
@@ -72,7 +66,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         try write("# E\n", to: outside)
         let recentsFile = base.appendingPathComponent("recent-open.json")
 
-        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile)
+        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile, settings: testSettings)
         check(context.root == nil && !context.hasWorkspace && context.searchRoots.isEmpty, "a new project has no folder and no workspace")
 
         context.beginOpening(project)
@@ -120,14 +114,14 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         let alpha = await db.search(query: "alpha").map(\.documentId), beta = await db.search(query: "beta").map(\.documentId)
         check(alpha == ["a.md"] && beta == ["docs/b.md"], "the other documents stay searchable")
 
-        let reopened = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile)
+        let reopened = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile, settings: testSettings)
         reopened.beginOpening(project)
         _ = await reopened.loadTree(of: project)
         check(reopened.isExcluded(project.appendingPathComponent("skip/c.md")), "the exclusion is still there when the folder is opened again")
         let rule = reopened.fileTree.excludedFolders.first ?? ""
         reopened.includeFolder(rule)
         check(!reopened.isExcluded(project.appendingPathComponent("skip/c.md")), "an included folder is no longer excluded")
-        let third = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile)
+        let third = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile, settings: testSettings)
         third.beginOpening(project)
         _ = await third.loadTree(of: project)
         check(!third.isExcluded(project.appendingPathComponent("skip/c.md")), "the inclusion is kept too")
@@ -140,7 +134,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         check(context.indexingProgress == nil && context.structuralIndexProgress == nil, "closing the folder clears the progress")
 
         // Metadata written into the folder is found and removed; documents are not touched.
-        let metadataContext = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile)
+        let metadataContext = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentsFile, settings: testSettings)
         metadataContext.beginOpening(project)
         _ = await metadataContext.loadTree(of: project)
         try write("# Project Context — Auto-generated by MarkView DDE\n", to: project.appendingPathComponent(".claude/CLAUDE.md"))
@@ -161,7 +155,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         check(metadataContext.markdownFiles(in: project).map(\.lastPathComponent).sorted() == ["a.md", "b.md", "c.md"], "the Markdown files of the folder are listed")
     }
 
-    static func defaults(_ key: String) -> String? { UserDefaults.standard.string(forKey: key) }
+    static func defaults(_ key: String) -> String? { defaultsSuite.string(forKey: key) }
 
     // MARK: - The Markdown files of a folder, for Recursive Insight
 
@@ -183,7 +177,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         try fm.createSymbolicLink(at: project.appendingPathComponent("escape.md"), withDestinationURL: outside.appendingPathComponent("secret.md"))
         try fm.createSymbolicLink(at: project.appendingPathComponent("prefix.md"), withDestinationURL: sibling.appendingPathComponent("other.md"))
         try fm.createSymbolicLink(at: project.appendingPathComponent("inside.md"), withDestinationURL: project.appendingPathComponent("a.md"))
-        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: base.appendingPathComponent("markdown-files-recents.json"))
+        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: base.appendingPathComponent("markdown-files-recents.json"), settings: testSettings)
         // The enumerator reports /private/var paths for a /var folder, so the names are taken after the project's own folder name.
         let found = Set(context.markdownFiles(in: project).compactMap { $0.path.components(separatedBy: "/project/").last })
         check(found == ["a.md", "docs/b.MD", "real/inner.md", "inside.md"],
@@ -197,18 +191,18 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
 
     static func recents(_ base: URL) async throws {
         let file = base.appendingPathComponent("recent-files.json")
-        let first = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let first = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         let urls = (0..<25).map { base.appendingPathComponent("f\($0).md") }
         urls.forEach { first.addRecentFile($0) }
         check(first.recentFiles.count == ProjectContext.maxRecentFiles && first.recentFiles.first == urls[24], "recent files keep the newest \(ProjectContext.maxRecentFiles)")
         first.addRecentFile(urls[10])
         check(first.recentFiles.first == urls[10] && first.recentFiles.filter { $0 == urls[10] }.count == 1, "opening a file again moves it to the front")
-        let restarted = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let restarted = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         check(restarted.recentFiles == first.recentFiles, "recent files are read back from disk in the same order")
 
         let folders = (0..<32).map { base.appendingPathComponent("folder\($0)", isDirectory: true) }
         for folder in folders { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
-        let projects = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let projects = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         folders.forEach { projects.beginOpening($0) }
         check(projects.recentProjects.count == ProjectContext.maxRecentProjects && projects.recentProjects.first == folders[31].path,
               "recent projects keep the newest \(ProjectContext.maxRecentProjects)")
@@ -216,7 +210,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         projects.removeRecentProject(victim)
         check(!projects.recentProjects.contains(victim) && projects.recentProjects.count == ProjectContext.maxRecentProjects - 1,
               "a removed recent project leaves the list")
-        check(ProjectContext(prompts: NoPrompts(), recentFilesURL: file).recentProjects == projects.recentProjects, "recent projects are shared by every window and read back")
+        check(ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings).recentProjects == projects.recentProjects, "recent projects are shared by every window and read back")
         check(FileManager.default.fileExists(atPath: folders[0].path), "removing a recent project leaves the folder alone")
     }
 
@@ -229,11 +223,11 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         try write("# Home\n", to: project.appendingPathComponent("README.md"))
         let file = base.appendingPathComponent("recent-linked.json")
 
-        let nothing = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let nothing = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         check(nothing.linkFolders([shared]).count == 1 && nothing.linkedFolders.isEmpty, "nothing can be linked while no folder is open")
 
         let prompts = ScriptedPrompts()
-        let context = ProjectContext(prompts: prompts, recentFilesURL: file)
+        let context = ProjectContext(prompts: prompts, recentFilesURL: file, settings: testSettings)
         context.beginOpening(project)
         context.fileTree.setRootNode(FileNode.buildTree(from: project, sortOrder: context.fileTree.sortOrder))
         context.loadLinkedFolders()
@@ -267,7 +261,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         check(documentId.hasPrefix(LinkedFolders.documentIdPrefix) && context.fileURL(forDocumentId: documentId)?.path == intro.path,
               "a file in a linked folder has a document id that resolves back to the file")
 
-        let restarted = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let restarted = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         restarted.beginOpening(project)
         restarted.fileTree.setRootNode(FileNode.buildTree(from: project, sortOrder: restarted.fileTree.sortOrder))
         restarted.loadLinkedFolders()
@@ -288,7 +282,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         try write("# Todo\nbuy zebra milk\n", to: todo)
         let file = base.appendingPathComponent("recent-single.json")
 
-        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         context.openSingleFile(todo)
         check(!context.rootOpenedAsFolder && context.root == notes && context.projectFolder == nil && context.aiProject == nil,
               "a single file's folder is the root but not a project")
@@ -301,13 +295,13 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         check(context.database == nil, "releasing the database drops it")
 
         // A window that closes while the database is still being made never publishes it.
-        let closing = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let closing = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         closing.openSingleFile(todo)
         closing.closeFolder()
         try await Task.sleep(nanoseconds: 1_500_000_000)
         check(closing.database == nil && closing.root == nil, "a database that finishes after the folder closed is not published")
 
-        let closed = ProjectContext(prompts: NoPrompts(), recentFilesURL: file)
+        let closed = ProjectContext(prompts: NoPrompts(), recentFilesURL: file, settings: testSettings)
         closed.openSingleFile(todo)
         closed.close()
         try await Task.sleep(nanoseconds: 1_500_000_000)
@@ -319,7 +313,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
     static func staleTreeReload(_ base: URL) async throws {
         let project = base.appendingPathComponent("reload-proj", isDirectory: true)
         try write("# One\n", to: project.appendingPathComponent("one.md"))
-        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: base.appendingPathComponent("recent-reload.json"))
+        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: base.appendingPathComponent("recent-reload.json"), settings: testSettings)
         context.beginOpening(project)
         _ = await context.loadTree(of: project)
         check((context.rootNode?.children ?? []).count == 1, "the folder starts with one entry")
@@ -340,7 +334,7 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
     static func watchPoll(_ base: URL) async throws {
         let project = base.appendingPathComponent("watch-proj", isDirectory: true)
         try write("# One\n", to: project.appendingPathComponent("one.md"))
-        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: base.appendingPathComponent("recent-watch.json"))
+        let context = ProjectContext(prompts: NoPrompts(), recentFilesURL: base.appendingPathComponent("recent-watch.json"), settings: testSettings)
         let polling = PollingScheduler()
         context.fileTree.polling = polling
         context.beginOpening(project)
@@ -360,5 +354,39 @@ enum FileType { static func isOpenable(_ url: URL) -> Bool { ["md", "txt"].conta
         context.fileTree.startWatchingCurrentRoot()
         check(polling.keys.isEmpty, "a closed folder has no root to watch")
         polling.stopAll()
+    }
+}
+
+
+extension EditorHostTests {
+    @MainActor func testProjectContextWithIsolatedSettings() async throws {
+        try await ProjectContextFixture.run()
+    }
+}
+
+extension EditorHostTests {
+    @MainActor func testProjectSettingsDoNotCrossSuites() {
+        let nameA = "project-context-isolation-a-" + UUID().uuidString
+        let nameB = "project-context-isolation-b-" + UUID().uuidString
+        let defaultsA = UserDefaults(suiteName: nameA)!
+        let defaultsB = UserDefaults(suiteName: nameB)!
+        defer {
+            defaultsA.removePersistentDomain(forName: nameA)
+            defaultsB.removePersistentDomain(forName: nameB)
+        }
+        let settingsA = Settings(defaultsA), settingsB = Settings(defaultsB)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("settings-isolation-" + UUID().uuidString)
+        let recentFile = folder.appendingPathComponent("recent.json")
+        let first = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentFile, settings: settingsA)
+        let second = ProjectContext(prompts: NoPrompts(), recentFilesURL: recentFile, settings: settingsB)
+        first.beginOpening(folder)
+        XCTAssertEqual(settingsA.value(Setting.lastFolder), folder.standardizedFileURL.path)
+        XCTAssertNil(settingsB.stored(Setting.lastFolder))
+        XCTAssertEqual(first.recentProjects, [folder.standardizedFileURL.path])
+        XCTAssertTrue(second.recentProjects.isEmpty)
+        let linked = LinkedFolder(path: folder.appendingPathComponent("linked").path, name: "linked", added: Date(timeIntervalSince1970: 0))
+        LinkedFolders.save([linked], project: folder, settings: settingsA)
+        XCTAssertEqual(LinkedFolders.load(project: folder, settings: settingsA), [linked])
+        XCTAssertTrue(LinkedFolders.load(project: folder, settings: settingsB).isEmpty)
     }
 }

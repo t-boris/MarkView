@@ -12,8 +12,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
     @Published private(set) var excludedFolders: Set<String> = []
     @Published var sortOrder = FileTreeSortOrder() {
         didSet {
-            Settings.standard.set(sortOrder.field.rawValue, for: Setting.fileTreeSortField)
-            Settings.standard.set(sortOrder.ascending, for: Setting.fileTreeSortAscending)
+            settings.set(sortOrder.field.rawValue, for: Setting.fileTreeSortField)
+            settings.set(sortOrder.ascending, for: Setting.fileTreeSortAscending)
             refresh()
         }
     }
@@ -37,8 +37,10 @@ final class WorkspaceFileTreeStore: ObservableObject {
     /// The tree rebuild in flight (`AR-19`): a newer rebuild, a reset or a stop replaces or cancels it.
     private var reloadTask: Task<Void, Never>?
 
-    init() {
-        let settings = Settings.standard
+    private let settings: Settings
+
+    init(settings: Settings = .standard) {
+        self.settings = settings
         if let savedField = settings.stored(Setting.fileTreeSortField), let field = FileTreeSortField(rawValue: savedField) {
             sortOrder.field = field
         }

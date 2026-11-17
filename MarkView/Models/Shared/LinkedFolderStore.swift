@@ -30,15 +30,15 @@ enum LinkedFolders {
 
     static func key(_ project: URL) -> String { ProjectColor.projectKey(for: project) }
 
-    static func load(project: URL?) -> [LinkedFolder] {
-        guard let project, let data = Settings.standard.value(Setting.linkedFolders)[key(project)] as? Data else { return [] }
+    static func load(project: URL?, settings: Settings = .standard) -> [LinkedFolder] {
+        guard let project, let data = settings.value(Setting.linkedFolders)[key(project)] as? Data else { return [] }
         return decode(data)
     }
 
-    static func save(_ folders: [LinkedFolder], project: URL) {
-        var all = Settings.standard.value(Setting.linkedFolders)
+    static func save(_ folders: [LinkedFolder], project: URL, settings: Settings = .standard) {
+        var all = settings.value(Setting.linkedFolders)
         if folders.isEmpty { all[key(project)] = nil } else { all[key(project)] = encode(folders) }
-        Settings.standard.set(all, for: Setting.linkedFolders)
+        settings.set(all, for: Setting.linkedFolders)
         NotificationCenter.default.post(name: didChange, object: key(project))
     }
 
