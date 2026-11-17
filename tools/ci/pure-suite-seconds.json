@@ -14,7 +14,6 @@
   "control-agent-tools-tests": 42.2,
   "database-explorer-tests": 25.8,
   "deployment-store-tests": 21.6,
-  "deployment-task-ownership-tests": 17.3,
   "document-files-tests": 0.1,
   "feature-flow-coordinator-tests": 62.0,
   "git-task-ownership-tests": 16.2,

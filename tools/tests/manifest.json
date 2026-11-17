@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 76,
+  "suiteCount": 75,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -388,33 +388,6 @@
         "tools/tests/deployment-store-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "deployment-task-ownership-tests",
-      "script": "tools/tests/deployment-task-ownership-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
-        "MarkView/Models/Deployments/DatabaseExplorer.swift",
-        "MarkView/Models/Deployments/DatabaseKeychain.swift",
-        "MarkView/Models/Deployments/DeploymentDiscovery.swift",
-        "MarkView/Models/Deployments/DeploymentExecutor.swift",
-        "MarkView/Models/Deployments/DeploymentLogs.swift",
-        "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/Deployments/DeploymentStore.swift",
-        "MarkView/Models/Deployments/DeploymentStore+Databases.swift",
-        "MarkView/Models/Deployments/CloudServices.swift",
-        "MarkView/Models/Deployments/SystemProbe.swift",
-        "MarkView/Models/AI/ProviderHints.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "tools/tests/DeploymentTaskOwnershipTests.swift",
-        "tools/tests/deployment-task-ownership-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
       ]
     },
     {
@@ -1609,7 +1582,11 @@
         "MarkView/Resources/Layouts/40-cockpit.json",
         "MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift",
         "MarkView/Models/QA/QARunArchive.swift",
-        "MarkView/Models/QA/QATriageService.swift"
+        "MarkView/Models/QA/QATriageService.swift",
+        "MarkView/Models/Deployments/DatabaseExplorer.swift",
+        "MarkView/Models/Deployments/DatabaseKeychain.swift",
+        "MarkView/Models/Deployments/DeploymentStore.swift",
+        "MarkView/Models/Deployments/DeploymentStore+Databases.swift"
       ]
     },
     {
