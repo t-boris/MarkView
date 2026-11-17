@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 151,
+  "suiteCount": 150,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1415,22 +1415,6 @@
       ]
     },
     {
-      "name": "phase6-storage-security-tests",
-      "script": "tools/tests/phase6-storage-security-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Info.plist",
-        "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/StoreTestSupport.swift",
-        "tools/tests/Phase6StorageSecurityTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
       "name": "project-agent-tools-tests",
       "script": "tools/tests/project-agent-tools-tests.sh",
       "tier": "pure",
@@ -2375,7 +2359,9 @@
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Architecture/CodeExplainer.swift",
         "MarkView/Models/AI/AIPrompts.swift",
-        "MarkViewHostedTests/AssistantProviderHostTests.swift"
+        "MarkViewHostedTests/AssistantProviderHostTests.swift",
+        "MarkView/Info.plist",
+        "MarkView/Models/AgentTools/BrowserAgentTools.swift"
       ]
     },
     {
