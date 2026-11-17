@@ -3,7 +3,7 @@
 # service, the delivery evidence, verified completion and reconciliation, the GitHub sync planner, the AI context and the
 # Lifecycle section's display model, and the project workflow they run on (docs/features/feature-3).
 # The app has no XCTest target: each suite is compiled on its own with a test main and run.
-#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow proposal policy log evidence collector completion github context display store
+#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow log evidence collector completion github context display store
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
@@ -24,8 +24,6 @@ run_suite() {
     local suite=$1
     case $suite in
         workflow)   run workflow ProjectWorkflowChecks.swift tools/tests/StoreTestSupport.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Shared/SchemaVersionedStore.swift ;;
-        proposal)   run proposal WorkflowProposalChecks.swift "$M/Lifecycle/WorkflowEvents.swift" "$M/Lifecycle/WorkflowDescription.swift" "$M/Lifecycle/WorkflowProposal.swift" "$M/Lifecycle/ProjectWorkflowStore.swift" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/WorkflowFlow.swift" "$M/Lifecycle/WorkflowTemplate.swift" "$M/Lifecycle/DefinitionOfDone.swift" MarkView/Models/Shared/SchemaVersionedStore.swift ;;
-        policy)     run policy IssueLifecyclePolicyChecks.swift ;;
         log)        run log IssueTransitionLogChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
         evidence)   run evidence IssueEvidenceChecks.swift "$M/Lifecycle/IssueLifecycleEvidence.swift" ;;
         collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
@@ -38,7 +36,7 @@ run_suite() {
     esac
 }
 
-want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow proposal policy log evidence collector completion github context display store)
+want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow log evidence collector completion github context display store)
 
 pids=()
 suites_batch=()

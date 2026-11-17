@@ -2070,7 +2070,8 @@
         "tools/tests/CLIToolLocatorStub.swift",
         "MarkViewHostedTests/GitHubRemoteProfileHostTests.swift",
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
-        "MarkView/Models/Lifecycle/WorkflowDescription.swift"
+        "MarkView/Models/Lifecycle/WorkflowDescription.swift",
+        "MarkView/Models/Lifecycle/WorkflowProposal.swift"
       ]
     },
     {
