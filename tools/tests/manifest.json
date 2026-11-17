@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 158,
+  "suiteCount": 156,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1257,29 +1257,6 @@
       ]
     },
     {
-      "name": "intake-clipboard-tests",
-      "script": "tools/tests/intake-clipboard-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Appearance/AppFontScale.swift",
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Appearance/WindowTheme.swift",
-        "MarkView/Views/Appearance/AppFontScaleView.swift",
-        "MarkView/Views/Appearance/AppPalette.swift",
-        "MarkView/Views/Lifecycle/IntakeTextEditor.swift",
-        "tools/tests/IntakeClipboardTests.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
       "name": "issue-lifecycle-tests",
       "script": "tools/tests/issue-lifecycle-tests.sh",
       "tier": "pure",
@@ -1676,18 +1653,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/ProjectOperationMergeTests.swift",
         "tools/tests/project-operation-merge-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
-      ]
-    },
-    {
-      "name": "project-operation-primary-tests",
-      "script": "tools/tests/project-operation-primary-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/ProjectOps/ProjectOperation.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/ProjectOperationPrimaryTests.swift",
-        "tools/tests/project-operation-primary-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
@@ -2505,7 +2470,9 @@
         "MarkView/Models/AI/ProviderHints.swift",
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
         "MarkView/Models/Lifecycle/HandoffPrompt.swift",
-        "tools/tests/StoreTestSupport.swift"
+        "tools/tests/StoreTestSupport.swift",
+        "MarkView/Models/ProjectOps/ProjectOperation.swift",
+        "MarkView/Views/Lifecycle/IntakeTextEditor.swift"
       ]
     },
     {
