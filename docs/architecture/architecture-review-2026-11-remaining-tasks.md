@@ -323,6 +323,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+Remote-channel encryption, retry, acknowledgement and tool-request correlation checks now run in the app host through an in-process HTTP fixture. The focused test and the remaining remote aggregate passed, including 16 Node checks with 3 optional skips. The separate remote workflow no longer repeats this channel compile; main CI schedules the hosted test. Architecture and SwiftLint, manifest paths, pure shards and repository hygiene passed. Final GUI and CI verification remain open.
+
 Browser-agent MCP message and socket checks now run in the app host against an isolated fake socket without opening a browser. The hosted fixture supports the browser CLI flag only in its child process; all three browser, project and control focused tests passed together. The 6.30.141 Debug build had zero warnings, and architecture and SwiftLint, manifest paths, pure shards and repository hygiene passed. Final GUI verification remains open.
 
 Project-agent tool, guide, CLI and socket-routing checks now run in the app host with a separate temporary socket directory and reaped child processes. Only the hosted build accepts the project CLI flags for the fixture. The project and control socket focused tests passed together. The 6.30.140 Debug build had zero warnings, and architecture, SwiftLint and unused-import checks, manifest paths, pure shards and repository hygiene passed. Final GUI verification remains open.

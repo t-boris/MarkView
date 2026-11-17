@@ -1,4 +1,6 @@
 import Foundation
+import XCTest
+@testable import MarkView
 
 /// Failure injection at URLSession's HTTP boundary: the production channel encrypts, queues,
 /// retries and acknowledges real requests; no network listener is required for this layer.
@@ -24,6 +26,10 @@ private final class RelayBoundary: @unchecked Sendable {
         cursors.append(after)
         let result = RemoteJSON.object(["messages": .array(messages.filter { $0.0 > after }.map { .object(["seq": .int($0.0), "body": .string($0.1)]) })])
         return try JSONEncoder().encode(result)
+    }
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        messages = []; seen = []; postIDs = []; cursors = []; failFirstSend = true
     }
     func snapshot() -> (ids: [String], cursors: [Int], bodies: [String]) {
         lock.lock(); defer { lock.unlock() }
@@ -60,9 +66,9 @@ private actor Deliveries {
     func add(_ id: UUID) -> Int { ids.append(id); return ids.count }
 }
 
-@main
-enum RemoteChannelTests {
-    static func main() async throws {
+final class RemoteChannelHostTests: XCTestCase {
+    func testChannelAndToolRequests() async throws {
+        RelayURLProtocol.relay.reset()
         func session() -> URLSession {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [RelayURLProtocol.self]
@@ -76,15 +82,15 @@ enum RemoteChannelTests {
         try await work.send(message)
         let deliveries = Deliveries()
         try await home.receive { received in
-            precondition(received.id == message.id && received.payload == message.payload, "Encrypted tool calls must arrive intact.")
+            XCTAssertTrue(received.id == message.id && received.payload == message.payload, "Encrypted tool calls must arrive intact.")
             if await deliveries.add(received.id) == 1 { throw URLError(.timedOut) }
             await home.close()
         }
         await work.close()
         let log = RelayURLProtocol.relay.snapshot()
-        precondition(log.ids == [message.id.uuidString, message.id.uuidString], "A send with an ambiguous result must retry the same message ID.")
-        precondition(log.cursors == [0, 0], "A failed handler must not acknowledge the message.")
-        precondition(log.bodies.count == 1 && !log.bodies[0].contains("work file contents"), "Retries must not duplicate encrypted commands or expose plaintext.")
+        XCTAssertTrue(log.ids == [message.id.uuidString, message.id.uuidString], "A send with an ambiguous result must retry the same message ID.")
+        XCTAssertTrue(log.cursors == [0, 0], "A failed handler must not acknowledge the message.")
+        XCTAssertTrue(log.bodies.count == 1 && !log.bodies[0].contains("work file contents"), "Retries must not duplicate encrypted commands or expose plaintext.")
         print("Remote HTTPS channel: encryption, ambiguous-send retry, delivery and acknowledgement checks passed.")
 
         let requestChannel = RemoteChannel(invitation: invitation, role: .home, session: session())
@@ -100,16 +106,16 @@ enum RemoteChannelTests {
         let first = Task { await requests.call(id: id, name: "workspace_info", arguments: .object([:])) }
         try await waitForSend(id)
         let duplicate = await requests.call(id: id, name: "workspace_info", arguments: .object([:]))
-        precondition(duplicate["isError"] == .bool(true), "Duplicate request IDs must not overwrite a waiting caller.")
+        XCTAssertTrue(duplicate["isError"] == .bool(true), "Duplicate request IDs must not overwrite a waiting caller.")
         await requests.finish(id, result: .textResult("done"))
         let completed = await first.value
-        precondition(completed == .textResult("done"), "The original caller must still receive its result.")
+        XCTAssertTrue(completed == .textResult("done"), "The original caller must still receive its result.")
         let closingID = UUID()
         let closing = Task { await requests.call(id: closingID, name: "workspace_info", arguments: .object([:])) }
         try await waitForSend(closingID)
         await requests.close()
         let disconnected = await closing.value
-        precondition(disconnected["isError"] == .bool(true), "Disconnect must release outstanding tool callers.")
+        XCTAssertTrue(disconnected["isError"] == .bool(true), "Disconnect must release outstanding tool callers.")
         await requests.finish(closingID, result: .textResult("late"))
         await requestChannel.close()
         print("Remote tool requests: duplicate-ID isolation, response correlation and disconnect checks passed.")

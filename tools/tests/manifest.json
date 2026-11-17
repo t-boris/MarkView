@@ -1334,7 +1334,10 @@
         "MarkView/Models/AgentTools/ControlAgentTools.swift",
         "MarkView/Models/AgentTools/DeploymentAgentTools.swift",
         "MarkView/Models/AgentTools/DiscussionAgentTools.swift",
-        "MarkView/Models/AgentTools/ProjectAgentTools.swift"
+        "MarkView/Models/AgentTools/ProjectAgentTools.swift",
+        "MarkViewHostedTests/RemoteChannelHostTests.swift",
+        "MarkView/Models/Remote/RemoteChannel.swift",
+        "MarkView/Models/Remote/RemoteToolRequests.swift"
       ]
     },
     {
@@ -1493,7 +1496,6 @@
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/RemoteChannelTests.swift",
         "tools/tests/RemoteWorkspaceTests.swift",
         "tools/tests/remote-browser-tests.sh",
         "tools/tests/remote-relay-settings-tests.sh",

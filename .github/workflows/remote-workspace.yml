@@ -19,6 +19,7 @@ on:
       - 'MarkViewHostedTests/GitHubRemoteProfileHostTests.swift'
       - 'tools/tests/TerminalChildProcessTests.swift'
       - 'MarkViewHostedTests/RemoteCodexContextHostTests.swift'
+      - 'MarkViewHostedTests/RemoteChannelHostTests.swift'
       - 'tools/tests/remote-browser-tests.sh'
       - 'tools/tests/remote-relay-settings-tests.sh'
       - '.github/workflows/remote-workspace.yml'
