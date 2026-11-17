@@ -603,3 +603,180 @@ final class EditorHostTests: XCTestCase {
     }
 
 }
+
+/// The live QA screen exposes the same rows to Accessibility without SwiftUI's crashing lazy scroll nodes.
+final class QALiveAccessibilityHostTests: XCTestCase {
+    /// SwiftUI's accessibility nodes implement the Objective-C selector without declaring the Swift protocol.
+    private func press(_ element: NSObject) -> Bool {
+        let selector = NSSelectorFromString("accessibilityPerformPress")
+        guard element.responds(to: selector), let implementation = element.method(for: selector) else { return false }
+        let action = unsafeBitCast(implementation, to: (@convention(c) (AnyObject, Selector) -> Bool).self)
+        return action(element, selector)
+    }
+
+    @MainActor func testScenarioListAccessibility() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("qa-accessibility-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0..<80 {
+            var scenario = QAScenario(id: "scenario-\(index)", title: "Fixture scenario \(index)", goal: "test",
+                                      appKind: .web, created: Date(), updated: Date())
+            scenario.summary = "Fixture summary"
+            scenario.summarySource = QASummary.source(scenario)
+            try QAStore.saveScenario(scenario, root: root)
+        }
+        let model = QAModel()
+        model.attach(root: root)
+        defer { model.close() }
+        let deadline = Date().addingTimeInterval(10)
+        while model.scenarios.count < 80 && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertEqual(model.scenarios.count, 80)
+        let hosting = NSHostingView(rootView: QATabView(model: model).environmentObject(WindowUIState()))
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1200, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
+        window.orderFrontRegardless()
+        defer { window.close() }
+        NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        var labels: [String] = []
+        var scenarioButton: NSObject?
+        func walk(_ element: NSObject, depth: Int = 0) {
+            guard depth < 24 else { return }
+            for selector in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                let name = NSSelectorFromString(selector)
+                if element.responds(to: name), let value = element.perform(name)?.takeUnretainedValue() as? String {
+                    labels.append(value)
+                    if value.contains("Fixture scenario 79"), element.responds(to: NSSelectorFromString("accessibilityPerformPress")) {
+                        scenarioButton = element
+                    }
+                }
+            }
+            let names = NSSelectorFromString("accessibilityActionNames")
+            if element.responds(to: names), let actions = element.perform(names)?.takeUnretainedValue() as? [String] {
+                for action in ["AXScrollToBottom", "AXScrollToTop"] where actions.contains(action) {
+                    element.perform(NSSelectorFromString("accessibilityPerformAction:"), with: action)
+                }
+            }
+            let children = NSSelectorFromString("accessibilityChildren")
+            if element.responds(to: children), let values = element.perform(children)?.takeUnretainedValue() as? [NSObject] {
+                for child in values { walk(child, depth: depth + 1) }
+            }
+        }
+        walk(hosting)
+        XCTAssertTrue(labels.contains { $0.contains("Fixture scenario 0") })
+        XCTAssertTrue(labels.contains { $0.contains("Fixture scenario 79") })
+        if let scenarioButton {
+            XCTAssertTrue(press(scenarioButton))
+            XCTAssertEqual(model.current?.id, "scenario-79", "An accessibility press opens the requested scenario")
+        } else {
+            XCTFail("The scenario remains an accessible button")
+        }
+    }
+
+    @MainActor func testAccessibilityScrollAndRows() {
+        let run = QARunModel()
+        for index in 0..<80 {
+            run.handle(.narration(QATimelineEntry(id: index, time: Double(index), branch: "branch", node: nil,
+                                                 actor: nil, kind: .action, text: "Fixture feed \(index)")))
+        }
+        for index in 0..<40 {
+            let result = QACheckResult(branch: "Fixture branch \(index)", verdict: QACheckVerdict(outcome: .passed, reason: "ok"),
+                                       startedAt: Date(), finishedAt: Date())
+            run.handle(.branchFinished(result))
+        }
+        for index in 40..<60 {
+            let result = QACheckResult(branch: "Fixture branch \(index)", verdict: QACheckVerdict(outcome: .uncovered, reason: "not run"),
+                                       startedAt: Date(), finishedAt: Date())
+            run.handle(.branchFinished(result))
+        }
+        let hosting = NSHostingView(rootView: QALiveRunView(run: run, onClose: {}))
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 900, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        window.orderFrontRegardless()
+        defer { window.close() }
+        NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface"))
+        func settle() {
+            hosting.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        }
+        var labels: [String] = []
+        var uncoveredControl: NSObject?
+        func walk(_ element: NSObject, depth: Int = 0) {
+            guard depth < 24 else { return }
+            for selector in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                let name = NSSelectorFromString(selector)
+                if element.responds(to: name), let value = element.perform(name)?.takeUnretainedValue() as? String {
+                    labels.append(value)
+                    if value.contains("Not executed (20)"), element.responds(to: NSSelectorFromString("accessibilityPerformPress")) {
+                        uncoveredControl = element
+                    }
+                }
+            }
+            let names = NSSelectorFromString("accessibilityActionNames")
+            if element.responds(to: names), let actions = element.perform(names)?.takeUnretainedValue() as? [String] {
+                for action in ["AXScrollToBottom", "AXScrollToTop"] where actions.contains(action) {
+                    element.perform(NSSelectorFromString("accessibilityPerformAction:"), with: action)
+                }
+            }
+            let children = NSSelectorFromString("accessibilityChildren")
+            if element.responds(to: children), let values = element.perform(children)?.takeUnretainedValue() as? [NSObject] {
+                for child in values { walk(child, depth: depth + 1) }
+            }
+        }
+        settle()
+        for index in 80..<100 {
+            run.handle(.narration(QATimelineEntry(id: index, time: Double(index), branch: "branch", node: nil,
+                                                 actor: nil, kind: .action, text: "Fixture feed \(index)")))
+        }
+        settle(); walk(hosting); settle(); walk(hosting)
+        XCTAssertTrue(labels.contains { $0.contains("Fixture feed 0") }, "The first feed entry is accessible")
+        XCTAssertTrue(labels.contains { $0.contains("Fixture feed 99") }, "A new feed entry remains accessible")
+        XCTAssertTrue(labels.contains { $0.contains("Fixture branch 39") }, "The branch results remain accessible")
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let areas = descendants(hosting).compactMap { $0 as? NSScrollView }
+        var moved = false
+        for area in areas {
+            guard let document = area.documentView, document.bounds.height > area.contentView.bounds.height + 10 else { continue }
+            let before = area.contentView.bounds.origin.y
+            let maxY = document.bounds.height - area.contentView.bounds.height
+            let target = before < maxY / 2 ? maxY : 0
+            area.contentView.scroll(to: NSPoint(x: area.contentView.bounds.origin.x, y: target))
+            area.reflectScrolledClipView(area.contentView)
+            moved = moved || abs(area.contentView.bounds.origin.y - before) > 1
+        }
+        XCTAssertTrue(moved, "A long QA region remains scrollable")
+        if let area = areas.first(where: { ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 100 }),
+           let document = area.documentView {
+            let middle = (document.bounds.height - area.contentView.bounds.height) / 2
+            area.contentView.scroll(to: NSPoint(x: 0, y: middle))
+            area.reflectScrolledClipView(area.contentView)
+            settle()
+            let before = area.contentView.bounds.origin.y
+            area.accessibilityPerformAction(NSAccessibility.Action(rawValue: "AXScrollUpByPage"))
+            settle()
+            let up = area.contentView.bounds.origin.y
+            area.accessibilityPerformAction(NSAccessibility.Action(rawValue: "AXScrollDownByPage"))
+            settle()
+            let down = area.contentView.bounds.origin.y
+            XCTAssertGreaterThan(abs(up - before), 1, "Accessibility page-up scrolls the live view")
+            XCTAssertGreaterThan(abs(down - up), 1, "Accessibility page-down scrolls the live view")
+        } else {
+            XCTFail("A scrollable QA region is present for the accessibility page actions")
+        }
+        if let button = uncoveredControl {
+            XCTAssertTrue(press(button), "The uncovered-branches control accepts an accessibility press")
+            settle()
+            walk(hosting)
+            XCTAssertTrue(labels.contains { $0.contains("Fixture branch 59") }, "Uncovered branches remain accessible after expansion")
+        } else {
+            XCTFail("The uncovered-branches control remains accessible")
+        }
+    }
+}

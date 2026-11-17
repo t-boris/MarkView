@@ -2985,7 +2985,9 @@
         "MarkViewHostedTests/JSCallHostTests.swift",
         "MarkViewHostedTests/BridgeContractRecorder.swift",
         "MarkViewHostedTests/BridgeContractValidationHostTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift",
+        "MarkView/Models/QA/QARunModel.swift",
+        "MarkView/Views/QA/QARunViews.swift"
       ]
     },
     {

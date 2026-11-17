@@ -155,17 +155,22 @@ struct QALiveRunView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
-                    if run.feed.isEmpty { Text("Nothing has happened yet.").uiFont(size: 11).foregroundColor(palette.textDim).padding(10) }
-                    ForEach(run.feed) { item in
-                        row(item).id(item.id)
-                    }
+                    feedRows
                 }
+                // SwiftUI's lazy accessibility scroll action can trap on macOS 27. Keep visual rows lazy and expose the same
+                // interactive rows through an eager accessibility representation instead.
+                .accessibilityRepresentation { VStack(alignment: .leading, spacing: 6) { feedRows } }
                 .padding(10)
             }
             .onChange(of: run.feed.count) { _ in
                 if let last = run.feed.last { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(last.id, anchor: .bottom) } }
             }
         }
+    }
+
+    @ViewBuilder private var feedRows: some View {
+        if run.feed.isEmpty { Text("Nothing has happened yet.").uiFont(size: 11).foregroundColor(palette.textDim).padding(10) }
+        ForEach(run.feed) { item in row(item).id(item.id) }
     }
 
     private func row(_ item: QARunModel.FeedItem) -> some View {
@@ -233,23 +238,36 @@ struct QALiveRunView: View {
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(completed) { resultRow($0) }
-                    if !uncovered.isEmpty {
-                        DisclosureGroup(isExpanded: $showUncovered) {
-                            LazyVStack(alignment: .leading, spacing: 8) {
-                                ForEach(uncovered) { resultRow($0) }
-                            }.padding(.top, 6)
-                        } label: {
-                            Text("Not executed (\(uncovered.count))").uiFont(size: 11, weight: .medium)
+                    resultRows(completed: completed, uncovered: uncovered)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityRepresentation {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(completed) { resultRow($0) }
+                            if !uncovered.isEmpty {
+                                Button("Not executed (\(uncovered.count))") { showUncovered.toggle() }
+                                    .accessibilityValue(showUncovered ? "Expanded" : "Collapsed")
+                                if showUncovered { ForEach(uncovered) { resultRow($0) } }
+                            }
+                            if let notice = run.notice { Text(notice).uiFont(size: 10.5).foregroundColor(palette.orange) }
                         }
                     }
-                    if let notice = run.notice { Text(notice).uiFont(size: 10.5).foregroundColor(palette.orange) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
             }.frame(maxHeight: 240)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(palette.bgSidebar)
+    }
+
+    @ViewBuilder private func resultRows(completed: [QACheckResult], uncovered: [QACheckResult]) -> some View {
+        ForEach(completed) { resultRow($0) }
+        if !uncovered.isEmpty {
+            DisclosureGroup(isExpanded: $showUncovered) {
+                VStack(alignment: .leading, spacing: 8) { ForEach(uncovered) { resultRow($0) } }.padding(.top, 6)
+            } label: {
+                Text("Not executed (\(uncovered.count))").uiFont(size: 11, weight: .medium)
+            }
+        }
+        if let notice = run.notice { Text(notice).uiFont(size: 10.5).foregroundColor(palette.orange) }
     }
 
     private func resultRow(_ result: QACheckResult) -> some View {

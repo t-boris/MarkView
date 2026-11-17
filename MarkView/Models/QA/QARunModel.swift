@@ -348,7 +348,7 @@ final class QARunModel: ObservableObject {
 
     // MARK: Events
 
-    private func handle(_ event: QARunEvent) {
+    func handle(_ event: QARunEvent) {
         switch event {
         case .runStarted:
             break

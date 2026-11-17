@@ -58,22 +58,9 @@ struct QATabView: View {
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    if model.scenarios.isEmpty && model.unreadable.isEmpty {
-                        Text("No scenarios yet. Describe what to check and the assistant writes the first one.")
-                            .uiFont(size: 11).foregroundColor(palette.textDim).padding(10)
-                    }
-                    ForEach(model.scenarios) { scenario in
-                        row(scenario)
-                    }
-                    ForEach(model.unreadable, id: \.file) { item in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.file).uiFont(size: 11, weight: .medium)
-                            Text(item.message).uiFont(size: 10).foregroundColor(palette.orange)
-                        }
-                        .padding(8)
-                        .help("This file is left untouched")
-                    }
+                    scenarioRows
                 }
+                .accessibilityRepresentation { VStack(alignment: .leading, spacing: 2) { scenarioRows } }
                 .padding(6)
             }
             if let notice = model.notice {
@@ -88,6 +75,22 @@ struct QATabView: View {
             Button("Cancel", role: .cancel) { confirmDelete = nil }
         } message: {
             Text("The file is removed from the project. Runs already made stay.")
+        }
+    }
+
+    @ViewBuilder private var scenarioRows: some View {
+        if model.scenarios.isEmpty && model.unreadable.isEmpty {
+            Text("No scenarios yet. Describe what to check and the assistant writes the first one.")
+                .uiFont(size: 11).foregroundColor(palette.textDim).padding(10)
+        }
+        ForEach(model.scenarios) { scenario in row(scenario) }
+        ForEach(model.unreadable, id: \.file) { item in
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.file).uiFont(size: 11, weight: .medium)
+                Text(item.message).uiFont(size: 10).foregroundColor(palette.orange)
+            }
+            .padding(8)
+            .help("This file is left untouched")
         }
     }
 
