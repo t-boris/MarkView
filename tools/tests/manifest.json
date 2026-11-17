@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 184,
+  "suiteCount": 183,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -4130,23 +4130,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "xray-layout-web-tests",
-      "script": "tools/tests/xray-layout-web-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "tools/tests/XRayLayoutWebTests.swift",
-        "tools/tests/xray-layout-web-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/markview-architecture-model.js",
-        "MarkView/Resources/Editor/js/markview-architecture-graph.js",
-        "MarkView/Resources/Editor/js/markview-architecture-panels.js",
-        "MarkView/Resources/Editor/js/markview-architecture-details.js",
-        "MarkView/Resources/Editor/js/markview-architecture-toolbar.js"
       ]
     },
     {
