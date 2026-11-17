@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 189,
+  "suiteCount": 188,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -997,16 +997,6 @@
         "MarkView/Views/Dictation/DictationViews.swift",
         "tools/tests/DictationInsertionTests.swift",
         "tools/tests/dictation-insertion-tests.sh"
-      ]
-    },
-    {
-      "name": "dictation-language-tests",
-      "script": "tools/tests/dictation-language-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Dictation/OnDeviceSpeech.swift",
-        "tools/tests/DictationLanguageTests.swift",
-        "tools/tests/dictation-language-tests.sh"
       ]
     },
     {
@@ -4573,7 +4563,9 @@
         "MarkView/Models/Lifecycle/FeatureIntake.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/NewProjectCloseChecks.swift",
-        "tools/tests/new-project-close-tests.sh"
+        "tools/tests/new-project-close-tests.sh",
+        "MarkView/Models/Dictation/OnDeviceSpeech.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/DictationLanguage.swift"
       ]
     },
     {
@@ -4590,7 +4582,10 @@
         "MarkView/Models/Shared/FrontMatterFile.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/FeatureStoreSchemaChecks.swift",
-        "tools/tests/feature-store-schema-tests.sh"
+        "tools/tests/feature-store-schema-tests.sh",
+        "MarkView/Models/Dictation/OnDeviceSpeech.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/DictationLanguage.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/FeatureJobs.swift"
       ]
     },
     {
