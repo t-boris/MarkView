@@ -586,6 +586,7 @@
 		A4DD9A6FAE364D6387E23E05 /* FeatureStoreLifecycleHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */; };
+		C16A57BD3D044D9C8E6F9123 /* QABugsHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9124 /* QABugsHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9121 /* CockpitChildHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9122 /* CockpitChildHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9119 /* QAReviewHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9120 /* QAReviewHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9117 /* CycleTimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9118 /* CycleTimeHostTests.swift */; };
@@ -1323,6 +1324,7 @@
 		A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStoreLifecycleHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHostBridgeHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleSyncHostTests.swift; sourceTree = "<group>"; };
+		C16A57BD3D044D9C8E6F9124 /* QABugsHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QABugsHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9122 /* CockpitChildHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitChildHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9120 /* QAReviewHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAReviewHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9118 /* CycleTimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CycleTimeHostTests.swift; sourceTree = "<group>"; };
@@ -2556,6 +2558,7 @@
 				A4DD9A6FAE364D6387E23E06 /* FeatureStoreLifecycleHostTests.swift */,
 				C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */,
 				C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */,
+				C16A57BD3D044D9C8E6F9124 /* QABugsHostTests.swift */,
 				C16A57BD3D044D9C8E6F9122 /* CockpitChildHostTests.swift */,
 				C16A57BD3D044D9C8E6F9120 /* QAReviewHostTests.swift */,
 				C16A57BD3D044D9C8E6F9118 /* CycleTimeHostTests.swift */,
@@ -3435,6 +3438,7 @@
 				A4DD9A6FAE364D6387E23E05 /* FeatureStoreLifecycleHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */,
+				C16A57BD3D044D9C8E6F9123 /* QABugsHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9121 /* CockpitChildHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9119 /* QAReviewHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9117 /* CycleTimeHostTests.swift in Sources */,
