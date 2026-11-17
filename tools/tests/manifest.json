@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 86,
+  "suiteCount": 84,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1908,17 +1908,6 @@
       ]
     },
     {
-      "name": "research-document-tests",
-      "script": "tools/tests/research-document-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Research/ResearchDocument.swift",
-        "tools/tests/ResearchDocumentTests.swift",
-        "tools/tests/research-document-tests.sh"
-      ]
-    },
-    {
       "name": "research-map-controller-tests",
       "script": "tools/tests/research-map-controller-tests.sh",
       "tier": "pure",
@@ -2133,18 +2122,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "system-probe-tests",
-      "script": "tools/tests/system-probe-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
-        "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/Deployments/SystemProbe.swift",
-        "tools/tests/SystemProbeTests.swift",
-        "tools/tests/system-probe-tests.sh"
       ]
     },
     {

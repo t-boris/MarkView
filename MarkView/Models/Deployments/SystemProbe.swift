@@ -5,7 +5,7 @@ import MarkViewCore
 
 /// One read-only look at a machine: the script that collects it (run with `sh -s`, locally or over SSH),
 /// the parser of its output, and the health it adds up to. Foundation only, checked in
-/// `tools/tests/system-probe-tests.sh` (the script runs on this Mac there).
+/// app-hosted tests (the script runs on this Mac there).
 struct SystemSnapshot: Equatable {
     struct Disk: Equatable { let mount: String; let sizeKB: Int64; let usedKB: Int64; let percent: Int }
     struct Process: Equatable { let pid: String; let cpu: Double; let memory: Double; let name: String }
