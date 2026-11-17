@@ -7,7 +7,7 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
-On 6.30.126, the complete pure tier passed 54/54 suites and the complete MarkViewCore package passed 135 tests with 0 failures. The GUI tier is in progress; final CI and release remain open.
+On 6.30.126, the complete pure tier passed 54/54 suites and the complete MarkViewCore package passed 135 tests with 0 failures. The general hosted GUI suite passed 180 tests with 3 optional skips and 0 failures; the rest of the GUI tier is in progress. Final CI and release remain open.
 
 The work is not finished. The latest published and installed release is 6.30.97; later changes, including the 6.30.126 version bump, are local. Historical dated notes below record the evidence available at each step and are superseded by later status entries.
 
