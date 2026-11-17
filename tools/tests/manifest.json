@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 213,
+  "suiteCount": 212,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2498,39 +2498,6 @@
       ]
     },
     {
-      "name": "prototype-runtime-tests",
-      "script": "tools/tests/prototype-runtime-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Bridge/PrototypeSchemeHandler.swift",
-        "MarkView/Models/Prototype/PrototypeAI.swift",
-        "MarkView/Models/Prototype/PrototypePrompts.swift",
-        "MarkView/Models/Prototype/PrototypeSchemas.swift",
-        "MarkView/Models/Prototype/PrototypePlan.swift",
-        "MarkView/Models/Prototype/PrototypeProgress.swift",
-        "MarkView/Models/Prototype/PrototypeExport.swift",
-        "MarkView/Models/Prototype/PrototypeAudit.swift",
-        "MarkView/Models/Prototype/PrototypeBaseline.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeEmbedded.swift",
-        "MarkView/Models/Prototype/PrototypeFiles.swift",
-        "MarkView/Models/Prototype/PrototypeHandoff.swift",
-        "MarkView/Models/Prototype/PrototypeHandoffDraft.swift",
-        "MarkView/Models/Prototype/PrototypeRuntime.swift",
-        "MarkView/Models/Prototype/PrototypeShellStructure.swift",
-        "MarkView/Models/Prototype/PrototypeStyles.swift",
-        "MarkView/Models/Prototype/PrototypeTailwind.swift",
-        "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "MarkView/Views/Prototype/PrototypeStudioView.swift",
-        "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/PrototypeCLIStub.swift",
-        "tools/tests/PrototypeRuntimeTests.swift",
-        "tools/tests/prototype-runtime-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
       "name": "prototype-scheme-tests",
       "script": "tools/tests/prototype-scheme-tests.sh",
       "tier": "gui",
@@ -2996,7 +2963,10 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "MarkViewHostedTests/PrototypeStaticHostTests.swift",
-        "MarkViewHostedTests/PrototypeFilesHostTests.swift"
+        "MarkViewHostedTests/PrototypeFilesHostTests.swift",
+        "MarkView/Bridge/PrototypeSchemeHandler.swift",
+        "MarkView/Views/Prototype/PrototypeStudioView.swift",
+        "MarkViewHostedTests/PrototypeRuntimeHostTests.swift"
       ]
     },
     {

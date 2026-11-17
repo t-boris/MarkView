@@ -595,6 +595,7 @@
 		444B578687BC43F18C276F58 /* ResearchMapTranslationHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6928EB50FE474AEB9F159D3B /* ResearchMapTranslationHostTests.swift */; };
 		9E95D0AD559447BAB4E1BC8A /* PrototypeStaticHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C17B246DC1A948F49A6AD3CC /* PrototypeStaticHostTests.swift */; };
 		E9C491E621914931A1A491FA /* PrototypeFilesHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */; };
+		3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1305,6 +1306,7 @@
 		6928EB50FE474AEB9F159D3B /* ResearchMapTranslationHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapTranslationHostTests.swift; sourceTree = "<group>"; };
 		C17B246DC1A948F49A6AD3CC /* PrototypeStaticHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStaticHostTests.swift; sourceTree = "<group>"; };
 		9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFilesHostTests.swift; sourceTree = "<group>"; };
+		706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeRuntimeHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2528,6 +2530,7 @@
 				6928EB50FE474AEB9F159D3B /* ResearchMapTranslationHostTests.swift */,
 				C17B246DC1A948F49A6AD3CC /* PrototypeStaticHostTests.swift */,
 				9FB9DDADCFBF47B6A15BE3E7 /* PrototypeFilesHostTests.swift */,
+				706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3383,6 +3386,7 @@
 				444B578687BC43F18C276F58 /* ResearchMapTranslationHostTests.swift in Sources */,
 				9E95D0AD559447BAB4E1BC8A /* PrototypeStaticHostTests.swift in Sources */,
 				E9C491E621914931A1A491FA /* PrototypeFilesHostTests.swift in Sources */,
+				3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,13 +1,17 @@
 import AppKit
 import Foundation
 import WebKit
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-// Checks for PrototypeRuntime (BUG-056) in a real WKWebView: what the screen writers are promised must hold.
-// Arguments: <path of the error listener extracted from PrototypeStudioView.swift>
-
+final class PrototypeRuntimeHostTests: XCTestCase {
+    @MainActor func testRuntime() throws {
 var failures = 0
+var checks = 0
 func check(_ ok: Bool, _ what: String) {
-    if ok { print("ok   \(what)") } else { print("FAIL \(what)"); failures += 1 }
+    checks += 1
+    if !ok { print("FAIL \(what)"); failures += 1 }
 }
 
 let fm = FileManager.default
@@ -66,9 +70,14 @@ App.register({ id: 'broken', route: '/broken', render: function () {
 """)
 // screens/reports.js is not written: its route must say it is still being built.
 
-let listener = try! String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
+let sourceRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+let viewSource = try String(contentsOf: sourceRoot.appendingPathComponent("MarkView/Views/Prototype/PrototypeStudioView.swift"), encoding: .utf8)
+let pattern = try NSRegularExpression(pattern: #"(?s)( *window\.addEventListener\('error'.*?\n *\}\);)"#)
+let match = try XCTUnwrap(pattern.firstMatch(in: viewSource, range: NSRange(viewSource.startIndex..., in: viewSource)))
+let range = try XCTUnwrap(Range(match.range(at: 1), in: viewSource))
+let listener = String(viewSource[range]).replacingOccurrences(of: #"\\"#, with: #"\"#) + "\n"
 
-final class Page: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+@MainActor final class Page: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var messages: [String] = []
     var finished = false
     func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) { messages.append("\(m.body)") }
@@ -86,6 +95,7 @@ configuration.userContentController.addUserScript(WKUserScript(source: listener,
 configuration.userContentController.addUserScript(WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700), configuration: configuration)
 view.navigationDelegate = page
+defer { configuration.userContentController.removeScriptMessageHandler(forName: "mvError"); view.stopLoading() }
 
 func spin(_ seconds: TimeInterval) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
 func js(_ source: String, wait: TimeInterval = 0) -> Any? {
@@ -181,5 +191,7 @@ check(PrototypeRuntime.seedProblem("DB.seed({ \"A\": [{ id: \"a\", at: DB.days(-
 check(PrototypeRuntime.seedProblem("DB.seed({});")?.contains("no entity") == true, "an empty seed is refused")
 check(PrototypeRuntime.seedProblem("var x = 1;")?.contains("must call") == true, "a file without DB.seed is refused")
 
-if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
-print("all checks passed")
+        print("Prototype runtime hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
+}
