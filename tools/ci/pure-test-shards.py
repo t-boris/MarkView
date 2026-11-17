@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Balance all pure suites using observed CI durations, with a fallback for new suites."""
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +11,11 @@ timings = json.loads((root / "tools/ci/pure-suite-seconds.json").read_text())
 suites = [suite["name"] for suite in manifest["suites"] if suite["tier"] == "pure"]
 if len(set(suites)) != len(suites):
     sys.exit("Duplicate pure suite name in manifest")
+if os.environ.get("MARKVIEW_REMOTE_SKIP_DUPLICATE_PURE") == "1":
+    required = {"remote-workspace-tests", "remote-codex-context-tests", "remote-relay-settings-tests"}
+    missing = required.difference(suites)
+    if missing:
+        sys.exit("Remote de-duplication requires these pure suites: " + ", ".join(sorted(missing)))
 if len(sys.argv) != 2 or sys.argv[1] not in {"0", "1", "2"}:
     sys.exit("usage: pure-test-shards.py 0|1|2")
 

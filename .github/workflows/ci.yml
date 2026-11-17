@@ -67,6 +67,7 @@ jobs:
       - name: Run pure regression test suite
         env:
           SHARD: ${{ matrix.shard }}
+          MARKVIEW_REMOTE_SKIP_DUPLICATE_PURE: "1"
         run: |
           suites=$(python3 tools/ci/pure-test-shards.py "$SHARD")
           test -n "$suites"

@@ -19,7 +19,9 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteFraming.swift \
     MarkView/Models/Remote/RemoteChannel.swift MarkView/Models/Remote/RemoteToolRequests.swift tools/tests/RemoteChannelTests.swift
 "$out/remote-channel-tests"
-bash tools/tests/remote-codex-context-tests.sh
-bash tools/tests/remote-relay-settings-tests.sh
+if [ "${MARKVIEW_REMOTE_SKIP_DUPLICATE_PURE:-0}" != 1 ]; then
+    bash tools/tests/remote-codex-context-tests.sh
+    bash tools/tests/remote-relay-settings-tests.sh
+fi
 bash tools/tests/terminal-child-tests.sh
 node --test tools/remote-relay/*.test.mjs
