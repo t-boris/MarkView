@@ -7,7 +7,7 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
-The complete MarkViewCore package passed 135 tests with 0 failures on the current 6.30.144 source after the latest TestSupport consolidation. At the earlier 6.30.126 checkpoint, the complete pure tier passed 54/54 suites. The general hosted GUI suite passed 180 tests with 3 optional skips and 0 failures; the subsequent full GUI run was interrupted after a compilation failure, later fixed and checked with focused tests. A fresh full GUI run, final CI and release remain open.
+The complete pure tier passed 24/24 suites and the complete MarkViewCore package passed 135 tests with 0 failures on the current 6.30.144 source after the latest TestSupport consolidation. At the earlier 6.30.126 checkpoint, the complete pure tier passed 54/54 suites. The general hosted GUI suite passed 180 tests with 3 optional skips and 0 failures; the subsequent full GUI run was interrupted after a compilation failure, later fixed and checked with focused tests. A fresh full GUI run, final CI and release remain open.
 
 The work is not finished. The latest published and installed release is 6.30.97; later changes, including the 6.30.144 version bump, are local. Historical dated notes below record the evidence available at each step and are superseded by later status entries.
 
