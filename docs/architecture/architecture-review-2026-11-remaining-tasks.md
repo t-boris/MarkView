@@ -7,13 +7,13 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
-The work is not finished. The latest published and installed release is 6.30.97; later changes, including the 6.30.101 version bump, are local. Historical dated notes below record the evidence available at each step and are superseded by later status entries.
+The work is not finished. The latest published and installed release is 6.30.97; later changes, including the 6.30.102 version bump, are local. Historical dated notes below record the evidence available at each step and are superseded by later status entries.
 
 - A2: the analyzer baseline and changed-file ratchet exist; detecting diagnostics caused in untouched files remains open.
 - C5: both UI Studio GUI suites use the app host and passed locally; the current general app-host run executed 63 tests with 0 failures, including 2 skipped optional real-project profiling tests. The full UI Studio session and lifetime wrappers also passed in 399 and 32 seconds respectively, and the workflow editor host wrapper passed in 178 seconds. The complete GUI tier and final CI remain open.
 - D2: three actions have measured before/after results, with limitations recorded below; the sampling does not establish a global ranking of the worst stalls.
 - D3: complete checking is not enabled. A fresh clean Debug build with complete checking succeeded with seven distinct Swift warning locations: three in `AIOperation`, one in `QARunModel`, and three in `WindowSessionController`. The earlier remote-input warning is gone; zero-warning acceptance remains open.
-- D4: the manifest has 203 standalone suites; several mains and duplicate fakes were migrated, but the remaining scripts, stubs and shared TestSupport target remain open. The full pure tier passed 144/144 before the latest test-support consolidation and package migrations; all eight affected fake-consolidation suites and the migrated image-navigation and audio-level package tests passed after their changes.
+- D4: the manifest has 202 standalone suites; several mains and duplicate fakes were migrated, but the remaining scripts, stubs and shared TestSupport target remain open. The full pure tier passed 144/144 before the latest test-support consolidation and package migrations; all eight affected fake-consolidation suites and the migrated image-navigation, audio-level and login-script package tests passed after their changes.
 - The last intermediate CI run failed one terminal-link assertion and timed out in UI Studio. Local fixes and tests are recorded below; no new CI is to run before final verification.
 - During the current local GUI run, the welcome-screen test spent over three minutes at full CPU sweeping thousands of mouse coordinates; a sample found it in SwiftUI/AppKit hit testing. The test process was stopped, and the sweep was replaced with a native click on each catalogue tile's accessibility frame, checking each dispatch and the full action set. The first focused build exposed an incorrect point-to-rectangle conversion and was corrected; the complete welcome-screen suite then passed in 309 seconds. The stopped run has no completion time for a before/after comparison. The GUI tier finished with 55 passed and the deliberately stopped test failed; that one test passed on the corrected focused rerun. Final verification after the remaining code changes remains open.
 
@@ -310,6 +310,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
   unchecked count at a stated lower number.
 
 **D4. AR-44 steps 3-4 and the stubs.**
+
+The login-script writer and its executable-file checks have moved into `MarkViewCore`; seven standalone callers now compile the package source rather than a second app source. The manifest lists 202 suites. The first package test and Debug app build passed, but architecture lint caught the migrated test's direct `Process()` use. The corrected test runs its temporary executable through `Subprocess`; all 115 package tests and all five affected automatic suites passed. Manifest integrity, architecture lint and the 6.30.102 Debug build passed, with 0 build warnings, SwiftLint at 50 and no unused-import warning in the moved source. The two live callers pass shell syntax checks and remain manual under DEC-013.
 
 The Foundation-only audio-level reader has moved into `MarkViewCore`, and its standalone tests have been ported to XCTest. Two remaining standalone suites now compile the shared source at its new path. The manifest lists 203 suites; all 114 package tests, both dependent suites, manifest integrity, architecture lint and the 6.30.101 Debug app build passed, with 0 build warnings, SwiftLint at 50 and no unused-import warning in the moved source.
 

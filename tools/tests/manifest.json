@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 203,
+  "suiteCount": 202,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -162,7 +162,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/AITerminalsControllerTests.swift",
         "tools/tests/ai-terminals-controller-tests.sh",
-        "MarkView/Models/AI/LoginScript.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift"
       ]
@@ -277,7 +277,7 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "MarkView/Models/AI/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
       ]
     },
     {
@@ -1598,7 +1598,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/InsightCoordinatorTests.swift",
         "tools/tests/SemanticDatabaseTestSupport.swift",
-        "MarkView/Models/AI/LoginScript.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
@@ -1758,16 +1758,6 @@
         "MarkView/Models/Workspace/ListSelection.swift",
         "tools/tests/ListSelectionTests.swift",
         "tools/tests/list-selection-tests.sh"
-      ]
-    },
-    {
-      "name": "login-script-tests",
-      "script": "tools/tests/login-script-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/AI/LoginScript.swift",
-        "tools/tests/LoginScriptTests.swift"
       ]
     },
     {
@@ -1964,7 +1954,7 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "MarkView/Models/AI/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
       ]
     },
     {
@@ -2066,7 +2056,7 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "MarkView/Models/AI/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
       ]
     },
     {
@@ -3257,7 +3247,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/ResearchMapControllerTests.swift",
         "tools/tests/SemanticDatabaseTestSupport.swift",
-        "MarkView/Models/AI/LoginScript.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
@@ -3648,7 +3638,7 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "MarkView/Models/AI/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
       ]
     },
     {
