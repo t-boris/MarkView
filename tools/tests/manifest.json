@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 105,
+  "suiteCount": 104,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -961,45 +961,6 @@
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
-      ]
-    },
-    {
-      "name": "issue-lifecycle-tests",
-      "script": "tools/tests/issue-lifecycle-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Shared/FrontMatter.swift",
-        "MarkView/Models/Lifecycle/IssueCompletion.swift",
-        "MarkView/Models/Lifecycle/IssueEvidenceCollector.swift",
-        "MarkView/Models/Lifecycle/IssueGitHubSync.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycleContext.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycleDisplay.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/IssueReconciler.swift",
-        "MarkView/Models/Lifecycle/IssueSync.swift",
-        "MarkView/Models/Lifecycle/IssueTransitionLog.swift",
-        "MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflowStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Lifecycle/WorkflowDescription.swift",
-        "MarkView/Models/Lifecycle/WorkflowEvents.swift",
-        "MarkView/Models/Lifecycle/WorkflowFlow.swift",
-        "MarkView/Models/Lifecycle/WorkflowProposal.swift",
-        "MarkView/Models/Lifecycle/WorkflowTemplate.swift",
-        "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/StoreTestSupport.swift",
-        "tools/tests/IssueCollectorChecks.swift",
-        "tools/tests/IssueLogSupport.swift",
-        "tools/tests/issue-lifecycle-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "MarkView/Models/Shared/FrontMatterFile.swift"
       ]
     },
     {
@@ -2083,7 +2044,10 @@
         "MarkView/Models/Lifecycle/IssueCompletion.swift",
         "MarkView/Models/Lifecycle/IssueReconciler.swift",
         "MarkViewHostedTests/ProjectWorkflowHostTests.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflowStore.swift"
+        "MarkView/Models/Lifecycle/ProjectWorkflowStore.swift",
+        "MarkView/Models/Lifecycle/IssueEvidenceCollector.swift",
+        "tools/tests/IssueChecksSupport.swift",
+        "MarkViewHostedTests/IssueCollectorHostTests.swift"
       ]
     },
     {

@@ -5,6 +5,24 @@ import Foundation
 /// through `GitHubClient.execute`). A source that cannot be read is reported as unavailable, never skipped: the verdict is then
 /// unknown, which is not completion. With the integration off `gh` is not started at all (optional integrations stay silent).
 enum IssueEvidenceCollector {
+    struct Transport: Sendable {
+        let available: @Sendable () -> Bool
+        let repos: @Sendable (URL) async -> [GitHubRepo]
+        let run: @Sendable ([String], URL, Bool, TimeInterval) async -> GitHubClient.Output
+
+        static let live = Transport(
+            available: { GitHubClient.ghPath() != nil },
+            repos: { await GitHubClient.detectRepos(root: $0) },
+            run: { await GitHubClient.execute($0, in: $1, git: $2, timeout: $3) }
+        )
+
+        func execute(_ args: [String], in root: URL, git: Bool = false, timeout: TimeInterval = 60) async -> GitHubClient.Output {
+            await run(args, root, git, timeout)
+        }
+    }
+
+    @TaskLocal static var transport: Transport = .live
+
     struct Subject: Sendable {
         var kind: IssueKind
         /// The feature slug or the bug key.
@@ -43,7 +61,7 @@ enum IssueEvidenceCollector {
             return (DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "no default branch (origin/main or main) was found")],
                                                              work: [], releaseRequired: false)), [])
         }
-        let log = await GitHubClient.execute(GitWorkLog.arguments(ref: ref, limit: logLimit) + ["--first-parent", "-m"], in: root, git: true, timeout: 30)
+        let log = await transport.execute(GitWorkLog.arguments(ref: ref, limit: logLimit) + ["--first-parent", "-m"], in: root, git: true, timeout: 30)
         guard log.status == 0 else {
             return (DeliveryEvaluator.evaluate(DeliveryInput(sources: [.unavailable("git", "git log failed")], work: [], releaseRequired: false)), [])
         }
@@ -53,9 +71,9 @@ enum IssueEvidenceCollector {
         let needsGitHub = rules.needsGitHub
         var client: GitHubClient?
         if githubEnabled {
-            if GitHubClient.ghPath() == nil {
+            if !transport.available() {
                 if needsGitHub { sources.append(.unavailable("GitHub", "the GitHub CLI (gh) is not installed")) }
-            } else if let repo = await GitHubClient.detectRepos(root: root).first(where: { !$0.isUpstream }) {
+            } else if let repo = await transport.repos(root).first(where: { !$0.isUpstream }) {
                 client = GitHubClient(root: root, repo: repo)
                 sources.append(.available("GitHub"))
             } else {
@@ -129,7 +147,7 @@ enum IssueEvidenceCollector {
     /// The commits git has no parent for because the clone is shallow (`.git/shallow`). Their `git log --name-only` lists the
     /// whole tree as added; a real root commit is not listed there and keeps its files.
     private static func shallowBoundary(root: URL) async -> Set<String> {
-        let probe = await GitHubClient.execute(["rev-parse", "--git-path", "shallow"], in: root, git: true, timeout: 10)
+        let probe = await transport.execute(["rev-parse", "--git-path", "shallow"], in: root, git: true, timeout: 10)
         let path = probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard probe.status == 0, !path.isEmpty,
               let text = try? String(contentsOf: path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path), encoding: .utf8),
@@ -142,7 +160,7 @@ enum IssueEvidenceCollector {
     private static func changedPaths(of sha: String, client: GitHubClient) async -> [String]? {
         guard sha.range(of: #"^[0-9a-fA-F]{40}$"#, options: .regularExpression) != nil,
               client.repo.slug.range(of: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil else { return nil }
-        let answer = await GitHubClient.execute(["api", "--paginate", "repos/\(client.repo.slug)/commits/\(sha)", "--jq", ".files[].filename"],
+        let answer = await transport.execute(["api", "--paginate", "repos/\(client.repo.slug)/commits/\(sha)", "--jq", ".files[].filename"],
                                                 in: client.root, timeout: 30)
         guard answer.status == 0 else { return nil }
         let paths = answer.stdout.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -151,7 +169,7 @@ enum IssueEvidenceCollector {
 
     private static func defaultBranch(root: URL) async -> String? {
         for candidate in ["origin/main", "main", "origin/master", "master"] {
-            let probe = await GitHubClient.execute(["rev-parse", "--verify", "--quiet", candidate], in: root, git: true, timeout: 10)
+            let probe = await transport.execute(["rev-parse", "--verify", "--quiet", candidate], in: root, git: true, timeout: 10)
             if probe.status == 0 { return candidate }
         }
         return nil
@@ -228,14 +246,14 @@ enum IssueEvidenceCollector {
         guard !mainline.isEmpty else { return ([], nil) }
         let limit = 20_000
         let format = "--format=\(GitWorkLog.separator)%H%x1f%cI%x1f%B%x1f"
-        let output = await GitHubClient.execute(["log", ref, "-n", String(limit), "--no-merges", format], in: root, git: true, timeout: 30)
+        let output = await transport.execute(["log", ref, "-n", String(limit), "--no-merges", format], in: root, git: true, timeout: 30)
         guard output.status == 0 else { return ([], "the merged commit messages could not be read") }
         let commits = GitWorkLog.commits(from: output.stdout)
-        let firstParents = await GitHubClient.execute(["log", ref, "--first-parent", "--format=%H"],
+        let firstParents = await transport.execute(["log", ref, "--first-parent", "--format=%H"],
                                                       in: root, git: true, timeout: 30)
         guard firstParents.status == 0 else { return ([], "the mainline commits could not be read") }
         let primary = Set(firstParents.stdout.split(whereSeparator: \.isNewline).map(String.init))
-        let merges = await GitHubClient.execute(["log", ref, "-n", String(logLimit), "--first-parent", "--merges", "--format=%H"],
+        let merges = await transport.execute(["log", ref, "-n", String(logLimit), "--first-parent", "--merges", "--format=%H"],
                                                 in: root, git: true, timeout: 30)
         guard merges.status == 0 else { return ([], "the mainline merges could not be read") }
         let mergeSHAs = Set(merges.stdout.split(whereSeparator: \.isNewline).map(String.init))
@@ -243,7 +261,7 @@ enum IssueEvidenceCollector {
         guard related.count <= 300 else { return ([], "more than 300 commits name this item; their merges could not be located safely") }
         var found: [Match] = []
         for match in related {
-            let ancestry = await GitHubClient.execute(["log", "--first-parent", "--ancestry-path", "--reverse", "--format=%H",
+            let ancestry = await transport.execute(["log", "--first-parent", "--ancestry-path", "--reverse", "--format=%H",
                                                         match.commit.sha + ".." + ref], in: root, git: true, timeout: 30)
             guard ancestry.status == 0 else { return (found, "a merged commit's mainline ancestry could not be read") }
             guard let landed = ancestry.stdout.split(whereSeparator: \.isNewline).first.map(String.init),
@@ -271,7 +289,7 @@ enum IssueEvidenceCollector {
             let batch = Array(candidates[start..<min(start + 40, candidates.count)])
             let fields = batch.map { "p\($0.1): pullRequest(number: \($0.1)) { body }" }.joined(separator: " ")
             let query = "query { repository(owner: \"\(pieces[0])\", name: \"\(pieces[1])\") { \(fields) } }"
-            let result = await GitHubClient.execute(["api", "graphql", "-f", "query=" + query], in: client.root, timeout: 30)
+            let result = await transport.execute(["api", "graphql", "-f", "query=" + query], in: client.root, timeout: 30)
             guard let bodies = pullRequestBodies(in: result, requested: batch.map(\.1)) else {
                 return (found, "pull request descriptions could not be read")
             }
@@ -337,7 +355,7 @@ enum IssueEvidenceCollector {
         if let number = match.pullRequest {
             // A pull request: its own head is judged; a repository that runs its workflows on push has none there, so the
             // commit that landed on the default branch is judged instead.
-            let view = await GitHubClient.execute(["pr", "view", String(number), "-R", client.repo.slug, "--json", "headRefOid,mergeCommit,mergedAt,state"],
+            let view = await transport.execute(["pr", "view", String(number), "-R", client.repo.slug, "--json", "headRefOid,mergeCommit,mergedAt,state"],
                                                   in: root, timeout: 30)
             var head = commit.sha
             var landed = commit.sha
@@ -361,7 +379,7 @@ enum IssueEvidenceCollector {
     }
 
     private static func checks(of sha: String, client: GitHubClient) async -> CheckState {
-        let runs = await GitHubClient.execute(["run", "list", "-R", client.repo.slug, "--commit", sha, "-L", "100", "--json", "status,conclusion"],
+        let runs = await transport.execute(["run", "list", "-R", client.repo.slug, "--commit", sha, "-L", "100", "--json", "status,conclusion"],
                                               in: client.root, timeout: 30)
         guard runs.status == 0 else { return .unknown("gh run list failed") }
         return RunsVerdict.state(runsJSON: Data(runs.stdout.utf8), sha: sha)
@@ -376,7 +394,7 @@ enum IssueEvidenceCollector {
 
     private static func publishedReleases(client: GitHubClient?) async -> [PublishedRelease]? {
         guard let client else { return nil }
-        let list = await GitHubClient.execute(["release", "list", "-R", client.repo.slug, "-L", String(releaseLimit), "--json", "tagName,publishedAt,isDraft"],
+        let list = await transport.execute(["release", "list", "-R", client.repo.slug, "-L", String(releaseLimit), "--json", "tagName,publishedAt,isDraft"],
                                               in: client.root, timeout: 30)
         guard list.status == 0, let rows = try? JSONSerialization.jsonObject(with: Data(list.stdout.utf8)) as? [[String: Any]] else { return nil }
         var out: [PublishedRelease] = []
@@ -396,7 +414,7 @@ enum IssueEvidenceCollector {
         let sha = unit.landedSHA ?? unit.ref.commitSHA ?? unit.headSHA
         var unreadable = false
         for candidate in candidates {
-            let compare = await GitHubClient.execute(["api", "repos/\(client.repo.slug)/compare/\(sha)...\(candidate.tag)", "--jq", ".status"],
+            let compare = await transport.execute(["api", "repos/\(client.repo.slug)/compare/\(sha)...\(candidate.tag)", "--jq", ".status"],
                                                      in: root, timeout: 30)
             guard compare.status == 0 else { unreadable = true; continue }
             let status = compare.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

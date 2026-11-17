@@ -32,7 +32,6 @@
   "git-task-ownership-tests": 16.2,
   "github-command-tests": 13.7,
   "insight-coordinator-tests": 67.3,
-  "issue-lifecycle-tests": 38.9,
   "layout-preset-tests": 5.0,
   "new-project-tests": 19.4,
   "no-process-outside-subprocess-lint": 0.5,

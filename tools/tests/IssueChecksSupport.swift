@@ -1,6 +1,6 @@
 import Foundation
 
-// Shared by the issue-lifecycle checks (tools/tests/issue-lifecycle-tests.sh): one pass/fail counter.
+// Shared by standalone QA and workflow checks: one pass/fail counter.
 var failures = 0
 
 func check(_ name: String, _ condition: Bool) {

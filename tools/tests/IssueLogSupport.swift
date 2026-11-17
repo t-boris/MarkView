@@ -4,7 +4,7 @@ import Foundation
 #endif
 
 // Test doubles for the lifecycle journal and the status store (MarkView/Models/Lifecycle/IssueTransitionLog.swift), shared by the checks that
-// run the transition service without files (tools/tests/issue-lifecycle-tests.sh). They are not part of the app.
+// run the transition service without files. They are not part of the app.
 
 /// For checks: an in-memory log whose writes can be made to fail.
 final class MemoryTransitionStorage: TransitionStorage {

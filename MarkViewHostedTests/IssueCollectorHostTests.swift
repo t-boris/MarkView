@@ -1,23 +1,15 @@
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
-struct GitHubRepo: Sendable { var slug: String; var isUpstream = false }
-struct GitHubClient: Sendable {
-    let root: URL
-    let repo: GitHubRepo
-    struct Output: Sendable { let status: Int32; let stdout: String; let stderr: String }
-    static func ghPath() -> String? { "/usr/bin/gh" }
-    static func detectRepos(root: URL) async -> [GitHubRepo] { [GitHubRepo(slug: "example/project")] }
-    static func execute(_ args: [String], in root: URL, git: Bool = false, timeout: TimeInterval = 60) async -> Output {
-        if git {
-            let process = Process(), pipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = args; process.currentDirectoryURL = root
-            process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch { return Output(status: -1, stdout: "", stderr: "") }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return Output(status: process.terminationStatus, stdout: String(decoding: data, as: UTF8.self), stderr: "")
-        }
+private func check(_ message: String, _ condition: Bool, line: UInt = #line) {
+    XCTAssertTrue(condition, message, line: line)
+}
+
+private enum CollectorTestTransport {
+    static func run(_ args: [String], root: URL, git: Bool, timeout: TimeInterval) async -> GitHubClient.Output {
+        if git { return await GitHubClient.execute(args, in: root, git: true, timeout: timeout) }
         if args.prefix(2) == ["api", "graphql"] {
             let query = args.last ?? ""
             var prs: [String: Any] = [:]
@@ -35,47 +27,44 @@ struct GitHubClient: Sendable {
                 status = 1
             }
             let data = try! JSONSerialization.data(withJSONObject: object)
-            return Output(status: status, stdout: String(decoding: data, as: UTF8.self), stderr: status == 0 ? "" : "gh: Could not resolve to a PullRequest with the number of 4.")
+            return GitHubClient.Output(status: status, stdout: String(decoding: data, as: UTF8.self), stderr: status == 0 ? "" : "gh: Could not resolve to a PullRequest with the number of 4.")
         }
         if args.first == "api", args.count > 2, args[1] == "--paginate", args[2].contains("/commits/") {
             // BUG-106: the files of a commit as GitHub lists them; the marker file holds the answer, no marker is an unreachable GitHub.
             let marker = root.appendingPathComponent(".gh-commit-files")
-            guard let files = try? String(contentsOf: marker, encoding: .utf8) else { return Output(status: 1, stdout: "", stderr: "gh: no route to host") }
-            return Output(status: 0, stdout: files, stderr: "")
+            guard let files = try? String(contentsOf: marker, encoding: .utf8) else { return GitHubClient.Output(status: 1, stdout: "", stderr: "gh: no route to host") }
+            return GitHubClient.Output(status: 0, stdout: files, stderr: "")
         }
         if args.prefix(2) == ["pr", "view"] {
-            return Output(status: 0, stdout: #"{"headRefOid":"pr-head","mergeCommit":{"oid":"squash-commit"},"state":"MERGED","mergedAt":"2026-11-01T00:00:00Z"}"#, stderr: "")
+            return GitHubClient.Output(status: 0, stdout: #"{"headRefOid":"pr-head","mergeCommit":{"oid":"squash-commit"},"state":"MERGED","mergedAt":"2026-11-01T00:00:00Z"}"#, stderr: "")
         }
         if args.prefix(2) == ["run", "list"] {
             let failed = FileManager.default.fileExists(atPath: root.appendingPathComponent(".failed-check").path)
             let result = failed ? #"[{"status":"completed","conclusion":"failure"}]"# : #"[{"status":"completed","conclusion":"success"}]"#
-            return Output(status: 0, stdout: result, stderr: "")
+            return GitHubClient.Output(status: 0, stdout: result, stderr: "")
         }
         if args.prefix(2) == ["release", "list"] {
-            return Output(status: 0, stdout: #"[{"tagName":"v1","publishedAt":"2099-01-01T00:00:00Z","isDraft":false}]"#, stderr: "")
+            return GitHubClient.Output(status: 0, stdout: #"[{"tagName":"v1","publishedAt":"2099-01-01T00:00:00Z","isDraft":false}]"#, stderr: "")
         }
         if args.first == "api", args.count > 1, args[1].contains("/compare/") {
             let containsSquash = args[1].contains("/compare/squash-commit...v1")
-            return Output(status: 0, stdout: containsSquash ? "ahead" : "diverged", stderr: "")
+            return GitHubClient.Output(status: 0, stdout: containsSquash ? "ahead" : "diverged", stderr: "")
         }
-        return Output(status: 1, stdout: "", stderr: "")
+        return GitHubClient.Output(status: 1, stdout: "", stderr: "")
     }
 }
 
-@main struct CollectorChecks {
-    static func git(_ args: [String], in root: URL) {
-        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = args; process.currentDirectoryURL = root
-        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
-        try! process.run(); process.waitUntilExit(); precondition(process.terminationStatus == 0, "git \(args)")
-    }
+private enum CollectorChecks {
     static func gitOutput(_ args: [String], in root: URL) -> String {
-        let p = Process(), pipe = Pipe(); p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        p.arguments = args; p.currentDirectoryURL = root; p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
-        try! p.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
-        precondition(p.terminationStatus == 0); return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let env = ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+                   "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "core.hooksPath", "GIT_CONFIG_VALUE_0": "/dev/null",
+                   "GIT_CONFIG_KEY_1": "commit.gpgsign", "GIT_CONFIG_VALUE_1": "false", "GIT_TERMINAL_PROMPT": "0"]
+        let result = Subprocess.runBlocking(SubprocessSpec(executable: "/usr/bin/git", arguments: args, cwd: root, environment: env))
+        XCTAssertEqual(result.exitCode, 0, "git fixture failed")
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    static func main() async {
+    static func git(_ args: [String], in root: URL) { _ = gitOutput(args, in: root) }
+    static func run() async {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("issue-collector-\(UUID().uuidString)")
         try! fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -251,6 +240,26 @@ struct GitHubClient: Sendable {
         git(["clone", "-q", "file://\(source.path)", whole.path], in: fm.temporaryDirectory)
         let complete = await IssueEvidenceCollector.collect(boundary, root: whole, githubEnabled: true)
         check("a complete clone is judged by the files git reports", complete.isComplete && complete.lines.contains { $0.contains("PR #1") })
-        finish("issue collector")
+
+    }
+}
+
+
+extension EditorHostTests {
+    func testDeliveryEvidenceCollector() async {
+        let transport = IssueEvidenceCollector.Transport(
+            available: { true },
+            repos: { _ in [GitHubRepo(slug: "example/project", remote: "origin", isUpstream: false)] },
+            run: { await CollectorTestTransport.run($0, root: $1, git: $2, timeout: $3) }
+        )
+        await IssueEvidenceCollector.$transport.withValue(transport) { await CollectorChecks.run() }
+    }
+}
+
+extension EditorHostTests {
+    func testDeliveryCollectorUsesLiveTransportByDefault() async {
+        let result = await IssueEvidenceCollector.transport.execute(["--version"], in: FileManager.default.temporaryDirectory, git: true)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertTrue(result.stdout.hasPrefix("git version "))
     }
 }
