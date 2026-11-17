@@ -1,27 +1,133 @@
 import AppKit
 import WebKit
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-// AR-04 on the editor bridge, in real WebKit (hidden window, the shipping index.html): every Swift-to-page command of the real
-// WebViewBridge is sent hostile values (quotes, backslashes, U+2028/U+2029, `</script>`, code in a quote, a template literal,
-// control characters, emoji, an empty and a 1 MB string) and the page must receive each value unchanged and run nothing.
-//   - Document loaded the way the app loads it: the page's own contentChanged returns the markdown that was sent.
-//   - Every other command: the page functions are replaced by recorders, the bridge command is called, and the recorded arguments
-//     are compared in the page with what Swift sent. `window.__evil` counts any code that ran from a value.
-// Run through tools/tests/js-call-web-tests.sh (argument 1: the bundled editor folder).
-MainActor.assumeIsolated {
-setvbuf(stdout, nil, _IONBF, 0)
-let editor = CommandLine.arguments[1]
+@MainActor private final class JSCallTerminalChecks: NSObject {
+    let root: URL
+    init(root: URL) { self.root = root }
+    var failures = 0
+    var checks = 0
+    var finish: (() -> Void)?
+    private var runningTask: Task<Void, Never>?
+    func check(_ ok: Bool, _ message: String, _ detail: String = "") {
+        checks += 1
+        if !ok { failures += 1; print("FAIL \(message) \(detail)") }
+    }
+    var session: TerminalSession!
+    var window: NSWindow!
+
+    func pause(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+
+    func page(_ body: String, _ arguments: [String: Any] = [:]) async -> String {
+        do {
+            let value = try await session.webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+            return value as? String ?? "\(String(describing: value))"
+        } catch {
+            return "JSERROR: " + ((error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription)
+        }
+    }
+
+    func start(entry: URL) {
+        TerminalSession.pageURL = entry
+        BridgeContract.bundledURL = TerminalSession.pageURL!.deletingLastPathComponent().appendingPathComponent("js/bridge-contract.json")
+        session = TerminalSession(directory: root)
+        let web = session.webView
+        web.frame = NSRect(x: 0, y: 0, width: 800, height: 480)
+        window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.contentView = web
+        runningTask = Task { await run() }
+    }
+
+    func run() async {
+        // The page has loaded and told the session it is ready (`pageReady`): the session sends nothing before that.
+        await pause(2)
+        session.refit()
+        await pause(2.5)
+        check(await page("return typeof window.mvSetTheme + typeof window.mvResolvedLinks;") == "functionfunction", "the shipping terminal page is loaded")
+
+        let hostile: [(String, String)] = [
+            ("an apostrophe", "it's an o'brien"),
+            ("double quotes", "say \"hi\" and \"\""),
+            ("backslashes", "back\\slash and \\' and \\\" and trailing \\"),
+            ("U+2028 and U+2029", "separators \u{2028} and \u{2029} inside"),
+            ("a closing script tag", "</script><script>window.__evil++</script>"),
+            ("code in a quote", "'); window.__evil++; ('"),
+            ("code in a double quote", "\"); window.__evil++; (\""),
+            ("a template literal", "`${window.__evil++}`"),
+            ("emoji and a joiner", "emoji \u{1F600} and \u{1F468}\u{200D}\u{1F469}"),
+            ("a very long string", String(repeating: "ab'\"\\\u{2028}</script>", count: 70_000)),
+        ]
+        _ = await page("""
+        window.__evil = 0; window.__spy = [];
+        for (const name of ['mvSetTheme', 'mvResolvedLinks']) {
+          window[name] = function () { window.__spy.push({ name: name, args: Array.prototype.slice.call(arguments) }); };
+        }
+        return 'ok';
+        """)
+
+        // The window theme: appearance id, accent and the theme's data (a JSON text the page receives parsed).
+        for (name, value) in hostile {
+            session.applyTheme(arguments: WebThemeArguments(id: value, accent: value, payload: #"{"id":"x","note":"\#(value.count)"}"#), firstPaint: "")
+            await pause(0.3)
+            let result = await page("""
+            const got = window.__spy; window.__spy = [];
+            return got.length === 1 && got[0].name === 'mvSetTheme' && got[0].args.length === 3 && got[0].args[0] === value && got[0].args[1] === value && got[0].args[2].id === 'x'
+              ? 'ok' : 'got ' + JSON.stringify(got).slice(0, 200);
+            """, ["value": value])
+            check(result == "ok", "applyTheme sends \(name) unchanged", result)
+        }
+
+        // The file names the session resolved for the page's link detection: files that exist, named with hostile characters.
+        var names: [(String, String)] = []
+        for (index, item) in hostile.enumerated() where item.1.utf8.count < 200 {
+            let fileName = "f\(index) " + item.1.replacingOccurrences(of: "/", with: "_") + ".txt"
+            if (try? "x".write(to: root.appendingPathComponent(fileName), atomically: true, encoding: .utf8)) != nil { names.append((item.0, fileName)) }
+        }
+        check(names.count >= 8, "the fixture files with hostile names were created", "\(names.count)")
+        let paths = names.map { $0.1 }
+        // The names the session itself resolves as files (it refuses some, such as one with a joiner); the page must get exactly those.
+        let expectedPaths = paths.filter { if case .file = TerminalLink.resolve($0, directory: root) { return true }; return false }
+        check(expectedPaths.count >= 7, "most of the hostile names are files for the session", "\(expectedPaths.count) of \(paths.count)")
+        _ = await page("window.__spy = []; mvBridge.send('resolveLinks', { request: 41, paths: paths }, 'terminal'); return 'sent';", ["paths": paths])
+        await pause(1.5)
+        let resolved = await page("""
+        const got = window.__spy; window.__spy = [];
+        if (got.length !== 1 || got[0].name !== 'mvResolvedLinks') return 'got ' + JSON.stringify(got).slice(0, 200);
+        const sorted = (list) => list.slice().sort();
+        return got[0].args[0] === 41 && JSON.stringify(sorted(got[0].args[1])) === JSON.stringify(sorted(expected)) ? 'ok' : 'args ' + JSON.stringify(got[0].args).slice(0, 300);
+        """, ["expected": expectedPaths])
+        check(resolved == "ok", "the resolved file names reach the page unchanged and as an array", resolved)
+
+        // The tail request is an integer the session clamps; the page function has been replaced above, so ask the real one.
+        check(await page("return String(window.__evil);") == "0", "no value ran code in the terminal page")
+        print("\(failures) failures")
+        finish?()
+    }
+    func stop() {
+        finish = nil
+        runningTask?.cancel()
+        session?.terminate()
+        window?.close()
+    }
+
+}
+
+final class JSCallHostTests: XCTestCase {
+    @MainActor func testEditorHostileValues() throws {
+let editor = try XCTUnwrap(Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor")).deletingLastPathComponent().path
 var failures = 0
+var checks = 0
 func check(_ ok: Bool, _ message: String, _ detail: String = "") {
+    checks += 1
     if !ok { failures += 1 }
     print("\(ok ? "ok  " : "FAIL") \(message) \(ok ? "" : String(detail.prefix(700)))")
 }
-DispatchQueue.global().asyncAfter(deadline: .now() + 150) {
-    print("TIMEOUT: no result after 150 s")
-    exit(1)
-}
-
-NSApplication.shared.setActivationPolicy(.prohibited)
+let oldContract = BridgeContract.bundledURL
+defer { BridgeContract.bundledURL = oldContract }
 BridgeContract.bundledURL = URL(fileURLWithPath: editor + "/js/bridge-contract.json")
 let contract = try! BridgeContract(contentsOf: BridgeContract.bundledURL!)
 
@@ -43,7 +149,9 @@ config.userContentController.add(bridge.messages, name: "bridge")
 config.userContentController.addUserScript(MainActor.assumeIsolated { contract.userScript })
 let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1100, height: 760), configuration: config)
 let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+window.isReleasedWhenClosed = false
 window.alphaValue = 0
+defer { web.stopLoading(); window.close() }
 window.contentView = web
 let loaded = Loaded()
 web.navigationDelegate = loaded
@@ -190,7 +298,24 @@ bridge.clearDocument(in: web)
 spin(0.5) { false }
 check(compare([["name": "releaseInsightBlobs", "args": [] as [Any]], ["name": "mvSetDocument", "args": [""]]]) == "ok", "a command without a value is a plain call, and clearDocument names no tab")
 
-print("\(failures) failures")
-exit(failures == 0 ? 0 : 1)
-
+        print("Editor hostile-value hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
+    @MainActor func testTerminalHostileValues() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-js-terminal-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldPage = TerminalSession.pageURL, oldContract = BridgeContract.bundledURL
+        defer { TerminalSession.pageURL = oldPage; BridgeContract.bundledURL = oldContract }
+        let entry = try XCTUnwrap(Bundle.main.url(forResource: "terminal", withExtension: "html", subdirectory: "Editor"))
+        let checks = JSCallTerminalChecks(root: root)
+        defer { checks.stop() }
+        let done = expectation(description: "terminal hostile-value checks completed")
+        checks.finish = { done.fulfill() }
+        checks.start(entry: entry)
+        await fulfillment(of: [done], timeout: 150)
+        print("Terminal hostile-value hosted checks: \(checks.checks)")
+        XCTAssertEqual(checks.failures, 0)
+        XCTAssertGreaterThan(checks.checks, 0)
+    }
 }

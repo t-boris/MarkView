@@ -599,6 +599,7 @@
 		18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */; };
 		888D7D7293164640BA1D1FDB /* BridgeContractHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */; };
 		3BD2BE7605384CD59567FAB3 /* BridgeContractSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */; };
+		67283843E201449BA6D5DC77 /* JSCallHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0FC6C89968424CBAE32B13 /* JSCallHostTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1313,6 +1314,7 @@
 		193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayContentHostTests.swift; sourceTree = "<group>"; };
 		4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeContractHostTests.swift; sourceTree = "<group>"; };
 		B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BridgeContractSupport.swift; path = ../tools/tests/BridgeContractSupport.swift; sourceTree = "<group>"; };
+		BE0FC6C89968424CBAE32B13 /* JSCallHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSCallHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2540,6 +2542,7 @@
 				193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */,
 				4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */,
 				B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */,
+				BE0FC6C89968424CBAE32B13 /* JSCallHostTests.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3399,6 +3402,7 @@
 				18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */,
 				888D7D7293164640BA1D1FDB /* BridgeContractHostTests.swift in Sources */,
 				3BD2BE7605384CD59567FAB3 /* BridgeContractSupport.swift in Sources */,
+				67283843E201449BA6D5DC77 /* JSCallHostTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
