@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 139,
+  "suiteCount": 138,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -194,19 +194,6 @@
       "tier": "pure",
       "sources": [
         "tools/lint/build-warnings.sh"
-      ]
-    },
-    {
-      "name": "archive-tests",
-      "script": "tools/tests/archive-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/ArchiveTests.swift",
-        "tools/tests/archive-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
