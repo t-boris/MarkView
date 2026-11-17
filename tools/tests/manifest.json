@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 186,
+  "suiteCount": 185,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1280,7 +1280,7 @@
         "MarkView/Models/Workspace/EditorDocumentRouting.swift",
         "MarkView/Models/Shared/ArchiveSupport.swift",
         "MarkView/Models/Workspace/FileOperationsController.swift",
-        "MarkView/Models/Workspace/FileTransfer.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/FileTransfer.swift",
         "MarkView/Models/Shared/ProjectProviding.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
         "MarkView/Models/Workspace/TabsController.swift",
@@ -1635,18 +1635,6 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
-      "name": "list-selection-tests",
-      "script": "tools/tests/list-selection-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/FileTransfer.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Workspace/ListSelection.swift",
-        "tools/tests/ListSelectionTests.swift",
-        "tools/tests/list-selection-tests.sh"
       ]
     },
     {

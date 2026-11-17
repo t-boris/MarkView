@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// Features (docs/features/*) and bugs (docs/bugs/*.md) of the project, filtered by the text
 /// field and the funnel menu, ordered by the sort menu within each section (issue #24).

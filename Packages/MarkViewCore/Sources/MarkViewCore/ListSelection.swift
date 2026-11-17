@@ -1,22 +1,21 @@
-import Foundation
-
 /// Finder-like selection in a list (the Files sidebar, the feature navigator): a click selects
 /// one item, ⌘-click adds or removes one, ⇧-click selects the range from the anchor — the last
 /// item clicked without ⇧ — to the clicked one, in the list's order.
-struct ListSelection<Item: Hashable>: Equatable {
-    private(set) var items: Set<Item> = []
-    private(set) var anchor: Item?
+public struct ListSelection<Item: Hashable>: Equatable {
+    public init() {}
+    public private(set) var items: Set<Item> = []
+    public private(set) var anchor: Item?
 
-    enum Click { case plain, toggle, range }
+    public enum Click { case plain, toggle, range }
 
-    var count: Int { items.count }
-    var isEmpty: Bool { items.isEmpty }
-    func contains(_ item: Item) -> Bool { items.contains(item) }
+    public var count: Int { items.count }
+    public var isEmpty: Bool { items.isEmpty }
+    public func contains(_ item: Item) -> Bool { items.contains(item) }
 
     /// The selected items in the list's order.
-    func ordered(_ order: [Item]) -> [Item] { order.filter(items.contains) }
+    public func ordered(_ order: [Item]) -> [Item] { order.filter(items.contains) }
 
-    mutating func click(_ item: Item, _ kind: Click, in order: [Item]) {
+    public mutating func click(_ item: Item, _ kind: Click, in order: [Item]) {
         switch kind {
         case .plain:
             items = [item]
@@ -34,13 +33,13 @@ struct ListSelection<Item: Hashable>: Equatable {
         }
     }
 
-    mutating func clear() {
+    public mutating func clear() {
         items = []
         anchor = nil
     }
 
     /// Forget items that are no longer listed (deleted, moved, filtered out).
-    mutating func keep(only order: [Item]) {
+    public mutating func keep(only order: [Item]) {
         items.formIntersection(order)
         if let anchor, !order.contains(anchor) { self.anchor = nil }
     }

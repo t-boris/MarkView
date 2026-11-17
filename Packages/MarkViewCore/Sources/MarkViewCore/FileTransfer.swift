@@ -1,19 +1,16 @@
 import Foundation
-#if canImport(MarkViewCore)
-import MarkViewCore
-#endif
 
 /// Moving and copying files into a folder, as the file tree's drag and drop does.
 /// Never overwrites: a taken name becomes "name 2", "name 3"… A folder is never moved
 /// or copied into itself.
-enum FileTransfer {
-    struct Result {
+public enum FileTransfer {
+    public struct Result {
         /// Items actually moved (not copied): old URL → new URL.
-        var moved: [(URL, URL)] = []
-        var errors: [String] = []
+        public var moved: [(URL, URL)] = []
+        public var errors: [String] = []
     }
 
-    static func perform(_ sources: [URL], into folder: URL, copy: Bool) -> Result {
+    public static func perform(_ sources: [URL], into folder: URL, copy: Bool) -> Result {
         let fm = FileManager.default
         let target = folder.standardizedFileURL
         var result = Result()
@@ -38,7 +35,7 @@ enum FileTransfer {
 
     /// Rename a file or folder in place. Refuses an invalid name or one already taken; a change
     /// of letter case alone goes through a temporary name (the volume may ignore case).
-    static func rename(_ source: URL, to name: String) -> Result {
+    public static func rename(_ source: URL, to name: String) -> Result {
         let fm = FileManager.default
         let source = source.standardizedFileURL
         let trimmed = name.trimmingCharacters(in: .whitespaces)
@@ -70,7 +67,7 @@ enum FileTransfer {
     }
 
     /// One path component: not empty, no slashes or colons, not "." or "..".
-    static func isValidName(_ name: String) -> Bool {
+    public static func isValidName(_ name: String) -> Bool {
         !name.isEmpty && !name.contains("/") && !name.contains(":") && name != "." && name != ".."
     }
 

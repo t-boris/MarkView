@@ -75,7 +75,6 @@
 1 MarkView/Models/Workspace/DocumentScrollSideTable.swift
 3 MarkView/Models/Workspace/DocumentState.swift
 1 MarkView/Models/Workspace/FileNode.swift
-1 MarkView/Models/Workspace/ListSelection.swift
 1 MarkView/Models/Workspace/ToolTabsRouter.swift
 1 MarkView/Models/Workspace/WelcomeActions.swift
 1 MarkView/Models/Workspace/WindowSession.swift
