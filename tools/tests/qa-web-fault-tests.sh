@@ -2,6 +2,10 @@
 # Real app-hosted WebKit fault filtering and editor rendering, with production types.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# UI Studio's hosted lifetime scenarios start local Python servers; avoid slow loopback reverse DNS.
+export PYTHONPATH="$PWD/tools/tests/studio-python${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+unset MARKVIEW_STUDIO_LIFETIME_FILTER
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
 socket_dir=$(mktemp -d /tmp/mvhost.XXXXXX)
 trap 'rm -rf "$socket_dir"' EXIT

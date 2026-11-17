@@ -1,97 +1,73 @@
-// The lifetime of a real UI Studio session (StudioSession and its parts) against the work its parts started. A part of the
-// session (the repair, the picker, the request path ...) holds its session `unowned` and starts tasks that go on after an
-// `await`; this harness closes a session and drops every reference to it while such a task is still suspended, then lets the
-// work end (cancelled, as the real assistant runner does, or answered late by a stand-in that ignores cancellation) and checks
-// that nothing crashed, nothing was written after close, and the session was released once its work was over. The assistant
-// is answered by this harness (UIStudioSessionStubs.swift); everything else is the app's code. The pages are hosted in a
-// window nobody can see, as in the app.
 import AppKit
 import WebKit
+import XCTest
+@testable import MarkView
 
-setvbuf(stdout, nil, _IONBF, 0)
-final class Watchdog: @unchecked Sendable {   // unchecked Sendable: `lock` guards `step`
-    private let lock = NSLock()
-    private var step = "start"
-    init(seconds: Double) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [self] in
-            print("TIMEOUT: no result after \(Int(seconds)) s; last step: \(lock.withLock { step })")
-            exit(1)
+/// Runs the session lifetime scenarios in the app host, with no live provider.
+final class UIStudioLifetimeHostTests: XCTestCase {
+    final class Requests: @unchecked Sendable {
+        let lock = NSLock()
+        var labels: [String] = []
+    }
+    let requests = Requests()
+    func testAssistantBoundaryFailsClosed() async {
+        AIAssistantRunner.setTestRunner(nil)
+        do {
+            _ = try await AIAssistantRunner.run(CLICompletion.Request(project: nil, prompt: "fixture"), nil, nil)
+            XCTFail("An unconfigured app-host test must not start an assistant.")
+        } catch is AIAssistantRunner.MissingTestRunner {
+            // Expected: the test host rejects requests until a fixture is installed.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
         }
     }
-    func reached(_ name: String) {
-        lock.withLock { step = name }
-        print("--  \(name)")
+    @MainActor func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+        XCTAssertTrue(condition, name + " " + detail())
     }
-}
-let watchdog = Watchdog(seconds: 420)
-
-var failures = 0
-func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
-    if condition {
-        print("ok  \(name)")
-    } else {
-        failures += 1
-        print("FAIL \(name) \(detail())")
+    func freePort() -> Int {
+        let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(socket) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = 0
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(socket, $0, length) } }
+        _ = withUnsafeMutablePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(socket, $0, &length) } }
+        return Int(UInt16(bigEndian: address.sin_port))
     }
-}
-
-func freePort() -> Int {
-    let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-    defer { close(socket) }
-    var address = sockaddr_in()
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_addr.s_addr = inet_addr("127.0.0.1")
-    address.sin_port = 0
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    _ = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(socket, $0, length) } }
-    _ = withUnsafeMutablePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(socket, $0, &length) } }
-    return Int(UInt16(bigEndian: address.sin_port))
-}
-
-func shell(_ command: String, in folder: URL) {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/sh")
-    process.arguments = ["-c", command]
-    process.currentDirectoryURL = folder
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
-    try? process.run()
-    _ = pipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-}
-
-@MainActor
-func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() { return true }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+    func shell(_ command: String, in folder: URL) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.currentDirectoryURL = folder
+        let pipe = Pipe()
+        process.standardOutput = pipe; process.standardError = pipe
+        try? process.run()
+        _ = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
     }
-    return condition()
-}
-
-/// The session's page in a window nobody can see or click, as in the app: a page with no window cannot be photographed.
-@MainActor
-func hostPageInvisibly(_ session: StudioSession) -> NSWindow {
-    let window = NSWindow(contentRect: CGRect(x: 60, y: 60, width: 1100, height: 860), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-    let host = StudioPreviewScrollView(webView: session.webView)
-    host.frame = window.contentView!.bounds
-    host.autoresizingMask = [.width, .height]
-    window.contentView!.addSubview(host)
-    host.viewport = CGSize(width: session.viewport.width, height: session.viewport.height)
-    window.alphaValue = 0
-    window.ignoresMouseEvents = true
-    // ARC owns the window: closing a window that is also released when closed would release it twice.
-    window.isReleasedWhenClosed = false
-    window.orderFrontRegardless()
-    return window
-}
-
-// MARK: - The stand-in assistant
-
-/// Holds the stand-in assistant's answer until the test opens it. A `cancellable` waiter is let go at once when its task is cancelled
-/// and throws, as the real runner does (CLICompletion kills its child and throws); one that is not waits for the test and answers late.
+    @MainActor func waitUntil(_ timeout: TimeInterval, _ condition: @escaping () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return condition()
+    }
+    @MainActor func hostPageInvisibly(_ session: StudioSession) -> NSWindow {
+        let window = NSWindow(contentRect: CGRect(x: 60, y: 60, width: 1100, height: 860), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        let host = StudioPreviewScrollView(webView: session.webView)
+        host.frame = window.contentView!.bounds
+        host.autoresizingMask = [.width, .height]
+        window.contentView!.addSubview(host)
+        host.viewport = CGSize(width: session.viewport.width, height: session.viewport.height)
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        return window
+    }
 final class Gate: @unchecked Sendable {   // unchecked Sendable: `lock` guards every field
     private let lock = NSLock()
     private var entered = 0
@@ -133,17 +109,23 @@ final class Gate: @unchecked Sendable {   // unchecked Sendable: `lock` guards e
     }
 }
 
-let emptyAnswer: @Sendable () -> CLICompletion.Result = {
-    CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
-}
+
 
 /// The assistant answers `label` through `gate`, with `structured`; every other call gets an empty answer at once.
 func standIn(label: String?, gate: Gate, cancellable: Bool, structured: [String: Any]? = nil) {
-    nonisolated(unsafe) let answer = structured
-    CLICompletion.answer = { request in
-        guard let label, request.label == label else { return emptyAnswer() }
+    let json = structured.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+    let requests = requests
+    AIAssistantRunner.setTestRunner { request, _, _ in
+        requests.lock.withLock { requests.labels.append(request.label) }
+        if request.label.hasPrefix("ui-studio:map") {
+            return try CLICompletion.Result(text: "", structured: ["services": [], "endpoints": [], "notes": []], inputTokens: 0, outputTokens: 0, costUSD: nil)
+        }
+        guard let label, request.label == label else {
+            return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        }
         try await gate.wait(cancellable: cancellable)
-        return CLICompletion.Result(text: "", structured: answer, inputTokens: 10, outputTokens: 5, costUSD: 0)
+        let answer = json.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        return try CLICompletion.Result(text: "", structured: answer, inputTokens: 10, outputTokens: 5, costUSD: 0)
     }
 }
 
@@ -226,14 +208,14 @@ func sessionLog(_ root: URL) -> String {
 func scenario(_ name: String, page: String, autoRepair: Bool, label: String? = nil, cancellable: Bool, answer: [String: Any]? = nil,
               inFlight: ((StudioSession, Gate) -> Bool)? = nil, begin: (StudioSession) async -> Void = { _ in }) async {
     // Names after the Editor/js folder pick scenarios by a part of their name; none runs them all.
-    let only = CommandLine.arguments.dropFirst(2)
-    guard only.isEmpty || only.contains(where: { name.contains($0) }) else { return }
-    watchdog.reached(name)
+    let filters = ProcessInfo.processInfo.environment["MARKVIEW_STUDIO_LIFETIME_FILTER", default: ""].split(separator: "\n").map(String.init)
+    guard filters.isEmpty || filters.contains(where: { name.contains($0) }) else { return }
+    print("--  \(name)")
     let fixture = makeFixture("scenario", page: page, autoRepair: autoRepair)
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let gate = Gate()
     standIn(label: label, gate: gate, cancellable: cancellable, structured: answer)
-    let askedBefore = CLICompletion.requests.count
+    let askedBefore = requests.lock.withLock { requests.labels.count }
     weak var probe: StudioSession?
     var io: DispatchQueue?
     var hosting: NSWindow?
@@ -271,20 +253,16 @@ func scenario(_ name: String, page: String, autoRepair: Bool, label: String? = n
     check("\(name): nothing was written after close", before == after,
           Set(before).symmetricDifference(Set(after)).sorted().joined(separator: "; ") + "\n" + logAfter.dropFirst(logBefore.count))
     if label != nil {
-        let asked = CLICompletion.requests.dropFirst(askedBefore).filter { $0.label == label }.count
+        let asked = requests.lock.withLock { requests.labels.dropFirst(askedBefore).filter { $0 == label }.count }
         check("\(name): the assistant was asked once and not again", asked == 1, "\(asked)")
     }
 }
 
 @MainActor
-func run() async {
-    guard let runtime = CommandLine.arguments.dropFirst().first else {
-        print("usage: ui-studio-lifetime-harness <Editor/js folder> [part of a scenario's name ...]")
-        exit(2)
-    }
+func testLifetime() async {
+    let oldTimeout = StudioSession.expectedStateTimeout
     StudioSession.expectedStateTimeout = 1
-    StudioSession.runtimeFolder = URL(fileURLWithPath: runtime)
-    StudioSession.nodePreloadURL = URL(fileURLWithPath: runtime).appendingPathComponent("markview-ui-studio-node.cjs")
+    defer { StudioSession.expectedStateTimeout = oldTimeout; AIAssistantRunner.setTestRunner(nil) }
 
     // The automatic repair looks at the settled page by itself (REQ-020): its task waits for the repair's work, which the real
     // assistant runner ends when the session closes. This is the crash of 6.27.0 (the task read its session after it was gone).
@@ -317,11 +295,6 @@ func run() async {
         try? await Task.sleep(nanoseconds: 1_500_000_000)
     })
 
-    print(failures == 0 ? "All UI Studio lifetime checks passed." : "\(failures) UI Studio lifetime check(s) failed.")
-    exit(failures == 0 ? 0 : 1)
 }
 
-let application = NSApplication.shared
-application.setActivationPolicy(.prohibited)
-Task { @MainActor in await run() }
-application.run()
+}

@@ -170,9 +170,29 @@ struct AIRawJSONObject: Decodable, Sendable {
 
 /// The runner every operation uses unless a test supplies another: one completion through the window's own assistant.
 enum AIAssistantRunner {
+    #if MARKVIEW_HOSTED_TEST_HOST
+    typealias TestRunner = @Sendable (CLICompletion.Request, (@Sendable (String) -> Void)?,
+                                      (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result
+    // unchecked Sendable: the lock protects the hosted test runner's installation and lookup.
+    private final class TestBoundary: @unchecked Sendable {
+        let lock = NSLock()
+        var runner: TestRunner?
+    }
+    private static let testBoundary = TestBoundary()
+    static func setTestRunner(_ runner: TestRunner?) {
+        testBoundary.lock.withLock { testBoundary.runner = runner }
+    }
+    struct MissingTestRunner: Error {}
+    #endif
+
     static func run(_ request: CLICompletion.Request, _ onDelta: (@Sendable (String) -> Void)?,
                     _ onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
+        #if MARKVIEW_HOSTED_TEST_HOST
+        guard let runner = testBoundary.lock.withLock({ testBoundary.runner }) else { throw MissingTestRunner() }
+        return try await runner(request, onDelta, onActivity)
+        #else
         try await CLICompletion.run(request, onDelta: onDelta, onActivity: onActivity)
+        #endif
     }
 }
 
