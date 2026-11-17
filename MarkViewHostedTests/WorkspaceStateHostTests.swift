@@ -1538,3 +1538,231 @@ extension EditorHostTests {
         }
     }
 }
+
+extension EditorHostTests {
+    @MainActor func testProjectColorSelectionAndMigration() {
+        func check(_ name: String, _ got: String, _ want: String, line: UInt = #line) {
+            XCTAssertEqual(got, want, name, line: line)
+        }
+        check("eight colors", String(ProjectColor.palette.count), "8")
+        check("distinct ids", String(Set(ProjectColor.palette.map(\.id)).count), "8")
+        check("distinct values", String(Set(ProjectColor.palette.map { "\($0.red) \($0.green) \($0.blue)" }).count), "8")
+
+        // Project key: standardized path after resolving symbolic links.
+        let base = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("pc-\(UUID().uuidString)", isDirectory: true)
+        let real = base.appendingPathComponent("a/my-project", isDirectory: true)
+        let other = base.appendingPathComponent("b/my-project", isDirectory: true)
+        let link = base.appendingPathComponent("link", isDirectory: true)
+        try! FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try! FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        try! FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let key = ProjectColor.projectKey(for: real)
+        check("key is the path", key, real.path)
+        check("symlink resolves to the same project", ProjectColor.projectKey(for: link), key)
+        check("dot segments are standardized", ProjectColor.projectKey(for: real.appendingPathComponent("../my-project")), key)
+        check("trailing slash is the same project", ProjectColor.projectKey(for: URL(fileURLWithPath: real.path + "/")), key)
+        check("same name, other path is another project", String(ProjectColor.projectKey(for: other) == key), "false")
+
+        // Automatic color (DEC-014): a fixed value per folder name, ignoring case, identical in every
+        // process (not Swift's seeded hash).
+        check("stable across calls", ProjectColor.automatic(forKey: key).id, ProjectColor.automatic(forKey: key).id)
+        check("same name, other path, same color", ProjectColor.automatic(forKey: ProjectColor.projectKey(for: other)).id,
+              ProjectColor.automatic(forKey: key).id)
+        check("worktree clone of the same name", ProjectColor.automatic(forKey: "/private/tmp/broker-fabric").id,
+              ProjectColor.automatic(forKey: "/Users/boris/github.com/broker-fabric").id)
+        check("case is ignored", ProjectColor.automatic(forKey: "/a/MarkView").id, ProjectColor.automatic(forKey: "/b/markview").id)
+        check("known name, known color", ProjectColor.automatic(forKey: "/Users/boris/github.com/MarkView").id,
+              ProjectColor.palette[Int(fnv("markview") % 8)].id)
+        // Pinned: changing the hash or the palette order would recolor every project without a choice.
+        check("pinned color 1", ProjectColor.automatic(forKey: "/Users/boris/github.com/MarkView").id, "orange")
+        check("pinned color 2", ProjectColor.automatic(forKey: "/Users/boris/github.com/broker-fabric").id, "yellow")
+        let spread = Set((0..<200).map { ProjectColor.automatic(forKey: "/projects/p\($0)").id })
+        check("uses the whole palette", String(spread.count), "8")
+        func fnv(_ s: String) -> UInt64 {
+            var h: UInt64 = 14695981039346656037
+            for b in s.utf8 { h = (h ^ UInt64(b)) &* 1099511628211 }
+            return h
+        }
+
+        // Store: only chosen colors persist; one shared value for every window.
+        let suite = "ProjectColorTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        MainActor.assumeIsolated {
+            // Colors saved before DEC-014 (automatic and chosen alike) are dropped once.
+            defaults.set([key: "teal"], forKey: Setting.projectColors.name)
+            let migrated = ProjectColorStore(defaults: defaults)
+            check("old saved colors are dropped", String(migrated.assignments.isEmpty), "true")
+            check("migration runs once", String(Settings(defaults).value(Setting.projectColorsByName)), "true")
+
+            let store = ProjectColorStore(defaults: defaults)
+            check("reading does not persist", String(store.assignments.isEmpty), "true")
+            check("no choice shows the automatic color", store.color(forKey: key).id, ProjectColor.automatic(forKey: key).id)
+            let chosen = ProjectColor.palette.first { $0 != store.color(forKey: key) }!
+            store.set(chosen, forKey: key)
+            check("a choice is saved", store.assignments[key] ?? "", chosen.id)
+            check("a choice stays with its folder", store.color(forKey: ProjectColor.projectKey(for: other)).id,
+                  ProjectColor.automatic(forKey: key).id)
+            let relaunched = ProjectColorStore(defaults: defaults)
+            check("choice survives a relaunch", relaunched.color(forKey: key).id, chosen.id)
+            relaunched.set(ProjectColor.automatic(forKey: key), forKey: key)
+            check("choosing the automatic color clears the choice", String(relaunched.assignments[key] == nil), "true")
+            defaults.set([key: "no-such-color"], forKey: Setting.projectColors.name)
+            let damaged = ProjectColorStore(defaults: defaults)
+            check("unknown stored id falls back to automatic", damaged.color(forKey: key).id, ProjectColor.automatic(forKey: key).id)
+        }
+    }
+}
+
+extension EditorHostTests {
+    @MainActor func testAllFilesAndExplainRouting() throws {
+        func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        func file(_ name: String) -> URL { root.appendingPathComponent(name) }
+        func write(_ name: String, _ text: String) throws { try Data(text.utf8).write(to: file(name)) }
+        for name in [".env", ".env.local", ".custom", "settings.mystery", "NO_EXTENSION", "notes.txt", ".gitignore"] {
+            try write(name, "SERVICE_PORT=8080\n")
+            check(FileType.isOpenable(file(name)), "\(name) can open")
+            check(FileType.from(url: file(name)) == .code, "\(name) uses text/code instead of Markdown")
+        }
+        check(FileType.codeLanguage(for: file(".env.local")) == "properties", "environment variants have known highlighting")
+        check(FileType.codeLanguage(for: file(".custom")) == nil, "unknown dotfiles have no guessed highlighting")
+        check(FileType.sourceLanguage(for: file("settings.mystery")) == "", "unknown extensions stay plain text")
+        check(FileType.sourceLanguage(for: file("NO_EXTENSION")) == "", "unknown extensionless names stay plain text")
+        check(FileType.sourceLanguage(for: file("main.swift")) == "swift", "known source retains highlighting")
+        for (name, language) in [("config.yaml", "yaml"), ("config.json", "json"), ("config.xml", "xml"), ("README.md", "markdown"), ("board.canvas", "json")] {
+            check(FileType.sourceLanguage(for: file(name)) == language, "\(name) has highlighted Explain source")
+            check(FileType.from(url: file(name)) != .code, "\(name) retains its dedicated viewer")
+        }
+        try fm.createDirectory(at: file(".private"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: file(".git"), withIntermediateDirectories: true)
+        try write(".private/hidden.unknown", "hidden text")
+        try fm.createSymbolicLink(at: file("linked.unknown"), withDestinationURL: file("notes.txt"))
+        // FileNode belongs to the main actor (the tree the views observe); the checks run there, as the window's own code does.
+        @MainActor func checkTree(of root: URL) {
+            let node = FileNode.buildTree(from: root)
+            let names = Set((node.children ?? []).map(\.name))
+            check(names.contains(".env") && names.contains(".env.local") && names.contains("settings.mystery"), "tree includes hidden and unknown files")
+            check(names.contains(".private") && names.contains(".git") && names.contains("linked.unknown"), "tree includes hidden folders and file symlinks")
+            let hidden = node.children!.first { $0.name == ".private" }!
+            hidden.loadChildren()
+            check(hidden.children?.first?.name == "hidden.unknown", "hidden folders can be browsed")
+        }
+        MainActor.assumeIsolated { checkTree(of: root) }
+        check(try FileType.readText(at: file("linked.unknown")) == "SERVICE_PORT=8080\n", "file symlinks decode their target")
+        for encoding in [String.Encoding.utf8, .utf16, .utf32] {
+            try "port: 8080\r\nname: café 🌱\n".data(using: encoding)!.write(to: file("unicode"))
+            check(try FileType.readText(at: file("unicode")) == "port: 8080\r\nname: café 🌱\n", "Unicode \(encoding.rawValue) decoded without changing lines")
+        }
+        try Data([0xEF, 0xBB, 0xBF] + Array("plain".utf8)).write(to: file("bom"))
+        check(try FileType.readText(at: file("bom")) == "plain", "UTF-8 BOM is removed")
+        try Data([0, 1, 2, 0xFF]).write(to: file("binary.unknown"))
+        check(FileType.isOpenable(file("binary.unknown")), "binary files remain visible")
+        do { _ = try FileType.readText(at: file("binary.unknown")); check(false, "binary bytes rejected") }
+        catch FileType.TextReadError.binary { print("ok   binary bytes rejected") }
+        try Data().write(to: file("empty"))
+        check(try FileType.readText(at: file("empty")) == "", "empty files open as text")
+        let large = file("large")
+        fm.createFile(atPath: large.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: large)
+        try handle.truncate(atOffset: 33 * 1024 * 1024)
+        try handle.close()
+        do { _ = try FileType.readText(at: large); check(false, "oversized generic text is bounded") }
+        catch FileType.TextReadError.tooLarge { print("ok   oversized generic text is bounded") }
+        for name in ["config.yaml", "config.json", "config.xml", ".env.local", "settings.toml"] {
+            let prompt = FileExplanationPrompt.instructions(path: name)
+            check(prompt.contains("what it is responsible for") && prompt.contains("effect of changing") && prompt.contains("without repeating their values"), "\(name) explains configuration responsibilities without echoing secrets")
+        }
+        check(FileExplanationPrompt.instructions(path: "unusual.xyz").contains("actual contents"), "unknown text explanation follows contents")
+        check(FileExplanationPrompt.instructions(path: "README.md").contains("documentation file"), "Markdown keeps document explanation")
+        check(FileExplanationPrompt.instructions(path: "main.swift").contains("source code"), "source keeps code explanation")
+        check(FileType.hasTextSource(file("data.csv")) && FileType.hasTextSource(file("app.log")), "text data has Explain source")
+        check(!FileType.hasTextSource(file("data.parquet")) && !FileType.hasTextSource(file("book.xlsx")), "binary data is never sent as text")
+    }
+}
+
+extension EditorHostTests {
+    func testGitHubActivityWindowAndPrompts() {
+        func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago")!
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        func date(_ value: String) -> Date { formatter.date(from: value)! }
+
+        func weekdays(_ count: Int, end: String, start: String, _ message: String) {
+            let window = GitHubActivityWindow.make(period: .weekdays, count: count, now: date(end), calendar: calendar)
+            check(window?.start == date(start) && window?.end == date(end), message)
+        }
+
+        weekdays(2, end: "2026-10-26 09:00:00", start: "2026-10-22 09:00:00", "Monday morning reaches Thursday morning")
+        weekdays(2, end: "2026-10-27 09:00:00", start: "2026-10-23 09:00:00", "Tuesday morning reaches Friday morning")
+        weekdays(2, end: "2026-10-30 16:23:45", start: "2026-10-28 16:23:45", "ordinary weekdays preserve time to the second")
+        weekdays(2, end: "2026-10-26 00:00:00", start: "2026-10-22 00:00:00", "midnight skips the entire weekend")
+        weekdays(2, end: "2026-10-31 12:00:00", start: "2026-10-29 00:00:00", "Saturday consumes no weekday hours")
+        weekdays(2, end: "2026-11-01 12:00:00", start: "2026-10-29 00:00:00", "Sunday consumes no weekday hours")
+        weekdays(2, end: "2026-11-02 09:00:00", start: "2026-10-29 09:00:00", "fall DST weekend preserves local weekday bounds")
+        weekdays(2, end: "2026-03-09 09:00:00", start: "2026-03-05 09:00:00", "spring DST weekend preserves local weekday bounds")
+        weekdays(1, end: "2026-10-26 09:00:00", start: "2026-10-23 09:00:00", "one weekday is configurable")
+        weekdays(5, end: "2026-10-26 09:00:00", start: "2026-10-19 09:00:00", "five weekdays span a calendar week")
+        weekdays(2, end: "2026-12-28 09:00:00", start: "2026-12-24 09:00:00", "holidays count as weekdays")
+
+        let now = date("2026-10-26 09:00:00")
+        let elapsed = GitHubActivityWindow.make(period: .hours, count: 48, now: now, calendar: calendar)!
+        check(elapsed.start == date("2026-10-24 09:00:00"), "calendar hours do not skip weekends")
+        let custom = GitHubActivityWindow.make(period: .custom, customStart: date("2026-10-01 12:00:00"),
+                                               customEnd: date("2026-10-25 18:30:00"), now: now)!
+        check(custom.end == date("2026-10-25 18:30:00"), "custom historical end is preserved")
+        check(GitHubActivityWindow.make(period: .custom, customStart: now, customEnd: now, now: now) == nil,
+              "empty custom range is rejected")
+        check(GitHubActivityWindow.make(period: .custom, customStart: now, customEnd: elapsed.start, now: now) == nil,
+              "reversed custom range is rejected")
+        check(GitHubActivityWindow.make(period: .custom, customStart: elapsed.start,
+                                        customEnd: now.addingTimeInterval(60), now: now) == nil, "future end is rejected")
+        for period in [GitHubActivityPeriod.weekdays, .hours] {
+            check(GitHubActivityWindow.make(period: period, count: 0) == nil, "zero \(period) is rejected")
+            check(GitHubActivityWindow.make(period: period, count: Int.max) == nil, "unbounded \(period) is rejected")
+        }
+
+        // Use a volatile defaults domain so checks never persist or alter app settings.
+        let previousArguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previousArguments, forName: UserDefaults.argumentDomain) }
+        UserDefaults.standard.setVolatileDomain([Setting.outputLanguage.name: "Russian"], forName: UserDefaults.argumentDomain)
+        let prompt = TerminalPrompt.all.first { $0.id == "github-activity" }!
+        let rendered = prompt.text(file: nil, pullRequest: nil, activityWindow: custom)
+        check(prompt.input == .githubActivity, "button asks for its activity period")
+        check(rendered.contains("2026-10-01T17:00:00.000Z") && rendered.contains("2026-10-25T23:30:00.000Z"),
+              "prompt contains exact UTC bounds, including the custom end")
+        check(!rendered.contains("{window}"), "no unresolved window placeholder")
+        check(rendered.contains("updated AFTER the window") && rendered.contains("complete\npagination"),
+              "historical scans retain candidates updated later and require pagination")
+        check(rendered.contains("including weekend activity"), "weekend events remain inside the scan")
+        check(rendered.contains("ALL existing local features and bugs"), "matching covers older local records")
+        check(rendered.contains("not application implementation or GitHub\nmutations"), "scope is local reconciliation")
+        check(rendered.contains("Write the final report in Russian."), "selected report language is used")
+        UserDefaults.standard.setVolatileDomain([Setting.outputLanguage.name: ActionOutputLanguage.documentLanguage], forName: UserDefaults.argumentDomain)
+        check(prompt.text(file: nil, pullRequest: nil, activityWindow: custom).contains("Write the final report in Russian."),
+              "report defaults to Russian without changing repository language rules")
+        UserDefaults.standard.setVolatileDomain([Setting.outputLanguage.name: "English"], forName: UserDefaults.argumentDomain)
+        check(prompt.text(file: nil, pullRequest: nil, activityWindow: custom).contains("Write the final report in English."),
+              "explicit output language overrides the report default")
+        UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain)
+
+        let review = TerminalPrompt.all.first { $0.id == "review-pr" }!
+        check(review.text(file: nil, pullRequest: "#123").contains("Review #123"), "existing PR substitution still works")
+        check(TerminalPrompt.all.first { $0.id == "explain-file" }!.text(file: "src/demo.swift", pullRequest: nil)
+                .contains("Explain src/demo.swift"), "existing file substitution still works")
+    }
+}

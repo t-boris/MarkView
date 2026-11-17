@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 156,
+  "suiteCount": 153,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -165,21 +165,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift"
-      ]
-    },
-    {
-      "name": "all-files-explain-tests",
-      "script": "tools/tests/all-files-explain-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Architecture/CodeExplainer.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/FileNode.swift",
-        "tools/tests/AllFilesExplainTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -1151,18 +1136,6 @@
       ]
     },
     {
-      "name": "github-activity-prompt-tests",
-      "script": "tools/tests/github-activity-prompt-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/AIPrompts.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "tools/tests/GitHubActivityPromptTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
-      ]
-    },
-    {
       "name": "github-command-tests",
       "script": "tools/tests/github-command-tests.sh",
       "tier": "pure",
@@ -1621,18 +1594,6 @@
         "tools/tests/project-change-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "project-color-tests",
-      "script": "tools/tests/project-color-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Appearance/ProjectColor.swift",
-        "tools/tests/ProjectColorTests.swift",
-        "tools/tests/project-color-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
@@ -2472,7 +2433,10 @@
         "MarkView/Models/Lifecycle/HandoffPrompt.swift",
         "tools/tests/StoreTestSupport.swift",
         "MarkView/Models/ProjectOps/ProjectOperation.swift",
-        "MarkView/Views/Lifecycle/IntakeTextEditor.swift"
+        "MarkView/Views/Lifecycle/IntakeTextEditor.swift",
+        "MarkView/Models/Appearance/ProjectColor.swift",
+        "MarkView/Models/Architecture/CodeExplainer.swift",
+        "MarkView/Models/AI/AIPrompts.swift"
       ]
     },
     {
