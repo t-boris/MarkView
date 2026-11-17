@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 176,
+  "suiteCount": 175,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1898,22 +1898,6 @@
       ]
     },
     {
-      "name": "project-backdrop-tests",
-      "script": "tools/tests/project-backdrop-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Appearance/ProjectBackdrop.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
-        "MarkView/Models/Appearance/BackdropRegistry.swift",
-        "MarkView/Views/Appearance/AtmosphereBackdropLayers.swift",
-        "MarkView/Views/Appearance/BackdropLayerBuilders.swift",
-        "MarkView/Views/Appearance/DevBackdropLayers.swift",
-        "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
-        "tools/tests/ProjectBackdropChecks.swift"
-      ]
-    },
-    {
       "name": "project-change-tests",
       "script": "tools/tests/project-change-tests.sh",
       "tier": "pure",
@@ -2765,7 +2749,14 @@
         "MarkView/Views/Appearance/ThemePickerView.swift",
         "MarkView/Models/Workspace/ExcludedFolders.swift",
         "MarkView/Views/Shared/WindowStorage.swift",
-        "MarkView/Models/Shared/ImageAttachments.swift"
+        "MarkView/Models/Shared/ImageAttachments.swift",
+        "MarkView/Models/Appearance/ProjectBackdrop.swift",
+        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
+        "MarkView/Models/Appearance/BackdropRegistry.swift",
+        "MarkView/Views/Appearance/AtmosphereBackdropLayers.swift",
+        "MarkView/Views/Appearance/BackdropLayerBuilders.swift",
+        "MarkView/Views/Appearance/DevBackdropLayers.swift",
+        "MarkView/Views/Appearance/ProjectBackdropLayers.swift"
       ]
     },
     {
