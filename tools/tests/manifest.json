@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 162,
+  "suiteCount": 161,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -818,20 +818,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "deployment-discovery-tests",
-      "script": "tools/tests/deployment-discovery-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
-        "MarkView/Models/Deployments/DeploymentDiscovery.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/AI/ProviderHints.swift",
-        "tools/tests/DeploymentDiscoveryTests.swift",
-        "tools/tests/deployment-discovery-tests.sh"
       ]
     },
     {
@@ -2611,7 +2597,9 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CommandPolicy.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
         "MarkView/Models/Deployments/DeploymentLogs.swift",
-        "MarkView/Models/Deployments/SystemProbe.swift"
+        "MarkView/Models/Deployments/SystemProbe.swift",
+        "MarkView/Models/Deployments/DeploymentDiscovery.swift",
+        "MarkView/Models/AI/ProviderHints.swift"
       ]
     },
     {
