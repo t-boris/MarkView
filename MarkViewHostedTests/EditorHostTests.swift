@@ -2569,3 +2569,227 @@ extension EditorHostTests {
 
     }
 }
+
+
+extension EditorHostTests {
+    func testEditorDocumentRouting() {
+        func check(_ condition: @autoclosure () -> Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition(), message, line: line)
+        }
+        let sirius = UUID(), myDataCenter = UUID(), daily = UUID()
+        let tabs = [sirius, myDataCenter, daily]
+
+        // The reported case: the page still holds the MyDataCenter document while the Sirius Art tab is selected.
+        check(EditorDocumentRouting.targetIndex(documentID: myDataCenter, tabIDs: tabs, activeIndex: 0) == 1,
+              "a message naming a document goes to that document's tab, not to the selected one")
+        check(EditorDocumentRouting.targetIndex(documentID: sirius, tabIDs: tabs, activeIndex: 2) == 0,
+              "naming the first tab while the last is selected still reaches the first tab")
+
+        // Reordering tabs changes indexes, never ids.
+        let reordered = [daily, sirius, myDataCenter]
+        check(EditorDocumentRouting.targetIndex(documentID: myDataCenter, tabIDs: reordered, activeIndex: 1) == 2,
+              "a reordered tab list is followed by id")
+
+        // A closed tab must not hand its text to another tab.
+        check(EditorDocumentRouting.targetIndex(documentID: myDataCenter, tabIDs: [sirius, daily], activeIndex: 0) == nil,
+              "a message for a closed tab is dropped instead of falling back to the selected tab")
+
+        // Messages that name no document keep the earlier behaviour.
+        check(EditorDocumentRouting.targetIndex(documentID: nil, tabIDs: tabs, activeIndex: 1) == 1,
+              "an unnamed message applies to the selected tab")
+        check(EditorDocumentRouting.targetIndex(documentID: nil, tabIDs: tabs, activeIndex: -1) == nil,
+              "no selected tab: nothing to apply to")
+        check(EditorDocumentRouting.targetIndex(documentID: nil, tabIDs: tabs, activeIndex: 3) == nil,
+              "selected index past the end: nothing to apply to")
+        check(EditorDocumentRouting.targetIndex(documentID: nil, tabIDs: [], activeIndex: 0) == nil,
+              "no tabs: nothing to apply to")
+        check(EditorDocumentRouting.targetIndex(documentID: myDataCenter, tabIDs: [], activeIndex: 0) == nil,
+              "no tabs: a named message is dropped")
+
+        // BUG-043: text of a document the page was just switched away from must not pass for the shown document's text.
+        check(EditorDocumentRouting.reportsShownDocument(documentID: myDataCenter, shown: myDataCenter),
+              "text of the document on screen is remembered by the reload check")
+        check(!EditorDocumentRouting.reportsShownDocument(documentID: sirius, shown: myDataCenter),
+              "unsaved text of the document left behind is not remembered as the one on screen")
+        check(!EditorDocumentRouting.reportsShownDocument(documentID: sirius, shown: nil),
+              "a named message while no tab's document is shown is not remembered")
+        check(EditorDocumentRouting.reportsShownDocument(documentID: nil, shown: myDataCenter),
+              "an unnamed message is remembered, as before")
+        check(EditorDocumentRouting.reportsShownDocument(documentID: nil, shown: nil),
+              "an unnamed message with nothing shown is remembered, as before")
+
+        // What the page sends.
+        check(EditorDocumentRouting.documentID(from: sirius.uuidString) == sirius, "a valid id is parsed")
+        check(EditorDocumentRouting.documentID(from: sirius.uuidString.lowercased()) == sirius, "a lowercase id is parsed")
+        check(EditorDocumentRouting.documentID(from: "") == nil, "an empty id means not named")
+        check(EditorDocumentRouting.documentID(from: "not-a-uuid") == nil, "a malformed id means not named")
+        check(EditorDocumentRouting.documentID(from: nil) == nil, "a missing id means not named")
+        check(EditorDocumentRouting.documentID(from: 42) == nil, "a non-string id means not named")
+
+    }
+
+    @MainActor func testEditorMessagesCarryDocumentIdentity() throws {
+        let editor = try XCTUnwrap(Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor"))
+            .deletingLastPathComponent().path
+        func check(_ condition: Bool, _ message: String, _ detail: String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, "\(message): \(detail.prefix(600))", line: line)
+        }
+        struct Message { let type: String; let doc: String; let payload: [String: Any] }
+        final class Bridge: NSObject, WKScriptMessageHandler {
+            var messages: [Message] = []
+            func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+                guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
+                messages.append(Message(type: type, doc: body["doc"] as? String ?? "<missing>", payload: body["payload"] as? [String: Any] ?? [:]))
+            }
+        }
+        final class Loaded: NSObject, WKNavigationDelegate {
+            var done = false
+            func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { done = true }
+        }
+
+        _ = NSApplication.shared
+        let config = WKWebViewConfiguration()
+        let bridge = Bridge()
+        config.userContentController.add(bridge, name: "bridge")
+        config.userContentController.addUserScript(try BridgeContract(contentsOf: URL(fileURLWithPath: editor + "/js/bridge-contract.json")).userScript)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800), configuration: config)
+        let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.contentView = web
+        defer { web.stopLoading(); config.userContentController.removeScriptMessageHandler(forName: "bridge"); window.close() }
+        let loaded = Loaded()
+        web.navigationDelegate = loaded
+        web.loadFileURL(URL(fileURLWithPath: editor + "/index.html"), allowingReadAccessTo: URL(fileURLWithPath: editor))
+
+        func spin(_ seconds: TimeInterval, until done: () -> Bool = { false }) {
+            let end = Date().addingTimeInterval(seconds)
+            while !done() && Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        }
+
+        func js(_ body: String, timeout: TimeInterval = 20) -> String {
+            var out: String?
+            web.callAsyncJavaScript(body, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value): out = value as? String ?? "\(String(describing: value))"
+                case .failure(let error): out = "JSERROR: " + ((error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription)
+                }
+            }
+            spin(timeout) { out != nil }
+            return out ?? "TIMEOUT"
+        }
+
+        /// Messages of `type` that arrived since `mark`, after giving the page a moment to send them.
+        func messages(_ type: String, since mark: Int, wait: TimeInterval = 3) -> [Message] {
+            spin(wait) { bridge.messages[mark...].contains { $0.type == type } }
+            spin(0.2)
+            return bridge.messages[mark...].filter { $0.type == type }
+        }
+
+        let tabA = UUID().uuidString, tabB = UUID().uuidString
+
+        spin(30) { loaded.done }
+        check(loaded.done, "shipping editor loaded")
+        spin(2)
+
+        // The app loads a document and names its tab in the same script (WebViewBridge.documentIDScript: mvSetDocument, then the load).
+        var mark = bridge.messages.count
+        var result = js("window.mvSetDocument(\"\(tabA)\"); window.setContent('# Alpha\\n\\nfirst document'); return 'ok';")
+        check(result == "ok", "document A loads", result)
+        var sent = messages("contentChanged", since: mark)
+        check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabA }, "text reported after loading A names tab A", sent.map { $0.doc }.joined(separator: ","))
+        check(sent.contains { ($0.payload["markdown"] as? String)?.contains("Alpha") == true }, "that text is document A's")
+
+        mark = bridge.messages.count
+        result = js("window.mvSetDocument(\"\(tabB)\"); window.setContent('# Beta\\n\\nsecond document'); return 'ok';")
+        sent = messages("contentChanged", since: mark)
+        check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabB }, "after switching to B, text names tab B", sent.map { $0.doc }.joined(separator: ","))
+
+        // The reported failure: the page still shows B, typed into, while the app believes another tab is selected.
+        // Cmd+S must send B's text and name B, so the app can write B's file and leave the selected tab alone.
+        mark = bridge.messages.count
+        result = js("""
+        const rendered = document.getElementById('editor-rendered');
+        rendered.querySelector('h1').textContent = 'Beta edited';
+        rendered.dispatchEvent(new Event('input', {bubbles: true}));
+        rendered.dispatchEvent(new KeyboardEvent('keydown', {key: 's', metaKey: true, bubbles: true, cancelable: true}));
+        return 'ok';
+        """)
+        check(result == "ok", "Cmd+S is sent from the WYSIWYG view", result)
+        let content = messages("contentChanged", since: mark)
+        let saves = messages("saveRequested", since: mark)
+        check(content.last.map { $0.doc == tabB && (($0.payload["markdown"] as? String) ?? "").contains("Beta edited") } == true,
+              "Cmd+S sends the edited text of the shown document and names it", content.map { "\($0.doc):\($0.payload["markdown"] ?? "")" }.joined(separator: " | "))
+        check(saves.count == 1 && saves[0].doc == tabB, "the save request names the shown document", saves.map { $0.doc }.joined(separator: ","))
+        if let a = bridge.messages[mark...].firstIndex(where: { $0.type == "contentChanged" }),
+           let b = bridge.messages[mark...].firstIndex(where: { $0.type == "saveRequested" }) {
+            check(a < b, "the text arrives before the save request")
+        }
+
+        // No tab's document (the app clears the id for an insight or the X-Ray): messages carry an empty id.
+        mark = bridge.messages.count
+        result = js("window.mvSetDocument(''); window.setContent('# Loose'); return 'ok';")
+        sent = messages("contentChanged", since: mark)
+        check(!sent.isEmpty && sent.allSatisfy { $0.doc == "" }, "with the id cleared, messages name no document", sent.map { $0.doc }.joined(separator: ","))
+
+        // BUG-043: unsaved WYSIWYG edits survive a switch to another document.
+        let tabC = UUID().uuidString
+        func load(_ id: String, _ markdown: String) {
+            let result = js("window.mvSetDocument(\"\(id)\"); window.setContent('\(markdown)'); return 'ok';")
+            check(result == "ok", "document \(markdown.prefix(12)) loads", result)
+        }
+        func typeInWysiwyg(_ text: String) {
+            let result = js("""
+            const rendered = document.getElementById('editor-rendered');
+            rendered.querySelector('h1').textContent = '\(text)';
+            rendered.dispatchEvent(new Event('input', {bubbles: true}));
+            return 'ok';
+            """)
+            check(result == "ok", "typing in the WYSIWYG view", result)
+        }
+        func markdown(_ message: Message) -> String { (message.payload["markdown"] as? String) ?? "" }
+
+        load(tabA, "# Alpha\\n\\nfirst document")
+        typeInWysiwyg("Alpha typed, not saved")
+        mark = bridge.messages.count
+        load(tabB, "# Beta\\n\\nsecond document")
+        sent = messages("contentChanged", since: mark)
+        check(sent.first.map { $0.doc == tabA && markdown($0).contains("Alpha typed, not saved") } == true,
+              "switching documents first hands over the unsaved edits, under the old id", sent.map { "\($0.doc.prefix(4)):\(markdown($0).prefix(30))" }.joined(separator: " | "))
+        check(sent.dropFirst().allSatisfy { $0.doc == tabB && !markdown($0).contains("typed, not saved") },
+              "what follows is the new document's own text, under the new id")
+        check(sent.contains { $0.doc == tabB && markdown($0).contains("Beta") }, "the new document is reported")
+
+        // Nothing was typed: no hand-over, the first message already belongs to the new document.
+        mark = bridge.messages.count
+        load(tabC, "# Gamma\\n\\nthird document")
+        sent = messages("contentChanged", since: mark)
+        check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabC }, "without edits nothing is handed over for the old document", sent.map { $0.doc.prefix(4) }.joined(separator: ","))
+
+        // The same document loading again (a refresh from disk) keeps replacing the edits.
+        typeInWysiwyg("Gamma typed, then refreshed")
+        mark = bridge.messages.count
+        load(tabC, "# Gamma\\n\\nfresh from disk")
+        sent = messages("contentChanged", since: mark)
+        check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabC && !markdown($0).contains("then refreshed") },
+              "reloading the same document does not hand its edits over", sent.map { markdown($0).prefix(30) }.joined(separator: " | "))
+
+        // The edits were synced into the Source view and never sent: they still must not be lost.
+        load(tabA, "# Alpha\\n\\nfirst document")
+        typeInWysiwyg("Alpha typed, then Source")
+        _ = js("switchToSource(); return 'ok';")
+        mark = bridge.messages.count
+        load(tabB, "# Beta\\n\\nsecond document")
+        sent = messages("contentChanged", since: mark)
+        check(sent.first.map { $0.doc == tabA && markdown($0).contains("Alpha typed, then Source") } == true,
+              "edits seen in the Source view are handed over too", sent.map { "\($0.doc.prefix(4)):\(markdown($0).prefix(30))" }.joined(separator: " | "))
+
+        // Edits are handed over once: coming back and leaving again without typing sends nothing for that document.
+        _ = js("switchToPreview(); return 'ok';")
+        mark = bridge.messages.count
+        load(tabC, "# Gamma\\n\\nthird document")
+        sent = messages("contentChanged", since: mark)
+        check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabC }, "a second switch hands nothing over again", sent.map { $0.doc.prefix(4) }.joined(separator: ","))
+
+    }
+}

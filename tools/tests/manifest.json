@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 174,
+  "suiteCount": 173,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1059,20 +1059,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Resources/Editor/js/bridge-contract.json",
         "MarkView/Resources/Editor/js/markview-d3-mermaid.js"
-      ]
-    },
-    {
-      "name": "editor-document-routing-tests",
-      "script": "tools/tests/editor-document-routing-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "tools/tests/EditorDocumentIdWebTests.swift",
-        "tools/tests/EditorDocumentRoutingTests.swift",
-        "tools/tests/editor-document-routing-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
