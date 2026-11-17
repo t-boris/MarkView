@@ -197,7 +197,7 @@ final class Recorder: DeploymentExecutor, @unchecked Sendable {
     check(candidates.count == 1 && candidates[0].key == "DATABASE_URL", "the store finds the candidate")
     store.connectDatabase(env: "cloud-db", title: "Shop", candidate: candidates[0])
     let id = store.environment("cloud-db")?.databases.first?.id ?? ""
-    check(id == "shop" && DeploymentStore().environments.isEmpty == false || true, "a database is connected to the environment")
+    check(id == "shop", "a database is connected to the environment")
     let saved = (try? String(contentsOf: project.appendingPathComponent(".dde/deployments.json"), encoding: .utf8)) ?? ""
     check(saved.contains("DATABASE_URL") && !saved.contains("odd") && !saved.contains("postgres://"), "the saved file names the variable, never the URL")
     for _ in 0..<80 where store.databaseState("cloud-db", id).overview == nil && store.databaseState("cloud-db", id).error == nil { try? await Task.sleep(nanoseconds: 100_000_000) }

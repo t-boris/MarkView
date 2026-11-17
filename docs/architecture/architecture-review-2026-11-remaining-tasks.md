@@ -324,6 +324,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+A database-explorer integration assertion contained an unconditional `|| true`; it now checks the expected connection ID. The standalone suite passed against its throwaway local PostgreSQL container, including the corrected assertion and cleanup. Final full-suite verification remains open.
+
 The project AI choice pure suite contained a real Antigravity call that ran whenever its CLI was installed. It now requires explicit manual opt-in with `MARKVIEW_LIVE_ANTIGRAVITY=1`; the automatic suite passed without that opt-in. This keeps provider calls manual under DEC-013.
 
 Project Changes scanner and watcher checks moved to the app host. The memory check samples the process footprint during the scan because the host has an unrelated lifetime high-water mark; this sampling is approximate. Both focused runs passed, and a priority inversion warning from the first was fixed before the repeat. Repository hygiene, architecture lint, SwiftLint, manifest paths and all 26 pure suites across three shards passed. The manifest now has 61 suites: 26 pure, 30 GUI and 5 live. The 6.30.142 Debug build succeeded with no Swift warnings; Xcode emitted its App Intents metadata warning. Final GUI and CI verification remain open.
