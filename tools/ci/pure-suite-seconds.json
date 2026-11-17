@@ -59,6 +59,5 @@
   "transcription-failure-tests": 0.7,
   "window-composition-tests": 6.1,
   "window-session-snapshotter-tests": 13.1,
-  "window-session-tests": 18.6,
   "xray-task-ownership-tests": 78.7
 }

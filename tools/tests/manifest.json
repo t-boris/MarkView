@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 98,
+  "suiteCount": 97,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1940,7 +1940,8 @@
         "MarkView/Models/Cockpit/CockpitResults.swift",
         "MarkView/Models/QA/QARunCleanup.swift",
         "MarkView/Models/QA/QARunRetention.swift",
-        "MarkViewHostedTests/QARetentionHostTests.swift"
+        "MarkViewHostedTests/QARetentionHostTests.swift",
+        "MarkViewHostedTests/WindowSessionHostTests.swift"
       ]
     },
     {
@@ -2927,23 +2928,6 @@
         "tools/tests/WindowSessionSnapshotterTests.swift",
         "tools/tests/window-session-snapshotter-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift"
-      ]
-    },
-    {
-      "name": "window-session-tests",
-      "script": "tools/tests/window-session-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Workspace/WindowSession.swift",
-        "MarkView/Models/Workspace/WindowUIState.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/WindowSessionTests.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift"
       ]
     },
     {

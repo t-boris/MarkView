@@ -1,21 +1,18 @@
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
 // A window's theme is its id; these are the ids the checks use.
-extension AppTheme {
+private extension AppTheme {
     static let midnight = AppTheme("midnight"), paper = AppTheme("paper")
 }
 
-@main struct WindowSessionTests {
-    static var checks = 0
-    static func check(_ condition: Bool, _ message: String) {
-        checks += 1
-        if !condition { fatalError(message) }
+private enum WindowSessionChecks {
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
-    static func main() async throws {
-        if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--seed-ui" {
-            try await seedUI(at: URL(fileURLWithPath: CommandLine.arguments[2]))
-            return
-        }
+    static func run() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("session.json")
@@ -63,14 +60,14 @@ extension AppTheme {
         check(loaded.windows[0].tabs.count == 6, "all supported tab kinds survive")
         if case .pdf(let restoredPDF) = loaded.windows[0].tabs[5] {
             check(restoredPDF == folder.appendingPathComponent("read only.pdf"), "PDF tabs survive session restoration without text drafts")
-        } else { fatalError("wrong PDF tab kind") }
+        } else { XCTFail("wrong PDF tab kind") }
         if case .file(let restoredURL, let restoredDraft, let notes, let scroll) = loaded.windows[0].tabs[0] {
             check(restoredURL == file && notes && scroll == 123.5, "file view state survives")
             check(restoredDraft?.content == draft.content && restoredDraft?.original == draft.original, "unsaved text survives without a disk write")
-        } else { fatalError("wrong tab kind") }
+        } else { XCTFail("wrong tab kind") }
         if case .github(let item) = loaded.windows[0].tabs[1] {
             check(item == .issue(number: 33, repo: "owner/repo", title: "#33"), "GitHub tabs survive")
-        } else { fatalError("wrong GitHub tab") }
+        } else { XCTFail("wrong GitHub tab") }
         let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as! NSNumber
         check(permissions.intValue == 0o600, "draft archive is private")
         check(try await storage.save(WindowSessionArchive(windows: [second]), revision: 3) == .saved, "the quit snapshot is written")
@@ -104,7 +101,6 @@ extension AppTheme {
         check(try await WindowSessionStorage(url: permsURL).save(WindowSessionArchive(windows: [first]), revision: 1) == .saved, "the permissions archive is written")
         let posixPerms = (try FileManager.default.attributesOfItem(atPath: permsURL.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
         check(posixPerms == 0o600, "saved window sessions enforce 0600 permissions")
-        print("Window session checks: \(checks), failures: 0")
     }
 
     /// Windows saved by 6.26.2 and earlier, with every kind of tab they could hold: the tool tabs (Git, Build & Deployment, Workflow, QA,
@@ -132,8 +128,8 @@ extension AppTheme {
         check(toolKeys.allSatisfy { ToolRegistry.shared.isRestorable(ToolID(rawValue: $0)) }, "and every one of them is a tool the app restores")
         if case .file(let fileURL, let draft, let notes, let scroll) = restored[0] {
             check(fileURL.path == "/tmp/p/a.md" && draft?.content == "x" && draft?.original == "y" && notes && scroll == 12.5, "a file tab of an earlier version loads with its draft")
-        } else { fatalError("the first tab is a file") }
-        if case .github(let item) = restored[12] { check(item == .run(id: 4, repo: "o/r", title: "run"), "a GitHub tab of an earlier version loads") } else { fatalError("the 13th tab is a run") }
+        } else { XCTFail("the first tab is a file") }
+        if case .github(let item) = restored[12] { check(item == .run(id: 4, repo: "o/r", title: "run"), "a GitHub tab of an earlier version loads") } else { XCTFail("the 13th tab is a run") }
         // Saving writes the text the earlier versions wrote, tab by tab.
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -219,33 +215,8 @@ extension AppTheme {
               "a new launch announces the refusal again")
     }
 
-    /// Seed only the dedicated test bundle's archive, never the installed app's state.
-    static func seedUI(at root: URL) async throws {
-        let a = root.appendingPathComponent("Restore-A"), b = root.appendingPathComponent("Restore-B")
-        for folder in [a, b] {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            for name in ["first.md", "second.md"] {
-                try "# Fixture \(name)\n\nSaved on disk.\n".write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
-            }
-        }
-        let panels = WorkspacePanelState(navigator: "contents", left: "files", feature: "", git: "changes", stage: "explore", showFiles: true, showNavigator: true)
-        func file(_ folder: URL, _ name: String) -> WorkspaceTabState {
-            .file(url: folder.appendingPathComponent(name), draft: nil, notes: false, scroll: 0)
-        }
-        let edited = WorkspaceDraft(content: "# Unsaved test draft\n\nRecovered after restart.\n", original: "# Fixture second.md\n\nSaved on disk.\n")
-        let deleted = WorkspaceDraft(content: "# Deleted-file draft\n", original: "# Old text\n")
-        let first = WorkspaceWindowState(id: UUID(), folder: a,
-            tabs: [file(a, "first.md"), .file(url: a.appendingPathComponent("second.md"), draft: edited, notes: false, scroll: 0),
-                   .file(url: a.appendingPathComponent("removed.md"), draft: deleted, notes: false, scroll: 0)],
-            activeTabIndex: 1, panels: panels, frame: CGRect(x: 30, y: 350, width: 1050, height: 750))
-        let second = WorkspaceWindowState(id: UUID(), folder: b,
-            tabs: [file(b, "first.md"), file(b, "missing.md"), file(b, "second.md")],
-            activeTabIndex: 2, panels: panels, frame: CGRect(x: 1130, y: 350, width: 1050, height: 750))
-        let duplicateFolder = WorkspaceWindowState(id: UUID(), folder: a, tabs: [file(a, "first.md")],
-            activeTabIndex: 0, panels: panels, frame: CGRect(x: 150, y: 150, width: 1050, height: 750))
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let storage = WindowSessionStorage(url: support.appendingPathComponent("MarkView-com.markview.WindowRestoreTest/windowSessions.json"))
-        _ = try await storage.save(WindowSessionArchive(windows: [first, second, duplicateFolder]), revision: 1)
-        print("Seeded three test windows in two fixture folders.")
-    }
+}
+
+extension EditorHostTests {
+    func testWindowSessionPersistence() async throws { try await WindowSessionChecks.run() }
 }
