@@ -25,8 +25,10 @@ enum AppFontScale {
     }
 
     /// The saved scale, for code outside the SwiftUI environment (a web view's first load).
-    static var storedFactor: CGFloat {
-        factor(percent: Settings.standard.value(Setting.fontScalePercent))
+    static var storedFactor: CGFloat { storedFactor(read: { Settings.standard.value(Setting.fontScalePercent) }) }
+
+    static func storedFactor(read: () -> Int) -> CGFloat {
+        factor(percent: read())
     }
 
     /// macOS point sizes of the SwiftUI text styles the views use.

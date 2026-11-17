@@ -7,6 +7,52 @@ import XCTest
 @testable import MarkView
 
 extension EditorHostTests {
+    @MainActor func testAppFontScaleRules() {
+        func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+            XCTAssertTrue(condition, message, line: line)
+        }
+        // Offered steps: 80…200 in 10% steps, default 100%.
+        for percent in stride(from: 80, through: 200, by: 10) {
+            check(AppFontScale.validated(percent) == percent, "\(percent)% is a valid step")
+        }
+        check(AppFontScale.validated(70) == 100, "below range falls back to 100%")
+        check(AppFontScale.validated(210) == 100, "above range falls back to 100%")
+        check(AppFontScale.validated(115) == 100, "off-step value falls back to 100%")
+        check(AppFontScale.validated(0) == 100, "zero falls back to 100%")
+        check(AppFontScale.validated(-100) == 100, "negative falls back to 100%")
+        check(AppFontScale.factor(percent: 150) == 1.5, "factor of 150% is 1.5")
+        check(AppFontScale.factor(percent: 999) == 1, "factor of an invalid value is 1")
+
+        // Stored value: missing, invalid type and invalid number all give 100%.
+        let domain = "MarkViewFontScaleTests." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: domain)!
+        let settings = MarkViewCore.Settings(defaults)
+        let scaleName = Setting.fontScalePercent.name
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.removeObject(forKey: scaleName)
+        check(AppFontScale.storedFactor(read: { settings.value(Setting.fontScalePercent) }) == 1, "missing preference is 100%")
+        defaults.set("large", forKey: scaleName)
+        check(AppFontScale.storedFactor(read: { settings.value(Setting.fontScalePercent) }) == 1, "non-numeric preference is 100%")
+        defaults.set(300, forKey: scaleName)
+        check(AppFontScale.storedFactor(read: { settings.value(Setting.fontScalePercent) }) == 1, "out-of-range preference is 100%")
+        defaults.set(120, forKey: scaleName)
+        check(AppFontScale.storedFactor(read: { settings.value(Setting.fontScalePercent) }) == 1.2, "saved 120% is used")
+        defaults.removeObject(forKey: scaleName)
+
+        // Text styles keep the macOS hierarchy; headline stays bold.
+        check(AppFontScale.pointSize(.body) == 13, "body is 13 pt")
+        check(AppFontScale.pointSize(.caption) == 10, "caption is 10 pt")
+        check(AppFontScale.pointSize(.title2) == 17, "title2 is 17 pt")
+        check(AppFontScale.defaultWeight(.headline) == .bold, "headline is bold")
+        check(AppFontScale.defaultWeight(.caption) == .regular, "caption is regular")
+
+        // Editor slider mirror: its own range (10…20), independent of the interface scale.
+        check(EditorTextSize.validated(16) == 16, "slider size 16 is kept")
+        check(EditorTextSize.validated(40) == 13, "out-of-range slider size falls back to 13")
+        check(Setting.editorTextSizeMirror.name != scaleName, "the two controls use separate keys")
+
+    }
+
     @MainActor func testFileBrowserRulesOnTemporaryProject() throws {
         func check(_ condition: Bool, _ label: String, line: UInt = #line) {
             XCTAssertTrue(condition, label, line: line)
