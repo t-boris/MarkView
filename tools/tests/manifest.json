@@ -2707,7 +2707,9 @@
         "MarkView/Resources/Editor/js/markview-structured.js",
         "MarkView/Resources/Editor/js/markview-mdext.js",
         "MarkView/Resources/Editor/js/markview-state.js",
-        "MarkView/Resources/Editor/js/markview-find.js"
+        "MarkView/Resources/Editor/js/markview-find.js",
+        "MarkViewHostedTests/WorkspaceAppearanceHostTests.swift",
+        "MarkViewHostedTests/WorkspaceStateHostTests.swift"
       ]
     },
     {
