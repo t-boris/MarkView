@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 180,
+  "suiteCount": 179,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2772,7 +2772,8 @@
         "MarkView/Models/Architecture/XRayCommand.swift",
         "MarkView/Models/Workspace/FileBrowserModel.swift",
         "MarkView/Models/Workspace/WindowUIState.swift",
-        "MarkView/Models/Workspace/WindowTitle.swift"
+        "MarkView/Models/Workspace/WindowTitle.swift",
+        "MarkView/Views/Appearance/ThemePickerView.swift"
       ]
     },
     {
@@ -3862,30 +3863,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "tools/tests/WindowSessionTests.swift",
         "MarkView/Models/Appearance/ThemeDefinition.swift"
-      ]
-    },
-    {
-      "name": "window-theme-tests",
-      "script": "tools/tests/window-theme-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Appearance/AppFontScale.swift",
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Appearance/WindowTheme.swift",
-        "MarkView/Views/Appearance/AppFontScaleView.swift",
-        "MarkView/Views/Appearance/AppPalette.swift",
-        "MarkView/Views/Appearance/ThemePickerView.swift",
-        "tools/tests/WindowThemeTests.swift",
-        "tools/tests/window-theme-tests.sh",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
