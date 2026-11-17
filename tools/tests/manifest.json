@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 124,
+  "suiteCount": 123,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2198,7 +2198,8 @@
         "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
         "MarkViewHostedTests/InsightPageHostTests.swift",
         "MarkView/Models/Lifecycle/WorkflowDone.swift",
-        "MarkView/Models/Lifecycle/WorkflowTemplate.swift"
+        "MarkView/Models/Lifecycle/WorkflowTemplate.swift",
+        "MarkView/Models/Lifecycle/WorkflowTemplateLibrary.swift"
       ]
     },
     {
@@ -3289,18 +3290,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "workflow-template-library-tests",
-      "script": "tools/tests/workflow-template-library-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/WorkflowTemplateLibrary.swift",
-        "MarkView/Models/Lifecycle/WorkflowTemplate.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "tools/tests/WorkflowTemplateLibraryChecks.swift",
-        "tools/tests/workflow-template-library-tests.sh"
       ]
     },
     {
