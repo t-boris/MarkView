@@ -28,20 +28,6 @@ extension TerminalProfile {
 
 /// The open project as the terminals read it (`ProjectProviding`): the folder, the project whose assistant choice applies, the links.
 @MainActor
-final class StubProject: ProjectProviding {
-    var root: URL?
-    var aiProject: URL?
-    var linkedFolderURLs: [URL] = []
-    var searchRoots: [URL] { (root.map { [$0] } ?? []) + linkedFolderURLs }
-    var database: SemanticDatabase? { nil }
-    func relativePath(of url: URL) -> String { url.path }
-    func markdownFiles(in folder: URL) -> [URL] { [] }
-    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-    func refreshFileTree() {}
-    func containerRoot(for url: URL) -> URL? { root }
-}
-
-@MainActor
 final class StubHost: AITerminalsHost {
     let browserControlID = UUID()
     var registered = 0

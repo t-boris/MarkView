@@ -28,5 +28,5 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/tool-tab
     MarkView/Models/Discussion/Discussion.swift MarkView/Models/Discussion/DiscussionPrompt.swift MarkView/Models/Discussion/DiscussionsHost.swift \
     MarkView/Models/Workspace/UIStudioHost.swift MarkView/Models/Workspace/CockpitHost.swift \
     MarkView/Models/Prototype/PrototypeFiles.swift MarkView/Models/Workspace/PrototypeStudioHost.swift \
-    tools/tests/ToolTabsRouterStubs.swift tools/tests/ToolTabsRouterTests.swift
+    tools/tests/ToolTabsRouterStubs.swift tools/tests/ProjectProvidingTestSupport.swift tools/tests/ToolTabsRouterTests.swift
 "$out/tool-tabs-router-tests"

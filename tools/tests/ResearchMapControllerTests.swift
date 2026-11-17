@@ -18,20 +18,6 @@ func check(_ condition: Bool, _ label: String) {
 
 /// The open project as a feature reads it (`ProjectProviding`): a folder and no database.
 @MainActor
-final class StubProjectContext: ProjectProviding {
-    var root: URL?
-    var aiProject: URL? { root }
-    var linkedFolderURLs: [URL] { [] }
-    var searchRoots: [URL] { root.map { [$0] } ?? [] }
-    var database: SemanticDatabase? { nil }
-    func relativePath(of url: URL) -> String { url.path }
-    func markdownFiles(in folder: URL) -> [URL] { [] }
-    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-    func refreshFileTree() {}
-    func containerRoot(for url: URL) -> URL? { root }
-}
-
-@MainActor
 final class StubWindow: ResearchHost {
     struct Tab {
         let id = UUID()
@@ -112,7 +98,7 @@ func makeProject(_ name: String, complete: Bool = true) -> (project: URL, map: U
     write(model.markdown(), to: map)
     write("line 1\nline 2\nline 3\nline 4\nline 5\n", to: project.appendingPathComponent("docs/notes.md"))
     let window = StubWindow()
-    let context = StubProjectContext()
+    let context = StubProject(aiProjectTracksRoot: true)
     context.root = project
     let tasks = TaskBag()
     return (project, map, window, ResearchMapController(host: window, project: context, tasks: tasks), tasks)

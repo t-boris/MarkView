@@ -1,19 +1,21 @@
-import Cocoa
+import AppKit
 import WebKit
+import XCTest
 
-// Runs the real `window.revealStructure` of markview-structured.js against a tree shaped like the
-// viewer's output, in a WKWebView.
-var failures = 0
-func check(_ condition: Bool, _ message: String, line: Int = #line) {
-    if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message) (line \(line))") }
-}
+final class StructureRevealTests: XCTestCase {
+    @MainActor private final class Navigation: NSObject, WKNavigationDelegate {
+        let ready: XCTestExpectation
+        init(ready: XCTestExpectation) { self.ready = ready }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { ready.fulfill() }
+    }
 
-let source = try String(contentsOfFile: "MarkView/Resources/Editor/js/markview-structured.js", encoding: .utf8)
-guard let start = source.range(of: "window.revealStructure = function"), let end = source.range(of: "window.structFoldAll") else {
-    print("FAIL revealStructure not found in markview-structured.js"); exit(1)
-}
-let function = String(source[start.lowerBound..<end.lowerBound])
-
+    @MainActor func testRevealNestedAndSourceLines() async throws {
+        var repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while repoRoot.path != "/" && !FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent("MarkView.xcodeproj").path) { repoRoot.deleteLastPathComponent() }
+        let source = try String(contentsOf: repoRoot.appendingPathComponent("MarkView/Resources/Editor/js/markview-structured.js"), encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "window.revealStructure = function"))
+        let end = try XCTUnwrap(source.range(of: "window.structFoldAll"))
+        let function = String(source[start.lowerBound..<end.lowerBound])
 func node(_ path: String, key: String, children: String? = nil, id: String = "") -> String {
     let attr = path.replacingOccurrences(of: "\"", with: "&quot;")
     if let children {
@@ -37,16 +39,15 @@ window.documentGotoLine = function(line) { window.__goto = line; };
 </script></body></html>
 """
 
-final class Runner: NSObject, WKNavigationDelegate {
-    let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-    func start() { web.navigationDelegate = self; web.loadHTMLString(html, baseURL: nil) }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Task { @MainActor in await run(); print(failures == 0 ? "All structure reveal checks passed." : "\(failures) structure reveal check(s) failed."); exit(failures == 0 ? 0 : 1) }
-    }
-    @MainActor func js(_ script: String) async -> Any? {
-        await withCheckedContinuation { c in web.evaluateJavaScript(script) { value, _ in c.resume(returning: value) } }
-    }
-    @MainActor func run() async {
+        _ = NSApplication.shared
+        let ready = expectation(description: "WebKit loaded the structure fixture")
+        let navigation = Navigation(ready: ready)
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        webView.navigationDelegate = navigation
+        webView.loadHTMLString(html, baseURL: nil)
+        await fulfillment(of: [ready], timeout: 20)
+        func js(_ script: String) async -> Any? { try? await webView.evaluateJavaScript(script) }
+        func check(_ condition: Bool, _ message: String) { XCTAssertTrue(condition, message) }
         let found = await js("window.revealStructure('[\"services\",\"web\",\"image\"]', 5)") as? Bool
         check(found == true, "a nested key is found")
         let svc = await js("document.getElementById('svc-children').classList.contains('collapsed')") as? Bool
@@ -68,9 +69,3 @@ final class Runner: NSObject, WKNavigationDelegate {
         check(sourceShown == true && line == 7, "in a source view the line is selected instead")
     }
 }
-
-let app = NSApplication.shared
-let runner = Runner()
-runner.start()
-DispatchQueue.main.asyncAfter(deadline: .now() + 20) { print("FAIL timeout"); exit(1) }
-app.run()

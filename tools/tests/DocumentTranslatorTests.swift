@@ -14,20 +14,7 @@ enum DocumentTranslatorChecks {
     }
 
     /// An open project that is only a folder: no database, no linked folders.
-    @MainActor
-    final class FakeProject: ProjectProviding {
-        var root: URL?
-        var aiProject: URL? { root }
-        var linkedFolderURLs: [URL] { [] }
-        var searchRoots: [URL] { root.map { [$0] } ?? [] }
-        var database: SemanticDatabase? { nil }
-        init(root: URL?) { self.root = root }
-        func relativePath(of url: URL) -> String { url.path }
-        func markdownFiles(in folder: URL) -> [URL] { [] }
-        func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-        func refreshFileTree() {}
-        func containerRoot(for url: URL) -> URL? { root }
-    }
+
 
     /// The assistant of a check: what each call receives, and what it answers.
     @MainActor
@@ -67,7 +54,7 @@ enum DocumentTranslatorChecks {
             let tabs = TabsController(prompts: NoPrompts())
             self.tabs = tabs
             let assistant = self.assistant
-            translator = DocumentTranslator(tabs: tabs, project: FakeProject(root: folder), tasks: tasks,
+            translator = DocumentTranslator(tabs: tabs, project: StubProject(root: folder, aiProjectTracksRoot: true), tasks: tasks,
                                             runner: { request, onDelta, onActivity in try await assistant.run(request, onDelta, onActivity) })
         }
 

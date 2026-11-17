@@ -120,7 +120,7 @@ final class StubWindow: BrowserHostWindow {
 @MainActor
 struct Rig {
     let folder: URL
-    let project = StubProject()
+    let project = StubProject(aiProjectTracksRoot: true)
     let prompts = ScriptedPrompts()
     let tabs = TabsController(prompts: ScriptedPrompts())
     let layout = PanelLayout(defaults: defaults())

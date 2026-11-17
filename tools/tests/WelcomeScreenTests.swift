@@ -573,36 +573,30 @@ private struct ProjectContextScreen: View {
         let (window, hosting) = host(project: project, git: git, theme: .classicDark, size: size, still: true) { performed.append($0) }
         defer { window.close() }
         settle(hosting)
-        // The menu travels with the centered/scrolled column. Exclude its actual frame: a hard-coded strip can open
-        // the menu and leave this synthetic mouse-down sweep waiting forever in AppKit's menu tracking loop.
-        let menuFrames = accessibilityButtons(hosting).filter { $0.label.contains("Matrix Rain") }.map {
-            hosting.convert(window.convertFromScreen($0.frame), from: nil).insetBy(dx: -4, dy: -4)
-        }
-        func click(_ p: CGPoint) {
-            let location = hosting.convert(NSPoint(x: p.x, y: p.y), to: nil)
+        // Use the real accessibility frames to send one native click to each catalogue tile.
+        // A coordinate sweep sends thousands of irrelevant events through SwiftUI hit testing.
+        _ = accessibilityButtons(hosting)
+        settle(hosting, seconds: 0.4)
+        let buttons = accessibilityButtons(hosting)
+        let actions = project == nil ? WelcomeCatalogue.emptyWindow : WelcomeCatalogue.project(isGitRepo: git).flatMap(\.actions)
+        for action in actions {
+            guard let frame = buttons.first(where: { $0.label == action.title })?.frame else {
+                check(false, "tile is accessible: \(action.title)")
+                continue
+            }
+            let localFrame = window.convertFromScreen(frame)
+            let location = NSPoint(x: localFrame.midX, y: localFrame.midY)
+            let before = performed.count
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
                                                      pressure: type == .leftMouseUp ? 0 : 1) else { continue }
                 window.sendEvent(event)
             }
+            check(Array(performed.dropFirst(before)) == [action.id], "native click reaches only \(action.title)")
         }
-        var fired = Set<WelcomeActionID>()
-        var y: CGFloat = 20
-        while y < size.height - 90 {
-            var x: CGFloat = 20
-            while x < size.width - 20 {
-                let before = performed.count
-                let point = CGPoint(x: x, y: y)
-                if !menuFrames.contains(where: { $0.contains(point) }) { click(point) }
-                if performed.count > before { fired.formUnion(performed[before...]) }
-                x += 13
-            }
-            y += 13
-        }
-        let expected: Set<WelcomeActionID> = project == nil
-            ? Set(WelcomeCatalogue.emptyWindow.map(\.id))
-            : Set(WelcomeCatalogue.project(isGitRepo: git).flatMap { $0.actions.map(\.id) })
+        let expected = Set(actions.map(\.id))
+        let fired = Set(performed)
         let name = project == nil ? "a window without a folder" : (git ? "a Git project" : "a project that is not a Git repository")
         check(fired == expected, "tiles, \(name): a click reaches exactly the \(expected.count) tiles of the catalogue", "missing \(expected.subtracting(fired).map { "\($0)" }.sorted()), extra \(fired.subtracting(expected).map { "\($0)" }.sorted())")
     }

@@ -20,20 +20,6 @@ func check(_ condition: Bool, _ label: String) {
 
 /// The open project as a feature reads it (`ProjectProviding`): a folder and no database.
 @MainActor
-final class StubProject: ProjectProviding {
-    var root: URL?
-    var aiProject: URL? { root }
-    var linkedFolderURLs: [URL] { [] }
-    var searchRoots: [URL] { root.map { [$0] } ?? [] }
-    var database: SemanticDatabase? { nil }
-    func relativePath(of url: URL) -> String { url.path }
-    func markdownFiles(in folder: URL) -> [URL] { [] }
-    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-    func refreshFileTree() {}
-    func containerRoot(for url: URL) -> URL? { root }
-}
-
-@MainActor
 final class StubHost: InsightHost {
     var sessions: [InsightSession] = []
     var active: InsightSession?
@@ -185,7 +171,7 @@ func run() async {
           "the session restores the root and its child from the cache snapshot")
 
     let host = StubHost()
-    let project = StubProject()
+    let project = StubProject(aiProjectTracksRoot: true)
     project.root = analysed
     host.sessions = [session]
     host.active = session
@@ -235,7 +221,7 @@ func run() async {
 
     // Starting a session that cannot start tells the person why through the prompter (AR-22), and starts nothing.
     let shownBefore = host.sessions.count
-    let noFolder = StubProject()
+    let noFolder = StubProject(aiProjectTracksRoot: true)
     let unopened = InsightCoordinator(host: host, project: noFolder, tasks: tasks, prompts: prompts)
     prompts.script = [.press("OK")]
     unopened.start()

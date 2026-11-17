@@ -99,16 +99,3 @@ final class DeploymentStore {}
 final class DiscussionStore {}
 
 /// The project as the browser reads it.
-@MainActor
-final class StubProject: ProjectProviding {
-    var root: URL?
-    var aiProject: URL? { root }
-    var linkedFolderURLs: [URL] = []
-    var searchRoots: [URL] { root.map { [$0] } ?? [] }
-    var database: SemanticDatabase? { nil }
-    func relativePath(of url: URL) -> String { url.path }
-    func markdownFiles(in folder: URL) -> [URL] { [] }
-    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-    func refreshFileTree() {}
-    func containerRoot(for url: URL) -> URL? { root }
-}

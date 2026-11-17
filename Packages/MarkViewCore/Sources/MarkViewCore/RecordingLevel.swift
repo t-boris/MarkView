@@ -2,15 +2,15 @@ import Foundation
 
 /// How loud a recording is, to tell "the microphone delivered silence" (muted, wrong input device)
 /// from "the recognizer heard nothing in real speech". Pure and Foundation-only, so it is testable on
-/// its own (`tools/tests/recording-level-tests.sh`).
-enum RecordingLevel {
+/// its own.
+public enum RecordingLevel {
     /// A recording whose loudest sample stays under this fraction of full scale (about -54 dBFS) is
     /// silence: speech through a microphone, even a quiet one, peaks far above it.
-    static let silentPeak: Float = 0.002
+    public static let silentPeak: Float = 0.002
 
     /// The loudest sample of a 16-bit PCM WAV as a fraction of full scale (0...1); nil when `data`
     /// is not such a WAV or holds no samples.
-    static func peak(ofWAV data: Data) -> Float? {
+    public static func peak(ofWAV data: Data) -> Float? {
         data.withUnsafeBytes { raw -> Float? in
             let count = raw.count
             func text(_ at: Int, _ length: Int) -> String {
@@ -49,9 +49,9 @@ enum RecordingLevel {
     }
 
     /// The peak in decibels relative to full scale, rounded; -120 for digital silence.
-    static func decibels(_ peak: Float) -> Int {
+    public static func decibels(_ peak: Float) -> Int {
         peak <= 0 ? -120 : Int((20 * log10(peak)).rounded())
     }
 
-    static func isSilent(_ peak: Float) -> Bool { peak < silentPeak }
+    public static func isSilent(_ peak: Float) -> Bool { peak < silentPeak }
 }

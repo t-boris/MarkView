@@ -17,6 +17,6 @@ swiftc -parse-as-library -Onone -target "$target" -I "$out" -o "$out/new-project
     $M/Lifecycle/*.swift $M/Shared/*.swift $M/AI/*.swift $M/AI/Providers/*.swift \
     $M/Workspace/NewProjectFlow.swift $M/Workspace/ProjectBootstrap.swift $M/Workspace/NewProject.swift $M/Workspace/ProjectDraftStore.swift \
     $M/Git/GitHubClient.swift $M/Git/GitHubStore.swift $M/Dictation/WhisperClient.swift $M/Dictation/OnDeviceSpeech.swift \
-    $M/QA/RecordingLevel.swift $M/Insight/SemanticUsage.swift $M/Appearance/ProjectColor.swift tools/tests/NewProjectCloseChecks.swift
+    Packages/MarkViewCore/Sources/MarkViewCore/RecordingLevel.swift $M/Insight/SemanticUsage.swift $M/Appearance/ProjectColor.swift tools/tests/NewProjectCloseChecks.swift
 mkdir "$out/home"
 HOME="$out/home" "$out/new-project-close-tests"

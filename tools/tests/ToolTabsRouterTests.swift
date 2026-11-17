@@ -25,25 +25,7 @@ enum ToolTabsRouterChecks {
 
     // MARK: Fakes of what the window gives the tools
 
-    @MainActor
-    final class FakeProject: ProjectProviding {
-        var root: URL?
-        var database: SemanticDatabase?
-        var aiProject: URL? { root }
-        var linkedFolderURLs: [URL] { [] }
-        var searchRoots: [URL] { root.map { [$0] } ?? [] }
-        init(root: URL?) { self.root = root }
-        func relativePath(of url: URL) -> String {
-            guard let root else { return url.path }
-            let prefix = root.standardizedFileURL.path + "/"
-            let path = url.standardizedFileURL.path
-            return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
-        }
-        func markdownFiles(in folder: URL) -> [URL] { [] }
-        func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-        func refreshFileTree() {}
-        func containerRoot(for url: URL) -> URL? { root }
-    }
+
 
     @MainActor
     final class FakeAssistants: AssistantProviding, AssistantPrompting {
@@ -80,7 +62,7 @@ enum ToolTabsRouterChecks {
 
     @MainActor
     struct Rig {
-        let project: FakeProject
+        let project: StubProject
         let window = FakeWindow()
         let assistants = FakeAssistants()
         let tabs = TabsController(prompts: NoPrompts())
@@ -91,7 +73,7 @@ enum ToolTabsRouterChecks {
         let router: ToolTabsRouter
 
         init(root: URL?) {
-            project = FakeProject(root: root)
+            project = StubProject(root: root, aiProjectTracksRoot: true, pathsRelativeToRoot: true)
             router = ToolTabsRouter(window: window, project: project, tabs: tabs, layout: layout, chrome: chrome, requests: requests,
                                     features: features, assistants: assistants)
         }
@@ -349,7 +331,7 @@ enum ToolTabsRouterChecks {
         defer { try? FileManager.default.removeItem(at: root) }
         let outside = folder("discussions-outside")
         defer { try? FileManager.default.removeItem(at: outside) }
-        let project = FakeProject(root: root)
+        let project = StubProject(root: root, aiProjectTracksRoot: true, pathsRelativeToRoot: true)
         let tools = FakeTools()
 
         // An answer: streamed, parsed, and kept as a turn with its decisions and open questions.
@@ -434,7 +416,7 @@ enum ToolTabsRouterChecks {
         check(discuss.store.discussions.count == count, "a discussion that has no turns yet is reused")
         discuss.discuss(about: outside)
         check(discuss.store.selected?.scope == outside.path, "a folder outside the project is discussed by its full path")
-        let noProject = DiscussionsHost(project: FakeProject(root: nil), showTab: { tools.open(.discussions) }, runner: answering(Spy(), text: "x"))
+        let noProject = DiscussionsHost(project: StubProject(root: nil, aiProjectTracksRoot: true, pathsRelativeToRoot: true), showTab: { tools.open(.discussions) }, runner: answering(Spy(), text: "x"))
         let opened = tools.opened.count
         noProject.discuss(about: file)
         check(tools.opened.count == opened, "nothing is discussed without a project")

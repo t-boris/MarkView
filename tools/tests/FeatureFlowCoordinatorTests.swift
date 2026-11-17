@@ -55,7 +55,7 @@ let claude = CLITool(rawValue: "claude")!
 @MainActor
 struct Rig {
     let folder: URL
-    let project = StubProject()
+    let project = StubProject(pathsRelativeToRoot: true)
     let assistants: StubAssistants
     let tabs = StubTabs()
     let requests = WindowRequests()

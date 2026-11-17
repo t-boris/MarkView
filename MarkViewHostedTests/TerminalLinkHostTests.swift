@@ -126,6 +126,15 @@ import MarkViewCore
                     let prefix = mode == 0 ? "" : "\u{1b}[?1049h\u{1b}[?\(mode)h\u{1b}[?1006h"
                     try await display(prefix + "\u{1b}[2;1H⏺ Opened \u{1b}[1m" + open + "PR #1" + close + "\u{1b}[0m for review\r\n")
                     try await hover(col: 12, row: 2)
+                    // Link detection is asynchronous; wait for this specific link before dispatching the click.
+                    let deadline = Date().addingTimeInterval(3)
+                    var tooltip = ""
+                    repeat {
+                        tooltip = try await js("target.closest('.xterm-screen').title") as? String ?? ""
+                        if tooltip.contains(pr.absoluteString) { break }
+                        await pause(50)
+                    } while Date() < deadline
+                    check(tooltip.contains(pr.absoluteString), "CC-\(name) mode \(mode): link became ready, tooltip=\(tooltip)")
                     try await click()
                     check(links.count == 1 && external == [pr] && inputs.isEmpty, "CC-\(name) mode \(mode): links=\(links.count) ext=\(external) inputs=\(inputs.count)")
                 }

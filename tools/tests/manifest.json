@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 208,
+  "suiteCount": 203,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -117,6 +117,7 @@
       "script": "tools/tests/ai-terminals-controller-tests.sh",
       "tier": "pure",
       "sources": [
+        "tools/tests/ProjectProvidingTestSupport.swift",
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/AI/AIOperation.swift",
@@ -1137,7 +1138,8 @@
         "MarkView/Models/Shared/ArchiveSupport.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/document-translator-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift"
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ProjectProvidingTestSupport.swift"
       ]
     },
     {
@@ -1207,6 +1209,7 @@
       "script": "tools/tests/browser-host-tests.sh",
       "tier": "pure",
       "sources": [
+        "tools/tests/ProjectProvidingTestSupport.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
@@ -1254,6 +1257,7 @@
       "script": "tools/tests/feature-flow-coordinator-tests.sh",
       "tier": "pure",
       "sources": [
+        "tools/tests/ProjectProvidingTestSupport.swift",
         "MarkView/Models/AI/Providers/AgentActivity.swift",
         "MarkView/Models/AI/Providers/AgentUsage.swift",
         "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
@@ -1391,7 +1395,8 @@
         "tools/tests/FileOperationsTests.swift",
         "tools/tests/TabsControllerStubs.swift",
         "tools/tests/file-operations-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift"
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ProjectProvidingTestSupport.swift"
       ]
     },
     {
@@ -1530,20 +1535,11 @@
       ]
     },
     {
-      "name": "image-siblings-tests",
-      "script": "tools/tests/image-siblings-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/ImageSiblings.swift",
-        "tools/tests/ImageSiblingsTests.swift",
-        "tools/tests/image-siblings-tests.sh"
-      ]
-    },
-    {
       "name": "insight-coordinator-tests",
       "script": "tools/tests/insight-coordinator-tests.sh",
       "tier": "pure",
       "sources": [
+        "tools/tests/ProjectProvidingTestSupport.swift",
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/AI/AIOperation.swift",
@@ -1904,23 +1900,6 @@
       ]
     },
     {
-      "name": "phase1-cleanup-tests",
-      "script": "tools/tests/phase1-cleanup-tests.sh",
-      "tier": "pure",
-      "sources": [
-        ".github/workflows/publish-release.yml",
-        "MarkView.xcodeproj/project.pbxproj",
-        "MarkView/Bridge/WebViewBridge.swift",
-        "MarkView/Models/Workspace/PanelLayout.swift",
-        "MarkView/Resources/Editor/vendor/MANIFEST.txt",
-        "bump-version.sh",
-        "release.sh",
-        "tools/tests/Phase1CleanupTests.swift",
-        "tools/tests/manifest.json",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
-      ]
-    },
-    {
       "name": "phase3-extensibility-tests",
       "script": "tools/tests/phase3-extensibility-tests.sh",
       "tier": "pure",
@@ -2002,17 +1981,6 @@
         "tools/tests/Phase6StorageSecurityTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "phase7-web-ci-tests",
-      "script": "tools/tests/phase7-web-ci-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Resources/Editor/js/markview-bridge.js",
-        "MarkView/Resources/Editor/js/mv-kit.js",
-        "tools/tests/Phase7WebCITests.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json"
       ]
     },
     {
@@ -2824,6 +2792,9 @@
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",
         "MarkViewHostedTests/QAWebFaultTests.swift",
         "MarkViewHostedTests/EditorHostTests.swift",
+        "MarkViewHostedTests/GraphPerformanceProbe.swift",
+        "MarkView/Views/Architecture/GraphCreatorSheet.swift",
+        "MarkView/Views/Workspace/TOCView.swift",
         "MarkView/Views/Workspace/EditorView.swift",
         "MarkView/Views/Workspace/ContentView.swift",
         "MarkView/Models/Workspace/WorkspaceManager.swift",
@@ -3026,16 +2997,6 @@
       ]
     },
     {
-      "name": "recording-level-tests",
-      "script": "tools/tests/recording-level-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/QA/RecordingLevel.swift",
-        "tools/tests/RecordingLevelTests.swift",
-        "tools/tests/recording-level-tests.sh"
-      ]
-    },
-    {
       "name": "remote-browser-tests",
       "script": "tools/tests/remote-browser-tests.sh",
       "tier": "gui",
@@ -3233,6 +3194,7 @@
       "script": "tools/tests/research-map-controller-tests.sh",
       "tier": "pure",
       "sources": [
+        "tools/tests/ProjectProvidingTestSupport.swift",
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/AI/AIOperation.swift",
@@ -3452,16 +3414,6 @@
         "MarkView/Models/Workspace/StructureOutline.swift",
         "tools/tests/StructureOutlineTests.swift",
         "tools/tests/structure-outline-tests.sh"
-      ]
-    },
-    {
-      "name": "structure-reveal-tests",
-      "script": "tools/tests/structure-reveal-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Resources/Editor/js/markview-structured.js",
-        "tools/tests/StructureRevealTests.swift",
-        "tools/tests/structure-reveal-tests.sh"
       ]
     },
     {
@@ -4678,7 +4630,8 @@
         "tools/tests/ToolTabsRouterStubs.swift",
         "tools/tests/ToolTabsRouterTests.swift",
         "tools/tests/tool-tabs-router-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift"
+        "MarkView/Models/Shared/UserPrompts.swift",
+        "tools/tests/ProjectProvidingTestSupport.swift"
       ]
     },
     {

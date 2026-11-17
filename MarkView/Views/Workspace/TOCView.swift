@@ -82,7 +82,7 @@ struct TOCView: View {
 }
 
 /// Scoped observer for active heading updates via `DocumentScrollSideTable` (`AR-15`).
-private struct TOCHeadingsListView: View {
+struct TOCHeadingsListView: View {
     @Environment(\.palette) private var palette
     let tab: OpenTab
     @ObservedObject var scrollState: DocumentScrollSideTable
@@ -91,7 +91,7 @@ private struct TOCHeadingsListView: View {
     var body: some View {
         let activeID = scrollState.activeHeading(for: tab.id)
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(tab.headings) { heading in
                     Button(action: { onSelectHeading(heading.id) }) {
                         HStack(spacing: 4) {
@@ -116,6 +116,14 @@ private struct TOCHeadingsListView: View {
                 }
             }
             .padding(.vertical, 4)
+        }
+        .accessibilityRepresentation {
+            VStack {
+                ForEach(tab.headings) { heading in
+                    Button(heading.text) { onSelectHeading(heading.id) }
+                        .accessibilityValue(heading.id == activeID ? "Current" : "")
+                }
+            }
         }
         .background(palette.bgSidebar)
     }

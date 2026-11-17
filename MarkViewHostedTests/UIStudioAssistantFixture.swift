@@ -13,6 +13,17 @@ final class UIStudioAssistantFixture: @unchecked Sendable {
     }
     private var mapResponse: Handler?
 
+    func reset() {
+        lock.withLock {
+            recorded.removeAll()
+            recordedMaps.removeAll()
+            response = { _ in
+                try CLICompletion.Result(text: "", structured: nil, inputTokens: 0, outputTokens: 0, costUSD: nil)
+            }
+            mapResponse = nil
+        }
+    }
+
     var requests: [CLICompletion.Request] { lock.withLock { recorded } }
     var mapRequests: [CLICompletion.Request] { lock.withLock { recordedMaps } }
     var answer: Handler {

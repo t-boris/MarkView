@@ -49,7 +49,7 @@ struct GraphCreatorSheet: View {
                     }
 
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
+                        LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(cachedFiles, id: \.self) { file in
                                 HStack(spacing: 6) {
                                     Image(systemName: selectedFiles.contains(file) ? "checkmark.square.fill" : "square")
@@ -59,13 +59,18 @@ struct GraphCreatorSheet: View {
                                     Spacer()
                                 }
                                 .contentShape(Rectangle())
-                                .onTapGesture {
-                                    if selectedFiles.contains(file) { selectedFiles.remove(file) }
-                                    else { selectedFiles.insert(file) }
-                                }
+                                .onTapGesture { toggle(file) }
                             }
                         }
                     }.frame(maxHeight: 150)
+                    .accessibilityRepresentation {
+                        VStack {
+                            ForEach(cachedFiles, id: \.self) { file in
+                                Button(file) { toggle(file) }
+                                    .accessibilityValue(selectedFiles.contains(file) ? "Selected" : "Not selected")
+                            }
+                        }
+                    }
                 }.padding(6)
             }
 
@@ -136,6 +141,11 @@ struct GraphCreatorSheet: View {
 
     private func selectAll() {
         selectedFiles = Set(cachedFiles)
+    }
+
+    private func toggle(_ file: String) {
+        if selectedFiles.contains(file) { selectedFiles.remove(file) }
+        else { selectedFiles.insert(file) }
     }
 
     private func selectCurrentFile() {

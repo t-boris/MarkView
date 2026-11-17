@@ -141,6 +141,7 @@ import MarkViewCore
         window.isReleasedWhenClosed = false
         window.title = "MarkView terminal layout tests"
         window.contentView = web
+        window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
         window.orderFrontRegardless()
         web.loadFileURL(TerminalSession.pageURL!, allowingReadAccessTo: TerminalSession.pageURL!.deletingLastPathComponent())
     }

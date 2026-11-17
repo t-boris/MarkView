@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [qa-web-fault-tests, workflow-editor-layout-tests, ui-studio-session-tests]
+        suite: [qa-web-fault-tests, workflow-editor-layout-tests, studio-session, studio-network, studio-recovery]
     steps:
       - uses: actions/checkout@v4
       - name: Identify Xcode
@@ -99,7 +99,12 @@ jobs:
       - name: Run app-hosted regression suite
         env:
           MARKVIEW_HOSTED_TEST_DERIVED_DATA: ${{ runner.temp }}/MarkViewHostedData
-        run: ./tools/tests/run.sh '${{ matrix.suite }}'
+          HOSTED_SUITE: ${{ matrix.suite }}
+        run: |
+          case "$HOSTED_SUITE" in
+            studio-*) MARKVIEW_STUDIO_TEST_PART="${HOSTED_SUITE#studio-}" ./tools/tests/run.sh ui-studio-session-tests ;;
+            *) ./tools/tests/run.sh "$HOSTED_SUITE" ;;
+          esac
       - name: Record hosted build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewHostedData/source-mtimes.json"
       - name: Save hosted build cache

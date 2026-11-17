@@ -22,21 +22,7 @@ enum FileOperationsChecks {
     }
 
     /// An open project that is a folder and the folders linked to it.
-    @MainActor
-    final class FakeProject: ProjectProviding {
-        var root: URL?
-        var linked: [URL] = []
-        var aiProject: URL? { root }
-        var linkedFolderURLs: [URL] { linked }
-        var searchRoots: [URL] { (root.map { [$0] } ?? []) + linked }
-        var database: SemanticDatabase? { nil }
-        init(root: URL?) { self.root = root }
-        func relativePath(of url: URL) -> String { url.path }
-        func markdownFiles(in folder: URL) -> [URL] { [] }
-        func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-        func refreshFileTree() {}
-        func containerRoot(for url: URL) -> URL? { root }
-    }
+
 
     /// The Trash of a check: a folder of its own that receives what the controller trashes, so no file reaches the person's Trash.
     @MainActor
@@ -61,14 +47,14 @@ enum FileOperationsChecks {
         let tabs = TabsController(prompts: NoPrompts())
         /// The window's background tasks, which the controller's unpackings run in.
         let tasks = TaskBag()
-        let project: FakeProject
+        let project: StubProject
         let files: FileOperationsController
         /// What the Trash stand-in received, in order.
         let trashed = Trashed()
 
         init(root: URL) {
             self.root = root
-            project = FakeProject(root: root)
+            project = StubProject(root: root, aiProjectTracksRoot: true)
             let trashed = self.trashed
             trashed.tabs = tabs
             files = FileOperationsController(host: host, tabs: tabs, project: project, tasks: tasks, trash: { url in try trashed.take(url) })
@@ -167,7 +153,7 @@ enum FileOperationsChecks {
             let outside = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("outside-\(UUID().uuidString)")
             for url in [linked, outside] { try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true) }
             defer { for url in [linked, outside] { try? FileManager.default.removeItem(at: url) } }
-            w.project.linked = [linked]
+            w.project.linkedFolderURLs = [linked]
             try w.make("target/placeholder.txt", "x")
             let target = w.root.appendingPathComponent("target")
             try w.make("a.md", "a")

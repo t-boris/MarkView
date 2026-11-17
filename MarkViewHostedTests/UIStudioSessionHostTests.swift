@@ -294,7 +294,11 @@ private func runUIStudioSession() async {
     window.contentView!.addSubview(host)
     host.viewport = CGSize(width: session.viewport.width, height: session.viewport.height)
     host.zoom = 0.75
+    window.alphaValue = 0
+    window.ignoresMouseEvents = true
+    window.isReleasedWhenClosed = false
     window.orderFrontRegardless()
+    defer { window.orderOut(nil); window.close() }
 
     let port = freePort()
     let target = WebAppTarget(folder: web, label: "web", command: "python3 server.py \(port) --bind 127.0.0.1", ports: [port])
@@ -1778,25 +1782,6 @@ private func finish(_ session: StudioSession, port: Int? = nil) async {
         if let port {
             let answering = await WebAppPreview.firstAnswering([port], timeout: 1)
             check("AC-18 closing the session stops the server it started", answering == nil && session.state == .stopped)
-            await environmentMapChecks()
-            await routeMapChecks()
-            await externalServerCheck()
-            await serverRequestChecks()
-            await lateRuleChecks()
-            await serverClockChecks()
-            await logChecks()
-            await authChecks()
-            await authWithoutRealKeyChecks()
-            await ipcSessionChecks()
-            await fixDataChecks()
-            await autoRepairChecks()
-            await environmentReviewChecks()
-            await hashRouteChecks()
-            await signInRepairChecks()
-            await screenPreparationChecks()
-            await placeholderScreenChecks()
-            await dependencyInstallChecks()
-            await dynamicServerChecks()
         }
         targetChecks()
 }
@@ -3973,5 +3958,46 @@ private func authWithoutRealKeyChecks() async {
 
 
 final class UIStudioSessionHostTests: XCTestCase {
-    @MainActor func testSession() async { await runUIStudioSession() }
+    @MainActor private func withAssistant(_ work: () async -> Void) async {
+        studioAssistant.reset()
+        let previousTimeout = StudioSession.expectedStateTimeout
+        StudioSession.expectedStateTimeout = 1
+        AIAssistantRunner.setTestRunner(studioAssistant.run)
+        defer { StudioSession.expectedStateTimeout = previousTimeout; AIAssistantRunner.setTestRunner(nil) }
+        await work()
+    }
+
+    @MainActor func testSession() async {
+        studioAssistant.reset()
+        await runUIStudioSession()
+    }
+
+    @MainActor func testEnvironmentAndNetworking() async {
+        await withAssistant {
+            await environmentMapChecks()
+            await routeMapChecks()
+            await externalServerCheck()
+            await serverRequestChecks()
+            await lateRuleChecks()
+            await serverClockChecks()
+            await logChecks()
+        }
+    }
+
+    @MainActor func testAuthenticationAndRecovery() async {
+        await withAssistant {
+            await authChecks()
+            await authWithoutRealKeyChecks()
+            await ipcSessionChecks()
+            await fixDataChecks()
+            await autoRepairChecks()
+            await environmentReviewChecks()
+            await hashRouteChecks()
+            await signInRepairChecks()
+            await screenPreparationChecks()
+            await placeholderScreenChecks()
+            await dependencyInstallChecks()
+            await dynamicServerChecks()
+        }
+    }
 }

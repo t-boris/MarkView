@@ -1,21 +1,15 @@
 import Foundation
 import JavaScriptCore
+import XCTest
 
-private var failures = 0
-
-private func check(_ condition: @autoclosure () -> Bool, _ label: String) {
-    if condition() {
-        print("  ✓ \(label)")
-    } else {
-        print("  ✗ \(label)")
-        failures += 1
-    }
-}
-
-private func runPhase7WebCITests() {
-    print("Phase 7 — Web Primitives & Bridge Tests")
-    let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-
+final class WebPrimitiveTests: XCTestCase {
+    func testEditorBridgeAndPrimitives() throws {
+        var repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while repoRoot.path != "/" && !FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent("MarkView.xcodeproj").path) {
+            repoRoot.deleteLastPathComponent()
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent("MarkView.xcodeproj").path))
+        func check(_ condition: @autoclosure () -> Bool, _ label: String) { XCTAssertTrue(condition(), label) }
     // 1. AR-28 & AR-29: mv-kit.js provides window.mvKit + window.mvBridge and executes runtime helpers
     let mvKitPath = repoRoot.appendingPathComponent("MarkView/Resources/Editor/js/mv-kit.js")
     let mvKitSrc = (try? String(contentsOf: mvKitPath, encoding: .utf8)) ?? ""
@@ -90,11 +84,5 @@ private func runPhase7WebCITests() {
     } else {
         check(false, "JavaScriptCore context initializes cleanly")
     }
+    }
 }
-
-runPhase7WebCITests()
-if failures > 0 {
-    print("FAILED: \(failures) check(s)")
-    exit(1)
-}
-print("All Phase 7 web checks passed.")

@@ -41,24 +41,6 @@ final class StubTabs: FeatureFlowTabs {
     func reloadChangedOpenFiles(all: Bool) async { reloads.append(all) }
 }
 
-@MainActor
-final class StubProject: ProjectProviding {
-    var root: URL?
-    var aiProject: URL?
-    var linkedFolderURLs: [URL] = []
-    var searchRoots: [URL] { root.map { [$0] } ?? [] }
-    var database: SemanticDatabase? { nil }
-    var treeRefreshes = 0
-    func relativePath(of url: URL) -> String {
-        guard let root, url.path.hasPrefix(root.path + "/") else { return url.path }
-        return String(url.path.dropFirst(root.path.count + 1))
-    }
-    func markdownFiles(in folder: URL) -> [URL] { [] }
-    func cacheDirectory(for url: URL) -> URL { url.deletingLastPathComponent() }
-    func refreshFileTree() { treeRefreshes += 1 }
-    func containerRoot(for url: URL) -> URL? { root }
-}
-
 // MARK: Terminals
 
 /// A terminal that starts no shell.
