@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 48,
+  "suiteCount": 47,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -632,16 +632,6 @@
       ]
     },
     {
-      "name": "qa-evidence-web-tests",
-      "script": "tools/tests/qa-evidence-web-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/QA/QAPageEvidence.swift",
-        "tools/tests/QAEvidenceWebHarness.swift",
-        "tools/tests/qa-evidence-web-tests.sh"
-      ]
-    },
-    {
       "name": "qa-native-tests",
       "script": "tools/tests/qa-native-tests.sh",
       "tier": "pure",
@@ -1059,7 +1049,6 @@
         "MarkView/Models/Lifecycle/EvidenceTimings.swift",
         "MarkViewHostedTests/CycleTimeHostTests.swift",
         "MarkView/Models/QA/QAReview.swift",
-        "tools/tests/qa-evidence-web-tests.sh",
         "MarkViewHostedTests/QAReviewHostTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/Cockpit/CockpitChild.swift",

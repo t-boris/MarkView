@@ -9,7 +9,9 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 After the Book PDF host migration, the complete local `gui` tier passed 19/19 suites with 0 failures using the isolated `/tmp/MarkViewHostedTestsDerived` build directory (`/tmp/markview-gui-nov17-current.log`). Its general app-hosted suite passed 224 tests with 3 optional skips in 367 seconds; UI Studio’s three session tests passed in 362 seconds, its three lifetime tests passed in 24 seconds, and two workflow-editor tests passed in 171 seconds.
 
-The fresh complete `pure` tier passed 24/24 suites with 0 failures on the same source using four jobs (`/tmp/markview-pure-nov17-current.log`). The five provider-dependent live scenarios remain manual per DEC-013.
+The complete `pure` tier passed 24/24 suites with 0 failures before the subsequent test-only migration using four jobs (`/tmp/markview-pure-nov17-current.log`). The five provider-dependent live scenarios remain manual per DEC-013.
+
+D4: QA page-evidence WebKit fixtures now run in the app host using shipping `QAPageEvidence`, a nonpersistent WebKit store, an off-screen window and a private loopback server. The hosted test passed in 2.1 seconds; all 66 named checks were retained. The separate compiler script was removed; the manifest now has 47 suites (24 pure, 18 GUI, 5 live), with every pure suite assigned once to the CI shards. Repository hygiene, architecture lint and SwiftLint passed. The original standalone watchdog allowed 180 seconds; the hosted test instead has the general suite’s 900-second runner limit and per-operation waits. Full GUI and final CI verification after this migration remain open.
 
 An independent unsigned Release build of the current 6.30.146 source succeeded in `/tmp/MarkViewReleaseVerification`; the app version is 6.30.146 and the build-warning ratchet reports 0 warnings (`/tmp/markview-release-verification-nov17.log`). The signed release, publishing and installation still require the final committed version.
 
