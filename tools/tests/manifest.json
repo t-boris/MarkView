@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 128,
+  "suiteCount": 124,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2196,7 +2196,9 @@
         "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
         "MarkView/Models/Lifecycle/WorkflowFlow.swift",
         "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
-        "MarkViewHostedTests/InsightPageHostTests.swift"
+        "MarkViewHostedTests/InsightPageHostTests.swift",
+        "MarkView/Models/Lifecycle/WorkflowDone.swift",
+        "MarkView/Models/Lifecycle/WorkflowTemplate.swift"
       ]
     },
     {
@@ -3240,25 +3242,6 @@
       ]
     },
     {
-      "name": "workflow-done-tests",
-      "script": "tools/tests/workflow-done-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "MarkView/Models/Lifecycle/WorkflowDone.swift",
-        "tools/tests/WorkflowDoneChecks.swift",
-        "tools/tests/workflow-done-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
       "name": "workflow-editor-layout-tests",
       "script": "tools/tests/workflow-editor-layout-tests.sh",
       "tier": "gui",
@@ -3309,43 +3292,6 @@
       ]
     },
     {
-      "name": "workflow-flow-tests",
-      "script": "tools/tests/workflow-flow-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
-        "MarkView/Models/Lifecycle/WorkflowDone.swift",
-        "MarkView/Models/Lifecycle/WorkflowFlow.swift",
-        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
-        "tools/tests/WorkflowFlowChecks.swift",
-        "tools/tests/workflow-flow-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "workflow-story-tests",
-      "script": "tools/tests/workflow-story-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
-        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
-        "tools/tests/WorkflowStoryChecks.swift",
-        "tools/tests/workflow-story-tests.sh"
-      ]
-    },
-    {
       "name": "workflow-template-library-tests",
       "script": "tools/tests/workflow-template-library-tests.sh",
       "tier": "pure",
@@ -3355,29 +3301,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/WorkflowTemplateLibraryChecks.swift",
         "tools/tests/workflow-template-library-tests.sh"
-      ]
-    },
-    {
-      "name": "workflow-template-tests",
-      "script": "tools/tests/workflow-template-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
-        "MarkView/Models/Lifecycle/IssueLifecycle.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "MarkView/Models/Lifecycle/ProjectWorkflow.swift",
-        "MarkView/Models/Lifecycle/WorkflowDiagramLayout.swift",
-        "MarkView/Models/Lifecycle/WorkflowDone.swift",
-        "MarkView/Models/Lifecycle/WorkflowFlow.swift",
-        "MarkView/Models/Lifecycle/WorkflowTemplate.swift",
-        "MarkView/Models/Lifecycle/WorkflowTransitionStory.swift",
-        "tools/tests/WorkflowTemplateChecks.swift",
-        "tools/tests/workflow-template-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {

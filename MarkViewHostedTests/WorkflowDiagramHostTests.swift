@@ -244,3 +244,500 @@ extension EditorHostTests {
         check(kanbanDiagram.size.height < 420, "…but not absurdly tall (Kanban, \(Int(kanbanDiagram.size.height)) pt)")
     }
 }
+
+extension EditorHostTests {
+    func testWorkflowCompletionRules() throws {
+        func check(_ condition: Bool, _ message: String, _ detail: String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, message + " " + detail, line: line)
+        }
+        let standard = ProjectWorkflow.standard
+        let feature = standard.variant(StandardWorkflow.featureVariantID)!
+        let bug = standard.variant(StandardWorkflow.bugVariantID)!
+        func mark(_ done: WorkflowDone, _ name: String) -> WorkflowDone.Mark { done.marks.first { $0.name == name }! }
+
+        // MARK: What done means
+
+        let featureDone = WorkflowDone.make(feature, definition: nil)
+        check(!mark(featureDone, "Pull request").required && !mark(featureDone, "CI checks").required && !mark(featureDone, "Release").required,
+              "the standard feature process requires no pull request, no checks and no release")
+        check(featureDone.sentence == "Done here means the work on the default branch, then accepted by a person or an AI with evidence.",
+              "…and says so in one sentence", featureDone.sentence)
+
+        let bugDone = WorkflowDone.make(bug, definition: nil)
+        check(mark(bugDone, "Pull request").required && mark(bugDone, "CI checks").required, "the standard bug process requires a pull request and passing checks")
+        check(bugDone.sentence == "Done here means a merged pull request and passing checks, then accepted by a person or an AI with evidence.", "…in one sentence", bugDone.sentence)
+
+        let strict = RuleVariant(id: "strict", name: "Strict", kind: .feature, integration: .pullRequest, checks: true, delivery: .githubRelease, acceptance: .humanOnly)
+        let strictDone = WorkflowDone.make(strict, definition: nil)
+        check(strictDone.sentence == "Done here means a merged pull request, passing checks and a published GitHub release, then accepted by a person.",
+              "a pull request, checks, a release and a person's acceptance are all named", strictDone.sentence)
+        check(mark(strictDone, "Release").required && mark(strictDone, "Acceptance").detail == "Only a person accepts", "…each mark has its detail")
+
+        let confirmed = RuleVariant(id: "installed", name: "Installed", kind: .feature, integration: .directToMain, checks: false,
+                                    delivery: .humanConfirmed(name: "installed on the other Mac"))
+        let confirmedDone = WorkflowDone.make(confirmed, definition: nil)
+        check(mark(confirmedDone, "Delivery event").detail == "A person confirms: installed on the other Mac" && confirmedDone.sentence.contains("a person's confirmation: installed on the other Mac"),
+              "an event a person confirms is named", confirmedDone.sentence)
+
+        var byAI = confirmed
+        byAI.confirmer = .personOrAI
+        let byAIDone = WorkflowDone.make(byAI, definition: nil)
+        check(mark(byAIDone, "Delivery event").detail == "A person, or an AI with its evidence, confirms: installed on the other Mac"
+              && byAIDone.sentence.contains("a confirmation by a person or an AI with evidence: installed on the other Mac"),
+              "an event that an AI may confirm says so", byAIDone.sentence)
+
+        // A flow whose only completed status is Done has no acceptance step.
+        let noStep = WorkflowDone.make(feature, definition: nil, acceptanceStep: false)
+        check(!mark(noStep, "Acceptance").required && noStep.sentence == "Done here means the work on the default branch.",
+              "without an acceptance step nobody accepts afterwards", noStep.sentence)
+
+        // MARK: Where the Definition of Done disagrees
+
+        let checklist = DefinitionOfDone.standard   // a pull request and green CI required, merge asked, deploy skipped
+        check(WorkflowDone.make(feature, definition: checklist).warnings.count == 2,
+              "the standard checklist requires a pull request and CI, the standard feature process does not: two warnings",
+              "\(WorkflowDone.make(feature, definition: checklist).warnings)")
+        check(WorkflowDone.make(bug, definition: checklist).warnings.isEmpty, "…and the standard bug process agrees with it")
+        check(WorkflowDone.make(feature, definition: nil).warnings.isEmpty, "no checklist, no warning")
+
+        var relaxed = DefinitionOfDone.standard
+        for index in relaxed.items.indices where ["pr", "ci"].contains(relaxed.items[index].id) { relaxed.items[index].mode = .skip }
+        check(WorkflowDone.make(strict, definition: relaxed).warnings.count == 2, "a checklist that skips a pull request and CI disagrees with a process that requires them",
+              "\(WorkflowDone.make(strict, definition: relaxed).warnings)")
+        for index in relaxed.items.indices where ["pr", "ci"].contains(relaxed.items[index].id) { relaxed.items[index].mode = .ask }
+        check(WorkflowDone.make(feature, definition: relaxed).warnings.isEmpty, "'ask me' is a question, not a requirement either way")
+        var deploy = DefinitionOfDone.standard
+        for index in deploy.items.indices where deploy.items[index].id == "deploy" { deploy.items[index].mode = .require }
+        check(WorkflowDone.make(bug, definition: deploy).warnings == ["The Definition of Done requires a build and deploy, but this process has no delivery event."],
+              "a required deploy against a process without a delivery event", "\(WorkflowDone.make(bug, definition: deploy).warnings)")
+
+        // MARK: Where in the transitions
+
+        let steps = WorkflowDone.steps(in: standard.feature)
+        check(steps.delivery == "Implementing → Implemented" && steps.acceptance == "Implemented → Verified",
+              "delivery is judged at Implementing → Implemented and accepted at Implemented → Verified", "\(steps)")
+        var noAcceptance = standard.feature
+        noAcceptance.rules.removeAll { $0.kind == .acceptance }
+        check(WorkflowDone.steps(in: noAcceptance).acceptance == nil, "a flow without an acceptance step names none")
+        let bugSteps = WorkflowDone.steps(in: standard.bug)
+        check(bugSteps.delivery == "Fixing → Fixed" && bugSteps.acceptance == "Fixed → Closed", "bugs: Fixing → Fixed, then Fixed → Closed", "\(bugSteps)")
+
+        // MARK: GitHub (feature workflow-templates, REQ-004)
+
+        let strictOff = WorkflowDone.make(strict, definition: nil, githubEnabled: false)
+        check(strictOff.githubWarning != nil, "a process that needs GitHub warns while GitHub is not connected")
+        check(strictOff.githubWarning?.contains("a merged pull request, passing checks and a published GitHub release") == true, "…naming everything it needs", strictOff.githubWarning ?? "")
+        check(strictOff.githubWarning?.contains("Settings → GitHub") == true && strictOff.githubWarning?.contains("“Reaches the branch”, “Checks must pass” and “Delivery event”") == true,
+              "…and both ways out: connect GitHub, or the controls that switch the requirements off", strictOff.githubWarning ?? "")
+        check(WorkflowDone.make(strict, definition: nil, githubEnabled: true).githubWarning == nil, "no warning once GitHub is connected")
+        check(WorkflowDone.make(strict, definition: nil).githubWarning == nil, "a caller that does not say whether GitHub is connected raises none")
+        let checksOnly = RuleVariant(id: "checks", name: "Checks only", kind: .bug, integration: .directToMain, checks: true)
+        check(WorkflowDone.make(checksOnly, definition: nil, githubEnabled: false).githubWarning?.contains("passing checks from GitHub") == true
+              && WorkflowDone.make(checksOnly, definition: nil, githubEnabled: false).githubWarning?.contains("“Checks must pass”") == true,
+              "only what is required is named")
+        check(WorkflowDone.make(feature, definition: nil, githubEnabled: false).githubWarning == nil, "a process that needs nothing does not warn")
+        check(WorkflowDone.make(confirmed, definition: nil, githubEnabled: false).githubWarning == nil, "a delivery event a person confirms needs no GitHub")
+        check(WorkflowDone.githubNeeds(strict).map(\.control) == ["Reaches the branch", "Checks must pass", "Delivery event"], "each need names the control that switches it")
+
+        check(featureDone.enableHint?.contains("Processes → Standard feature") == true && featureDone.enableHint?.contains("“Reaches the branch”, “Checks must pass” and “Delivery event”") == true
+              && featureDone.enableHint?.contains("Settings → GitHub") == true, "a process that needs nothing says where to switch the requirements on", featureDone.enableHint ?? "")
+        check(strictDone.enableHint == nil && bugDone.enableHint == nil, "…and a process that already needs GitHub does not")
+    }
+}
+
+extension EditorHostTests {
+    func testWorkflowFlowCatalogue() throws {
+        func check(_ condition: Bool, _ message: String, _ detail: String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, message + " " + detail, line: line)
+        }
+        let standard = ProjectWorkflow.standard
+
+        // MARK: The catalogue
+
+        check(WorkflowFlow.catalogue.map(\.id) == ["markview", "kanban", "scrum", "linear", "github-projects", "azure-agile", "shape-up", "kanban-triage"],
+              "the Flow menu offers MarkView, Kanban, Scrum, Linear, GitHub Projects, Azure DevOps Agile, Shape Up and Kanban with bug triage")
+        check(Set(WorkflowFlow.catalogue.map(\.id)).count == WorkflowFlow.catalogue.count && Set(WorkflowFlow.catalogue.map(\.title)).count == WorkflowFlow.catalogue.count,
+              "ids and titles are different")
+        for flow in WorkflowFlow.catalogue {
+            let made = flow.applied(to: standard)
+            let problems = made.validate().map(\.message)
+            check(problems.isEmpty, "\(flow.title): the workflow it makes passes the workflow validation", problems.joined(separator: " | "))
+            check(!flow.summary.isEmpty && !flow.origin.isEmpty, "\(flow.title): says what it is and where it comes from")
+            for kind in [IssueKind.feature, .bug] {
+                let roles = Set(flow.lifecycle(kind).statuses.map(\.role))
+                check([LifecycleRole.notStarted, .active, .completed].allSatisfy(roles.contains), "\(flow.title): \(kind.rawValue) statuses have a waiting, a working and a finished state")
+            }
+        }
+
+        // MARK: MarkView with specification is what every project had
+
+        check(WorkflowFlow.markView.feature == standard.feature && WorkflowFlow.markView.bug == standard.bug, "the MarkView flow is the standard workflow, unchanged")
+        check(WorkflowFlow.matching(standard)?.id == "markview", "a project on the standard workflow is recognised as MarkView with specification")
+
+        // MARK: Kanban
+
+        let kanban = WorkflowFlow.kanban
+        func rule(_ flow: WorkflowFlow, _ id: String, _ kind: IssueKind = .feature) -> LifecycleRule? { flow.lifecycle(kind).rules.first { $0.id == id } }
+        check(kanban.feature.statuses.map(\.id) == ["backlog", "ready", "in-progress", "in-review", "done", "wont-do"], "Kanban: Backlog, Ready, In progress, In review, Done, Won't do")
+        check(kanban.feature.statuses.map(\.role) == [.notStarted, .notStarted, .active, .active, .completed, .cancelled], "…waiting, waiting, working, working, finished, dropped")
+        check(kanban.bug == kanban.feature, "…one board for features and bugs")
+        let start = rule(kanban, "backlog+ready>in-progress")
+        check(start?.kind == .start && start?.needs[.system] == [.startEvidence], "work starts from Backlog or Ready into In progress, on start evidence, and MarkView may do it")
+        check(rule(kanban, "in-progress>in-review")?.kind == .spec && rule(kanban, "in-review>in-progress")?.kind == .rollback, "In progress → In review, and back")
+        let completion = rule(kanban, "backlog+in-progress+in-review+ready>done")
+        check(completion?.kind == .completion && completion?.needs.values.allSatisfy { $0 == [.deliveryEvidence] } == true, "delivery completes the work into Done from every state before it")
+        check(!kanban.feature.rules.contains { $0.kind == .acceptance }, "a board whose only finished state is Done has no acceptance step")
+        check(rule(kanban, "done>in-progress")?.kind == .reopen, "Done is reopened into In progress")
+        check(rule(kanban, "backlog+done+in-progress+in-review+ready>wont-do")?.kind == .cancellation && rule(kanban, "wont-do>backlog")?.kind == .reopen,
+              "anything can be dropped into Won't do, and brought back to Backlog")
+        check(rule(kanban, "ready>backlog")?.kind == .spec && rule(kanban, "backlog>ready")?.kind == .spec, "Backlog and Ready are free to reorder")
+        check(rule(kanban, "backlog>ready")?.needs[.system] != nil, "…also for the app's own steps (a quick feature goes to Ready)")
+
+        // MARK: Two finished states: delivery, then acceptance
+
+        let azure = WorkflowFlow.azureAgile
+        check(rule(azure, "resolved>closed")?.kind == .acceptance && rule(azure, "closed>resolved")?.kind == .reopen, "Azure DevOps: Resolved is delivered, a person or an AI accepts it into Closed")
+        check(azure.bug.statuses.map(\.id) == ["new", "active", "resolved", "closed"], "…a bug has no Removed state")
+        check(!azure.bug.rules.contains { $0.kind == .cancellation }, "…so a bug has no cancellation")
+        let steps = WorkflowDone.steps(in: azure.feature)
+        check(steps.delivery == "Active → Resolved" && steps.acceptance == "Resolved → Closed", "…and the Done panel finds both steps", "\(steps)")
+        check(WorkflowDone.steps(in: kanban.feature).delivery == "In progress, In review → Done" && WorkflowDone.steps(in: kanban.feature).acceptance == nil,
+              "Kanban: delivery is judged at In progress, In review → Done; there is no acceptance")
+
+        // MARK: Bugs that differ from features
+
+        let triage = WorkflowFlow.kanbanTriage
+        check(triage.feature == kanban.feature && triage.bug.statuses.map(\.id) == ["unconfirmed", "confirmed", "in-progress", "resolved", "verified", "invalid"],
+              "Kanban with bug triage: features on the board, bugs Unconfirmed → Confirmed → In progress → Resolved → Verified")
+        check(rule(triage, "confirmed>unconfirmed", .bug)?.kind == .spec && rule(triage, "resolved>verified", .bug)?.kind == .acceptance, "…triage is a stage change, Verified is the acceptance")
+        check(WorkflowFlow.shapeUp.bug.statuses.map(\.id) == ["reported", "fixing", "fixed", "wont-fix"], "Shape Up: bugs are Reported, Fixing, Fixed")
+
+        // MARK: Lane titles of the flows
+
+        func lane(_ flow: WorkflowFlow, _ role: LifecycleRole) -> String { WorkflowDiagram.laneTitle(role, statuses: flow.feature.statuses, rules: flow.feature.rules) }
+        check(lane(kanban, .notStarted) == "To do" && lane(kanban, .active) == "In progress" && lane(kanban, .completed) == "Done",
+              "Kanban lanes: To do, In progress, Done")
+        check(lane(WorkflowFlow.linear, .notStarted) == "Backlog & specification", "Linear: three waiting states joined by free moves form one backlog lane (Triage, Backlog, Todo)")
+        check(lane(WorkflowFlow.markView, .notStarted) == "Backlog & specification" && lane(WorkflowFlow.shapeUp, .notStarted) == "Backlog & specification",
+              "MarkView and Shape Up: the waiting lane is where work is specified or shaped")
+        check(lane(WorkflowFlow.githubProjects, .notStarted) == "To do", "GitHub Projects: a single Todo is 'To do'")
+
+        // MARK: What the picker shows
+
+        check(kanban.outline(.feature) == "Backlog, Ready → In progress, In review → Done (dropped: Won't do)", "Kanban outline", kanban.outline(.feature))
+        check(WorkflowFlow.markView.outline(.feature) == "Idea, Exploring, Draft, Review, Resolving, Ready → Implementing → Implemented, Verified (dropped: Archived)", "MarkView outline", WorkflowFlow.markView.outline(.feature))
+        check(azure.outline(.bug) == "New → Active → Resolved, Closed", "a type without a dropped state has no dropped part", azure.outline(.bug))
+        check(!kanban.bugsDiffer && triage.bugsDiffer && WorkflowFlow.markView.bugsDiffer && WorkflowFlow.shapeUp.bugsDiffer, "the picker shows the bug outline only when bugs have states of their own")
+
+        // MARK: Applying a flow to a project
+
+        var tuned = standard
+        tuned.revision = 7
+        tuned.variants[1].integration = .pullRequest
+        tuned.variants[1].delivery = .githubRelease
+        let own = RuleVariant(id: "quick-feature", name: "Quick feature", kind: .feature, integration: .directToMain, checks: false,
+                              rules: [LifecycleRule(from: ["ready"], to: "implementing", kind: .start, needs: [.human: [.startEvidence]])])
+        tuned.variants.append(own)
+        let moved = kanban.applied(to: tuned)
+        check(moved.revision == 7 && moved.schema == tuned.schema, "applying a flow keeps the revision, so a save still notices that the file moved on")
+        check(moved.name == "Kanban" && moved.feature == kanban.feature && moved.bug == kanban.bug, "…and sets the name, the statuses and the transitions")
+        check(moved.variant("standard-bug")?.delivery == .githubRelease && moved.variant("standard-bug")?.integration == .pullRequest,
+              "a process that follows the type keeps its settings (the bug process still needs a pull request and a release)")
+        check(moved.variant("quick-feature") == nil, "a process with its own transitions is left out, they name the statuses of the old flow")
+        check(moved.validate().isEmpty, "…and the result is valid", moved.validate().map(\.message).joined(separator: " | "))
+
+        var bare = standard
+        bare.variants.removeAll { $0.kind == .bug }
+        let refilled = kanban.applied(to: bare)
+        check(refilled.variants(for: .bug).map(\.id) == ["standard-bug"] && refilled.defaultBugVariant == "standard-bug" && refilled.validate().isEmpty,
+              "a type left without a process takes the standard one")
+
+        var lost = standard
+        lost.variants.removeAll { $0.id == "standard-feature" }
+        lost.variants.append(RuleVariant(id: "other-feature", name: "Other", kind: .feature, integration: .directToMain, checks: false))
+        let redefaulted = kanban.applied(to: lost)
+        check(redefaulted.defaultFeatureVariant == "other-feature" && redefaulted.validate().isEmpty, "a default process that no longer exists is replaced by another of its type")
+
+        check(WorkflowFlow.matching(moved)?.id == "kanban" && WorkflowFlow.matching(WorkflowFlow.scrum.applied(to: standard))?.id == "scrum", "the flow in effect is recognised by its statuses")
+        var edited = moved
+        edited.feature.statuses[0].title = "Ideas"
+        check(WorkflowFlow.matching(edited)?.id == "kanban", "a renamed state is still that flow (the ids and roles decide)" )
+
+        // MARK: Flows without the specification stages
+
+        let std = standard.feature
+        check(std.hasSpecificationStages && !kanban.feature.hasSpecificationStages && !WorkflowFlow.linear.feature.hasSpecificationStages, "only the MarkView flow has the specification stages")
+        check(std.entryStatus(preferring: "exploring") == "exploring" && std.entryStatus(preferring: "idea") == "idea" && std.entryStatus(preferring: "draft") == "draft",
+              "a new feature keeps the stage the app asks for in the MarkView flow")
+        check(kanban.feature.entryStatus(preferring: "exploring") == "backlog" && WorkflowFlow.linear.feature.entryStatus(preferring: "idea") == "triage"
+              && WorkflowFlow.shapeUp.feature.entryStatus(preferring: "draft") == "raw-idea" && azure.feature.entryStatus(preferring: "exploring") == "new",
+              "…and the first waiting state of a board otherwise (Backlog, Triage, Raw idea, New)")
+        check(kanban.feature.entryStatus(preferring: "ready") == "ready", "a board that has the preferred state keeps it (Ready)")
+        check(kanban.bug.entryStatus(preferring: "open") == "backlog" && triage.bug.entryStatus(preferring: "open") == "unconfirmed", "a new bug takes the entry of its flow")
+
+        check(std.isPastExplore(status: "draft", requirementsApproved: true) == false && std.isPastExplore(status: "review", requirementsApproved: false) == true
+              && std.isPastExplore(status: "implementing", requirementsApproved: false) == true, "with the stages, past Explore is the status, whatever the requirements")
+        check(kanban.feature.isPastExplore(status: "backlog", requirementsApproved: false) == false, "Kanban: a feature in Backlog with draft requirements is still in Explore")
+        check(kanban.feature.isPastExplore(status: "backlog", requirementsApproved: true) == true, "…and past it once every requirement is approved")
+        check(kanban.feature.isPastExplore(status: "in-progress", requirementsApproved: false) == true && kanban.feature.isPastExplore(status: "done", requirementsApproved: false) == true,
+              "…and always once work has started or is finished")
+        check(kanban.feature.isPastExplore(status: "idea", requirementsApproved: false) == false, "…and a status the flow does not know is not past Explore")
+    }
+}
+
+extension EditorHostTests {
+    func testWorkflowTransitionStories() throws {
+        func check(_ condition: Bool, _ message: String, _ detail: String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, message + " " + detail, line: line)
+        }
+        let standard = ProjectWorkflow.standard
+        let feature = standard.feature.rules, bug = standard.bug.rules
+        func rule(_ rules: [LifecycleRule], _ kind: TransitionKind, to: String? = nil) -> LifecycleRule {
+            rules.first { $0.kind == kind && (to == nil || $0.to == to) }!
+        }
+        func actor(_ story: TransitionStory, _ kind: LifecycleActorKind) -> TransitionStory.ActorLine { story.actors.first { $0.actor == kind }! }
+
+        let pullRequest = RuleVariant(id: "pr", name: "Pull request, checks and a release", kind: .feature, integration: .pullRequest, checks: true,
+                                      delivery: .githubRelease, acceptance: .humanOnly)
+        let direct = RuleVariant(id: "direct", name: "Direct", kind: .feature, start: .agentOrNote, integration: .directToMain, checks: false)
+        let installed = RuleVariant(id: "installed", name: "Installed", kind: .feature, integration: .directToMain, checks: false,
+                                    delivery: .humanConfirmed(name: "installed on the other Mac"))
+
+        // MARK: Every rule of the standard workflow has a story
+
+        var told = 0
+        for rule in feature + bug {
+            let story = TransitionStory.make(rule, processes: [])
+            if !story.trigger.isEmpty && !story.label.isEmpty && story.actors.count == 3 { told += 1 }
+        }
+        check(told == feature.count + bug.count, "every rule of the standard workflow has a trigger, a label and a line for each actor (\(told) rules)")
+
+        // MARK: Completion is the step MarkView makes by itself
+
+        let completion = TransitionStory.make(rule(feature, .completion), processes: [pullRequest, direct, installed])
+        check(completion.automatic, "the completion step is automatic: MarkView makes it once the delivery evidence is complete")
+        check(completion.label == "Completion · automatic", "…and its arrow says so", completion.label)
+        check(actor(completion, .system).text.contains("as soon as the delivery evidence is complete"), "MarkView's line names the event", actor(completion, .system).text)
+        check(actor(completion, .ai).text.contains("project tools") && actor(completion, .ai).text.contains("delivery evidence"),
+              "an AI may make it through the project tools, with delivery evidence", actor(completion, .ai).text)
+        check(completion.parts == .delivery, "completion reads the delivery settings of a process only", "\(completion.parts)")
+        check(completion.processes.count == 3, "every process that follows the type has its lines")
+
+        let prLines = completion.processes.first { $0.id == "pr" }!.lines
+        check(prLines.contains { $0.contains("pull request") && $0.contains("merged") }, "a pull-request process says every unit of work is a merged pull request", "\(prLines)")
+        check(prLines.contains("The required checks passed"), "…that checks must pass")
+        check(prLines.contains { $0.contains("GitHub release") }, "…and that a GitHub release counts as delivery")
+        let directLines = completion.processes.first { $0.id == "direct" }!.lines
+        check(directLines.contains { $0.contains("default branch") && !$0.contains("pull request that GitHub") }, "a direct process accepts work on the default branch", "\(directLines)")
+        check(directLines.contains("No checks are required") && directLines.contains("No delivery event"), "…with no checks and no delivery event")
+        check(completion.processes.first { $0.id == "installed" }!.lines.contains("A person confirms: installed on the other Mac"),
+              "an event a person confirms is named")
+
+        // MARK: Acceptance
+
+        let acceptance = TransitionStory.make(rule(feature, .acceptance), processes: [pullRequest, direct])
+        check(!acceptance.automatic && acceptance.label == "Acceptance · person or AI", "acceptance is made by a person or an AI, not automatically", acceptance.label)
+        check(actor(acceptance, .ai).text.contains("acceptance evidence"), "an AI needs acceptance evidence", actor(acceptance, .ai).text)
+        check(!actor(acceptance, .system).allowed && actor(acceptance, .system).text.contains("not make"), "MarkView does not accept by itself")
+        check(acceptance.parts == .acceptance, "acceptance reads who may accept")
+        check(acceptance.processes.first { $0.id == "pr" }!.lines == ["Only a person accepts"], "a process that lets only a person accept says so")
+        check(acceptance.processes.first { $0.id == "direct" }!.lines.first?.contains("an AI with its evidence") == true, "…and one that lets an AI accept says that")
+
+        // MARK: Start, reopening, cancellation
+
+        let start = TransitionStory.make(rule(feature, .start), processes: [pullRequest, direct])
+        check(start.automatic && start.parts == .start, "start is automatic on a hand-off and reads how a process starts work", "\(start.label) \(start.parts)")
+        check(actor(start, .system).text.contains("handed to an agent"), "…MarkView names the hand-off", actor(start, .system).text)
+        check(start.processes.first { $0.id == "direct" }!.lines == ["Work starts with an agent session or a person's note"], "a process may let a person's note start the work")
+
+        let regression = TransitionStory.make(rule(feature, .reopen, to: "implementing"), processes: [])
+        check(regression.automatic && actor(regression, .system).text.contains("regression"), "a regression reopens finished work by itself", actor(regression, .system).text)
+        let manualReopen = TransitionStory.make(rule(feature, .reopen, to: "implemented"), processes: [])
+        check(!manualReopen.automatic && manualReopen.label == "Reopening · person", "reopening a verified feature is a person's step", manualReopen.label)
+        check(!actor(manualReopen, .ai).allowed && !actor(manualReopen, .system).allowed, "…an AI may not do it")
+        check(actor(manualReopen, .human).text.contains("a reason"), "…and the person gives a reason", actor(manualReopen, .human).text)
+
+        let cancel = TransitionStory.make(rule(bug, .cancellation), processes: [pullRequest, direct])
+        check(cancel.label == "Cancellation · person or AI" && cancel.processes.isEmpty, "cancellation names no process settings: it reads none", "\(cancel.label) \(cancel.processes)")
+        check(!cancel.automatic && actor(cancel, .system).allowed && actor(cancel, .system).text == "May make this step, with cancellation evidence.",
+              "MarkView is allowed to cancel with evidence but nothing makes it do so by itself, so the arrow does not claim it", actor(cancel, .system).text)
+
+        // MARK: The story follows edits
+
+        var edited = rule(feature, .completion)
+        edited.needs[.system] = nil
+        let noSystem = TransitionStory.make(edited, processes: [])
+        check(!noSystem.automatic && noSystem.label == "Completion · person or AI", "taking MarkView off a step takes 'automatic' off its arrow", noSystem.label)
+        edited.needs[.human] = [.deliveryEvidence, .reason]
+        check(actor(TransitionStory.make(edited, processes: []), .human).text == "May make this step, with delivery evidence and a reason.", "conditions are listed in words")
+        edited.needs = [:]
+        let nobody = TransitionStory.make(edited, processes: [pullRequest])
+        check(nobody.label == "Completion" && nobody.processes.isEmpty && nobody.actors.allSatisfy { !$0.allowed },
+              "a step nobody may make has a plain label and no process lines", nobody.label)
+
+        // MARK: Events and who confirms
+
+        let onStart = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: [], .ai: [], .system: []], event: .workStarted)
+        let onStartStory = TransitionStory.make(onStart, processes: [])
+        check(onStartStory.trigger == "When work is started", "a rule with an event says when it happens", onStartStory.trigger)
+        check(onStartStory.automatic && onStartStory.label.hasSuffix("· automatic"), "a rule with an event is automatic", onStartStory.label)
+        check(actor(onStartStory, .system).text == "Makes this step by itself as soon as work is started.", "MarkView is said to take the step when the event happens", actor(onStartStory, .system).text)
+        let noEvent = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: [], .ai: [], .system: []])
+        check(!TransitionStory.make(noEvent, processes: []).automatic && TransitionStory.make(noEvent, processes: []).trigger == TransitionStory.triggerWords(for: .spec),
+              "the same rule without an event is not automatic", TransitionStory.make(noEvent, processes: []).trigger)
+        let eventClosed = LifecycleRule(from: ["in-progress"], to: "in-review", kind: .spec, needs: [.human: []], event: .workStarted)
+        check(!TransitionStory.make(eventClosed, processes: []).automatic, "an event without a MarkView entry does not make the step automatic")
+        let eventWithEvidence = LifecycleRule(from: ["in-progress"], to: "done", kind: .completion, needs: [.system: [.deliveryEvidence]], event: .pullRequestMerged)
+        check(actor(TransitionStory.make(eventWithEvidence, processes: []), .system).text == "Makes this step by itself as soon as a pull request is merged and the delivery evidence is complete.",
+              "an event and a condition are both named", actor(TransitionStory.make(eventWithEvidence, processes: []), .system).text)
+
+        var installedByAI = installed
+        installedByAI.confirmer = .personOrAI
+        check(TransitionStory.processLines(installedByAI, parts: .delivery).contains("A person, or an AI with its evidence, confirms: installed on the other Mac"),
+              "the process line says that an AI may confirm", "\(TransitionStory.processLines(installedByAI, parts: .delivery))")
+        check(TransitionStory.processLines(installed, parts: .delivery).contains("A person confirms: installed on the other Mac"), "and a person only otherwise")
+    }
+}
+
+extension EditorHostTests {
+    func testWorkflowTemplateStorage() throws {
+        func check(_ condition: Bool, _ message: String, _ detail: String = "", line: UInt = #line) {
+            XCTAssertTrue(condition, message + " " + detail, line: line)
+        }
+        let fileManager = FileManager.default
+        let temp = fileManager.temporaryDirectory.appendingPathComponent("mv-template-checks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: temp) }
+        let folder = temp.appendingPathComponent("WorkflowTemplates", isDirectory: true)
+        let store = WorkflowTemplateStore(folder: folder)
+        let moment = Date(timeIntervalSince1970: 1_800_000_000)
+
+        /// Boris's setup: Kanban with the pull request, the checks and the release switched on for both types.
+        func configured() -> ProjectWorkflow {
+            var workflow = WorkflowFlow.kanban.applied(to: .standard)
+            workflow.revision = 7
+            for index in workflow.variants.indices {
+                workflow.variants[index].integration = .pullRequest
+                workflow.variants[index].checks = true
+                workflow.variants[index].delivery = .githubRelease
+            }
+            return workflow
+        }
+
+        // MARK: Ids
+
+        check(WorkflowTemplateStore.slug("My Kanban (no CI)") == "my-kanban-no-ci", "a name becomes a file-name id")
+        check(WorkflowTemplateStore.slug("  ../../etc/passwd ") == "etc-passwd", "a name with path characters cannot make an id that leaves the folder")
+        check(WorkflowTemplateStore.slug("Мой процесс") == "template", "a name with no ASCII letters falls back to 'template'")
+        check(WorkflowTemplateStore.isValid(id: "kanban-2") && !WorkflowTemplateStore.isValid(id: "../x") && !WorkflowTemplateStore.isValid(id: "A")
+              && !WorkflowTemplateStore.isValid(id: "") && !WorkflowTemplateStore.isValid(id: "default"), "only lower-case words with hyphens are ids; 'default' is reserved for the pointer")
+
+        // MARK: Empty folder
+
+        let empty = store.list()
+        check(empty.templates.isEmpty && empty.unusable.isEmpty && empty.defaultID == nil && empty.defaultTemplate == nil, "a folder that does not exist is an empty library")
+
+        // MARK: Save and read back (REQ-001)
+
+        let source = configured()
+        let saved = try! store.save(name: "Kanban with GitHub", note: "PR, CI and release on", workflow: source, now: moment)
+        check(saved.id == "kanban-with-github" && saved.name == "Kanban with GitHub", "saving gives the template its own id")
+        check(fileManager.fileExists(atPath: folder.appendingPathComponent("kanban-with-github.json").path), "one JSON file per template in the folder")
+        let listed = store.list()
+        check(listed.templates.count == 1 && listed.templates[0] == saved, "the template is read back exactly as it was saved")
+        check(listed.templates[0].workflow.feature == source.feature && listed.templates[0].workflow.bug == source.bug
+              && listed.templates[0].workflow.variants == source.variants && listed.templates[0].workflow.defaultBugVariant == source.defaultBugVariant,
+              "it keeps the states, the transitions, every process with its delivery settings and the defaults")
+        check(saved.workflow.revision == 1 && saved.workflow.name == "Kanban with GitHub", "the stored workflow starts at revision 1 and carries the template's name")
+        check(saved.needsGitHub, "a template whose processes need a pull request, checks and a release says it needs GitHub")
+        check(!(try! store.save(name: "Plain", workflow: WorkflowFlow.kanban.applied(to: StandardWorkflow.make(bug: .init(pullRequestRequired: false, checksRequired: false, releaseRequired: false))))).needsGitHub,
+              "a template whose processes require nothing does not")
+        check(try! store.list().templates.map(\.name) == ["Kanban with GitHub", "Plain"], "templates are listed by name")
+
+        // Same name, own file; replacing keeps the id
+        let second = try! store.save(name: "Kanban with GitHub", workflow: source, now: moment)
+        check(second.id == "kanban-with-github-2", "a name that is taken gets its own file and does not overwrite")
+        var changed = source
+        changed.name = "x"
+        changed.bug.statuses[0].title = "Renamed first state"
+        let replaced = try! store.save(name: "Kanban with GitHub", note: "again", workflow: changed, replacing: saved.id, now: moment.addingTimeInterval(60))
+        check(replaced.id == saved.id && store.list().templates.first { $0.id == saved.id }?.note == "again", "replacing writes over the same file and keeps the id")
+        check((try? store.save(name: "Gone", workflow: source, replacing: "nope")) == nil, "replacing a template that is not there is refused")
+
+        // Invalid input is refused
+        check((try? store.save(name: "   ", workflow: source)) == nil, "a template needs a name")
+        var broken = source
+        broken.feature.rules[0].to = "no-such-status"
+        do { _ = try store.save(name: "Broken", workflow: broken); check(false, "an invalid workflow cannot be saved as a template") }
+        catch let error as WorkflowTemplateError { check({ if case .invalid = error { return true } else { return false } }(), "an invalid workflow cannot be saved as a template", error.localizedDescription) }
+        catch { check(false, "an invalid workflow cannot be saved as a template", "\(error)") }
+        check(!store.list().templates.contains { $0.name == "Broken" }, "…and nothing was written for it")
+
+        // MARK: Apply (REQ-002)
+
+        var other = WorkflowFlow.linear.applied(to: .standard)
+        other.revision = 12
+        let applied = saved.applied(to: other)
+        check(applied.revision == 12, "applying keeps the revision of the project that takes it, so a save still notices a newer file")
+        check(applied.feature == saved.workflow.feature && applied.bug == saved.workflow.bug && applied.variants == saved.workflow.variants
+              && applied.defaultFeatureVariant == saved.workflow.defaultFeatureVariant && applied.name == saved.name, "applying replaces the whole workflow: states, transitions, processes")
+        check(applied.validate().isEmpty, "the result passes the workflow validation")
+        check(saved.matches(applied) && !saved.matches(other), "the draft is recognised as this template until it is changed")
+        var edited = applied
+        edited.variants[0].checks.toggle()
+        check(!saved.matches(edited), "…and not after a process is edited")
+        // A template is a copy: editing the project it came from, or the one that took it, never changes the file.
+        var after = applied
+        after.feature.statuses[0].title = "Edited in the project that took it"
+        check(store.list().templates.first { $0.id == saved.id }?.workflow.feature.statuses[0].title != after.feature.statuses[0].title, "a template is a copy: editing a project that took it does not change the file")
+
+        // MARK: The default for new projects (REQ-003)
+
+        check(store.defaultTemplate() == nil, "nothing is chosen at first")
+        try! store.setDefault(saved.id)
+        check(store.defaultTemplate()?.id == saved.id && store.list().defaultID == saved.id, "a saved template can be chosen for new projects")
+        check(fileManager.fileExists(atPath: folder.appendingPathComponent("default.json").path) && store.list().templates.allSatisfy { $0.id != "default" },
+              "the choice is a small default.json in the same folder and is never listed as a template")
+        check((try? store.setDefault("missing")) == nil && store.list().defaultID == saved.id, "choosing a template that is not there is refused and keeps the old choice")
+        try! store.setDefault(nil)
+        check(store.defaultTemplate() == nil && !fileManager.fileExists(atPath: folder.appendingPathComponent("default.json").path), "the built-in default can be chosen again")
+        try! store.setDefault(saved.id)
+        try! store.delete(saved.id)
+        check(store.defaultTemplate() == nil && store.list().defaultID == nil && !fileManager.fileExists(atPath: folder.appendingPathComponent("kanban-with-github.json").path),
+              "deleting the chosen template removes the choice with it")
+        check((try? store.delete("../../x")) == nil, "a delete cannot reach outside the folder")
+
+        // MARK: Files that cannot be used are named and left alone (REQ-001)
+
+        let good = try! store.save(name: "Good", workflow: source, now: moment)
+        func write(_ name: String, _ text: String) { try! Data(text.utf8).write(to: folder.appendingPathComponent(name)) }
+        write("not-json.json", "this is not json")
+        write("no-schema.json", "{\"id\": \"x\"}")
+        write("newer.json", "{\"schema\": 99, \"id\": \"newer\"}")
+        write("wrong-shape.json", "{\"schema\": 1, \"id\": \"wrong-shape\"}")
+        let valid = try! Data(contentsOf: folder.appendingPathComponent("good.json"))
+        var invalidObject = try! JSONSerialization.jsonObject(with: valid) as! [String: Any]
+        var workflowObject = invalidObject["workflow"] as! [String: Any]
+        var feature = workflowObject["feature"] as! [String: Any]
+        var rules = feature["rules"] as! [[String: Any]]
+        rules[0]["to"] = "no-such-status"
+        feature["rules"] = rules
+        workflowObject["feature"] = feature
+        invalidObject["workflow"] = workflowObject
+        try! JSONSerialization.data(withJSONObject: invalidObject).write(to: folder.appendingPathComponent("invalid-workflow.json"))
+        write("Bad Name.json", "{}")
+        write("notes.txt", "not a template")
+        let mixed = store.list()
+        check(mixed.templates.map(\.id).contains(good.id), "a good template is listed next to the bad files")
+        let reasons = Dictionary(uniqueKeysWithValues: mixed.unusable.map { ($0.file, $0.reason) })
+        check(Set(reasons.keys) == ["not-json.json", "no-schema.json", "newer.json", "wrong-shape.json", "invalid-workflow.json", "Bad Name.json"],
+              "every file that cannot be used is listed, and nothing else", reasons.keys.sorted().joined(separator: ", "))
+        check(reasons["newer.json"]?.contains("newer") == true, "a template from a newer app says so")
+        check(reasons["invalid-workflow.json"]?.contains("invalid") == true, "an invalid workflow says what is wrong")
+        check(try! String(contentsOf: folder.appendingPathComponent("not-json.json")) == "this is not json", "an unusable file is left exactly as it was")
+        try! store.setDefault(good.id)
+        try! Data("{\"template\": \"not-json\"}".utf8).write(to: folder.appendingPathComponent("default.json"))
+        check(store.defaultTemplate() == nil && store.list().defaultID == "not-json", "a choice that names an unusable template gives no default (new projects use the built-in one)")
+        try! Data("garbage".utf8).write(to: folder.appendingPathComponent("default.json"))
+        check(store.defaultTemplate() == nil && store.list().defaultID == nil, "a damaged pointer file gives no default")
+    }
+}
