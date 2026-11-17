@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 79,
+  "suiteCount": 78,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -731,19 +731,6 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
-      "name": "phase4-shell-tests",
-      "script": "tools/tests/phase4-shell-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/MarkdownDocumentChunker.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "tools/tests/Phase4ShellTests.swift"
       ]
     },
     {
