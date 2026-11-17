@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkView)
+@testable import MarkView
+#endif
 
 // Test doubles for the lifecycle journal and the status store (MarkView/Models/Lifecycle/IssueTransitionLog.swift), shared by the checks that
 // run the transition service without files (tools/tests/issue-lifecycle-tests.sh). They are not part of the app.

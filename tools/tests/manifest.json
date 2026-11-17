@@ -2074,7 +2074,11 @@
         "MarkView/Models/Lifecycle/WorkflowProposal.swift",
         "MarkView/Models/Lifecycle/IssueLifecycleEvidence.swift",
         "MarkView/Models/Lifecycle/IssueLifecycleDisplay.swift",
-        "MarkView/Models/Lifecycle/IssueTransitionLog.swift"
+        "MarkView/Models/Lifecycle/IssueTransitionLog.swift",
+        "MarkViewHostedTests/LifecycleSyncHostTests.swift",
+        "tools/tests/IssueLogSupport.swift",
+        "MarkView/Models/Lifecycle/IssueGitHubSync.swift",
+        "MarkView/Models/Lifecycle/IssueLifecycleContext.swift"
       ]
     },
     {

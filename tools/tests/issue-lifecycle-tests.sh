@@ -3,7 +3,7 @@
 # service, the delivery evidence, verified completion and reconciliation, the GitHub sync planner, the AI context and the
 # Lifecycle section's display model, and the project workflow they run on (docs/features/feature-3).
 # The app has no XCTest target: each suite is compiled on its own with a test main and run.
-#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow log collector completion github context store
+#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: workflow log collector completion
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
@@ -27,14 +27,11 @@ run_suite() {
         log)        run log IssueTransitionLogChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/WorkflowEvents.swift" ;;
         collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/Lifecycle/IssueLifecycleEvidence.swift" "$M/Lifecycle/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
         completion) run completion IssueCompletionChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" ;;
-        github)     run github IssueGitHubSyncChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueSync.swift" "$M/Lifecycle/IssueGitHubSync.swift" ;;
-        context)    run context IssueContextChecks.swift "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueLifecycleContext.swift" ;;
-        store)      run store IssueStoreChecks.swift "$M/Shared/FrontMatter.swift" "$M/Shared/FrontMatterFile.swift" "$M/Lifecycle/IssueTransitionLog.swift" "$M/Lifecycle/IssueCompletion.swift" "$M/Lifecycle/IssueReconciler.swift" "$M/Lifecycle/MarkdownIssueStatusStore.swift" ;;
         *) echo "unknown suite $suite"; exit 2 ;;
     esac
 }
 
-want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow log collector completion github context store)
+want=("$@"); [ ${#want[@]} -eq 0 ] && want=(workflow log collector completion)
 
 pids=()
 suites_batch=()
