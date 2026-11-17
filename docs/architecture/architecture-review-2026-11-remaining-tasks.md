@@ -324,6 +324,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+The old CLIToolLocator test stub was no longer compiled by any suite after the Git and new-project migrations, so it and its stale manifest reference were removed. Repository hygiene, all 59 manifest entries and architecture lint passed; final full-suite verification remains open.
+
 Three standalone InsightSession stand-ins were consolidated into one fixture in the package TestSupport target (3 → 1). The browser-host, tool-router and window-composition pure suites all passed with that fixture; repository hygiene and architecture lint passed. The remaining fake consolidation and final full-suite verification remain open.
 
 Database Explorer parsing, policy, and store checks moved to the app host, including the optional isolated local PostgreSQL fixture. Both focused tests passed against a temporary local container, which was removed after the test; no user database was used. Architecture lint, SwiftLint, repository hygiene, manifest paths and all 24 pure suites across three shards passed. The 6.30.144 Debug build succeeded without Swift warnings; Xcode emitted its App Intents metadata warning. The changed app source passed unused-import analysis with 0 warnings. The manifest now contains 59 suites: 24 pure, 30 GUI and 5 live. Final full GUI and CI verification remain open.

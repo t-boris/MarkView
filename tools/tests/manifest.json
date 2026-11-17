@@ -1082,7 +1082,6 @@
         "MarkView/Models/Cockpit/CockpitPlanning.swift",
         "MarkView/Models/Cockpit/CockpitRun.swift",
         "MarkView/Models/Cockpit/CockpitRunStore.swift",
-        "tools/tests/CLIToolLocatorStub.swift",
         "MarkViewHostedTests/GitHubRemoteProfileHostTests.swift",
         "MarkView/Models/Lifecycle/WorkflowEvents.swift",
         "MarkView/Models/Lifecycle/WorkflowDescription.swift",
