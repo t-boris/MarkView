@@ -54,7 +54,7 @@ jobs:
       matrix:
         shard: [0, 1, 2]
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -145,6 +145,15 @@ jobs:
       - name: Restore unchanged build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
 
+      - name: Prepare changed sources for analyzer
+        env:
+          BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_COMMIT" ] || [ "$BASE_COMMIT" = 0000000000000000000000000000000000000000 ]; then
+            BASE_COMMIT=HEAD^
+          fi
+          python3 tools/ci/unused-import-changes.py --base "$BASE_COMMIT" --prepare
+
       - name: Build MarkView (Debug)
         run: |
           set -o pipefail
@@ -165,7 +174,7 @@ jobs:
         run: ./tools/lint/swiftlint-ratchet.py
 
       - name: Check unused imports in changed app sources
-        timeout-minutes: 15
+        timeout-minutes: 35
         env:
           BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |

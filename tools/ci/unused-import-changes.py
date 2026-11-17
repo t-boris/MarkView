@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check changed app/package sources against the audited unused-import baseline."""
 import argparse
+import os
 import pathlib
 import subprocess
 import sys
@@ -11,8 +12,11 @@ BASELINE = ROOT / "tools/lint/swiftlint-unused-import-allowlist.txt"
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--base", required=True)
-parser.add_argument("--compiler-log", required=True)
+parser.add_argument("--compiler-log")
+parser.add_argument("--prepare", action="store_true", help="force changed sources into the next compiler log")
 args = parser.parse_args()
+if not args.prepare and not args.compiler_log:
+    parser.error("--compiler-log is required unless --prepare is set")
 valid = subprocess.run(["git", "cat-file", "-e", args.base + "^{commit}"], cwd=ROOT, capture_output=True)
 if valid.returncode:
     sys.exit(f"Cannot resolve comparison commit {args.base!r}")
@@ -26,6 +30,11 @@ if deleted:
 selected = [p for p in changed if (ROOT / p).is_file()]
 if not selected:
     print("No changed app or package Swift files to analyze")
+    sys.exit(0)
+if args.prepare:
+    for path in selected:
+        os.utime(ROOT / path, None)
+    print(f"Prepared {len(selected)} changed app/package Swift files for compilation")
     sys.exit(0)
 print(f"Analyzing {len(selected)} changed app/package Swift files", flush=True)
 sys.exit(subprocess.call([str(ROOT / "tools/lint/swiftlint-unused-import-ratchet.py"), "--compiler-log", args.compiler_log,
