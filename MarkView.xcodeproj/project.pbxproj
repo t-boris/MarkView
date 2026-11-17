@@ -575,6 +575,7 @@
 		A4DD9A6FAE364D6387E23DEF /* AssistantPipelineHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF0 /* AssistantPipelineHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DF1 /* ProjectContextHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF2 /* ProjectContextHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DF3 /* ScriptedPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */; };
+		A4DD9A6FAE364D6387E23DF5 /* DiagramAIHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */; };
 		EEF54C9D03BF4C1BB64ABE38 /* WorkspaceStateHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */; };
 		2595E5D447984E99B63CD316 /* WorkspaceEditorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */; };
 		F00000000000000000000103 /* ControlToolRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000104 /* ControlToolRunnerTests.swift */; };
@@ -1292,6 +1293,7 @@
 		A4DD9A6FAE364D6387E23DF0 /* AssistantPipelineHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantPipelineHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DF2 /* ProjectContextHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectContextHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../tools/tests/ScriptedPrompts.swift; sourceTree = "<group>"; };
+		A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagramAIHostTests.swift; sourceTree = "<group>"; };
 		710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStateHostTests.swift; sourceTree = "<group>"; };
 		34673639FAC34EFDB79FF973 /* WorkspaceEditorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEditorHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000104 /* ControlToolRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunnerTests.swift; sourceTree = "<group>"; };
@@ -2513,6 +2515,7 @@
 				F00000000000000000000102 /* EditorHostTests.swift */,
 				7F4A3B5E864347E5B88C8903 /* WorkspaceAppearanceHostTests.swift */,
 				710A68D699C341249C252BD0 /* WorkspaceStateHostTests.swift */,
+				A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */,
 				A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */,
 				A4DD9A6FAE364D6387E23DF2 /* ProjectContextHostTests.swift */,
 				A4DD9A6FAE364D6387E23DF0 /* AssistantPipelineHostTests.swift */,
@@ -3372,6 +3375,7 @@
 				F00000000000000000000101 /* EditorHostTests.swift in Sources */,
 				650928E0410D416BAAF02AFA /* WorkspaceAppearanceHostTests.swift in Sources */,
 				EEF54C9D03BF4C1BB64ABE38 /* WorkspaceStateHostTests.swift in Sources */,
+				A4DD9A6FAE364D6387E23DF5 /* DiagramAIHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF3 /* ScriptedPrompts.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF1 /* ProjectContextHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DEF /* AssistantPipelineHostTests.swift in Sources */,
@@ -3450,7 +3454,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.120;
+				CURRENT_PROJECT_VERSION = 6.30.121;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3465,7 +3469,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.120;
+				MARKETING_VERSION = 6.30.121;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3533,7 +3537,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.120;
+				CURRENT_PROJECT_VERSION = 6.30.121;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3554,7 +3558,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.120;
+				MARKETING_VERSION = 6.30.121;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3655,7 +3659,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.120;
+				CURRENT_PROJECT_VERSION = 6.30.121;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3676,7 +3680,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.120;
+				MARKETING_VERSION = 6.30.121;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

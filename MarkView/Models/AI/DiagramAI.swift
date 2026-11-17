@@ -342,7 +342,8 @@ enum DiagramAI {
                          project: URL? = nil, model: String? = nil, system: String = DiagramAI.system,
                          expectedLanguage: String? = nil, maxNodes: Int? = nil,
                          onStage: @escaping @Sendable (String) -> Void,
-                         record: @escaping @Sendable (CLICompletion.Result) -> Void) async throws -> DiagramSpec {
+                         record: @escaping @Sendable (CLICompletion.Result) -> Void,
+                         runner: @escaping AIOperation<String, DiagramSpec>.Runner = AIAssistantRunner.run) async throws -> DiagramSpec {
         func request(_ asked: String, as label: String) -> CLICompletion.Request {
             var request = CLICompletion.Request(project: project ?? root, prompt: asked, systemPrompt: system,
                                                 jsonSchema: schema, readableFolder: root)
@@ -387,7 +388,8 @@ enum DiagramAI {
                 \(previous)
                 """, as: repairLabel)
             },
-            onResult: { record($0) })
+            onResult: { record($0) },
+            runner: runner)
         onStage("Starting")
         return try await operation.execute(prompt, onDelta: { _ in onStage("Writing the diagram") }, onActivity: { activity in
             switch activity {

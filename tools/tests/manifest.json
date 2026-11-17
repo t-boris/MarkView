@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 134,
+  "suiteCount": 133,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -726,18 +726,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
-      ]
-    },
-    {
-      "name": "diagram-tests",
-      "script": "tools/tests/diagram-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/DiagramAI.swift",
-        "tools/tests/DiagramAITests.swift",
-        "tools/tests/DiagramCLIStub.swift",
-        "tools/tests/diagram-tests.sh"
       ]
     },
     {
@@ -2218,7 +2206,8 @@
         "MarkView/Models/Architecture/CodeArchitecture.swift",
         "MarkView/Models/Architecture/CodePathTags.swift",
         "MarkView/Models/Workspace/ProjectContext.swift",
-        "MarkView/Models/Shared/ProjectProviding.swift"
+        "MarkView/Models/Shared/ProjectProviding.swift",
+        "MarkViewHostedTests/DiagramAIHostTests.swift"
       ]
     },
     {
