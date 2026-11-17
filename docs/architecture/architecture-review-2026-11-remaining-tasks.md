@@ -323,6 +323,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+A 2026-11-17 line-anchored name comparison after the Cockpit policy migration found 56 top-level `final class`/`struct` definitions in `tools/tests/*.swift` whose names also occur among app/package class or struct declarations, across 42 distinct names. This is a screening count, not a semantic fake audit: coincidental names may be included and nested declarations are omitted. The remaining fake consolidation and script migrations are not complete.
+
 Cockpit policy behavior now runs in the app host; architecture lint checks tool classification completeness and negative fixtures verify missing, stale and incomplete classifications. The focused hosted test, lint fixtures, 6.30.126 Debug build with zero warnings, repository hygiene, manifest paths and three pure shards passed. Final GUI verification remains open.
 
 Remote Codex context and fragmented app-server protocol checks moved to the app test host, using a temporary local fixture server with no provider calls. The focused test passed; the remote aggregate no longer invokes the deleted standalone script, while main CI schedules the hosted check. All manifest paths, three pure shards, the missing-relay guard, repository hygiene, architecture lint and SwiftLint passed.
