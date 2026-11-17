@@ -99,7 +99,6 @@ enum TabsEvent {
     func closeTabTerminal(_ id: UUID) { closedTabTerminals.append(id) }
 }
 
-@MainActor final class FeatureStore { init() {} }
 
 @MainActor final class GitHubStore: ObservableObject {
     @Published var selectedRepo: GitHubRepo?

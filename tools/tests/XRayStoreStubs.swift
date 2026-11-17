@@ -154,6 +154,5 @@ extension SemanticDatabase {
 }
 
 // Where the stores save an answer as a document; the checks never save one.
-enum FeatureStore { static var today: String { "2026-01-01" } }
 enum FeatureAssistant { static func nextNumbered(_ prefix: String, in folder: URL) -> String { prefix + "-001" } }
 func featureSlug(_ text: String) -> String { text.lowercased().replacingOccurrences(of: " ", with: "-") }

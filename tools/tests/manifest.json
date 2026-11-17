@@ -327,7 +327,8 @@
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift",
         "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/FeatureStoreTestSupport.swift"
       ]
     },
     {
@@ -617,7 +618,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/FeatureStoreTestSupport.swift"
       ]
     },
     {
@@ -2193,7 +2195,8 @@
         "tools/tests/window-composition-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift"
+        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift",
+        "Packages/MarkViewCore/Tests/TestSupport/FeatureStoreTestSupport.swift"
       ]
     },
     {

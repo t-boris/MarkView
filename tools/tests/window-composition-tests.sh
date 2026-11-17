@@ -11,5 +11,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -target "$(uname -m)-apple-macos13.0" -o "$out/window-composition-tests" \
     MarkView/Models/Workspace/FileNode.swift MarkView/Models/Shared/FileType.swift MarkView/Models/Shared/ArchiveSupport.swift MarkView/Models/Workspace/WindowComposition.swift Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/Shared/UserPrompts.swift tools/tests/ScriptedPrompts.swift \
-    Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift tools/tests/WindowCompositionStubs.swift tools/tests/WindowCompositionTests.swift 2>&1 | head -80
+    Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift Packages/MarkViewCore/Tests/TestSupport/FeatureStoreTestSupport.swift tools/tests/WindowCompositionStubs.swift tools/tests/WindowCompositionTests.swift 2>&1 | head -80
 "$out/window-composition-tests"
