@@ -8,7 +8,7 @@ import Foundation
 ///
 /// The server is registered by the person for the one agent that orchestrates, not for every agent: agents inside
 /// MarkView's terminals do not get tools that start or prompt other agents. Declarations only; Foundation only, so
-/// `tools/tests/control-agent-tools-tests.sh` compiles this file on its own.
+/// The app-hosted tests check these tools and their isolated control sockets.
 enum ControlAgentTools {
     static let serverName = "markview-control"
 

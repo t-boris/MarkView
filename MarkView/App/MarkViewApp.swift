@@ -143,6 +143,10 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 enum DDEAppEntry {
     static func main() {
         #if MARKVIEW_HOSTED_TEST_HOST
+        // The hosted fixture may run the control CLI in a child process, without starting the app.
+        if CommandLine.arguments.contains("--mcp-control") {
+            BrowserAgentTools.runServer(arguments: CommandLine.arguments, profile: ControlAgentTools.profile)
+        }
         // The dedicated test build never starts windows, sockets or user session restoration.
         NSApplication.shared.setActivationPolicy(.prohibited)
         NSApplication.shared.run()
