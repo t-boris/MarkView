@@ -133,6 +133,7 @@ Move the commands to `WindowCommands` (`@Environment(\.windowCommands)`), as the
 Acceptance: the stated number of domains in the largest cycle, or a written decision that the remainder is accepted.
 
 **C5. AR-44 step 4: an app-hosted test target (D7).**
+- Bridge-contract validator checks now run in the app host; all 80 checks passed. The standalone suite and its `HeadingItem`, `DiscussionTurn`, `DiscussionStore` and `WindowTheme` stand-ins were removed; the protocol recorder is shared by the hosted checks. The manifest now has 208 suites; its 15 checks, all 50 hosted tests and architecture lint passed.
 - Editor and terminal hostile-value WebKit checks now use shipping types in the app host; the tests passed 28 and 15 checks. The standalone suite and its `WhisperClient` stand-in were removed. The manifest now has 209 suites and its 15 checks passed; all 49 hosted tests and architecture lint passed.
 - Editor/discussion bridge-contract WebKit checks now use shipping discussion and theme models in the app host; all 20 checks passed. The standalone suite was removed; its shared recorder and conditional stand-ins remain for other suites. The manifest now has 210 suites; its 15 checks, the pure bridge-contract suite, both affected GUI suites, all 47 hosted tests and architecture lint passed.
 - X-Ray content hierarchy checks now use the shipping `ArchNode` in the app host. All 23 checks passed; the bundled editor page is used instead of a working-directory-relative path. The standalone suite and its `ArchNode` stand-in were removed. The manifest now has 211 suites and its 15 checks passed; all 46 hosted tests and architecture lint passed.
@@ -275,6 +276,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
   unchecked count at a stated lower number.
 
 **D4. AR-44 steps 3-4 and the stubs.**
+
+The existing `AnyCodable` implementation now lives in `MarkViewCore`, so the app and eight standalone suites share it instead of compiling a duplicate enum. A nested JSON round-trip passed along with all 107 package tests, eight affected pure and three GUI suites, all 50 hosted tests, Debug build, SwiftLint and architecture lint. The silent-decode allowance moved with its unchanged six union-decoder probes. Version bumped to 6.30.96; final CI and release verification remain outstanding.
 
 The project-change review layout test now exercises the shipping scanner, review model, file tree and view in the app host. The former script's three class/struct application stand-ins and its window-commands protocol stand-in were removed; the focused 400/800/1600 pt layout test passed. The manifest has 225 suites; all 27 hosted tests, manifest verification, Debug build and lints passed.
 

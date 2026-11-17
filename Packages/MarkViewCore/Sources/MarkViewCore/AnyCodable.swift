@@ -1,9 +1,7 @@
-// Stand-in for AnyCodable (MarkView/Bridge/WebViewBridge.swift), which cannot be compiled on its
-// own because it sits next to WebKit code. ProjectOperation keeps unknown JSON keys in it, so the
-// cases and the coding rules below follow the original exactly. Keep the two in step.
 import Foundation
 
-enum AnyCodable: Codable, Sendable {
+/// Type-erased codable wrapper for flexible JSON data
+public enum AnyCodable: Codable, Sendable {
     case null
     case bool(Bool)
     case int(Int)
@@ -12,8 +10,9 @@ enum AnyCodable: Codable, Sendable {
     case array([AnyCodable])
     case object([String: AnyCodable])
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
+
         if container.decodeNil() {
             self = .null
         } else if let bool = try? container.decode(Bool.self) {
@@ -33,16 +32,25 @@ enum AnyCodable: Codable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
+
         switch self {
-        case .null: try container.encodeNil()
-        case .bool(let bool): try container.encode(bool)
-        case .int(let int): try container.encode(int)
-        case .double(let double): try container.encode(double)
-        case .string(let string): try container.encode(string)
-        case .array(let array): try container.encode(array)
-        case .object(let object): try container.encode(object)
+        case .null:
+            try container.encodeNil()
+        case .bool(let bool):
+            try container.encode(bool)
+        case .int(let int):
+            try container.encode(int)
+        case .double(let double):
+            try container.encode(double)
+        case .string(let string):
+            try container.encode(string)
+        case .array(let array):
+            try container.encode(array)
+        case .object(let object):
+            try container.encode(object)
         }
     }
 }
+

@@ -5,7 +5,7 @@
 # chose: an assistant's answer, a process's output, a socket or a page's message, a union decoder that tries one case after the
 # other, and a probe whose failure the decode that follows reports. Each entry says which, after `#`.
 1 MarkView/Bridge/TypedWebBridge.swift  # a page message is validated against bridge-contract.json; a payload that does not decode is rejected and logged (reject)
-6 MarkView/Bridge/WebViewBridge.swift  # union decoder (AnyCodable): tries each JSON case in turn
+6 Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift  # union decoder (AnyCodable): tries each JSON case in turn
 7 MarkView/Models/AI/AIOperation.swift  # an assistant's structured answer (falls back to text salvage, then throws decodingFailed) and the JSONValue union decoder
 2 MarkView/Models/AI/DiagramAI.swift  # an assistant's answer: structured output first, then the outermost JSON object of its text; nil is reported as a failed diagram
 2 MarkView/Models/Appearance/AppTheme.swift  # lenient decoder of the theme record (which is itself read as a PreferenceRecord): an unknown name or damaged accents read as the defaults

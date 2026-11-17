@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 209,
+  "suiteCount": 208,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1613,11 +1613,11 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/InsightCoordinatorTests.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/SemanticDatabaseTestSupport.swift",
         "MarkView/Models/AI/LoginScript.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ScriptedPrompts.swift"
+        "tools/tests/ScriptedPrompts.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -1911,7 +1911,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Views/Workspace/EditorView.swift",
         "tools/tests/Phase0SafetyTests.swift",
-        "tools/tests/phase0-safety-tests.sh"
+        "tools/tests/phase0-safety-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -1927,7 +1928,8 @@
         "bump-version.sh",
         "release.sh",
         "tools/tests/Phase1CleanupTests.swift",
-        "tools/tests/manifest.json"
+        "tools/tests/manifest.json",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -2173,9 +2175,9 @@
       "sources": [
         "MarkView/Models/ProjectOps/ProjectOperation.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationMergeTests.swift",
-        "tools/tests/project-operation-merge-tests.sh"
+        "tools/tests/project-operation-merge-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -2185,9 +2187,9 @@
       "sources": [
         "MarkView/Models/ProjectOps/ProjectOperation.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationPrimaryTests.swift",
-        "tools/tests/project-operation-primary-tests.sh"
+        "tools/tests/project-operation-primary-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -2979,9 +2981,11 @@
         "MarkView/Resources/Editor/js/markview-discussion.js",
         "MarkView/Resources/Editor/js/mv-kit.js",
         "MarkView/Views/Discussion/DiscussionThreadView.swift",
-        "tools/tests/BridgeContractSupport.swift",
         "MarkViewHostedTests/BridgeContractHostTests.swift",
-        "MarkViewHostedTests/JSCallHostTests.swift"
+        "MarkViewHostedTests/JSCallHostTests.swift",
+        "MarkViewHostedTests/BridgeContractRecorder.swift",
+        "MarkViewHostedTests/BridgeContractValidationHostTests.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -3298,10 +3302,10 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ResearchMapControllerTests.swift",
         "tools/tests/SemanticDatabaseTestSupport.swift",
-        "MarkView/Models/AI/LoginScript.swift"
+        "MarkView/Models/AI/LoginScript.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -4411,34 +4415,6 @@
       ]
     },
     {
-      "name": "bridge-contract-tests",
-      "script": "tools/tests/bridge-contract-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Bridge/DataFileSchemeHandler.swift",
-        "MarkView/Bridge/PageMessages.swift",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Bridge/WebViewBridge.swift",
-        "MarkView/Models/Appearance/AppFontScale.swift",
-        "MarkView/Models/Insight/InsightModels.swift",
-        "MarkView/Models/Shared/SemanticModels.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/EditorWindowPrefs.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/mv-kit.js",
-        "MarkView/Views/Discussion/DiscussionThreadView.swift",
-        "tools/tests/BridgeContractSupport.swift",
-        "tools/tests/BridgeContractTests.swift",
-        "tools/tests/bridge-contract-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
-        "MarkView/Models/Appearance/WebThemeArguments.swift"
-      ]
-    },
-    {
       "name": "web-host-tests",
       "script": "tools/tests/web-host-tests.sh",
       "tier": "gui",
@@ -4640,8 +4616,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/InsightTemplateTests.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
-        "tools/tests/insight-template-tests.sh"
+        "tools/tests/insight-template-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -4764,9 +4740,9 @@
         "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/OrderedWork.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationWritesTests.swift",
-        "tools/tests/project-operation-writes-tests.sh"
+        "tools/tests/project-operation-writes-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -4823,8 +4799,8 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift",
         "tools/tests/InsightPageWebTests.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
-        "tools/tests/insight-page-web-tests.sh"
+        "tools/tests/insight-page-web-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     },
     {
@@ -4840,11 +4816,11 @@
         "MarkView/Models/ProjectOps/ProjectOperationWrites.swift",
         "MarkView/Models/Shared/UserPrompts.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
-        "tools/tests/ProjectOperationAnyCodableStub.swift",
         "tools/tests/ProjectOperationsStoreStubs.swift",
         "tools/tests/ScriptedPrompts.swift",
         "tools/tests/ProjectOperationsStoreTests.swift",
-        "tools/tests/project-operations-store-tests.sh"
+        "tools/tests/project-operations-store-tests.sh",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
       ]
     }
   ]

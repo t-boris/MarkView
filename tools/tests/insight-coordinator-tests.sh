@@ -36,5 +36,5 @@ swiftc -o "$out/insight-coordinator-tests" -target "$(uname -m)-apple-macos13.0"
     MarkView/Models/AI/OutputLanguage.swift MarkView/Models/AI/DiagramAI.swift \
     MarkView/Models/Architecture/ArchitectureModel.swift MarkView/Models/Architecture/CodeArchitecture.swift \
     MarkView/Models/Architecture/CodePathTags.swift MarkView/Models/Architecture/AutoAnalysisScheduler.swift \
-    tools/tests/ProjectOperationAnyCodableStub.swift tools/tests/SemanticDatabaseTestSupport.swift "$out/Stub.swift" "$out/main.swift"
+     tools/tests/SemanticDatabaseTestSupport.swift "$out/Stub.swift" "$out/main.swift"
 "$out/insight-coordinator-tests"

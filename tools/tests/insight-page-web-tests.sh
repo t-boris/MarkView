@@ -15,5 +15,5 @@ ln -s "$PWD/MarkView/Resources/Editor/vendor" "$out/Editor/vendor"
 swiftc -suppress-warnings -o "$out/insight-page-web-tests" -target "$(uname -m)-apple-macos13.0" \
     Packages/MarkViewCore/Sources/MarkViewCore/*.swift \
     MarkView/Models/Insight/InsightModels.swift MarkView/Models/Insight/InsightHTMLTemplate.swift MarkView/Models/Insight/InsightCache.swift \
-    tools/tests/ProjectOperationAnyCodableStub.swift "$out/main.swift"
+     "$out/main.swift"
 "$out/insight-page-web-tests"

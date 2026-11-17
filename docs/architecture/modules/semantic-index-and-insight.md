@@ -104,7 +104,7 @@ All three JS files are plain globals loaded by `index.html`. They rely on `state
 | `InsightArchiveExport` | `enum` (`InsightArchiveExport.swift`) | Pure helpers of the export: `defaultFilename`, `sanitizeFilename`, `childMap`, `makeStagingCopy`, `rewriteForStandalone`, `rewriteDeepDiveButtons`, `rewriteBreadcrumbHrefs` |
 | `InsightNode` | reference type, mutated on main actor | `id`, `parentId`, `level`, `title`, `scope: NodeScope`, `skeleton`, `sectionStates`, `children`, `status` (pending → generatingSkeleton → streamingContent → ready/failed), `generatedAt`, `model` (a `let`, default `"claude-sonnet-4-6"`; the model is chosen by the assistant settings, not by this field) |
 | `NodeScope` | Codable enum | `.folderRoot` or `.topic(label, hint, files:[URL])`; files encoded as absolute path strings |
-| `InsightSkeleton` / `InsightSection` / `InsightDeepDiveTopic` | Codable structs (`InsightModels.swift`) | Phase 1 output. `metadata` reuses `AnyCodable` from `Bridge/WebViewBridge.swift` |
+| `InsightSkeleton` / `InsightSection` / `InsightDeepDiveTopic` | Codable structs (`InsightModels.swift`) | Phase 1 output. `metadata` reuses `AnyCodable` from `MarkViewCore` |
 | `InsightViewSnapshot` / `BreadcrumbEntry` | Codable structs (`InsightModels.swift`) | What the bridge layer gets for the current view |
 | `SectionType` | enum, 9 cases (`InsightModels.swift`) | hero, prose, mermaidDiagram, chartJsChart, comparisonTable, timeline, cardsGrid, callout, collapsibleDetails |
 | `InsightContentType` | enum, 13 cases (`InsightModels.swift`) | Phase 0 classes; `displayLabel` |

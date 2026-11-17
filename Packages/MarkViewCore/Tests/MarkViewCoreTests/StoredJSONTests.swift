@@ -5,6 +5,15 @@ import XCTest
 final class StoredJSONTests: XCTestCase {
     private struct Entry: Codable, Equatable { var id: Int; var name: String }
 
+    func testAnyCodablePreservesNestedUnknownJSON() throws {
+        let original = Data(#"{"nested":{"enabled":true,"count":-4,"ratio":1.25,"text":"привет 😀","nothing":null},"items":[1,false,{"x":"y"}]}"#.utf8)
+        let decoded = try JSONDecoder().decode(AnyCodable.self, from: original)
+        let encoded = try JSONEncoder().encode(decoded)
+        let expected = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? NSDictionary)
+        let actual = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? NSDictionary)
+        XCTAssertEqual(actual, expected)
+    }
+
     func testDecodeReturnsTheValue() {
         let data = Data(#"{"id":1,"name":"a"}"#.utf8)
         XCTAssertEqual(StoredJSON.decode(Entry.self, from: data, owner: "test"), Entry(id: 1, name: "a"))

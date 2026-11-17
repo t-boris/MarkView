@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // MARK: - Insight Skeleton (Phase 1 output)
 
@@ -30,8 +33,7 @@ struct InsightSection: Codable, Identifiable {
     /// Type-specific configuration (e.g. `{"chartType": "bar"}` for `chartJsChart`). Schema
     /// is loose by design — sections may carry arbitrary visualization hints.
     ///
-    /// Reuses the existing module-level `AnyCodable` enum defined in
-    /// `MarkView/Bridge/WebViewBridge.swift` (Codable type-erased JSON wrapper). No need to
+    /// Reuses the `AnyCodable` enum in `MarkViewCore` (Codable type-erased JSON wrapper). No need to
     /// re-define here — single canonical type avoids drift between bridge marshalling and
     /// insight model storage.
     let metadata: [String: AnyCodable]
@@ -151,7 +153,7 @@ struct SectionState: Codable {
 //            section `SectionState.buffer` accumulates the streamed HTML fragment.
 //
 // Types `InsightSkeleton`, `InsightSection`, `SectionType`, `InsightDeepDiveTopic`,
-// `SectionState`, and the existing `AnyCodable` (defined in WebViewBridge.swift, reused
+// `SectionState`, and the existing `AnyCodable` (defined in MarkViewCore, reused
 // per T4 decision) live in `InsightModels.swift` — DO NOT redeclare them here.
 
 /// Scope of an InsightNode within the recursive tree.

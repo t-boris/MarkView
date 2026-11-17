@@ -598,8 +598,9 @@
 		3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */; };
 		18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */; };
 		888D7D7293164640BA1D1FDB /* BridgeContractHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */; };
-		3BD2BE7605384CD59567FAB3 /* BridgeContractSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */; };
+		3BD2BE7605384CD59567FAB3 /* BridgeContractRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74CAFD4A33B431C8F41239F /* BridgeContractRecorder.swift */; };
 		67283843E201449BA6D5DC77 /* JSCallHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0FC6C89968424CBAE32B13 /* JSCallHostTests.swift */; };
+		B07A6D5288DA42B5A57A968B /* BridgeContractValidationHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03A44A79189E40EEB479B0C8 /* BridgeContractValidationHostTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -1313,8 +1314,9 @@
 		706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeRuntimeHostTests.swift; sourceTree = "<group>"; };
 		193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayContentHostTests.swift; sourceTree = "<group>"; };
 		4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeContractHostTests.swift; sourceTree = "<group>"; };
-		B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BridgeContractSupport.swift; path = ../tools/tests/BridgeContractSupport.swift; sourceTree = "<group>"; };
+		B74CAFD4A33B431C8F41239F /* BridgeContractRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeContractRecorder.swift; sourceTree = "<group>"; };
 		BE0FC6C89968424CBAE32B13 /* JSCallHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSCallHostTests.swift; sourceTree = "<group>"; };
+		03A44A79189E40EEB479B0C8 /* BridgeContractValidationHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeContractValidationHostTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2541,8 +2543,9 @@
 				706B8B10634D4B7DBB980DAC /* PrototypeRuntimeHostTests.swift */,
 				193DBB00FCB74B8B9216510B /* XRayContentHostTests.swift */,
 				4FB74AB8BDCD439BA9CC52CB /* BridgeContractHostTests.swift */,
-				B74CAFD4A33B431C8F41239F /* BridgeContractSupport.swift */,
+				B74CAFD4A33B431C8F41239F /* BridgeContractRecorder.swift */,
 				BE0FC6C89968424CBAE32B13 /* JSCallHostTests.swift */,
+				03A44A79189E40EEB479B0C8 /* BridgeContractValidationHostTests.swift */,
 			);
 			name = MarkViewHostedTests;
 			path = MarkViewHostedTests;
@@ -3401,8 +3404,9 @@
 				3A797A738B4049C2A5945689 /* PrototypeRuntimeHostTests.swift in Sources */,
 				18F85091CCB14E0C9BDEDFEF /* XRayContentHostTests.swift in Sources */,
 				888D7D7293164640BA1D1FDB /* BridgeContractHostTests.swift in Sources */,
-				3BD2BE7605384CD59567FAB3 /* BridgeContractSupport.swift in Sources */,
+				3BD2BE7605384CD59567FAB3 /* BridgeContractRecorder.swift in Sources */,
 				67283843E201449BA6D5DC77 /* JSCallHostTests.swift in Sources */,
+				B07A6D5288DA42B5A57A968B /* BridgeContractValidationHostTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3445,7 +3449,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.95;
+				CURRENT_PROJECT_VERSION = 6.30.96;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3460,7 +3464,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.95;
+				MARKETING_VERSION = 6.30.96;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3527,7 +3531,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.95;
+				CURRENT_PROJECT_VERSION = 6.30.96;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3548,7 +3552,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.95;
+				MARKETING_VERSION = 6.30.96;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3648,7 +3652,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.95;
+				CURRENT_PROJECT_VERSION = 6.30.96;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3669,7 +3673,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.95;
+				MARKETING_VERSION = 6.30.96;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -1,29 +1,26 @@
 import Foundation
 import JavaScriptCore
 import SwiftUI
+import XCTest
+import MarkViewCore
+@testable import MarkView
 
-// AR-28: one declared bridge contract (MarkView/Resources/Editor/js/bridge-contract.json) used by both sides.
-//   1. Every handler the app registers is in the contract and every contract message has a handler (both directions, per channel).
-//   2. A message that matches the contract decodes into its payload type and reaches its handler; one that does not is refused.
-//   3. The page's validator (mv-kit.js, run in JavaScriptCore) and the app's validator (BridgeContract.problem) agree on every
-//      case: contract-valid samples, and the same samples broken one rule at a time.
-//   4. A refusal is logged by type and field name only, never by value.
-// The real sources run: TypedWebBridge, PageMessages, WebViewBridge and the discussion page's coordinator are compiled in; only the
-// collaborators of the last two are replaced by the small stand-ins in BridgeContractSupport.swift. Run through tools/tests/bridge-contract-tests.sh
-// (argument 1: the bundled editor folder).
-
-MainActor.assumeIsolated {
+final class BridgeContractValidationHostTests: XCTestCase {
+    @MainActor func testContractValidation() throws {
 var failures = 0
+var checks = 0
 func check(_ ok: Bool, _ message: String, _ detail: String = "") {
+    checks += 1
     if !ok { failures += 1 }
     print("\(ok ? "ok  " : "FAIL") \(message) \(ok ? "" : String(detail.prefix(500)))")
 }
 
-let editor = CommandLine.arguments[1]
+let editor = try XCTUnwrap(Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor")).deletingLastPathComponent().path
 let contractURL = URL(fileURLWithPath: editor + "/js/bridge-contract.json")
+let previousContract = BridgeContract.bundledURL
+defer { BridgeContract.bundledURL = previousContract }
 BridgeContract.bundledURL = contractURL
-let contract: BridgeContract
-do { contract = try BridgeContract(contentsOf: contractURL) } catch { print("FAIL cannot load the contract: \(error)"); exit(1) }
+let contract = try BridgeContract(contentsOf: contractURL)
 let raw = try! JSONSerialization.jsonObject(with: Data(contentsOf: contractURL)) as! [String: Any]
 let definitions = raw["definitions"] as? [String: Any] ?? [:]
 let rawChannels = raw["channels"] as! [String: Any]
@@ -344,7 +341,7 @@ jsPosted.removeAll(); jsErrors.removeAll()
 context.evaluateScript("delete window.mvBridgeContract; mvBridge.send('ready', {}, 'bridge'); mvBridge.send('ready', {}, 'bridge');")
 check(jsPosted.isEmpty && jsErrors.count == 1 && jsErrors[0].contains("no bridge contract"), "a page without a contract posts nothing and says so once", "\(jsPosted) \(jsErrors)")
 
-print("\(failures) failures")
-exit(failures == 0 ? 0 : 1)
-
+        print("Bridge contract validation hosted checks: \(checks)")
+        XCTAssertEqual(failures, 0)
+    }
 }

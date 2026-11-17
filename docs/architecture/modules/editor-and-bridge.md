@@ -155,7 +155,7 @@ It does **not** own:
   `/tmp/markview-insight-diag.log` from an older release (AR-09).
 - **`BridgeMessage<Payload>`** (`TypedWebBridge.swift`) — what a handler receives: the decoded `payload`, the `doc` (id of the tab the page
   described) and the raw dictionary, which the `code`, `arch` and `researchMap` handlers pass on because their owners read the fields by action.
-  `AnyCodable` (`WebViewBridge.swift`) is still declared and nothing else uses it.
+  `AnyCodable` is shared through `MarkViewCore` by Insight metadata and project operations.
 - **`WebViewBridgeDelegate`** — 27 methods; the only implementation is `EditorView.Coordinator` (`EditorView.swift`), which hops each to
   `@MainActor` and calls the window's objects (`TabsController`, `CodeAndXRayCoordinator`, `FeatureFlowCoordinator`, `InsightCoordinator`).
 - **`PDFExporter`** (`PDFExporter.swift`) — `exportPDF(from:tab:fileName:documentFiles:)` prints a file tab from the text the tab holds
@@ -636,7 +636,7 @@ with no status line was not re-checked.
    (`markview-render.js`), including inlined base64 images, and Swift ignores it
    (`WebViewBridge.swift`). The whole document is re-rendered per `input` event with no
    debounce (`markview-init.js`).
-10. **Dead code**: `BridgeMessage`/`AnyCodable` (`WebViewBridge.swift`); `textChanged`
+10. **Dead code candidates**: `textChanged`
     handler with no sender; `didChangeScrollPosition` delegate never invoked
     (`EditorView.swift`); `generateGraph` non-edit branch (`WebViewBridge.swift`);
     `requestHTML`, `preparePrintLayout`, `restoreEditLayout`; `PDFExporter`'s unused
@@ -677,7 +677,7 @@ with no status line was not re-checked.
    value of the `action` enum of `code` or `arch` (the fields of an action are read by its owner).
 2. Swift: add a `BridgePayload` type with `static let messageType` in `Bridge/PageMessages.swift`, and register a handler with
    `messages.on(EditorMessage.<Name>.self)` in `WebViewBridge.registerHandlers`. A message in the contract with no handler, or a handler for a
-   type not in the contract, is reported (an assertion in a Debug build, a logged refusal otherwise); `tools/tests/bridge-contract-tests.sh` compares the registered types with the contract (not run for this edit).
+   type not in the contract, is reported (an assertion in a Debug build, a logged refusal otherwise); `MarkViewHostedTests/BridgeContractValidationHostTests.swift` compares the registered types with the contract.
 3. Add a method to `WebViewBridgeDelegate` and implement it in `EditorView.Coordinator` (`EditorView.swift`) as `Task { @MainActor in … }`
    calling the owner (`TabsController`, `CodeAndXRayCoordinator`, `FeatureFlowCoordinator`, `InsightCoordinator`).
 4. JS: send it with `sendToSwift('<type>', {…})` (`markview-bridge.js`), which goes through `mvBridge.send` and the contract check.

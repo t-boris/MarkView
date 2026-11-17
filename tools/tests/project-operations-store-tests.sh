@@ -32,6 +32,6 @@ swiftc -parse-as-library -target "$target" -I "$out" -o "$app/Contents/MacOS/ope
     MarkView/Models/ProjectOps/ProjectOperationsStore.swift MarkView/Models/ProjectOps/ProjectOperation.swift \
     MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift MarkView/Models/ProjectOps/ProjectOperationDiscoveryService.swift \
     MarkView/Models/ProjectOps/ProjectOperationHistory.swift MarkView/Models/ProjectOps/ProjectOperationWrites.swift \
-    MarkView/Models/Shared/UserPrompts.swift MarkView/Models/AI/OutputLanguage.swift tools/tests/ProjectOperationAnyCodableStub.swift tools/tests/ProjectOperationsStoreStubs.swift \
+    MarkView/Models/Shared/UserPrompts.swift MarkView/Models/AI/OutputLanguage.swift  tools/tests/ProjectOperationsStoreStubs.swift \
     tools/tests/ScriptedPrompts.swift tools/tests/ProjectOperationsStoreTests.swift
 "$app/Contents/MacOS/operations-store-tests"
