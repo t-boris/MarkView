@@ -11,4 +11,5 @@ socket_dir=$(mktemp -d /tmp/mvhost.XXXXXX)
 trap 'rm -rf "$socket_dir"' EXIT
 MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
-  -only-testing:MarkViewHostedTests test
+  -only-testing:MarkViewHostedTests -skip-testing:MarkViewHostedTests/UIStudioSessionHostTests \
+  -skip-testing:MarkViewHostedTests/WorkflowEditorLayoutHostTests test

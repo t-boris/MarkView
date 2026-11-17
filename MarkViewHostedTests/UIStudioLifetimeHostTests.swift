@@ -5,11 +5,6 @@ import XCTest
 
 /// Runs the session lifetime scenarios in the app host, with no live provider.
 final class UIStudioLifetimeHostTests: XCTestCase {
-    final class Requests: @unchecked Sendable {
-        let lock = NSLock()
-        var labels: [String] = []
-    }
-    let requests = Requests()
     func testAssistantBoundaryFailsClosed() async {
         AIAssistantRunner.setTestRunner(nil)
         do {
@@ -20,6 +15,22 @@ final class UIStudioLifetimeHostTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+    func testAssistantFixtureRecordsRealRequests() async throws {
+        let fixture = UIStudioAssistantFixture()
+        fixture.answer = { _ in
+            try CLICompletion.Result(text: "fixture answer", structured: nil, inputTokens: 1, outputTokens: 2, costUSD: nil)
+        }
+        var normal = CLICompletion.Request(project: nil, prompt: "question")
+        normal.label = "ui-studio:edit"
+        var map = CLICompletion.Request(project: nil, prompt: "map")
+        map.label = "ui-studio:map"
+        let answer = try await fixture.run(normal, nil, nil)
+        let mapping = try await fixture.run(map, nil, nil)
+        XCTAssertEqual(answer.text, "fixture answer")
+        XCTAssertEqual(fixture.requests.map(\.label), ["ui-studio:edit"])
+        XCTAssertEqual(fixture.mapRequests.map(\.label), ["ui-studio:map"])
+        XCTAssertEqual((mapping.structured as? [String: Any])?["services"] as? [String], [])
     }
     @MainActor func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
         XCTAssertTrue(condition, name + " " + detail())
@@ -112,14 +123,10 @@ final class Gate: @unchecked Sendable {   // unchecked Sendable: `lock` guards e
 
 
 /// The assistant answers `label` through `gate`, with `structured`; every other call gets an empty answer at once.
-func standIn(label: String?, gate: Gate, cancellable: Bool, structured: [String: Any]? = nil) {
+func standIn(label: String?, gate: Gate, cancellable: Bool, structured: [String: Any]? = nil) -> UIStudioAssistantFixture {
     let json = structured.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
-    let requests = requests
-    AIAssistantRunner.setTestRunner { request, _, _ in
-        requests.lock.withLock { requests.labels.append(request.label) }
-        if request.label.hasPrefix("ui-studio:map") {
-            return try CLICompletion.Result(text: "", structured: ["services": [], "endpoints": [], "notes": []], inputTokens: 0, outputTokens: 0, costUSD: nil)
-        }
+    let fixture = UIStudioAssistantFixture()
+    fixture.answer = { request in
         guard let label, request.label == label else {
             return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
         }
@@ -127,6 +134,8 @@ func standIn(label: String?, gate: Gate, cancellable: Bool, structured: [String:
         let answer = json.flatMap { try? JSONSerialization.jsonObject(with: $0) }
         return try CLICompletion.Result(text: "", structured: answer, inputTokens: 10, outputTokens: 5, costUSD: 0)
     }
+    AIAssistantRunner.setTestRunner(fixture.run)
+    return fixture
 }
 
 // MARK: - Fixtures
@@ -214,8 +223,7 @@ func scenario(_ name: String, page: String, autoRepair: Bool, label: String? = n
     let fixture = makeFixture("scenario", page: page, autoRepair: autoRepair)
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let gate = Gate()
-    standIn(label: label, gate: gate, cancellable: cancellable, structured: answer)
-    let askedBefore = requests.lock.withLock { requests.labels.count }
+    let assistant = standIn(label: label, gate: gate, cancellable: cancellable, structured: answer)
     weak var probe: StudioSession?
     var io: DispatchQueue?
     var hosting: NSWindow?
@@ -253,7 +261,7 @@ func scenario(_ name: String, page: String, autoRepair: Bool, label: String? = n
     check("\(name): nothing was written after close", before == after,
           Set(before).symmetricDifference(Set(after)).sorted().joined(separator: "; ") + "\n" + logAfter.dropFirst(logBefore.count))
     if label != nil {
-        let asked = requests.lock.withLock { requests.labels.dropFirst(askedBefore).filter { $0 == label }.count }
+        let asked = assistant.requests.filter { $0.label == label }.count
         check("\(name): the assistant was asked once and not again", asked == 1, "\(asked)")
     }
 }

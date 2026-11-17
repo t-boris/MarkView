@@ -2,10 +2,14 @@
 // readiness, simulated shared state and Reset, selection that finds the source, a read-only question, a verified source
 // change, selective undo with an independent and an overlapping later edit, a change that breaks the build and leaves a
 // stale preview, preparation of an unknown request, captures and their comparison, feature export with package
-// revalidation, and the server ownership rules on close. The assistant is answered by this harness
-// (UIStudioSessionStubs.swift); everything else is the app's code.
+// revalidation, and the server ownership rules on close. The assistant is answered by the isolated test fixture.
 import AppKit
 import WebKit
+import MarkViewCore
+import XCTest
+@testable import MarkView
+
+private let studioAssistant = UIStudioAssistantFixture()
 
 @MainActor private final class SessionTestWindowServices: StudioWindowServices {
     let store: FeatureStore
@@ -14,34 +18,15 @@ import WebKit
 }
 
 // CI runners give no clue when a windowed WebKit test hangs: print every line at once and stop with the last step reached.
-setvbuf(stdout, nil, _IONBF, 0)
-final class Watchdog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var step = "start"
-    init(seconds: Double) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [self] in
-            print("TIMEOUT: no result after \(Int(seconds)) s; last step: \(lock.withLock { step })")
-            exit(1)
-        }
-    }
-    func reached(_ name: String) {
-        lock.withLock { step = name }
-        print("--  \(name)")
-    }
+private struct SessionProgress {
+    func reached(_ name: String) { print("--  " + name) }
 }
-let watchdog = Watchdog(seconds: 600)
-
-var failures = 0
-func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
-    if condition {
-        print("ok  \(name)")
-    } else {
-        failures += 1
-        print("FAIL \(name) \(detail())")
-    }
+private let watchdog = SessionProgress()
+private func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
+    XCTAssertTrue(condition, name + " " + detail())
 }
 
-func shell(_ command: String, in folder: URL) -> (Int32, String) {
+private func shell(_ command: String, in folder: URL) -> (Int32, String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/sh")
     process.arguments = ["-c", command]
@@ -55,7 +40,7 @@ func shell(_ command: String, in folder: URL) -> (Int32, String) {
     return (process.terminationStatus, String(decoding: data, as: UTF8.self))
 }
 
-func freePort() -> Int {
+private func freePort() -> Int {
     let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
     defer { close(socket) }
     var address = sockaddr_in()
@@ -63,25 +48,25 @@ func freePort() -> Int {
     address.sin_addr.s_addr = inet_addr("127.0.0.1")
     address.sin_port = 0
     var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    _ = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(socket, $0, length) } }
+    _ = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(socket, $0, length) } }
     _ = withUnsafeMutablePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(socket, $0, &length) } }
     return Int(UInt16(bigEndian: address.sin_port))
 }
 
-func edit(_ id: String, _ search: String, _ replace: String, path: String = "web/index.html") -> [String: Any] {
+private func edit(_ id: String, _ search: String, _ replace: String, path: String = "web/index.html") -> [String: Any] {
     ["scope": "instance", "scopeNote": "Only this element.", "needsClarification": false, "summary": "Edit \(id)",
      "edits": [["path": path, "search": search, "replace": replace]]]
 }
 
 /// The answer of a request the assistant chose to answer (DEC-010): nothing changes.
-func answerPlan(_ text: String) -> [String: Any] {
+private func answerPlan(_ text: String) -> [String: Any] {
     ["kind": "answer", "answer": text, "scope": "unknown", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
      "summary": "", "edits": [], "context": [:]]
 }
 
 /// A context change as the assistant returns it (REQ-013): the whole strict answer with kind `context`. `edits` are stray
 /// edits a confused assistant might add; a context change never writes them.
-func contextPlan(name: String, data: String = "", addData: String = "", steps: [[String: Any]] = [], expectedPath: String = "", expectedSelector: String = "", unsupported: [String] = [],
+private func contextPlan(name: String, data: String = "", addData: String = "", steps: [[String: Any]] = [], expectedPath: String = "", expectedSelector: String = "", unsupported: [String] = [],
                  edits: [[String: Any]] = [], overrides: [[String: Any]] = []) -> [String: Any] {
     ["kind": "context", "answer": "", "scope": "unknown", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
      "summary": "Context: \(name)", "edits": edits,
@@ -90,7 +75,7 @@ func contextPlan(name: String, data: String = "", addData: String = "", steps: [
 }
 
 /// What the stand-in assistant answers next, by request label. A request with nothing queued is answered (DEC-010).
-final class Assistant: @unchecked Sendable {
+private final class Assistant: @unchecked Sendable {
     let lock = NSLock()
     var edits: [[String: Any]] = []
     var proposal: [String: Any] = [:]
@@ -98,23 +83,23 @@ final class Assistant: @unchecked Sendable {
     static let nothingToReview: [String: Any] = ["unsupported": false, "reason": "", "assumptions": [], "entities": [], "records": [], "rules": [],
                                                  "envelopes": [], "replaces": [], "links": [], "notes": ""]
 
-    func respond(_ request: CLICompletion.Request) -> CLICompletion.Result {
-        lock.withLock {
+    func respond(_ request: CLICompletion.Request) throws -> CLICompletion.Result {
+        try lock.withLock {
             switch request.label {
             case "ui-studio:edit":
                 let next = edits.isEmpty ? answerPlan("This is the Add button; it posts a new item.") : edits.removeFirst()
-                return CLICompletion.Result(text: "", structured: next, inputTokens: 10, outputTokens: 5, costUSD: 0)
+                return try CLICompletion.Result(text: "", structured: next, inputTokens: 10, outputTokens: 5, costUSD: 0)
             case "ui-studio:review":
                 // DEC-015: nothing to correct, unless a check queued another answer.
-                return CLICompletion.Result(text: "", structured: Assistant.nothingToReview, inputTokens: 10, outputTokens: 5, costUSD: 0)
+                return try CLICompletion.Result(text: "", structured: Assistant.nothingToReview, inputTokens: 10, outputTokens: 5, costUSD: 0)
             default:
-                return CLICompletion.Result(text: "", structured: proposal, inputTokens: 10, outputTokens: 5, costUSD: 0)
+                return try CLICompletion.Result(text: "", structured: proposal, inputTokens: 10, outputTokens: 5, costUSD: 0)
             }
         }
     }
 }
 
-let indexHTML = """
+private let indexHTML = """
 <!doctype html>
 <html>
 <head><meta charset="utf-8"><title>Items</title><link rel="stylesheet" href="app.css"></head>
@@ -137,11 +122,11 @@ let indexHTML = """
 /// BUG-069: a page built like Next.js 16 with Turbopack: the element is made by a bundled chunk under /_next/, its React
 /// fiber carries only the stack captured where its JSX ran (line 3 of the chunk), and the chunk's indexed source map leads
 /// that line to web/src/Card.tsx line 6.
-let chunkHTML = """
+private let chunkHTML = """
 <!doctype html><html><head><title>Chunk</title></head><body><div id="root"></div>
 <script src="/_next/static/chunks/app_0abc._.js"></script></body></html>
 """
-let chunkJS = """
+private let chunkJS = """
 (function () {
   function Card() {
     var stack = new Error('react-stack-top-frame');
@@ -154,7 +139,7 @@ let chunkJS = """
   document.getElementById('root').appendChild(Card());
 })();
 """
-let cardTSX = """
+private let cardTSX = """
 import React from 'react';
 
 export function Card() {
@@ -168,13 +153,13 @@ export function Card() {
 """
 
 /// BUG-071: two pages joined by a plain link, so recording and replaying have to follow a full page load.
-let recordHTML = """
+private let recordHTML = """
 <!doctype html><html><head><title>Start</title></head><body>
 <button id="go" onclick="document.body.dataset.went = 'yes'">Go</button>
 <a id="next" href="/rec-next.html">Next page</a>
 </body></html>
 """
-let recordNextHTML = """
+private let recordNextHTML = """
 <!doctype html><html><head><title>Next</title></head><body>
 <input id="q"><button id="done" onclick="document.body.dataset.done = document.getElementById('q').value">Done</button>
 </body></html>
@@ -182,7 +167,7 @@ let recordNextHTML = """
 
 /// BUG-068: a page whose consent banner (kept in localStorage) is inserted before the content until it is accepted, so a
 /// positional path to the card's button points at the banner's button once storage is cleared.
-let consentHTML = """
+private let consentHTML = """
 <!doctype html>
 <html>
 <head><meta charset="utf-8"><title>Consent</title></head>
@@ -201,7 +186,7 @@ if (!localStorage.getItem('consent')) {
 </html>
 
 """
-let appJS = """
+private let appJS = """
 async function render() {
   const items = await (await fetch('/api/items')).json();
   document.getElementById('list').innerHTML = items.map(i => '<li>' + i.name + '</li>').join('');
@@ -217,7 +202,7 @@ render();
 /// The session's page in a window nobody can see or click, as in the app. A page with no window cannot be photographed, and the
 /// assistant's requests (change, fix) start with a picture of the page.
 @MainActor
-func hostPageInvisibly(_ session: StudioSession) -> NSWindow {
+private func hostPageInvisibly(_ session: StudioSession) -> NSWindow {
     let window = NSWindow(contentRect: CGRect(x: 60, y: 60, width: 1100, height: 860), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     let host = StudioPreviewScrollView(webView: session.webView)
     host.frame = window.contentView!.bounds
@@ -231,7 +216,7 @@ func hostPageInvisibly(_ session: StudioSession) -> NSWindow {
 }
 
 @MainActor
-func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
+private func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }
@@ -241,14 +226,11 @@ func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
 }
 
 @MainActor
-func run() async {
-    guard let runtime = CommandLine.arguments.dropFirst().first else {
-        print("usage: ui-studio-session-harness <Editor/js folder>")
-        exit(2)
-    }
+private func runUIStudioSession() async {
+    let previousTimeout = StudioSession.expectedStateTimeout
     StudioSession.expectedStateTimeout = 1
-    StudioSession.runtimeFolder = URL(fileURLWithPath: runtime)
-    StudioSession.nodePreloadURL = URL(fileURLWithPath: runtime).appendingPathComponent("markview-ui-studio-node.cjs")
+    AIAssistantRunner.setTestRunner(studioAssistant.run)
+    defer { StudioSession.expectedStateTimeout = previousTimeout; AIAssistantRunner.setTestRunner(nil) }
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-session-\(UUID().uuidString)").resolvingSymlinksInPath()
     let web = root.appendingPathComponent("web")
@@ -283,11 +265,18 @@ func run() async {
     spec.autoRepair = false
     spec.prepareScreens = false
     try? StudioStore.saveEnvironment(spec, root: root)
+    // Match the standard lifecycle assumed by these assertions and keep runtime state out of Git.
+    let workflowURL = ProjectPaths.workflowFile(root)
+    try? fm.createDirectory(at: workflowURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? ProjectWorkflowStore.text(of: .standard).write(to: workflowURL, atomically: true, encoding: .utf8)
     _ = shell("git init -q && git add -A && git -c user.email=t@example.com -c user.name=Test commit -qm init", in: root)
+    try? ".dde/\n".write(to: root.appendingPathComponent(".git/info/exclude"), atomically: true, encoding: .utf8)
 
     let assistant = Assistant()
-    CLICompletion.answer = { request in assistant.respond(request) }
-    let store = FeatureStore(folder: root.appendingPathComponent("docs/features"))
+    studioAssistant.answer = { request in try assistant.respond(request) }
+    let store = FeatureStore()
+    store.setup(root: root)
+    defer { store.reset() }
     // A turn of an earlier session: shown in the thread, never sent as memory (BUG-068).
     var earlier = StudioOperation(id: "op-earlier", kind: .edit, request: "Make the consent banner smaller", status: .applied)
     earlier.selection = "div.consent-banner"
@@ -338,11 +327,11 @@ func run() async {
     check("AC-16 the page's own files load from the development server", styled == "rgb(51, 51, 51)", styled ?? "nil")
 
     // BUG-070: a framework's refresh/navigation payload request goes to the development server, not to rule preparation.
-    let preparedBefore = CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count
+    let preparedBefore = studioAssistant.requests.filter { $0.label == "ui-studio:prepare" }.count
     let payload = await text("const r = await fetch('/?_rsc=abc', { headers: { rsc: '1' } }); return r.status + ' ' + (await r.text()).includes('<title>Items</title>');")
     check("BUG-070 a framework data request is answered by the development server", payload == "200 true", payload ?? "nil")
     check("BUG-070 a framework data request is not prepared as an unknown contract",
-          CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count == preparedBefore
+          studioAssistant.requests.filter { $0.label == "ui-studio:prepare" }.count == preparedBefore
           && session.requests.contains { $0.contract == "GET /" && $0.outcome == "allowed" })
 
     // Shared state across requests, and Reset back to the baseline (AC-03, AC-04).
@@ -382,7 +371,7 @@ func run() async {
     let status = shell("git status --porcelain", in: root).1
     check("AC-11 an answer request changes nothing", question?.checks.first?.passed == true && status.isEmpty
           && question?.context == nil && question?.files.isEmpty == true && question?.beforeCapture == nil, status)
-    let questionRequest = CLICompletion.requests.last
+    let questionRequest = studioAssistant.requests.last
     check("AC-17 the assistant gets read-only project access without the web",
           questionRequest?.readableFolder?.standardizedFileURL.path == root.standardizedFileURL.path && questionRequest?.allowWeb == false
           && questionRequest?.label == "ui-studio:edit" && questionRequest?.jsonSchema != nil,
@@ -390,17 +379,17 @@ func run() async {
     check("the first question has no earlier conversation", questionRequest?.prompt.contains("previous_conversation") == false)
     check("BUG-075 a turn of an earlier session stays in History, not in the new conversation, and is not sent",
           session.history.first?.id == "op-earlier" && !session.conversation.contains { $0.id == "op-earlier" }
-          && CLICompletion.requests.allSatisfy { !$0.prompt.contains("consent banner") })
+          && studioAssistant.requests.allSatisfy { !$0.prompt.contains("consent banner") })
 
     // The conversation is a thread with memory: the request being answered stays visible until its turn is in the
     // history, Stop leaves no pending turn behind, and the next question carries the earlier turns.
     watchdog.reached("The conversation keeps the pending turn and remembers the earlier turns")
-    CLICompletion.answer = { request in
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:edit" { try await Task.sleep(nanoseconds: 1_500_000_000) }
-        return assistant.respond(request)
+        return try assistant.respond(request)
     }
     session.change("And why is it here?")
-    let pendingShown = await waitUntil(5) { session.pendingTurn != nil && CLICompletion.requests.count > 0 && session.busy != nil }
+    let pendingShown = await waitUntil(5) { session.pendingTurn != nil && studioAssistant.requests.count > 0 && session.busy != nil }
     let pending = session.pendingTurn
     check("a request shows as a pending turn while the assistant works", pendingShown
           && pending?.request == "And why is it here?" && pending?.element.hasPrefix("button#add") == true
@@ -408,7 +397,7 @@ func run() async {
     _ = await idle()
     check("the pending turn is gone once the answer is in the history", session.pendingTurn == nil
           && session.history.last?.request == "And why is it here?" && session.history.last?.status == .answered)
-    let followUp = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
+    let followUp = studioAssistant.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
     check("the next question carries the first turn's question and answer", followUp.contains("What does this button do?")
           && followUp.contains("This is the Add button; it posts a new item.") && followUp.contains("button#add"), String(followUp.suffix(900)))
     let answered = session.history.count
@@ -419,7 +408,7 @@ func run() async {
     _ = await idle()
     check("Stop leaves no pending turn and adds no turn", session.pendingTurn == nil && session.history.count == answered,
           "\(String(describing: session.pendingTurn)) \(session.history.count)")
-    CLICompletion.answer = { request in assistant.respond(request) }
+    studioAssistant.answer = { request in try assistant.respond(request) }
 
     // Clear starts a new conversation: the thread empties, the assistant forgets it, History keeps every turn (BUG-075).
     check("BUG-075 the conversation holds this session's turns", session.conversation.map(\.request) == ["What does this button do?", "And why is it here?"],
@@ -428,7 +417,7 @@ func run() async {
     check("BUG-075 Clear empties the conversation and keeps History", session.conversation.isEmpty && session.history.count == answered)
     session.change("Where does it post?")
     _ = await idle()
-    let fresh = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
+    let fresh = studioAssistant.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
     check("BUG-075 after Clear the assistant gets no earlier turns", !fresh.contains("previous_conversation")
           && !fresh.contains("What does this button do?") && session.conversation.map(\.request) == ["Where does it post?"], String(fresh.suffix(400)))
 
@@ -440,7 +429,7 @@ func run() async {
     check("a change being verified is a turn of the thread, not a pending turn as well", verifying && session.pendingTurn == nil,
           "\(verifying) \(String(describing: session.pendingTurn))")
     _ = await idle()
-    guard let first = session.history.last else { check("AC-12 a change is recorded", false); return finish(session) }
+    guard let first = session.history.last else { check("AC-12 a change is recorded", false); await finish(session); return }
     check("AC-12 a change edits the source", first.status == .applied && file().contains("All items") && first.files.map(\.path) == ["web/index.html"],
           "\(first.status) \(first.answer)")
     check("AC-13 the change records its scope, patch and revisions", first.scope == .instance && first.patch.contains("+<h1 class=\"title\">All items</h1>")
@@ -450,7 +439,7 @@ func run() async {
     let heading = await text("return document.querySelector('h1').textContent;")
     check("AC-15 the preview shows the change", heading == "All items", heading ?? "nil")
     check("AC-19 before and after captures are linked to the change", first.beforeCapture != nil && first.afterCapture != nil)
-    let changePrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
+    let changePrompt = studioAssistant.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
     check("a change request carries this conversation's question, not those before Clear", changePrompt.contains("Where does it post?")
           && !changePrompt.contains("What does this button do?"), String(changePrompt.suffix(900)))
 
@@ -490,7 +479,7 @@ func run() async {
     let retried = session.history.last
     check("EDIT-03 an edit whose text is not found is retried once", retried?.status == .applied && file().contains("<p>4</p>"),
           "\(retried?.status.rawValue ?? "nil") \(retried?.answer ?? "")")
-    let retryPrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
+    let retryPrompt = studioAssistant.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
     check("EDIT-03 the retry tells the assistant what failed", retryPrompt.contains("<p>Five</p>") || retryPrompt.lowercased().contains("not found"))
 
     // A materially ambiguous request is clarified before anything is edited (REQ-004, EDIT-02).
@@ -511,7 +500,7 @@ func run() async {
         session.answerClarification(asking, choice: "Only this paragraph")
         _ = await idle()
         let clarified = session.history.last
-        let clarifiedPrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
+        let clarifiedPrompt = studioAssistant.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
         check("REQ-004 the answer goes to the assistant and the change is applied", clarifiedPrompt.contains("Only this paragraph")
               && clarified?.status == .applied && file().contains("<p><strong>One</strong></p>"), "\(clarified?.status.rawValue ?? "nil")")
         check("REQ-004 the answer reaches the assistant with the question it asked",
@@ -584,15 +573,15 @@ func run() async {
                                          "evidence": [["kind": "observation", "detail": "Requested by the page"]]]],
                               "assumptions": ["The stats endpoint returns counts."]]
     }
-    let callsBefore = CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count
+    let callsBefore = studioAssistant.requests.filter { $0.label == "ui-studio:prepare" }.count
     let stats = await text("const r = await fetch('/api/stats'); return r.status + ' ' + await r.text();")
     check("AC-05 an unknown request is prepared and answered", stats == "200 {\"open\":2}", stats ?? "nil")
     let again = await text("const r = await fetch('/api/stats'); return String(r.status);")
-    let callsAfter = CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count
+    let callsAfter = studioAssistant.requests.filter { $0.label == "ui-studio:prepare" }.count
     check("AC-06 a registered rule serves later requests without the model", again == "200" && callsAfter == callsBefore + 1,
           "\(again ?? "nil") \(callsAfter - callsBefore)")
     check("SIM-05 the prepared rule is kept for later sessions", StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "stats" } == true)
-    let prepareRequest = CLICompletion.requests.last { $0.label == "ui-studio:prepare" }
+    let prepareRequest = studioAssistant.requests.last { $0.label == "ui-studio:prepare" }
     check("AC-17 preparation is read-only and has no web access", prepareRequest?.allowWeb == false
           && prepareRequest?.readableFolder?.standardizedFileURL.path == root.standardizedFileURL.path)
     check("AC-17 the model never sees confidential values", !(prepareRequest?.prompt.contains("markview-test-token") ?? true))
@@ -606,9 +595,9 @@ func run() async {
     let scenarioBeforeBug089 = session.scenario
     let provisionalBefore = StudioRequestPath.provisionalAfter
     StudioRequestPath.provisionalAfter = 0.6
-    CLICompletion.answer = { request in
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:prepare" { try await Task.sleep(nanoseconds: 2_500_000_000) }
-        return assistant.respond(request)
+        return try assistant.respond(request)
     }
     assistant.lock.withLock {
         assistant.proposal = ["rules": [["id": "slow-stats", "method": "GET", "path": "/api/slow-stats", "operation": "respond",
@@ -629,13 +618,13 @@ func run() async {
     check("BUG-089 the page is loaded again once the rule is ready, and then served from it", reloaded && served == "200 {\"open\":7}",
           "\(reloaded) \(served ?? "nil")")
     StudioRequestPath.provisionalAfter = provisionalBefore
-    CLICompletion.answer = { request in assistant.respond(request) }
+    studioAssistant.answer = { request in try assistant.respond(request) }
 
     // BUG-089: switching the scenario does not throw away a rule that is being prepared.
     watchdog.reached("BUG-089 a rule in preparation survives a scenario switch")
-    CLICompletion.answer = { request in
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:prepare" { try await Task.sleep(nanoseconds: 2_000_000_000) }
-        return assistant.respond(request)
+        return try assistant.respond(request)
     }
     assistant.lock.withLock {
         assistant.proposal = ["rules": [["id": "survives", "method": "GET", "path": "/api/survives", "operation": "respond",
@@ -654,7 +643,7 @@ func run() async {
     check("BUG-089 the rule prepared while the scenario changed is registered, not cancelled", survived
           && session.preparation.records["GET /api/survives"]?.status == .registered,
           "\(session.preparation.records["GET /api/survives"]?.status.rawValue ?? "nil") \(session.preparation.records["GET /api/survives"]?.message ?? "")")
-    CLICompletion.answer = { request in assistant.respond(request) }
+    studioAssistant.answer = { request in try assistant.respond(request) }
 
     // BUG-088: a restore for the same test user keeps the sign-in cookies; consent and the like are cleared; another user starts signed out.
     watchdog.reached("BUG-088 sign-in cookies survive a restore for the same test user")
@@ -698,7 +687,7 @@ func run() async {
         });
         """)
     check("REQ-015 an unknown WebSocket is prepared, then connects and answers", live == "hello,pong", live ?? "nil")
-    let channelPrompt = CLICompletion.requests.last { $0.label == "ui-studio:prepare" }
+    let channelPrompt = studioAssistant.requests.last { $0.label == "ui-studio:prepare" }
     check("REQ-015 the preparation asks for a channel by its contract", channelPrompt?.prompt.contains("WS /ws/live") == true
           && channelPrompt?.prompt.contains("real-time connection") == true, channelPrompt.map { String($0.prompt.prefix(300)) } ?? "no prompt")
     // Environment persistence is queued on the session's I/O queue; the response can arrive before the file is written.
@@ -813,11 +802,11 @@ func run() async {
     _ = await waitUntil(10) { session.selection?.tag.hasPrefix("button.cta") == true }
     check("BUG-068 the card's button is selected", session.selection?.tag.hasPrefix("button.cta") == true, session.selection?.tag ?? "nil")
     session.setMode(.interact)
-    let editsBefore = CLICompletion.requests.filter { $0.label == "ui-studio:edit" }.count
+    let editsBefore = studioAssistant.requests.filter { $0.label == "ui-studio:edit" }.count
     assistant.lock.withLock { assistant.edits = [edit("cta", "Plan with us", "Plan it with us", path: "web/consent.html")] }
     session.change("Make this button friendlier")
     _ = await idle()
-    let editRequests = CLICompletion.requests.filter { $0.label == "ui-studio:edit" }
+    let editRequests = studioAssistant.requests.filter { $0.label == "ui-studio:edit" }
     let editPrompt = editRequests.count > editsBefore ? editRequests.last?.prompt ?? "" : ""
     check("BUG-068 the assistant is given the selected element, not the banner's button",
           editPrompt.contains("button.cta") && !editPrompt.contains("button.accept"), String(editPrompt.prefix(300)))
@@ -915,7 +904,7 @@ func run() async {
     await requestImageChecks(session, root: root, assistant: assistant, idle: idle)
     await browserChecks(session, web: web, root: root, text: text, idle: idle, clickElement: clickElement)
     await standInChecks(session, web: web, text: text, idle: idle)
-    finish(session, port: port)
+    await finish(session, port: port)
 }
 
 /// REQ-005 in a real session: the images of the request box are saved under `.dde/studio/attachments/` (kept out of Git),
@@ -923,7 +912,7 @@ func run() async {
 /// images alone is allowed; an answered clarification keeps the images; a later turn only counts them; Clear leaves the
 /// files; and a request whose images cannot be saved is not sent.
 @MainActor
-func requestImageChecks(_ session: StudioSession, root: URL, assistant: Assistant, idle: () async -> Bool) async {
+private func requestImageChecks(_ session: StudioSession, root: URL, assistant: Assistant, idle: () async -> Bool) async {
     watchdog.reached("REQ-005 images in the request box")
     let fm = FileManager.default
     func makePNG(_ width: Int, _ height: Int, _ color: NSColor) -> Data {
@@ -934,7 +923,7 @@ func requestImageChecks(_ session: StudioSession, root: URL, assistant: Assistan
         image.unlockFocus()
         return ImageAttachments.pngData(from: image) ?? Data()
     }
-    func editRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:edit" } }
+    func editRequests() -> [CLICompletion.Request] { studioAssistant.requests.filter { $0.label == "ui-studio:edit" } }
     func file(_ path: String) -> URL { root.appendingPathComponent(path) }
     func samePath(_ a: URL, _ b: URL) -> Bool { a.standardizedFileURL.path == b.standardizedFileURL.path }
     let blue = makePNG(120, 80, .systemBlue), red = makePNG(60, 40, .systemRed), green = makePNG(30, 30, .systemGreen)
@@ -944,10 +933,10 @@ func requestImageChecks(_ session: StudioSession, root: URL, assistant: Assistan
 
     // A request with two images and a text: the pending turn shows them, they are saved, recorded, given and named.
     session.clearConversation()
-    let previousAnswer = CLICompletion.answer
-    CLICompletion.answer = { request in
+    let previousAnswer = studioAssistant.answer
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:edit" { try await Task.sleep(nanoseconds: 1_500_000_000) }
-        return assistant.respond(request)
+        return try assistant.respond(request)
     }
     session.change("Make the page look like the mock-up", attachments: box.items)
     let shown = await waitUntil(10) { session.pendingTurn?.attachments.count == 2 && session.busy != nil }
@@ -955,7 +944,7 @@ func requestImageChecks(_ session: StudioSession, root: URL, assistant: Assistan
     check("REQ-005 the pending turn shows the images of the request", shown && pendingImages.allSatisfy { fm.fileExists(atPath: file($0).path) },
           "\(pendingImages)")
     _ = await idle()
-    CLICompletion.answer = previousAnswer
+    studioAssistant.answer = previousAnswer
     guard let sent = session.history.last, sent.request == "Make the page look like the mock-up" else {
         check("REQ-005 the request with images is a turn", false, session.history.last?.request ?? "nil")
         return
@@ -1084,7 +1073,7 @@ func requestImageChecks(_ session: StudioSession, root: URL, assistant: Assistan
 /// saved scenario that the page shows, with no source file written; a refused change is corrected once; Undo returns to
 /// the scenario it was made from and keeps the new one; an answer changes nothing; a code change works without a selection.
 @MainActor
-func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Assistant, text: (String) async -> String?,
+private func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Assistant, text: (String) async -> String?,
                    idle: () async -> Bool) async {
     watchdog.reached("REQ-013 context changes from the one request box")
     let page = """
@@ -1111,7 +1100,7 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
         shell("git status --porcelain", in: root).1.split(separator: "\n").filter { !$0.contains(".markview/studio/screens") }.joined(separator: "\n")
     }
     func items() async -> String? { await text("return Array.from(document.querySelectorAll('#items li')).map(l => l.textContent).join(',');") }
-    func editRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:edit" } }
+    func editRequests() -> [CLICompletion.Request] { studioAssistant.requests.filter { $0.label == "ui-studio:edit" } }
     var base = session.scenario
     base.id = "context-base"
     base.name = "Context base"
@@ -1132,23 +1121,23 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
          "instructions": "Click [data-testid=open-booking].", "source": "web/context.html: booking-dialog"],
         ["name": "Transient", "route": "/context.html", "selector": "#transient-screen", "description": "Code entry",
          "instructions": "Click #transient-button.", "source": "web/context.html: transient-screen"]]
-    let previousScreenAnswer = CLICompletion.answer
-    CLICompletion.answer = { request in
+    let previousScreenAnswer = studioAssistant.answer
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:screens" {
-            return CLICompletion.Result(text: "", structured: ["screens": screenRows + [screenRows[0],
+            return try CLICompletion.Result(text: "", structured: ["screens": screenRows + [screenRows[0],
                 ["name": "External", "route": "https://example.com", "selector": "body", "instructions": "Navigate", "source": "guess"]],
                 "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0)
         }
-        return assistant.respond(request)
+        return try assistant.respond(request)
     }
     // This part checks the request box's own path; the preparation ahead has its checks below (REQ-021).
     session.setPrepareScreens(false)
     session.discoverScreens()
     _ = await idle()
-    CLICompletion.answer = previousScreenAnswer
+    studioAssistant.answer = previousScreenAnswer
     check("screen discovery keeps distinct same-route states and rejects duplicates and external routes",
           session.screens.count == 2 && session.scenario.id == base.id && session.savedScenarios.count == savedBefore)
-    let discovery = CLICompletion.requests.last { $0.label == "ui-studio:screens" }
+    let discovery = studioAssistant.requests.last { $0.label == "ui-studio:screens" }
     check("screen discovery is read-only and includes the application folder",
           discovery?.readableFolder?.standardizedFileURL == root.standardizedFileURL
           && discovery?.prompt.contains("Application folder (relative to the project):") == true,
@@ -1344,14 +1333,14 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
                                        overrides: [["ruleId": "", "method": "GET", "path": "/api/passport", "status": 503, "body": #"{"message":"down"}"#,
                                                     "empty": false, "hang": false, "delayMs": 0]])]
     }
-    let preparedBefore = CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count
+    let preparedBefore = studioAssistant.requests.filter { $0.label == "ui-studio:prepare" }.count
     session.change("Make the passport service fail")
     _ = await idle()
     let named = session.history.last
     check("DEC-015 a scenario naming a request no rule serves has the rule prepared, not refused", named?.status == .applied
           && session.spec.rules.contains { $0.id == "passport" && $0.path == "/api/passport" } && session.scenario.name == "Passport unavailable"
           && session.scenario.overrides.contains { $0.path == "/api/passport" && $0.status == 503 }
-          && CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count == preparedBefore + 1,
+          && studioAssistant.requests.filter { $0.label == "ui-studio:prepare" }.count == preparedBefore + 1,
           "\(named?.status.rawValue ?? "nil") \(named?.answer ?? "")")
     assistant.lock.withLock {
         assistant.proposal = [:]
@@ -1441,7 +1430,7 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
 /// conversation's feature with the scenario it made, its Undo marks it rejected, and an answer or a refused change is not
 /// recorded. Applied context changes can be exported, and nothing carries the test token.
 @MainActor
-func contextTrackingChecks(_ session: StudioSession, store: FeatureStore) {
+private func contextTrackingChecks(_ session: StudioSession, store: FeatureStore) {
     func turn(_ request: String) -> StudioOperation? { session.history.last { $0.request == request } }
     func object(_ tracking: StudioOperation.Tracking?) -> FeatureStore.Written? {
         tracking.flatMap { tracking in store.objects.first { $0.slug == tracking.feature && $0.id == tracking.id } }
@@ -1470,7 +1459,7 @@ func contextTrackingChecks(_ session: StudioSession, store: FeatureStore) {
 /// is a fixed bug linked to it, with the pictures; Switch moves a record and Undo marks it reverted, without deleting
 /// anything; Clear starts the next feature; and the fake secret reaches no record.
 @MainActor
-func trackingChecks(_ session: StudioSession, store: FeatureStore, assistant: Assistant, root: URL, idle: () async -> Bool) async {
+private func trackingChecks(_ session: StudioSession, store: FeatureStore, assistant: Assistant, root: URL, idle: () async -> Bool) async {
     watchdog.reached("REQ-012 every change is tracked as a requirement or a bug")
     let fm = FileManager.default
     let css = root.appendingPathComponent("web/track.css")
@@ -1508,9 +1497,9 @@ func trackingChecks(_ session: StudioSession, store: FeatureStore, assistant: As
           "\(first?.status.rawValue ?? "nil") \(feature) \(session.notice ?? "")")
     check("REQ-012 the feature is a UI Studio intake being implemented", overview?.front.string("intake") == "ui-studio"
           && overview?.front.string("status") == "implementing" && overview?.body.contains("## UI Studio conversation") == true)
-    let featureMoves = store.moves.filter { $0.hasPrefix("feature \(feature) ") }
+    let featureMoves = store.testTransitions.filter { $0.kind == .feature && $0.issue == feature && $0.phase == .applied }.map(\.to)
     check("lifecycle: the feature reaches implementing through the lifecycle: a specification stage, then the hand-off as start evidence",
-          featureMoves == ["feature \(feature) → draft by system UI Studio", "feature \(feature) → implementing by hand-off UI Studio"], "\(featureMoves)")
+          featureMoves.contains("draft") && featureMoves.contains("implementing"), "\(featureMoves)")
     let req1 = object(feature, first?.tracking?.id)
     check("REQ-012 a change is an implemented requirement with its request, element, scope, files, checks and patch",
           first?.tracking?.id == "REQ-001" && req1?.front.string("status") == "implemented"
@@ -1594,7 +1583,7 @@ func trackingChecks(_ session: StudioSession, store: FeatureStore, assistant: As
 /// (httpOnly included) and localStorage survive Reset, the kept localStorage is written once per generation, and
 /// confidential entries are not kept.
 @MainActor
-func browserChecks(_ session: StudioSession, web: URL, root: URL, text: (String) async -> String?, idle: () async -> Bool,
+private func browserChecks(_ session: StudioSession, web: URL, root: URL, text: (String) async -> String?, idle: () async -> Bool,
                    clickElement: (String) async -> Void) async {
     watchdog.reached("REQ-008 browser settings in a session")
     let selector = #selector(WKUIDelegate.webView(_:requestMediaCapturePermissionFor:initiatedByFrame:type:decisionHandler:))
@@ -1700,7 +1689,7 @@ func browserChecks(_ session: StudioSession, web: URL, root: URL, text: (String)
 /// BUG-103 in a real session: a page that loads Stripe.js opens, the SDK is listed as a simulated dependency (not an unsupported
 /// one, so the session is not degraded), nothing is reported as a failure, and the scenario decides whether the card is declined.
 @MainActor
-func standInChecks(_ session: StudioSession, web: URL, text: (String) async -> String?, idle: () async -> Bool) async {
+private func standInChecks(_ session: StudioSession, web: URL, text: (String) async -> String?, idle: () async -> Bool) async {
     watchdog.reached("BUG-103 stand-ins in a session")
     try? sdkHTML.write(to: web.appendingPathComponent("sdk.html"), atomically: true, encoding: .utf8)
     var pay = session.scenario
@@ -1746,7 +1735,7 @@ func standInChecks(_ session: StudioSession, web: URL, text: (String) async -> S
 }
 
 /// The loader of @stripe/stripe-js as it is written there, on a page of the project's own folder.
-let sdkHTML = """
+private let sdkHTML = """
 <!doctype html><html><head><meta charset="utf-8"><title>Pay</title></head><body><div id="pay"></div>
 <script>
 window.stripeReady = new Promise(function (resolve, reject) {
@@ -1758,10 +1747,10 @@ window.stripeReady = new Promise(function (resolve, reject) {
 </script></body></html>
 """
 
-let keepSessionID = "4f9a1c2e8b7d6a5f3e2d1c0b9a8f7e6d"
+private let keepSessionID = "4f9a1c2e8b7d6a5f3e2d1c0b9a8f7e6d"
 /// REQ-008: a consent banner shown until the answer is stored; accepting also stores a session cookie and a token, which
 /// must not be kept.
-let keepHTML = """
+private let keepHTML = """
 <!doctype html><html><head><meta charset="utf-8"><title>Keep</title></head><body>
 <p class="content">Content</p>
 <script>
@@ -1783,8 +1772,7 @@ if (!localStorage.getItem('consent')) {
 """
 
 @MainActor
-func finish(_ session: StudioSession, port: Int? = nil) {
-    Task { @MainActor in
+private func finish(_ session: StudioSession, port: Int? = nil) async {
         // Closing stops the server the session started (AC-18).
         await session.close()
         if let port {
@@ -1811,14 +1799,11 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await dynamicServerChecks()
         }
         targetChecks()
-        print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
-        exit(failures == 0 ? 0 : 1)
-    }
 }
 
 /// A fresh checkout installs its local dependency before the actual development script starts.
 @MainActor
-func dependencyInstallChecks() async {
+private func dependencyInstallChecks() async {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("studio-install-\(UUID().uuidString)").resolvingSymlinksInPath()
     try? fm.createDirectory(at: root.appendingPathComponent("dep"), withIntermediateDirectories: true)
@@ -1843,14 +1828,14 @@ func dependencyInstallChecks() async {
 
 /// The map fixture's page: the application's own session at once, the catalog's categories a moment later (while their
 /// group is being prepared), and the catalog's bundles on demand.
-let mapPage = """
+private let mapPage = """
 <!doctype html><html><head><meta charset="utf-8"><title>Map</title></head><body>
 <p id="user"></p><p id="categories"></p>
 <script src="app.js"></script>
 </body></html>
 
 """
-let mapAppJS = """
+private let mapAppJS = """
 fetch('/api/session').then(r => r.json()).then(s => { document.getElementById('user').textContent = s.user; });
 setTimeout(() => fetch('http://catalog.example.test/v1/categories').then(r => r.json()).then(list => {
   document.getElementById('categories').textContent = list.map(c => c.name).join(',');
@@ -1861,7 +1846,7 @@ function orders() { return fetch('http://catalog.example.test/v1/orders').then(r
 
 """
 /// Server code of the fixture: read by the inventory, not run by the static server.
-let mapServerJS = """
+private let mapServerJS = """
 export async function cities() {
   const response = await fetch(`${process.env.CATALOG_URL}/cities`);
   return response.json();
@@ -1870,7 +1855,7 @@ export async function cities() {
 """
 
 /// A project with browser and server call sites; returns its application folder.
-func mapFixture(_ root: URL) -> URL {
+private func mapFixture(_ root: URL) -> URL {
     let web = root.appendingPathComponent("web")
     try? FileManager.default.createDirectory(at: web.appendingPathComponent("server"), withIntermediateDirectories: true)
     try? mapPage.write(to: web.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
@@ -1880,7 +1865,7 @@ func mapFixture(_ root: URL) -> URL {
 }
 
 /// The inventory of the fixture: groups of two give catalog/bundles, catalog/categories+cities, catalog/orders and app/session.
-let mapInventory: [String: Any] = [
+private let mapInventory: [String: Any] = [
     "services": [["name": "catalog", "baseURL": "http://catalog.example.test/v1", "variable": "CATALOG_URL", "side": "both"],
                  ["name": "app", "baseURL": "", "variable": "", "side": "browser"]],
     "endpoints": [
@@ -1898,7 +1883,7 @@ let mapInventory: [String: Any] = [
 
 /// A group's answer in the preparation schema. The bundles all fall in one category and one is in a city that does not
 /// exist, like vivaa's first seed: the coherence check finds both.
-func mapGroupAnswer(_ id: String) -> [String: Any] {
+private func mapGroupAnswer(_ id: String) -> [String: Any] {
     let base = "http://catalog.example.test/v1"
     func entity(_ name: String, _ fields: [[String: Any]]) -> [String: Any] { ["name": name, "idField": "id", "fields": fields] }
     func field(_ name: String, references: String = "") -> [String: Any] {
@@ -1937,7 +1922,7 @@ func mapGroupAnswer(_ id: String) -> [String: Any] {
 }
 
 /// New records of the entity a refill asks for: the bundles spread over every category and existing cities.
-func mapRefillAnswer(_ prompt: String) -> [String: Any] {
+private func mapRefillAnswer(_ prompt: String) -> [String: Any] {
     var json = "[]"
     if prompt.contains("entity `bundles`") {
         json = "[" + ["c1", "c1", "c2", "c2", "c3", "c3"].enumerated().map { index, category in
@@ -1954,7 +1939,7 @@ func mapRefillAnswer(_ prompt: String) -> [String: Any] {
 }
 
 /// The application map's stand-in assistant: the inventory, each group by the id its prompt names, and refills.
-final class MapAssistant: @unchecked Sendable {
+private final class MapAssistant: @unchecked Sendable {
     let lock = NSLock()
     /// Seconds a group takes, by id; others take `groupDelay`.
     var delays: [String: Double] = [:]
@@ -1989,7 +1974,7 @@ final class MapAssistant: @unchecked Sendable {
         default:
             structured = mapRefillAnswer(request.prompt)
         }
-        return CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
     }
 
     func calls() -> [String] { lock.withLock { groupCalls } }
@@ -2001,23 +1986,23 @@ final class MapAssistant: @unchecked Sendable {
 /// prepared and registered, with progress; the page works meanwhile; the coherence check's gaps are logged and refilled;
 /// the map is saved and not redone; a closed session's map resumes; Cancel stops it; Map Again and Refill Data work.
 @MainActor
-func environmentMapChecks() async {
+private func environmentMapChecks() async {
     watchdog.reached("REQ-014 the application is mapped in the background")
     let fm = FileManager.default
-    let previousAnswer = CLICompletion.answer
+    let previousAnswer = studioAssistant.answer
     defer {
-        CLICompletion.mapAnswer = nil
-        CLICompletion.answer = previousAnswer
+        studioAssistant.mapAnswer = nil
+        studioAssistant.answer = previousAnswer
     }
     let assistant = MapAssistant()
-    CLICompletion.mapAnswer = { request in try await assistant.respond(request) }
+    studioAssistant.mapAnswer = { request in try await assistant.respond(request) }
     // The page's own requests are prepared one by one: /api/session comes before its group's turn.
-    CLICompletion.answer = { _ in
+    studioAssistant.answer = { _ in
         try await Task.sleep(nanoseconds: 300_000_000)
-        return CLICompletion.Result(text: "", structured: mapGroupAnswer("app/session"), inputTokens: 10, outputTokens: 5, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: mapGroupAnswer("app/session"), inputTokens: 10, outputTokens: 5, costUSD: 0)
     }
     func mapCalls(since start: Int, _ label: String) -> [CLICompletion.Request] {
-        CLICompletion.mapRequests.dropFirst(start).filter { $0.label == label }
+        studioAssistant.mapRequests.dropFirst(start).filter { $0.label == label }
     }
     func open(_ root: URL, web: URL) -> StudioSession {
         let session = StudioSession(root: root)
@@ -2034,8 +2019,8 @@ func environmentMapChecks() async {
     defer { try? fm.removeItem(at: root) }
     let web = mapFixture(root)
     assistant.set(["catalog/bundles": 4, "catalog/categories+cities": 2, "catalog/orders": 0.5])
-    let mapsBefore = CLICompletion.mapRequests.count
-    let preparesBefore = CLICompletion.requests.count
+    let mapsBefore = studioAssistant.mapRequests.count
+    let preparesBefore = studioAssistant.requests.count
     let session = open(root, web: web)
     func text(_ id: String) async -> String {
         ((try? await session.call("return document.getElementById('\(id)').textContent;")) as? String) ?? ""
@@ -2058,7 +2043,7 @@ func environmentMapChecks() async {
         return done(session)
     }
     let categories = await text("categories")
-    let prepares = CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }
+    let prepares = studioAssistant.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }
     check("REQ-014 a request whose group is being prepared waits for it and is answered by its rule, with no call of its own",
           categories == "Spa,Food,Tours"
           && !prepares.contains { $0.prompt.contains("Unknown request seen by MarkView UI Studio: GET http://catalog.example.test/v1/categories") }
@@ -2119,7 +2104,7 @@ func environmentMapChecks() async {
           "\(String(describing: saved))")
 
     watchdog.reached("REQ-014 Map Again and Refill Data")
-    let againStart = CLICompletion.mapRequests.count
+    let againStart = studioAssistant.mapRequests.count
     assistant.set([:], other: 0.3)
     session.mapAgain()
     let removed = !session.spec.rules.contains { $0.id == "search-bundles" } && session.spec.map == nil
@@ -2128,7 +2113,7 @@ func environmentMapChecks() async {
           && mapCalls(since: againStart, "ui-studio:map").count == 1 && session.mapping.map?.groups.allSatisfy { $0.status == .done } == true
           && session.spec.rules.contains { $0.id == "search-bundles" } && logText(session).contains { $0.hasPrefix("Mapping the application again:") },
           "removed=\(removed) \(session.mapping.map?.groups.map { "\($0.id) \($0.status)" } ?? [])")
-    let refillStart = CLICompletion.mapRequests.count
+    let refillStart = studioAssistant.mapRequests.count
     session.refillData()
     _ = await waitUntil(40) { !session.mapping.isRunning && session.busy == nil }
     let refills = mapCalls(since: refillStart, "ui-studio:map-refill")
@@ -2140,14 +2125,14 @@ func environmentMapChecks() async {
     await session.close()
 
     watchdog.reached("REQ-014 a completed map is not redone")
-    let secondStart = CLICompletion.mapRequests.count
+    let secondStart = studioAssistant.mapRequests.count
     let second = open(root, web: web)
     _ = await waitUntil(60) { [.ready, .degraded, .failed].contains(second.state) && second.busy == nil }
     try? await Task.sleep(nanoseconds: 500_000_000)
     check("REQ-014 a second session does not map the application again, and its test user starts with the saved role",
-          CLICompletion.mapRequests.count == secondStart && !second.mapping.isRunning && second.mapping.map?.status == .complete
+          studioAssistant.mapRequests.count == secondStart && !second.mapping.isRunning && second.mapping.map?.status == .complete
           && second.scenario.role.roleName == "customer",
-          "\(CLICompletion.mapRequests.count - secondStart) map calls, \(String(describing: second.mapping.map?.status))")
+          "\(studioAssistant.mapRequests.count - secondStart) map calls, \(String(describing: second.mapping.map?.status))")
     await second.close()
 
     watchdog.reached("REQ-014 a restart resumes the unfinished groups")
@@ -2167,7 +2152,7 @@ func environmentMapChecks() async {
     check("REQ-014 a session that closes while mapping leaves the map to resume",
           left?.status == .mapping && left?.inventoried == true && left?.groups.first?.status == .preparing
           && left?.groups.dropFirst().allSatisfy { $0.status == .done } == true, "\(left?.groups.map { "\($0.id) \($0.status)" } ?? [])")
-    let resumeStart = CLICompletion.mapRequests.count
+    let resumeStart = studioAssistant.mapRequests.count
     let callsBefore = assistant.calls().count
     assistant.set([:], other: 0.3)
     let resumed = open(resumeRoot, web: resumeWeb)
@@ -2213,7 +2198,7 @@ func environmentMapChecks() async {
 
 /// A server that was already running is used and left running (AC-18).
 @MainActor
-func externalServerCheck() async {
+private func externalServerCheck() async {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-external-\(UUID().uuidString)").resolvingSymlinksInPath()
     try? fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -2248,7 +2233,7 @@ func externalServerCheck() async {
 /// dotenv (the environment wins), calls `API_URL/rates` with `Bearer $API_SECRET` and renders the rate; it writes only booleans
 /// about what it saw to `seen.json`. REQ-011: `/account` answers 307 to the sign-in page `/auth/login`, and with `verbose` the
 /// server prints the file's real secret in the shapes a log line takes (alone, as a bearer value, in a query).
-let ratesServer = #"""
+private let ratesServer = #"""
 import json, os, sys, urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from_file = {}
@@ -2302,10 +2287,10 @@ HTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
 """#
 
 /// The real value of the rates server's `API_SECRET` in its `.env.local`; it must reach no prompt, log or saved file.
-let fakeServerSecret = "real-secret-do-not-leak-4711"
+private let fakeServerSecret = "real-secret-do-not-leak-4711"
 
 @MainActor
-func serverRequestChecks() async {
+private func serverRequestChecks() async {
     watchdog.reached("The development server's own requests are simulated")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-server-\(UUID().uuidString)").resolvingSymlinksInPath()
@@ -2321,11 +2306,11 @@ func serverRequestChecks() async {
                           "assumptions": ["The rates service returns a rate."]]
     // The agent needs longer than the server gives its call (3 s): a rule prepared when the request arrives comes too late
     // for that render, so the page must be prepared ahead (BUG-074).
-    CLICompletion.answer = { request in
+    studioAssistant.answer = { request in
         try await Task.sleep(nanoseconds: 4_000_000_000)
-        return assistant.respond(request)
+        return try assistant.respond(request)
     }
-    let promptsBefore = CLICompletion.requests.count
+    let promptsBefore = studioAssistant.requests.count
     let port = freePort()
     let session = StudioSession(root: root)
     func text(_ script: String) async -> String? { (try? await session.call(script)) as? String }
@@ -2345,27 +2330,27 @@ func serverRequestChecks() async {
     check("BUG-076 the server is found without rendering the page: one render, the first load", renders.count == 1,
           renders.joined(separator: " "))
     check("BUG-074 the first render is simulated although the agent is slower than the server's own deadline", rate == "1.23", rate ?? "nil")
-    let ahead = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
+    let ahead = studioAssistant.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
     check("BUG-074 the page is prepared ahead, with the service's address and variable", ahead.first?.prompt.contains("before it loads") == true
           && ahead.first?.prompt.contains("API_URL → http://rates.example.test/v2") == true, ahead.first.map { String($0.prompt.prefix(400)) } ?? "no prompt")
     check("BUG-074 the prepared route is saved, so later sessions do not ask again",
           StudioStore.loadEnvironment(root)?.preparedRoutes == ["/"], "\(String(describing: StudioStore.loadEnvironment(root)?.preparedRoutes))")
-    let callsAfterStart = CLICompletion.requests.count
+    let callsAfterStart = studioAssistant.requests.count
     session.reset()
     _ = await waitUntil(60) { session.busy == nil && [.ready, .degraded, .failed].contains(session.state) }
-    check("BUG-074 a Reset does not prepare the page again", CLICompletion.requests.count == callsAfterStart,
-          "\(CLICompletion.requests.count - callsAfterStart) more calls")
+    check("BUG-074 a Reset does not prepare the page again", studioAssistant.requests.count == callsAfterStart,
+          "\(studioAssistant.requests.count - callsAfterStart) more calls")
     let view = seen()
     check("REQ-007 the server ran with the gateway address, a test secret, no proxy and the clock file",
           view["simulated"] == true && view["testSecret"] == true && view["noProxy"] == true && view["clock"] == true, "\(view)")
     check("REQ-007 the request keeps the service's address and is shown as the server's",
           session.requests.contains { $0.transport == "server" && $0.contract == "GET http://rates.example.test/v2/rates" },
           session.requests.map { "\($0.transport) \($0.contract)" }.joined(separator: " | "))
-    let prompts = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
+    let prompts = studioAssistant.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
     check("REQ-007 the assistant is told the server makes the requests", prompts.contains { $0.prompt.contains("The development server renders this page")
           && $0.prompt.contains("API_URL") }, prompts.last.map { String($0.prompt.prefix(300)) } ?? "no prompt")
     let environment = (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? ""
-    let everything = CLICompletion.requests.map(\.prompt).joined() + session.requests.map(\.url).joined() + session.serverLog + environment
+    let everything = studioAssistant.requests.map(\.prompt).joined() + session.requests.map(\.url).joined() + session.serverLog + environment
         + session.serverNotes.joined() + "\(session.serverConnections)"
     check("REQ-007 the real secret appears in no prompt, log or saved file", !everything.contains(secret))
 
@@ -2394,7 +2379,7 @@ func serverRequestChecks() async {
 /// BUG-074: a server request the page ahead did not cover gets its rule after its page rendered without it (the server
 /// gave up after 3 s); the rule is kept and the page reloads once by itself, so it shows the simulation without a Reset.
 @MainActor
-func lateRuleChecks() async {
+private func lateRuleChecks() async {
     watchdog.reached("Rules that arrive after the server gave up reload the page")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-late-\(UUID().uuidString)").resolvingSymlinksInPath()
@@ -2406,14 +2391,14 @@ func lateRuleChecks() async {
                                            "responseStatus": 200, "responseBody": #"{"rate":4.56}"#,
                                            "evidence": [["kind": "observation", "detail": "Requested by the server"]]]], "assumptions": []]
     // The page ahead finds nothing; the request itself is prepared, slower than the server waits.
-    CLICompletion.answer = { request in
+    studioAssistant.answer = { request in
         if request.prompt.contains("before it loads") {
-            return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+            return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
         }
         try await Task.sleep(nanoseconds: 4_000_000_000)
-        return CLICompletion.Result(text: "", structured: rates, inputTokens: 1, outputTokens: 1, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: rates, inputTokens: 1, outputTokens: 1, costUSD: 0)
     }
-    let promptsBefore = CLICompletion.requests.count
+    let promptsBefore = studioAssistant.requests.count
     let port = freePort()
     let session = StudioSession(root: root)
     func text(_ script: String) async -> String? { (try? await session.call(script)) as? String }
@@ -2428,7 +2413,7 @@ func lateRuleChecks() async {
     }
     check("BUG-074 a rule that arrives after the server gave up reloads the page, which then shows the simulation", rate == "4.56"
           && !session.rulesArrivedLate, "\(rate) \(session.state) \(session.stateDetail)")
-    let prompts = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
+    let prompts = studioAssistant.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
     check("REQ-007 the assistant is told the server made the request", prompts.contains { $0.prompt.contains("Made by the development server")
           && $0.prompt.contains("API_URL") }, prompts.map { String($0.prompt.prefix(120)) }.joined(separator: " | "))
     check("BUG-074 the late rule is kept for later sessions", StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "rates" } == true)
@@ -2437,7 +2422,7 @@ func lateRuleChecks() async {
 
 /// DEC-006: a Node server MarkView starts renders with the scenario's clock, the same clock the page has, so a date it
 /// renders (a footer's year) matches the page's and hydration does not fail.
-let clockServer = #"""
+private let clockServer = #"""
 const http = require('http');
 http.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -2446,7 +2431,7 @@ http.createServer((req, res) => {
 """#
 
 @MainActor
-func serverClockChecks() async {
+private func serverClockChecks() async {
     let fm = FileManager.default
     guard shell("command -v node", in: fm.temporaryDirectory).0 == 0 else {
         print("skip DEC-006 server clock checks: node is not installed")
@@ -2479,7 +2464,7 @@ func serverClockChecks() async {
 }
 
 /// Which projects UI Studio opens and what it says it cannot simulate (REQ-001).
-func targetChecks() {
+private func targetChecks() {
     let fm = FileManager.default
     let base = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-targets-\(UUID().uuidString)").resolvingSymlinksInPath()
     defer { try? fm.removeItem(at: base) }
@@ -2535,7 +2520,7 @@ func targetChecks() {
 
 // Constants live above the entry point below: a top-level `let` after it is not initialized yet when `run()` starts.
 /// REQ-020: an application that sends every page to its sign-in page until the form is submitted (a cookie then signs the user in).
-let signInServer = #"""
+private let signInServer = #"""
 import http.server, sys
 class Handler(http.server.BaseHTTPRequestHandler):
     def page(self, status, body, location=None):
@@ -2558,16 +2543,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
 """#
 
-let application = NSApplication.shared
-application.setActivationPolicy(.accessory)
-Task { @MainActor in await run() }
-application.run()
+
 
 /// REQ-011: the session log shows what could not be seen before: a server redirect to the sign-in page, rule preparations that
 /// ran out of time and the server's output, in the drawer and in `.dde/studio/session.log`, and never the project's real
 /// secret, which the server prints.
 @MainActor
-func logChecks() async {
+private func logChecks() async {
     watchdog.reached("The session log keeps redirects, preparations and server output, without the secret")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-log-\(UUID().uuidString)").resolvingSymlinksInPath()
@@ -2577,9 +2559,9 @@ func logChecks() async {
     try? "API_URL=http://rates.example.test/v2\nAPI_SECRET=\(fakeServerSecret)\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
     // The agent takes longer than the session's preparation deadline: the preparation ahead of the page and the one for the
     // server's request both time out.
-    CLICompletion.answer = { _ in
+    studioAssistant.answer = { _ in
         try await Task.sleep(nanoseconds: 4_000_000_000)
-        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
     }
     let limits = StudioSession.preparationLimits
     StudioSession.preparationLimits = StudioPreparationLimits(deadline: 1, aheadDeadline: 1, queueWait: 10, maxAttempts: 1, maxConcurrent: 2, maxContracts: 40)
@@ -2634,7 +2616,7 @@ func logChecks() async {
 // MARK: - Fix data (REQ-017)
 
 /// The answers the stand-in assistant gives Fix data, in order; none queued is a not-data answer.
-final class FixAnswers: @unchecked Sendable {
+private final class FixAnswers: @unchecked Sendable {
     private let lock = NSLock()
     private var queue: [[String: Any]] = []
     func set(_ answers: [[String: Any]]) { lock.withLock { queue = answers } }
@@ -2645,13 +2627,13 @@ final class FixAnswers: @unchecked Sendable {
     }
 }
 
-func fixAnswer(_ ids: [String], status: String = "editable", reason: String = "app.js reads LABELS[status]") -> [String: Any] {
+private func fixAnswer(_ ids: [String], status: String = "editable", reason: String = "app.js reads LABELS[status]") -> [String: Any] {
     ["kind": "data", "summary": "The code knows editable and locked.", "codePointer": "",
      "changes": ids.map { ["entity": "bundles", "id": $0, "field": "status", "valueJSON": "\"\(status)\"", "reason": reason] }]
 }
 
 @MainActor
-func fixDataChecks() async {
+private func fixDataChecks() async {
     watchdog.reached("REQ-017 Fix data repairs the simulated data a page error came from")
     let fixPage = """
     <!doctype html><html><head><meta charset="utf-8"><title>Bundles</title></head><body>
@@ -2688,13 +2670,13 @@ func fixDataChecks() async {
     try? StudioStore.saveScenario(mine, root: root)
 
     let answers = FixAnswers()
-    CLICompletion.answer = { request in
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:fix-data" {
-            return CLICompletion.Result(text: "", structured: answers.next(), inputTokens: 10, outputTokens: 5, costUSD: 0)
+            return try CLICompletion.Result(text: "", structured: answers.next(), inputTokens: 10, outputTokens: 5, costUSD: 0)
         }
-        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
     }
-    func fixRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:fix-data" } }
+    func fixRequests() -> [CLICompletion.Request] { studioAssistant.requests.filter { $0.label == "ui-studio:fix-data" } }
     let port = freePort()
     let session = StudioSession(root: root)
     session.start(WebAppTarget(folder: root, label: "bundles", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
@@ -2788,7 +2770,7 @@ func fixDataChecks() async {
 /// repeated, and what the person undid is not repaired again; an error the assistant judges not caused by data is asked about once.
 /// DEC-015: an environment prepared before envelopes and state-following lists existed is reviewed once, and the page then works.
 @MainActor
-func environmentReviewChecks() async {
+private func environmentReviewChecks() async {
     watchdog.reached("DEC-015 an environment prepared before envelopes existed is reviewed once and the page then works")
     let page = """
     <!doctype html><html><head><meta charset="utf-8"><title>Review</title></head><body>
@@ -2849,13 +2831,13 @@ func environmentReviewChecks() async {
         "envelopes": [["prefix": "/api/", "resultKey": "result", "successFields": #"{"ok": true}"#, "failure": ""]],
         "replaces": ["pending-fixed", "answer-fixed"], "links": [], "notes": "The answers are wrapped in ok/result; the pending list is state.",
     ]
-    let previous = CLICompletion.answer
-    defer { CLICompletion.answer = previous }
-    CLICompletion.answer = { request in
-        if request.label == "ui-studio:review" { return CLICompletion.Result(text: "", structured: answer, inputTokens: 10, outputTokens: 5, costUSD: 0.01) }
-        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+    let previous = studioAssistant.answer
+    defer { studioAssistant.answer = previous }
+    studioAssistant.answer = { request in
+        if request.label == "ui-studio:review" { return try CLICompletion.Result(text: "", structured: answer, inputTokens: 10, outputTokens: 5, costUSD: 0.01) }
+        return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
     }
-    func reviews() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:review" } }
+    func reviews() -> [CLICompletion.Request] { studioAssistant.requests.filter { $0.label == "ui-studio:review" } }
 
     let root = makeRoot("review", reviewed: false)
     defer { try? fm.removeItem(at: root) }
@@ -2934,7 +2916,7 @@ func environmentReviewChecks() async {
 }
 
 @MainActor
-func autoRepairChecks() async {
+private func autoRepairChecks() async {
     watchdog.reached("REQ-020 Studio repairs a page error caused by the simulated data by itself, with Undo")
     let fixPage = """
     <!doctype html><html><head><meta charset="utf-8"><title>Bundles</title></head><body>
@@ -2963,15 +2945,15 @@ func autoRepairChecks() async {
         return root
     }
     let answers = FixAnswers()
-    let previous = CLICompletion.answer
-    defer { CLICompletion.answer = previous }
-    CLICompletion.answer = { request in
+    let previous = studioAssistant.answer
+    defer { studioAssistant.answer = previous }
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:fix-data" {
-            return CLICompletion.Result(text: "", structured: answers.next(), inputTokens: 10, outputTokens: 5, costUSD: 0)
+            return try CLICompletion.Result(text: "", structured: answers.next(), inputTokens: 10, outputTokens: 5, costUSD: 0)
         }
-        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
     }
-    func fixRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:fix-data" } }
+    func fixRequests() -> [CLICompletion.Request] { studioAssistant.requests.filter { $0.label == "ui-studio:fix-data" } }
 
     // At open, with the answer the assistant gives for the vivaa case.
     let root = makeRoot("auto")
@@ -3059,7 +3041,7 @@ func autoRepairChecks() async {
 /// A hash-routed application: moving between its screens changes only the fragment, which WebKit treats as a navigation inside the
 /// same document. The page must still start again, or its requests are rejected as stale and the load never finishes.
 @MainActor
-func hashRouteChecks() async {
+private func hashRouteChecks() async {
     watchdog.reached("REQ-020 a hash-routed application starts a fresh page for every scenario")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-hash-\(UUID().uuidString)").resolvingSymlinksInPath()
@@ -3127,7 +3109,7 @@ func hashRouteChecks() async {
 // MARK: - Main screens ready (REQ-021, DEC-014)
 
 /// Counts the stand-in assistant's calls for the screens, and how many ran at once.
-final class ScreenCalls: @unchecked Sendable {
+private final class ScreenCalls: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var listed = 0
     private(set) var prepared: [String] = []
@@ -3139,7 +3121,7 @@ final class ScreenCalls: @unchecked Sendable {
 }
 
 
-final class SignInCalls: @unchecked Sendable {
+private final class SignInCalls: @unchecked Sendable {
     private let lock = NSLock()
     private var prompts: [String] = []
     func add(_ prompt: String) { lock.withLock { prompts.append(prompt) } }
@@ -3147,7 +3129,7 @@ final class SignInCalls: @unchecked Sendable {
 }
 
 @MainActor
-func signInRepairChecks() async {
+private func signInRepairChecks() async {
     watchdog.reached("REQ-020 a sign-in page nobody asked for is repaired by itself, through a signed-in scenario")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-signin-\(UUID().uuidString)").resolvingSymlinksInPath()
@@ -3159,18 +3141,18 @@ func signInRepairChecks() async {
     env.prepareScreens = false
     try? StudioStore.saveEnvironment(env, root: root)
     let calls = SignInCalls()
-    let previous = CLICompletion.answer
-    defer { CLICompletion.answer = previous }
-    CLICompletion.answer = { request in
+    let previous = studioAssistant.answer
+    defer { studioAssistant.answer = previous }
+    studioAssistant.answer = { request in
         if request.label == "ui-studio:edit" {
             calls.add(request.prompt)
             let plan = contextPlan(name: "Signed in", steps: [["action": "type", "selector": "#email", "text": "test@example.com", "ms": 0],
                                                             ["action": "type", "selector": "#password", "text": "simulated", "ms": 0],
                                                             ["action": "click", "selector": "#go", "text": "", "ms": 0]],
                                    expectedPath: "/dashboard", expectedSelector: "#dash")
-            return CLICompletion.Result(text: "", structured: plan, inputTokens: 10, outputTokens: 5, costUSD: 0)
+            return try CLICompletion.Result(text: "", structured: plan, inputTokens: 10, outputTokens: 5, costUSD: 0)
         }
-        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
     }
     func scenarioFiles() -> [String] {
         ((try? fm.contentsOfDirectory(atPath: StudioStore.scenariosFolder(root).path)) ?? []).filter { $0.hasSuffix(".json") }
@@ -3220,7 +3202,7 @@ func signInRepairChecks() async {
 /// REQ-021: a screen whose address has a placeholder (`/items/<id>`) cannot be reached by a scenario with no steps, so it is not saved as
 /// prepared (found on a real project, where such a scenario never reached its page).
 @MainActor
-func placeholderScreenChecks() async {
+private func placeholderScreenChecks() async {
     watchdog.reached("REQ-021 a screen whose address has a placeholder is not saved as prepared")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-placeholder-\(UUID().uuidString)").resolvingSymlinksInPath()
@@ -3234,16 +3216,16 @@ func placeholderScreenChecks() async {
     try? StudioStore.saveEnvironment(env, root: root)
     let row: [String: Any] = ["name": "Item", "route": "/items/<id>", "selector": "#item", "description": "One item", "instructions": "Open it.",
                               "source": "index.html: item", "main": true]
-    let previous = CLICompletion.answer
-    defer { CLICompletion.answer = previous }
-    CLICompletion.answer = { request in
+    let previous = studioAssistant.answer
+    defer { studioAssistant.answer = previous }
+    studioAssistant.answer = { request in
         switch request.label {
         case "ui-studio:screens":
-            return CLICompletion.Result(text: "", structured: ["screens": [row], "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
+            return try CLICompletion.Result(text: "", structured: ["screens": [row], "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
         case "ui-studio:screen":
-            return CLICompletion.Result(text: "", structured: contextPlan(name: "Item", expectedPath: "/items/<id>", expectedSelector: "#item"), inputTokens: 10, outputTokens: 5, costUSD: 0.02)
+            return try CLICompletion.Result(text: "", structured: contextPlan(name: "Item", expectedPath: "/items/<id>", expectedSelector: "#item"), inputTokens: 10, outputTokens: 5, costUSD: 0.02)
         default:
-            return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+            return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
         }
     }
     let port = freePort()
@@ -3261,7 +3243,7 @@ func placeholderScreenChecks() async {
 }
 
 @MainActor
-func screenPreparationChecks() async {
+private func screenPreparationChecks() async {
     watchdog.reached("REQ-021 the main screens are prepared ahead and open without the assistant")
     let fm = FileManager.default
     func makeRoot(_ name: String, prepareScreens: Bool? = nil) -> URL {
@@ -3288,28 +3270,28 @@ func screenPreparationChecks() async {
         ["name": "Accounts", "route": "/accounts.html", "selector": "#accounts", "description": "The accounts list", "instructions": "Open it.", "source": "accounts.html: accounts", "main": true],
         ["name": "Ghost", "route": "/index.html", "selector": "#ghost", "description": "A screen no page shows", "instructions": "Open it.", "source": "index.html: ghost", "main": true],
         ["name": "About", "route": "/index.html", "selector": "#about", "description": "Not a main screen", "instructions": "Open it.", "source": "index.html: about", "main": false]]
-    let previous = CLICompletion.answer
-    defer { CLICompletion.answer = previous }
-    CLICompletion.answer = { request in
+    let previous = studioAssistant.answer
+    defer { studioAssistant.answer = previous }
+    studioAssistant.answer = { request in
         switch request.label {
         case "ui-studio:screens":
             calls.list()
-            return CLICompletion.Result(text: "", structured: ["screens": rows, "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
+            return try CLICompletion.Result(text: "", structured: ["screens": rows, "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
         case "ui-studio:screen":
             let name = rows.compactMap { $0["name"] as? String }.first { request.prompt.contains("Show the application screen \"\($0)\"") } ?? "?"
             calls.begin(name)
             Thread.sleep(forTimeInterval: 0.4)
             calls.end()
             let row = rows.first { ($0["name"] as? String) == name }
-            return CLICompletion.Result(text: "", structured: contextPlan(name: name, expectedPath: row?["route"] as? String ?? "", expectedSelector: row?["selector"] as? String ?? ""),
+            return try CLICompletion.Result(text: "", structured: contextPlan(name: name, expectedPath: row?["route"] as? String ?? "", expectedSelector: row?["selector"] as? String ?? ""),
                                         inputTokens: 10, outputTokens: 5, costUSD: 0.02)
         case "ui-studio:edit":
-            return CLICompletion.Result(text: "", structured: answerPlan("Nothing to change."), inputTokens: 1, outputTokens: 1, costUSD: 0)
+            return try CLICompletion.Result(text: "", structured: answerPlan("Nothing to change."), inputTokens: 1, outputTokens: 1, costUSD: 0)
         default:
-            return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+            return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
         }
     }
-    func requests(_ label: String) -> Int { CLICompletion.requests.filter { $0.label == label }.count }
+    func requests(_ label: String) -> Int { studioAssistant.requests.filter { $0.label == label }.count }
     func screensFile(_ root: URL) -> StudioScreenBook? { StudioStore.loadScreenBook(root, appFolder: "") }
 
     let root = makeRoot("screens")
@@ -3347,12 +3329,12 @@ func screenPreparationChecks() async {
 
     // The click: no assistant, the page proves the scenario, and the screen is then ready.
     let accounts = session.screens[1]
-    let beforeClick = CLICompletion.requests.count
+    let beforeClick = studioAssistant.requests.count
     session.openScreen(accounts)
     _ = await waitUntil(120) { session.busy == nil && session.screenBook.entry(for: accounts)?.status == .verified }
     let shown = (try? await session.call("return !!document.querySelector('#accounts');")) as? Bool
-    check("REQ-021 a prepared screen opens on the page without the assistant", CLICompletion.requests.count == beforeClick && shown == true,
-          "\(CLICompletion.requests.count - beforeClick) new requests, shown \(String(describing: shown))")
+    check("REQ-021 a prepared screen opens on the page without the assistant", studioAssistant.requests.count == beforeClick && shown == true,
+          "\(studioAssistant.requests.count - beforeClick) new requests, shown \(String(describing: shown))")
     check("REQ-021 the opened scenario is the screen's own and the screen is ready", session.scenario.id == session.screenBook.entry(for: accounts)?.scenarioID
           && session.state(of: accounts) == .ready)
     let verified = await waitUntil(15) { screensFile(root)?.entries.first { $0.screen.name == "Accounts" }?.status == .verified }
@@ -3409,13 +3391,13 @@ func screenPreparationChecks() async {
 /// new endpoints are prepared), a bridge call the map did not list is prepared like an unknown request, and a callback the
 /// page registered before its channel existed gets the record a later save writes.
 @MainActor
-func ipcSessionChecks() async {
+private func ipcSessionChecks() async {
     watchdog.reached("REQ-016 an older map of an Electron renderer is extended with its preload bridge")
     let fm = FileManager.default
-    let previousAnswer = CLICompletion.answer
+    let previousAnswer = studioAssistant.answer
     defer {
-        CLICompletion.mapAnswer = nil
-        CLICompletion.answer = previousAnswer
+        studioAssistant.mapAnswer = nil
+        studioAssistant.answer = previousAnswer
     }
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-ipc-\(UUID().uuidString)").resolvingSymlinksInPath()
     let web = root.appendingPathComponent("web")
@@ -3448,7 +3430,7 @@ func ipcSessionChecks() async {
     try? StudioStore.saveEnvironment(spec, root: root)
 
     let brokers = #"[{"id":"b1","name":"Alpaca"},{"id":"b2","name":"Tastytrade"}]"#
-    CLICompletion.mapAnswer = { request in
+    studioAssistant.mapAnswer = { request in
         let structured: [String: Any]
         switch request.label {
         case "ui-studio:map":
@@ -3469,9 +3451,9 @@ func ipcSessionChecks() async {
         default:
             structured = ["json": "[]", "assumptions": []]
         }
-        return CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
     }
-    CLICompletion.answer = { request in
+    studioAssistant.answer = { request in
         var structured: [String: Any] = ["rules": [], "assumptions": [], "channels": "[]", "graphql": "[]"]
         if request.prompt.contains("seen by MarkView UI Studio: GET http://electron.ipc/desk/settings/getDocument") {
             structured["rules"] = [["id": "get-document", "method": "GET", "path": "http://electron.ipc/desk/settings/getDocument", "operation": "respond",
@@ -3484,11 +3466,11 @@ func ipcSessionChecks() async {
                                     "entity": "documents", "evidence": [["kind": "contract", "detail": "ipcMain.handle('settings:save-document')"]]]]
             structured["channels"] = #"[{"id":"document-applied","path":"http://electron.ipc/desk/settings/onDocumentApplied","protocol":"raw","links":[{"entity":"documents","on":["create"],"message":{"data":"{{record}}"}}],"evidence":[{"kind":"contract","detail":"webContents.send('settings:document-applied')"}]}]"#
         }
-        return CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
     }
 
-    let mapsBefore = CLICompletion.mapRequests.count
-    let preparesBefore = CLICompletion.requests.count
+    let mapsBefore = studioAssistant.mapRequests.count
+    let preparesBefore = studioAssistant.requests.count
     let session = StudioSession(root: root)
     let port = freePort()
     session.start(WebAppTarget(folder: web, label: "desk (web only)", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port],
@@ -3496,7 +3478,7 @@ func ipcSessionChecks() async {
     _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
     check("REQ-016 the Electron renderer's session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
     _ = await waitUntil(60) { session.mapping.map?.status == .complete && !session.mapping.isRunning }
-    let maps = CLICompletion.mapRequests.dropFirst(mapsBefore)
+    let maps = studioAssistant.mapRequests.dropFirst(mapsBefore)
     let inventory = maps.filter { $0.label == "ui-studio:map" }
     let groupCalls = maps.filter { $0.label == "ui-studio:map-group" }
     check("REQ-016 a completed map of version 1 is inventoried again, asking for the preload bridge",
@@ -3516,9 +3498,9 @@ func ipcSessionChecks() async {
     func text(_ script: String) async -> String { ((try? await session.call(script)) as? String) ?? "nil" }
     let listed = await text("return (await window.desk.settings.getBrokers()).map(b => b.name).join(',');")
     check("REQ-016 a bridge method the map prepared is answered by its rule without a preparation",
-          listed == "Alpaca,Tastytrade" && CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }.isEmpty, listed)
+          listed == "Alpaca,Tastytrade" && studioAssistant.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }.isEmpty, listed)
     let document = await text("return JSON.stringify(await window.desk.settings.getDocument());")
-    let prepares = CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }
+    let prepares = studioAssistant.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }
     check("REQ-016 an unknown bridge call is prepared like an unknown request, then answered", document == #"{"theme":"dark"}"#
           && prepares.count == 1 && prepares.first?.prompt.contains("Unknown request seen by MarkView UI Studio: GET http://electron.ipc/desk/settings/getDocument") == true
           && prepares.first?.prompt.contains("A call of the Electron preload bridge") == true
@@ -3526,7 +3508,7 @@ func ipcSessionChecks() async {
           && prepares.first?.systemPrompt?.contains("ipcMain.handle") == true, document + " " + (prepares.first.map { String($0.prompt.prefix(400)) } ?? "no prompt"))
     let again = await text("return JSON.stringify(await window.desk.settings.getDocument());")
     check("REQ-016 the prepared bridge method serves later calls without the model", again == document
-          && CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }.count == 1)
+          && studioAssistant.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }.count == 1)
     check("REQ-016 the bridge's calls are in the request log", session.requests.contains { $0.url == "http://electron.ipc/desk/settings/getDocument"
           && $0.outcome == "simulated" && $0.status == 200 })
 
@@ -3553,21 +3535,21 @@ func ipcSessionChecks() async {
 
 /// BUG-090: the application's own route handlers are read from its code, so the map has them when the assistant's inventory fails.
 @MainActor
-func routeMapChecks() async {
+private func routeMapChecks() async {
     watchdog.reached("BUG-090 the map is made of the route handlers read from the code when the assistant's inventory fails")
     let fm = FileManager.default
-    let previousAnswer = CLICompletion.answer
+    let previousAnswer = studioAssistant.answer
     defer {
-        CLICompletion.mapAnswer = nil
-        CLICompletion.answer = previousAnswer
+        studioAssistant.mapAnswer = nil
+        studioAssistant.answer = previousAnswer
     }
     let assistant = MapAssistant()
     assistant.lock.withLock { assistant.inventoryFails = true }
     assistant.set([:], other: 0.1)
-    CLICompletion.mapAnswer = { request in try await assistant.respond(request) }
-    CLICompletion.answer = { _ in
+    studioAssistant.mapAnswer = { request in try await assistant.respond(request) }
+    studioAssistant.answer = { _ in
         try await Task.sleep(nanoseconds: 100_000_000)
-        return CLICompletion.Result(text: "", structured: mapGroupAnswer("app/session"), inputTokens: 10, outputTokens: 5, costUSD: 0)
+        return try CLICompletion.Result(text: "", structured: mapGroupAnswer("app/session"), inputTokens: 10, outputTokens: 5, costUSD: 0)
     }
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-routes-\(UUID().uuidString)").resolvingSymlinksInPath()
     try? fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -3599,7 +3581,7 @@ func routeMapChecks() async {
 
 /// A configured server with an ephemeral port reports JSON readiness, and the session owns and stops it.
 @MainActor
-func dynamicServerChecks() async {
+private func dynamicServerChecks() async {
     watchdog.reached("A configured server with an ephemeral port")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-studio-dynamic-\(UUID().uuidString)").resolvingSymlinksInPath()
@@ -3647,4 +3629,349 @@ func dynamicServerChecks() async {
         let listening = await WebAppPreview.isListening(port)
         check("the dynamic server stops when the session closes", !listening)
     } else { check("the dynamic server reported its port", false) }
+}
+
+private let authServer = #"""
+import base64, hashlib, hmac, json, os, sys, urllib.error, urllib.parse, urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
+for line in open('.env.local'):
+    line = line.strip()
+    if line and not line.startswith('#') and '=' in line:
+        key, value = line.split('=', 1)
+        os.environ.setdefault(key.strip(), value.strip())
+SUPABASE = os.environ.get('NEXT_PUBLIC_SUPABASE_URL', '').rstrip('/')
+ANON = os.environ.get('NEXT_PUBLIC_SUPABASE_ANON_KEY', '')
+SECRET = os.environ.get('SUPABASE_JWT_SECRET', '')
+COOKIE = 'sb-api-auth-token'
+CHUNK = 3180
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+def unb64url(text):
+    return base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
+
+def cookies_of(header):
+    found = {}
+    for part in (header or '').split(';'):
+        if '=' in part:
+            name, value = part.strip().split('=', 1)
+            found[name] = value
+    return found
+
+def session_from(cookies):
+    # @supabase/ssr keeps the session in one cookie or in chunks NAME.0, NAME.1...
+    raw = cookies.get(COOKIE)
+    chunks = 1
+    if raw is None:
+        parts = []
+        while '%s.%d' % (COOKIE, len(parts)) in cookies:
+            parts.append(cookies['%s.%d' % (COOKIE, len(parts))])
+        raw, chunks = ''.join(parts), len(parts)
+    if not raw.startswith('base64-'):
+        return None, 0
+    try:
+        return json.loads(unb64url(raw[len('base64-'):])), chunks
+    except Exception:
+        return None, 0
+
+def session_cookies(session):
+    value = 'base64-' + b64url(json.dumps(session).encode())
+    if len(value) <= CHUNK:
+        return ['%s=%s; Path=/; SameSite=Lax' % (COOKIE, value)]
+    count = (len(value) + CHUNK - 1) // CHUNK
+    return ['%s.%d=%s; Path=/; SameSite=Lax' % (COOKIE, i, value[i * CHUNK:(i + 1) * CHUNK]) for i in range(count)]
+
+def verified(token):
+    parts = token.split('.')
+    if len(parts) != 3 or not SECRET:
+        return False
+    mac = hmac.new(SECRET.encode(), (parts[0] + '.' + parts[1]).encode(), hashlib.sha256).digest()
+    return hmac.compare_digest(b64url(mac), parts[2])
+
+def supabase(method, path, token=None, body=None):
+    headers = {'apikey': ANON, 'Content-Type': 'application/json'}
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(SUPABASE + '/auth/v1' + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=5) as answer:
+            return answer.status, json.loads(answer.read() or b'null')
+    except urllib.error.HTTPError as error:
+        return error.code, None
+    except Exception:
+        return 0, None
+
+LOGIN = '''<!doctype html><html><head><title>Sign in</title></head><body><p id="login">Sign in</p>
+<button id="password" onclick="signIn()">Sign in</button> <button id="google" onclick="google()">Google</button>
+<button id="external" onclick="external()">Example IdP</button>
+<script>
+const SUPABASE = %s, KEY = %s, COOKIE = 'sb-api-auth-token';
+const next = new URLSearchParams(location.search).get('redirect') || '/account';
+function b64url(text) { return btoa(unescape(encodeURIComponent(text))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, ''); }
+function store(session) {
+  const value = 'base64-' + b64url(JSON.stringify(session)), size = 3180;
+  if (value.length <= size) { document.cookie = COOKIE + '=' + value + '; path=/'; return; }
+  for (let i = 0; i * size < value.length; i++) document.cookie = COOKIE + '.' + i + '=' + value.slice(i * size, (i + 1) * size) + '; path=/';
+}
+async function signIn() {
+  // Like applications which validate Supabase's public configuration before invoking its SDK.
+  const jwt = KEY.split('.');
+  if (!(jwt.length === 3 && jwt.every(Boolean)) && !(KEY.startsWith('sb_publishable_') && KEY.length > 'sb_publishable_'.length)) {
+    document.getElementById('login').textContent = 'Invalid public key'; return;
+  }
+  const answer = await fetch(SUPABASE + '/auth/v1/token?grant_type=password', { method: 'POST',
+    headers: { 'content-type': 'application/json', apikey: KEY }, body: JSON.stringify({ email: 'nobody@nowhere.test', password: 'not-it' }) });
+  if (answer.status !== 200) { document.getElementById('login').textContent = 'Refused ' + answer.status; return; }
+  store(await answer.json());
+  location.href = next;
+}
+function google() {
+  document.cookie = COOKIE + '-code-verifier=fixture-verifier; path=/';
+  const back = location.origin + '/auth/callback?redirect=' + encodeURIComponent(next);
+  location.href = SUPABASE + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(back)
+    + '&code_challenge=fixture-challenge&code_challenge_method=s256';
+}
+function external() {
+  location.href = 'https://accounts.idp.example/authorize?response_type=code&client_id=fixture&state=st-42&redirect_uri='
+    + encodeURIComponent(location.origin + '/oauth/callback');
+}
+</script></body></html>'''
+
+class Handler(BaseHTTPRequestHandler):
+    def send(self, status, body=b'', location=None, cookies=()):
+        self.send_response(status)
+        if location:
+            self.send_header('Location', location)
+        for cookie in cookies:
+            self.send_header('Set-Cookie', cookie)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def do_GET(self):
+        url = urllib.parse.urlparse(self.path)
+        query = dict(urllib.parse.parse_qsl(url.query))
+        cookies = cookies_of(self.headers.get('Cookie'))
+        if url.path == '/account':
+            # The middleware: no session, or one the auth server does not know, goes to the sign-in page.
+            session, chunks = session_from(cookies)
+            token = (session or {}).get('access_token', '')
+            status, user = supabase('GET', '/user', token) if token else (0, None)
+            if status != 200 or not user:
+                return self.send(307, location='/auth/login?redirect=/account')
+            role = (user.get('app_metadata') or {}).get('role', '')
+            body = '<!doctype html><title>Account</title><p id="email">%s</p><p id="verified">%s</p><p id="role">%s</p><p id="chunks">%d</p>' % (
+                user.get('email', ''), verified(token), role, chunks)
+            return self.send(200, body.encode())
+        if url.path == '/auth/login':
+            return self.send(200, (LOGIN % (json.dumps(SUPABASE), json.dumps(ANON))).encode())
+        if url.path == '/auth/server-oauth':
+            # A server action's signInWithOAuth: the verifier cookie, then a redirect to /authorize.
+            back = 'http://%s/auth/callback?redirect=/account' % self.headers.get('Host')
+            target = SUPABASE + '/auth/v1/authorize?provider=github&code_challenge=c&code_challenge_method=s256&redirect_to=' + urllib.parse.quote(back, safe='')
+            return self.send(307, location=target, cookies=[COOKIE + '-code-verifier=server-verifier; Path=/'])
+        if url.path == '/auth/callback':
+            verifier = cookies.get(COOKIE + '-code-verifier', '')
+            with open('callbacks.log', 'a') as log:
+                log.write(json.dumps({'code': query.get('code', ''), 'verifier': verifier}) + '\n')
+            status, session = supabase('POST', '/token?grant_type=pkce', body={'auth_code': query.get('code', ''), 'code_verifier': verifier})
+            if not verifier or status != 200 or not session:
+                return self.send(307, location='/auth/login?error=exchange')
+            expired = COOKIE + '-code-verifier=; Path=/; Max-Age=0'
+            return self.send(307, location=query.get('redirect', '/account'), cookies=session_cookies(session) + [expired])
+        if url.path == '/oauth/callback':
+            body = '<!doctype html><title>Callback</title><p id="code">%s</p><p id="state">%s</p>' % (query.get('code', ''), query.get('state', ''))
+            return self.send(200, body.encode())
+        if url.path == '/signout':
+            session, _ = session_from(cookies)
+            supabase('POST', '/logout', (session or {}).get('access_token'))
+            gone = ['%s=; Path=/; Max-Age=0' % name for name in cookies if name.startswith(COOKIE)]
+            return self.send(307, location='/auth/login', cookies=gone)
+        self.send(200, b'<!doctype html><title>Home</title><p id="home">Home</p>')
+    def log_message(self, *args):
+        pass
+HTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+"""#
+
+/// The fixture's real values in its `.env.local`: they must reach no prompt or log.
+private let authFixtureAnonKey = "fixture-anon-key-do-not-leak-5523"
+private let authFixtureJWTSecret = "fixture-jwt-secret-do-not-leak-9031"
+
+@MainActor
+private func authChecks() async {
+    watchdog.reached("Sign-in always passes in the mock-up (REQ-010)")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-auth-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? authServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    try? #"{"name":"auth-fixture","private":true,"dependencies":{"@supabase/ssr":"0.8.0","@supabase/supabase-js":"2.99.3"}}"#
+        .write(to: root.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+    try? ("NEXT_PUBLIC_SUPABASE_URL=http://supabase.example.test\nNEXT_PUBLIC_SUPABASE_ANON_KEY=\(authFixtureAnonKey)\n"
+          + "SUPABASE_JWT_SECRET=\(authFixtureJWTSecret)\n").write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+    let assistant = Assistant()
+    assistant.proposal = ["rules": [], "assumptions": ["Nothing else is needed."]]
+    studioAssistant.answer = { request in try assistant.respond(request) }
+    let promptsBefore = studioAssistant.requests.count
+    let port = freePort()
+    let session = StudioSession(root: root)
+    func value(_ id: String) async -> String {
+        ((try? await session.call("const e = document.getElementById(id); return e ? e.textContent : '';", ["id": id])) as? String) ?? ""
+    }
+    func waitFor(_ id: String) async -> String {
+        var found = ""
+        for _ in 0..<150 where found.isEmpty {
+            found = await value(id)
+            if found.isEmpty { try? await Task.sleep(nanoseconds: 200_000_000) }
+        }
+        return found
+    }
+    func click(_ id: String) async { _ = try? await session.call("document.getElementById(id).click(); return true;", ["id": id]) }
+    func go(_ path: String) async {
+        let target = URL(string: path, relativeTo: session.appURL)?.absoluteString ?? path
+        _ = try? await session.call("location.href = target; return true;", ["target": target])
+    }
+    func path() -> String { session.webView.url?.path ?? "" }
+    func runtime() async -> Bool { ((try? await session.call("return typeof window.__markviewStudio === 'object';")) as? Bool) == true }
+    func callbacks() -> [[String: String]] {
+        ((try? String(contentsOf: root.appendingPathComponent("callbacks.log"), encoding: .utf8)) ?? "").split(separator: "\n")
+            .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: String] }
+    }
+    func logged(_ text: String) -> Bool { session.sessionLog.entries.contains { $0.kind == .navigation && $0.text.contains(text) } }
+
+    session.start(WebAppTarget(folder: root, label: "auth", command: "python3 server.py \(port)", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-010 a Supabase project opens with the built-in Supabase Auth in the Environment panel", session.appURL != nil
+          && session.dependencies.contains { $0.id == StudioAuthMock.dependencyID && $0.mode == .simulated },
+          "\(session.state) \(session.stateDetail) \(session.dependencies.map(\.id))")
+
+    // The protected page sends a signed-out visitor to sign in.
+    await go("/account")
+    let login = await waitFor("login")
+    check("REQ-010 the server's session check sends a signed-out visitor to the sign-in page", login == "Sign in" && path() == "/auth/login",
+          "\(login) at \(path())")
+
+    // A password sign-in with made-up credentials.
+    await click("password")
+    let email = await waitFor("email")
+    let refused = await value("login")
+    check("REQ-010 any e-mail and password sign in, and the server's check (GET /user) lets the test user in",
+          email == "tester@example.test" && path() == "/account", "\(email) at \(path()) · \(refused)")
+    check("REQ-010 a server that verifies the access token with its JWT secret accepts it", await value("verified") == "True")
+    check("REQ-010 the scenario's role is the user's app_metadata role", await value("role") == "member")
+    check("REQ-010 the session cookie is in @supabase/ssr's format", Int(await value("chunks")) ?? 0 >= 1)
+    check("REQ-010 the server's own auth requests are simulated", session.requests.contains {
+        $0.transport == "server" && $0.contract == "GET http://supabase.example.test/auth/v1/user" && $0.outcome == "simulated" && $0.status == 200
+    }, session.requests.map { "\($0.transport) \($0.contract) \($0.outcome)" }.joined(separator: " | "))
+
+    // OAuth: the simulated /authorize returns to the application's callback, whose server exchanges the code.
+    await go("/signout")
+    _ = await waitFor("login")
+    await click("google")
+    let oauthEmail = await waitFor("email")
+    check("REQ-010 OAuth: the simulated /authorize lands on the app callback with the code, and its exchange signs in",
+          oauthEmail == "tester@example.test" && path() == "/account" && callbacks().last == ["code": StudioAuthMock.code, "verifier": "fixture-verifier"],
+          "\(oauthEmail) at \(path()) · \(callbacks())")
+    check("REQ-010 the navigation to /authorize and its redirect are in the session log",
+          logged("/auth/v1/authorize?provider=google") && logged("Simulated redirect 302") && logged("back into the application"),
+          session.sessionLog.entries.filter { $0.kind == .navigation }.suffix(6).map(\.text).joined(separator: "\n"))
+
+    // The same from a server redirect (a server action's signInWithOAuth).
+    await go("/signout")
+    _ = await waitFor("login")
+    await go("/auth/server-oauth")
+    let serverEmail = await waitFor("email")
+    check("REQ-010 a server redirect to /authorize is followed the same way", serverEmail == "tester@example.test"
+          && callbacks().last == ["code": StudioAuthMock.code, "verifier": "server-verifier"], "\(serverEmail) at \(path()) · \(callbacks())")
+    check("REQ-010 the redirect the session took over is not reported as a page that did not load",
+          !session.sessionLog.entries.contains { $0.text.contains("did not load") } && session.notice == nil,
+          session.sessionLog.entries.filter { $0.problem }.map(\.text).joined(separator: "\n"))
+
+    // An external provider: a local stand-in page, then back with a code and the state.
+    await go("/auth/login")
+    _ = await waitFor("login")
+    await click("external")
+    let proceed = await waitFor("continue")
+    let title = ((try? await session.call("return document.title;")) as? String) ?? ""
+    check("REQ-010 an external sign-in page is a local stand-in that sends nothing", proceed == "Continue as Test User"
+          && session.webView.url?.host == "accounts.idp.example" && title.contains("nothing is sent"), "\(proceed) \(title) \(session.webView.url?.absoluteString ?? "")")
+    check("REQ-010 the stand-in page runs without the page runtime", !(await runtime()))
+    await click("continue")
+    let code = await waitFor("code")
+    let state = await value("state")
+    check("REQ-010 Continue as Test User returns to redirect_uri with a code and the state", code == StudioAuthMock.code
+          && state == "st-42" && path() == "/oauth/callback", "\(code) \(state) at \(path())")
+    check("REQ-010 the application's page has the runtime again, and no page message was rejected", await runtime() && session.rejectedMessages == 0,
+          "rejected \(session.rejectedMessages)")
+    check("REQ-010 the external page is in the session log", logged("leaves the application: a simulated external page is shown"))
+
+    // A navigate step must hit the server, not just change the address in browser history: middleware redirects it.
+    await go("/signout")
+    _ = await waitFor("login")
+    let originalScenario = session.scenario
+    var protectedNavigation = originalScenario
+    protectedNavigation.route = "/auth/login"
+    protectedNavigation.steps = [StudioStep(action: .navigate, text: "/account")]
+    protectedNavigation.expectedPath = "/auth/login"
+    session.activate(protectedNavigation)
+    _ = await waitUntil(60) { session.busy == nil }
+    let redirectedLogin = await value("login")
+    check("a navigate step follows the server's authentication redirect", path() == "/auth/login" && redirectedLogin == "Sign in",
+          "at \(path())")
+
+    let everything = session.sessionLog.entries.map(\.text).joined() + session.requests.map(\.url).joined()
+        + studioAssistant.requests.dropFirst(promptsBefore).map(\.prompt).joined() + session.serverLog
+    check("REQ-010 the fixture's real key and JWT secret reach no log or prompt", !everything.contains(authFixtureAnonKey)
+          && !everything.contains(authFixtureJWTSecret))
+    await session.close()
+}
+
+/// No real anon key is present, as in a fresh checkout of the master portal. Discovery must still give the server and the
+/// browser a valid-shaped test key; the app refuses to call Auth when that key is malformed.
+@MainActor
+private func authWithoutRealKeyChecks() async {
+    watchdog.reached("Supabase sign-in without a real anon key")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-no-auth-key-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? authServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    try? #"{"name":"auth-no-key-fixture","private":true,"dependencies":{"@supabase/ssr":"0.8.0"}}"#
+        .write(to: root.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+    try? "NEXT_PUBLIC_SUPABASE_URL=http://supabase.example.test\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+    let assistant = Assistant()
+    assistant.proposal = ["rules": [], "assumptions": ["Nothing else is needed."]]
+    studioAssistant.answer = { request in try assistant.respond(request) }
+    let port = freePort()
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "auth without key", command: "python3 server.py \(port)", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    let loginURL = URL(string: "/auth/login", relativeTo: session.appURL)?.absoluteString ?? ""
+    _ = try? await session.call("location.href = target; return true;", ["target": loginURL])
+    for _ in 0..<150 {
+        if (try? await session.call("return !!document.getElementById('password');")) as? Bool == true { break }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+    }
+    _ = try? await session.call("document.getElementById('password')?.click(); return true;")
+    var email = ""
+    for _ in 0..<150 {
+        email = (try? await session.call("return document.getElementById('email')?.textContent || '';")) as? String ?? ""
+        if !email.isEmpty { break }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+    }
+    let page = session.webView.url?.path ?? ""
+    let authRequests = session.requests.filter { $0.contract.contains("/auth/v1/") && $0.outcome == "simulated" }
+    check("a project with no real Supabase key signs in through the mock and passes server authentication",
+          email == "tester@example.test" && page == "/account"
+          && authRequests.contains { $0.method == "POST" && $0.status == 200 }
+          && authRequests.contains { $0.method == "GET" && $0.transport == "server" && $0.status == 200 },
+          "\(email) at \(page); simulated auth requests: \(authRequests.count)")
+    await session.close()
+}
+
+
+final class UIStudioSessionHostTests: XCTestCase {
+    @MainActor func testSession() async { await runUIStudioSession() }
 }

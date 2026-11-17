@@ -589,6 +589,9 @@
 		F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000123 /* PrototypeDeadlineFixture.swift */; };
 		F00000000000000000000124 /* PrototypeDeadlineHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */; };
 		F00000000000000000000126 /* UIStudioLifetimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */; };
+		F00000000000000000000128 /* UIStudioAssistantFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000129 /* UIStudioAssistantFixture.swift */; };
+		F00000000000000000000130 /* UIStudioFeatureInspection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000131 /* UIStudioFeatureInspection.swift */; };
+		F00000000000000000000132 /* UIStudioSessionHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000133 /* UIStudioSessionHostTests.swift */; };
 		B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */; };
 		45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */; };
 		DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */; };
@@ -1309,6 +1312,9 @@
 		F00000000000000000000123 /* PrototypeDeadlineFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeDeadlineFixture.swift; sourceTree = "<group>"; };
 		F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeDeadlineHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioLifetimeHostTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000129 /* UIStudioAssistantFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioAssistantFixture.swift; sourceTree = "<group>"; };
+		F00000000000000000000131 /* UIStudioFeatureInspection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioFeatureInspection.swift; sourceTree = "<group>"; };
+		F00000000000000000000133 /* UIStudioSessionHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioSessionHostTests.swift; sourceTree = "<group>"; };
 		6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReaderHostTests.swift; sourceTree = "<group>"; };
 		346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFrameHostTests.swift; sourceTree = "<group>"; };
 		B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExportHostTests.swift; sourceTree = "<group>"; };
@@ -2542,6 +2548,9 @@
 				F00000000000000000000123 /* PrototypeDeadlineFixture.swift */,
 				F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */,
 				F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */,
+				F00000000000000000000129 /* UIStudioAssistantFixture.swift */,
+				F00000000000000000000131 /* UIStudioFeatureInspection.swift */,
+				F00000000000000000000133 /* UIStudioSessionHostTests.swift */,
 				6BF4A9A480E74E72BD10CEEA /* PDFReaderHostTests.swift */,
 				346045F40CC0459C941B568B /* BrowserFrameHostTests.swift */,
 				B6D3FAEDC62A4B9AA637C21F /* PDFExportHostTests.swift */,
@@ -3407,6 +3416,9 @@
 				F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */,
 				F00000000000000000000124 /* PrototypeDeadlineHostTests.swift in Sources */,
 				F00000000000000000000126 /* UIStudioLifetimeHostTests.swift in Sources */,
+				F00000000000000000000128 /* UIStudioAssistantFixture.swift in Sources */,
+				F00000000000000000000130 /* UIStudioFeatureInspection.swift in Sources */,
+				F00000000000000000000132 /* UIStudioSessionHostTests.swift in Sources */,
 				B673AF73950749CCBBD68E31 /* PDFReaderHostTests.swift in Sources */,
 				45E2058BEA6345D0A3E281AC /* BrowserFrameHostTests.swift in Sources */,
 				DD01AB9E5E2B4E5E94B72D74 /* PDFExportHostTests.swift in Sources */,

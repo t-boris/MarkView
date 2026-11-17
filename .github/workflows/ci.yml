@@ -70,11 +70,17 @@ jobs:
         run: |
           suites=$(python3 tools/ci/pure-test-shards.py "$SHARD")
           test -n "$suites"
-          ./tools/tests/run.sh --tier pure $suites
+          selected=()
+          while IFS= read -r suite; do selected+=("$suite"); done <<< "$suites"
+          ./tools/tests/run.sh --tier pure "${selected[@]}"
 
   hosted-tests:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [qa-web-fault-tests, workflow-editor-layout-tests, ui-studio-session-tests]
     steps:
       - uses: actions/checkout@v4
       - name: Identify Xcode
@@ -90,14 +96,14 @@ jobs:
             markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-
       - name: Restore unchanged hosted build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewHostedData/source-mtimes.json"
-      - name: Run app-hosted WebKit regression suite
+      - name: Run app-hosted regression suite
         env:
           MARKVIEW_HOSTED_TEST_DERIVED_DATA: ${{ runner.temp }}/MarkViewHostedData
-        run: ./tools/tests/run.sh qa-web-fault-tests
+        run: ./tools/tests/run.sh '${{ matrix.suite }}'
       - name: Record hosted build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewHostedData/source-mtimes.json"
       - name: Save hosted build cache
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ matrix.suite == 'qa-web-fault-tests' && steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/MarkViewHostedData
