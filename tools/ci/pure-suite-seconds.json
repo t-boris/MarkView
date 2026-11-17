@@ -16,7 +16,6 @@
   "no-process-outside-subprocess-lint": 0.5,
   "persistent-remote-session-tests": 42.0,
   "project-ai-choice-tests": 21.3,
-  "prototype-ownership-tests": 35.1,
   "qa-native-tests": 70.6,
   "remote-relay-settings-tests": 5.9,
   "remote-workspace-tests": 124.5,

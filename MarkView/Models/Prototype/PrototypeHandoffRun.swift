@@ -49,6 +49,7 @@ final class PrototypeHandoffRun: ObservableObject {
 
     let context: Context
     private let record: PrototypeAI.Record
+    private let writeFeature: (PrototypeHandoff.FeaturePlan, FeatureStore) async throws -> PrototypeFeatureWriter.Created
     private let scratch: URL
     /// Units whose text the person edited: a later description never replaces it.
     private var edited: Set<String> = []
@@ -58,9 +59,11 @@ final class PrototypeHandoffRun: ObservableObject {
     private var creation: Task<Void, Never>?
     private var started = false
 
-    init(context: Context, record: @escaping PrototypeAI.Record) {
+    init(context: Context, record: @escaping PrototypeAI.Record,
+         writeFeature: @escaping (PrototypeHandoff.FeaturePlan, FeatureStore) async throws -> PrototypeFeatureWriter.Created = PrototypeFeatureWriter.write) {
         self.context = context
         self.record = record
+        self.writeFeature = writeFeature
         self.scratch = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView-handoff-" + UUID().uuidString, isDirectory: true)
         self.draft = PrototypeHandoff.draft(prototypeTitle: context.title, slug: context.slug, version: context.version, changes: context.changes)
     }
@@ -196,7 +199,7 @@ final class PrototypeHandoffRun: ObservableObject {
         createFailure = nil
         defer { creating = false }
         do {
-            let result = try await PrototypeFeatureWriter.write(PrototypeHandoff.featurePlan(draft), into: store)
+            let result = try await writeFeature(PrototypeHandoff.featurePlan(draft), store)
             created = result
             close()
             return result
