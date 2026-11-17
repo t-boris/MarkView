@@ -752,21 +752,35 @@ final class QALiveAccessibilityHostTests: XCTestCase {
             moved = moved || abs(area.contentView.bounds.origin.y - before) > 1
         }
         XCTAssertTrue(moved, "A long QA region remains scrollable")
-        if let area = areas.first(where: { ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 100 }),
+        func containsFeed(_ element: NSObject, depth: Int = 0) -> Bool {
+            guard depth < 24 else { return false }
+            for selector in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                let name = NSSelectorFromString(selector)
+                if element.responds(to: name), let value = element.perform(name)?.takeUnretainedValue() as? String,
+                   value.contains("Fixture feed 50") { return true }
+            }
+            let children = NSSelectorFromString("accessibilityChildren")
+            guard element.responds(to: children), let values = element.perform(children)?.takeUnretainedValue() as? [NSObject] else { return false }
+            return values.contains { containsFeed($0, depth: depth + 1) }
+        }
+        if let area = areas.first(where: { ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 100 && containsFeed($0) }),
            let document = area.documentView {
             let middle = (document.bounds.height - area.contentView.bounds.height) / 2
+            settle()
             area.contentView.scroll(to: NSPoint(x: 0, y: middle))
             area.reflectScrolledClipView(area.contentView)
-            settle()
             let before = area.contentView.bounds.origin.y
             area.accessibilityPerformAction(NSAccessibility.Action(rawValue: "AXScrollUpByPage"))
             settle()
             let up = area.contentView.bounds.origin.y
+            area.contentView.scroll(to: NSPoint(x: 0, y: middle))
+            area.reflectScrolledClipView(area.contentView)
+            let beforeDown = area.contentView.bounds.origin.y
             area.accessibilityPerformAction(NSAccessibility.Action(rawValue: "AXScrollDownByPage"))
             settle()
             let down = area.contentView.bounds.origin.y
-            XCTAssertGreaterThan(abs(up - before), 1, "Accessibility page-up scrolls the live view")
-            XCTAssertGreaterThan(abs(down - up), 1, "Accessibility page-down scrolls the live view")
+            XCTAssertGreaterThan(abs(up - before), 1, "Accessibility page-up scrolls the feed: \(before) → \(up)")
+            XCTAssertGreaterThan(abs(down - beforeDown), 1, "Accessibility page-down scrolls the feed: \(beforeDown) → \(down)")
         } else {
             XCTFail("A scrollable QA region is present for the accessibility page actions")
         }
