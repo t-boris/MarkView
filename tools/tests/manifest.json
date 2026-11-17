@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 121,
+  "suiteCount": 120,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2203,7 +2203,10 @@
         "MarkView/Models/Architecture/ChangeDiff.swift",
         "MarkView/Models/Architecture/ChangeReviewModel.swift",
         "MarkView/Models/Architecture/ChangeSource.swift",
-        "MarkView/Models/Git/GitHubClient.swift"
+        "MarkView/Models/Git/GitHubClient.swift",
+        "MarkViewHostedTests/WindowChromeHostTests.swift",
+        "MarkView/Models/Workspace/WindowChrome.swift",
+        "MarkView/Models/Workspace/WindowSession.swift"
       ]
     },
     {
@@ -3166,29 +3169,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "window-chrome-tests",
-      "script": "tools/tests/window-chrome-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Appearance/BackdropRegistry.swift",
-        "MarkView/Models/Appearance/ProjectBackdrop.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Workspace/PanelLayout.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Workspace/WindowChrome.swift",
-        "MarkView/Models/Workspace/WindowSession.swift",
-        "MarkView/Models/Workspace/WindowUIState.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/WindowChromeTests.swift",
-        "tools/tests/window-chrome-tests.sh"
       ]
     },
     {

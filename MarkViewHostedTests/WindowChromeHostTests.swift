@@ -1,22 +1,20 @@
 import Combine
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
-/// Behaviour of the shipping `WindowChrome` (`AR-14` step 6): which panels a window shows, the toggles that never hide the last one,
-/// the panels a session saves and restores (including the layouts saved before the agents panel existed), and the rule that one
-/// window's panels never reach another window. Nothing here shows a window.
-@main
-enum WindowChromeChecks {
-    nonisolated(unsafe) static var failures = 0
+@MainActor
+private enum WindowChromeChecks {
+    static var suites: [String] = []
 
-    static func check(_ condition: Bool, _ message: String) {
-        if !condition {
-            failures += 1
-            FileHandle.standardError.write(Data("FAIL: \(message)\n".utf8))
-        }
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
 
     static func defaults() -> UserDefaults {
         let name = "window-chrome-tests-\(UUID().uuidString)"
+        suites.append(name)
         let suite = UserDefaults(suiteName: name)!
         suite.removePersistentDomain(forName: name)
         return suite
@@ -128,13 +126,14 @@ enum WindowChromeChecks {
               "a navigator this version does not know does not break the restore (\(shown(unknownNavigator)))")
     }
 
-    @MainActor
-    static func main() {
-        run()
-        if failures > 0 {
-            FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
-            exit(1)
+}
+
+extension EditorHostTests {
+    @MainActor func testWindowChromeTogglesAndRestoration() {
+        defer {
+            for name in WindowChromeChecks.suites { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
+            WindowChromeChecks.suites.removeAll()
         }
-        print("WindowChrome: toggles, per-window panels, session save and restore (including old sessions) passed")
+        WindowChromeChecks.run()
     }
 }
