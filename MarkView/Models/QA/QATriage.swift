@@ -3,7 +3,7 @@ import Foundation
 // End-to-End QA (feature end-to-end-qa, REQ-015): what the person decides about a finding after a run. A defect is confirmed as a bug,
 // said not to be one, or said to have a workaround; a suggestion or a note is marked seen or dismissed. The mark lives on the finding in
 // the run file and, for a defect, is carried to the bug report QA filed for it (the report in docs/bugs stays the place the bug lives).
-// Foundation only; checked on its own by tools/tests/qa-tests.sh and qa-bugs-tests.sh.
+// Foundation only; checked by the app-hosted QA tests.
 
 enum QATriageState: String, Codable, CaseIterable, Equatable, Sendable {
     case confirmed

@@ -3,7 +3,7 @@ import Foundation
 // End-to-End QA (feature end-to-end-qa, REQ-001): asks the assistant for a scenario and gives the answer back with what is wrong with
 // it until it is whole or the tries are used up (an AIOperation with `maxAttempts - 1` repairs). What the assistant is asked and how its
 // answer is read is QAGeneration; the request around a prompt and the runner are passed in, so the tries are checked on their own
-// (tools/tests/qa-tests.sh).
+// (app-hosted QA tests).
 
 enum QAGenerator {
     struct Outcome {

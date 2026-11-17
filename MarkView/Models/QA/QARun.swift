@@ -1,7 +1,7 @@
 import Foundation
 
 // End-to-End QA (feature end-to-end-qa, REQ-003 and REQ-005): the outcome of each selected branch and the rules that decide it.
-// Foundation only; checked on its own by tools/tests/qa-tests.sh.
+// Foundation only; checked by the app-hosted QA tests.
 
 /// What happened to one selected branch. Failed, blocked and interrupted are distinct (DEC-010); a branch whose condition could not be
 /// established is not executed and is reported as uncovered (DEC-011).

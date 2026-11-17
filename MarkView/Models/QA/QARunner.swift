@@ -4,7 +4,7 @@ import Foundation
 // of its own: its baseline is restored, its players sign in, its condition is brought about, and then its steps are carried out one after
 // another, each by a loop of "look at the page, ask the assistant, do what it says". The rules of an outcome are QACheckMachine's; the
 // approval and the production confirmations are QAGate's. The browser, the assistant and the observer are passed in, so the whole run is
-// checked on its own (tools/tests/qa-tests.sh). Foundation only.
+// checked by the app-hosted QA tests. Foundation only.
 
 /// One browser (or application) session that belongs to one player. Sessions of different players never share cookies or storage.
 protocol QAActorDriver: AnyObject, Sendable {

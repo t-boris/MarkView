@@ -1,8 +1,8 @@
 import Foundation
 
 // End-to-End QA (feature end-to-end-qa, REQ-001): the edits a person makes to a scenario in the editor. Every edit keeps the scenario a
-// graph without loops, keeps the selected branches pointing at lines that still exist, and stamps the change. Foundation only; checked on
-// its own by tools/tests/qa-tests.sh.
+// graph without loops, keeps the selected branches pointing at lines that still exist, and stamps the change. Foundation only; checked
+// by the app-hosted QA tests.
 
 extension QAScenario {
     // MARK: Copy

@@ -3,7 +3,7 @@ import Foundation
 
 // End-to-End QA (feature end-to-end-qa, REQ-001): where each step and connection of a scenario is drawn. The main line runs left to right
 // along the top; each fork continues on a row of its own below the step it forks from. Pure (Foundation and CoreGraphics), so
-// tools/tests/qa-tests.sh compiles it on its own: nothing here draws.
+// the app-hosted QA tests check it: nothing here draws.
 
 struct QAGraphLayout {
     struct Metrics {

@@ -4,7 +4,7 @@ import CryptoKit
 // End-to-End QA (feature end-to-end-qa, REQ-002, REQ-003, DEC-002, DEC-011): what a run of the selected branches against one target
 // would do before and during the check, so the person can approve exactly that. The plan is derived from the scenario, never
 // stored; its fingerprint ties an approval to the plan it was given for. Foundation (and CryptoKit for the fingerprint) only;
-// checked on its own by tools/tests/qa-tests.sh.
+// checked by the app-hosted QA tests.
 
 /// One thing the run does to the environment before the checks: the sign-ins, the accounts it creates, the baseline and the conditions.
 struct QAPreparationStep: Equatable, Identifiable {

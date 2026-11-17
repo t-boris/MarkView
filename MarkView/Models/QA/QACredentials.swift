@@ -3,7 +3,7 @@ import Foundation
 // End-to-End QA (feature end-to-end-qa, DEC-005): a player's sign-in. The assistant never sees a password: it writes the placeholders
 // {{username}} and {{password}} where the credentials go, and the real values are put in only on the way into the page. What comes back
 // from the page or a request is scrubbed of the password before the assistant, the feed or the run record can see it. Foundation only;
-// checked by tools/tests/qa-tests.sh.
+// checked by the app-hosted QA tests.
 
 struct QACredentials: Equatable, Sendable {
     static let usernamePlaceholder = "{{username}}"

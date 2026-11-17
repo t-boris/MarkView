@@ -3,7 +3,7 @@ import Foundation
 // End-to-End QA (feature end-to-end-qa): material a person attaches to a new scenario (screenshots, designs, documents, any file).
 // The assistant reads files through its own tools and only inside the project folder, so a file from outside is copied under
 // `.dde/qa/inputs/<id>/` (git-ignored) for the one run and removed after it; a file of the project is named by its path as it is.
-// Foundation only; checked on its own by tools/tests/qa-tests.sh.
+// Foundation only; checked by the app-hosted QA tests.
 
 enum QAAttachments {
     struct Staged: Equatable {

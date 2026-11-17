@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(MarkView)
 @testable import MarkView
-#endif
 
 // unchecked Sendable: the runner owns the recorder during a run; the waiting test reads it only after completion.
 final class QAEventRecorder: QARunObserver, @unchecked Sendable {

@@ -2,7 +2,7 @@ import Foundation
 
 // End-to-End QA (feature end-to-end-qa, REQ-001): turning a goal in words into a scenario. This file holds what needs no AI call: the
 // schema of the answer, the prompt, and the reading and checking of what the AI wrote. The call itself is QAGenerator. Foundation only;
-// checked on its own by tools/tests/qa-tests.sh.
+// checked by the app-hosted QA tests.
 
 struct QAGenerationRequest {
     var goal: String

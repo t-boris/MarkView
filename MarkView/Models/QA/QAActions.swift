@@ -2,7 +2,7 @@ import Foundation
 
 // End-to-End QA (feature end-to-end-qa, DEC-005, REQ-008, REQ-009): what the assistant is asked at every turn of a step and how its answer
 // is read. A turn shows the assistant the page and the step; it answers with one move: an action, "done", "not met" or "blocked", and one
-// sentence of narration that becomes the subtitle. Foundation only; checked by tools/tests/qa-tests.sh.
+// sentence of narration that becomes the subtitle. Foundation only; checked by the app-hosted QA tests.
 
 struct QAAction: Codable, Equatable {
     var kind: QAActionKind
