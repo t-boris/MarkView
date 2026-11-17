@@ -8,7 +8,7 @@ import Foundation
 /// out as the PTY drains (a write source wakes on the queue), so a long paste keeps its
 /// closing ESC[201~ and an Enter queued after it always lands after it. The caller never
 /// blocks.
-final class PTYWriter {
+public final class PTYWriter {
     private let fd: Int32
     private let queue: DispatchQueue
     private var pending = Data()
@@ -17,15 +17,15 @@ final class PTYWriter {
     private var closed = false
 
     /// `queue` is where `write` and `cancel` are called; the write source runs on it too.
-    init(fd: Int32, queue: DispatchQueue = .main) {
+    public init(fd: Int32, queue: DispatchQueue = .main) {
         self.fd = fd
         self.queue = queue
     }
 
     /// Bytes still waiting for the program to read.
-    var pendingCount: Int { pending.count }
+    public var pendingCount: Int { pending.count }
 
-    func write(_ data: Data) {
+    public func write(_ data: Data) {
         guard !closed, !data.isEmpty else { return }
         pending.append(data)
         // Already waiting for the PTY: the write source sends these after the earlier bytes.
@@ -34,7 +34,7 @@ final class PTYWriter {
     }
 
     /// Stop writing (the PTY is being closed); unsent input is dropped.
-    func cancel() {
+    public func cancel() {
         closed = true
         pending.removeAll()
         if let source {

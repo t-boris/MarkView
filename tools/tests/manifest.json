@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 191,
+  "suiteCount": 190,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1741,7 +1741,7 @@
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Terminal/PTYWriter.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteChannel.swift",
         "MarkView/Models/Remote/RemoteCommand.swift",
         "MarkView/Models/Terminal/RemoteConnectionState.swift",
@@ -2417,16 +2417,6 @@
       ]
     },
     {
-      "name": "pty-writer-tests",
-      "script": "tools/tests/pty-writer-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Terminal/PTYWriter.swift",
-        "tools/tests/PTYWriterTests.swift",
-        "tools/tests/pty-writer-tests.sh"
-      ]
-    },
-    {
       "name": "qa-api-tests",
       "script": "tools/tests/qa-api-tests.sh",
       "tier": "pure",
@@ -2766,7 +2756,7 @@
         "MarkView/Resources/Editor/book.html",
         "MarkViewHostedTests/PDFExportHostTests.swift",
         "MarkView/Models/Appearance/AppFontScale.swift",
-        "MarkView/Models/Terminal/PTYWriter.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
         "MarkView/Models/Terminal/RemoteConnectionState.swift",
         "MarkView/Models/Terminal/TerminalBrowserBridge.swift",
         "MarkView/Models/Terminal/TerminalChildProcess.swift",
@@ -2923,7 +2913,7 @@
         "MarkView/Models/Cockpit/CockpitPlan.swift",
         "MarkView/Models/Cockpit/CockpitStepPolicy.swift",
         "MarkView/Models/Cockpit/CockpitSupervisor.swift",
-        "MarkView/Models/Terminal/PTYWriter.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteCommand.swift",
         "MarkView/Models/Remote/RemoteProtocol.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
@@ -2947,7 +2937,7 @@
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Terminal/PTYWriter.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteCodexContext.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
         "MarkView/Models/Remote/RemoteCommand.swift",
@@ -3000,7 +2990,7 @@
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Terminal/PTYWriter.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteChannel.swift",
         "MarkView/Models/Remote/RemoteCodexContext.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -3046,7 +3036,7 @@
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Terminal/PTYWriter.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteChannel.swift",
         "MarkView/Models/Remote/RemoteCommand.swift",
         "MarkView/Models/Remote/RemoteFraming.swift",
