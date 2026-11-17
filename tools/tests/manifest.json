@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 116,
+  "suiteCount": 115,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1578,23 +1578,6 @@
       ]
     },
     {
-      "name": "prototype-tailwind-render-tests",
-      "script": "tools/tests/prototype-tailwind-render-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Bridge/PrototypeSchemeHandler.swift",
-        "MarkView/Models/Prototype/PrototypeFiles.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Prototype/PrototypeStyles.swift",
-        "MarkView/Models/Prototype/PrototypeTailwind.swift",
-        "MarkView/Models/Prototype/PrototypeThemes.swift",
-        "tools/tests/PrototypeTailwindRenderTests.swift",
-        "tools/tests/prototype-tailwind-render-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
       "name": "qa-api-tests",
       "script": "tools/tests/qa-api-tests.sh",
       "tier": "pure",
@@ -2160,7 +2143,8 @@
         "MarkView/Models/Workspace/WindowSession.swift",
         "MarkViewHostedTests/PrototypeDataHostTests.swift",
         "MarkView/Models/Prototype/PrototypeImages.swift",
-        "MarkView/Models/Prototype/PrototypeReference.swift"
+        "MarkView/Models/Prototype/PrototypeReference.swift",
+        "MarkViewHostedTests/PrototypeWebHostTests.swift"
       ]
     },
     {
