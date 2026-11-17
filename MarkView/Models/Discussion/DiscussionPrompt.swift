@@ -1,8 +1,7 @@
 import Foundation
 
 /// What the assistant is asked in a discussion and how its answer is read. The answer streams as Markdown; the form
-/// (text, table, diagram, drawing, chart) is the assistant's choice per question. Foundation only, checked in
-/// `tools/tests/discussion-tests.sh`.
+/// (text, table, diagram, drawing, chart) is the assistant's choice per question. Foundation only, checked by the app-hosted tests.
 enum DiscussionPrompt {
     struct Answer: Equatable {
         /// The Markdown the person reads (the notes block removed).

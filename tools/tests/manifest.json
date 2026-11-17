@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 83,
+  "suiteCount": 82,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -431,22 +431,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift"
-      ]
-    },
-    {
-      "name": "discussion-tests",
-      "script": "tools/tests/discussion-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Discussion/Discussion.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Discussion/DiscussionPrompt.swift",
-        "tools/tests/StoreTestSupport.swift",
-        "tools/tests/DiscussionTests.swift",
-        "tools/tests/discussion-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1718,7 +1702,9 @@
         "MarkView/Models/Cockpit/CockpitStepAudit.swift",
         "MarkView/Models/Cockpit/CockpitStepMeter.swift",
         "MarkViewHostedTests/CockpitPolicyHostTests.swift",
-        "MarkView/Models/Lifecycle/BugBasket.swift"
+        "MarkView/Models/Lifecycle/BugBasket.swift",
+        "MarkView/Models/Discussion/Discussion.swift",
+        "MarkView/Models/Discussion/DiscussionPrompt.swift"
       ]
     },
     {

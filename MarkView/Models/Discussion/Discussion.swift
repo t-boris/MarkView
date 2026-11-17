@@ -38,7 +38,7 @@ struct DiscussionTurn: Codable, Identifiable, Equatable {
 
 /// A conversation held before there is a feature: questions answered as pages, the decisions it reached and
 /// what is still open. Stored in `.dde/discussions/<slug>/discussion.json`; the answers are notes beside it.
-/// Foundation only, checked in `tools/tests/discussion-tests.sh`.
+/// Foundation only, checked by the app-hosted tests.
 struct Discussion: Codable, Identifiable, Equatable {
     var slug: String
     var title: String
