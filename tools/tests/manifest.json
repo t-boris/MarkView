@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 183,
+  "suiteCount": 182,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2785,7 +2785,8 @@
         "MarkViewHostedTests/BridgeContractValidationHostTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift",
         "MarkView/Models/QA/QARunModel.swift",
-        "MarkView/Views/QA/QARunViews.swift"
+        "MarkView/Views/QA/QARunViews.swift",
+        "MarkView/Models/Architecture/XRayCommand.swift"
       ]
     },
     {
@@ -4256,16 +4257,6 @@
         "tools/tests/project-context-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ScriptedPrompts.swift"
-      ]
-    },
-    {
-      "name": "xray-command-tests",
-      "script": "tools/tests/xray-command-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Architecture/XRayCommand.swift",
-        "tools/tests/XRayCommandTests.swift",
-        "tools/tests/xray-command-tests.sh"
       ]
     },
     {

@@ -120,7 +120,6 @@
   "workflow-template-library-tests": 10.9,
   "workflow-template-tests": 13.1,
   "workspace-redesign-tests": 19.2,
-  "xray-command-tests": 2.0,
   "xray-comparison-web-tests": 40.0,
   "xray-task-ownership-tests": 78.7
 }
