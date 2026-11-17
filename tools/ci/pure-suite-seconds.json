@@ -51,7 +51,6 @@
   "no-process-outside-subprocess-lint": 0.5,
   "persistent-remote-session-tests": 42.0,
   "phase4-shell-tests": 5.0,
-  "phase5-ai-tests": 40.6,
   "project-agent-tools-tests": 43.5,
   "project-ai-choice-tests": 21.3,
   "project-change-tests": 19.1,
