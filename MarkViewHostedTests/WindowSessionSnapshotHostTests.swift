@@ -1,31 +1,40 @@
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
 // A window's theme is its id; these are the ids the checks use.
-extension AppTheme {
+private extension AppTheme {
     static let midnight = AppTheme("midnight")
 }
 
 /// A window's session taken and put back (`AR-14` step 7): the real `TabsController`, `WindowChrome`, `PanelLayout` and
 /// `WindowUIState` of one window are saved through the real session storage and restored into another window. Only what the manager
 /// alone can open (a folder, a terminal, a browser, an architecture view, a tool) is played by a fake host that records the calls.
-@main
-enum WindowSessionSnapshotterChecks {
-    nonisolated(unsafe) static var failures = 0
-
-    static func check(_ condition: Bool, _ message: String) {
-        if !condition {
-            failures += 1
-            FileHandle.standardError.write(Data("FAIL: \(message)\n".utf8))
-        }
+private enum WindowSessionSnapshotterChecks {
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
 
     /// A window as the snapshotter sees it.
     @MainActor
     final class FakeHost: WindowSessionHost {
         let tabs = TabsController(prompts: NoPrompts())
-        let chrome = WindowChrome(defaults: UserDefaults(suiteName: "snapshotter-\(UUID().uuidString)")!)
-        let layout = PanelLayout(defaults: UserDefaults(suiteName: "snapshotter-\(UUID().uuidString)")!)
-        let windowUI = WindowUIState(defaults: UserDefaults(suiteName: "snapshotter-\(UUID().uuidString)")!)
+        let suiteName: String
+        let chrome: WindowChrome
+        let layout: PanelLayout
+        let windowUI: WindowUIState
+
+        init() {
+            let name = "snapshotter-" + UUID().uuidString
+            let defaults = UserDefaults(suiteName: name)!
+            suiteName = name
+            chrome = WindowChrome(defaults: defaults)
+            layout = PanelLayout(defaults: defaults)
+            windowUI = WindowUIState(defaults: defaults)
+        }
+
+        deinit { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
         var themeSettings = WindowThemeSettings.fallback
         var windowFolder: URL?
         var terminals: [UUID: URL] = [:]
@@ -73,7 +82,7 @@ enum WindowSessionSnapshotterChecks {
         func restoreBrowser(_ url: URL) {
             calls.append("browser:" + url.absoluteString)
             var tab = OpenTab(url: url, content: "", originalContent: "")
-            tab.kind = .browser(BrowserSession(url: url))
+            tab.kind = .browser(BrowserSession(url: url, dataStore: .nonPersistent(), prompts: NoPrompts()))
             tabs.appendTab(tab)
         }
     }
@@ -98,7 +107,7 @@ enum WindowSessionSnapshotterChecks {
     }
 
     @MainActor
-    static func main() async {
+    static func run() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("snapshotter-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -128,10 +137,13 @@ enum WindowSessionSnapshotterChecks {
         source.restoreTerminal(in: root)
         source.restoreBrowser(URL(string: "https://example.com/page")!)
         var local = OpenTab(url: URL(string: "file:///tmp/local.html")!, content: "", originalContent: "")
-        local.kind = .browser(BrowserSession(url: URL(string: "file:///tmp/local.html")))
+        local.kind = .browser(BrowserSession(url: URL(string: "file:///tmp/local.html"), dataStore: .nonPersistent(), prompts: NoPrompts()))
         source.tabs.appendTab(local)        // only http(s) pages are saved
         var insight = OpenTab(url: URL(fileURLWithPath: "/tmp/.insight"), content: "", originalContent: "")
-        insight.kind = .insight(InsightSession())
+        guard let cache = try? InsightCache(workspaceURL: root, sessionId: UUID(), pagePolicy: "") else {
+            check(false, "insight cache fixture created"); return
+        }
+        insight.kind = .insight(InsightSession(folderURL: root, mdFiles: [], graphRAG: nil, cache: cache))
         source.tabs.appendTab(insight)      // in-memory jobs are not saved
         source.tabs.activeTabIndex = source.tabs.openTabs.firstIndex { kindName($0) == "pdf:paper.pdf" } ?? -1
 
@@ -162,7 +174,7 @@ enum WindowSessionSnapshotterChecks {
         let saved = try? await storage.save(WindowSessionArchive(windows: [state]), revision: 1)
         check(saved == .saved, "the session is written")
         guard let loaded = await WindowSessionStorage(url: storageURL).load()?.windows.first else {
-            check(false, "the session is read back by a new process"); return finish()
+            check(false, "the session is read back by a new process"); return
         }
 
         // --- Another window takes it.
@@ -238,18 +250,15 @@ enum WindowSessionSnapshotterChecks {
               "a scroll position that is not a number becomes the top of the file")
         check(careful.tabs.activeTabIndex == 0, "an active tab index past the end falls back to the first tab")
 
-        finish()
     }
 
-    static func finish() {
-        if failures > 0 {
-            FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
-            exit(1)
-        }
-        print("WindowSessionSnapshotter: tabs, drafts, scroll, panels and interface state survive a session; changed disks and odd sessions are handled")
-    }
+
 }
 
 extension TabKind {
     var isPDFTab: Bool { if case .pdf = self { return true }; return false }
+}
+
+extension EditorHostTests {
+    @MainActor func testWindowSessionSnapshotAndRestore() async { await WindowSessionSnapshotterChecks.run() }
 }

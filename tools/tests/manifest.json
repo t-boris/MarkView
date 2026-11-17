@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 97,
+  "suiteCount": 96,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1941,7 +1941,9 @@
         "MarkView/Models/QA/QARunCleanup.swift",
         "MarkView/Models/QA/QARunRetention.swift",
         "MarkViewHostedTests/QARetentionHostTests.swift",
-        "MarkViewHostedTests/WindowSessionHostTests.swift"
+        "MarkViewHostedTests/WindowSessionHostTests.swift",
+        "MarkView/Models/Workspace/WindowSessionSnapshotter.swift",
+        "MarkViewHostedTests/WindowSessionSnapshotHostTests.swift"
       ]
     },
     {
@@ -2890,44 +2892,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "window-session-snapshotter-tests",
-      "script": "tools/tests/window-session-snapshotter-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Appearance/BackdropRegistry.swift",
-        "MarkView/Models/Appearance/ProjectBackdrop.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "MarkView/Models/Architecture/XRayScope.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/PanelLayout.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
-        "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Workspace/WindowChrome.swift",
-        "MarkView/Models/Workspace/WindowSession.swift",
-        "MarkView/Models/Workspace/WindowSessionSnapshotter.swift",
-        "MarkView/Models/Workspace/WindowUIState.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/WindowSessionSnapshotterTests.swift",
-        "tools/tests/window-session-snapshotter-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {
