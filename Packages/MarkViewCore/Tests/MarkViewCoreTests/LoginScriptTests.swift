@@ -1,10 +1,11 @@
 import Foundation
+import TestSupport
 import XCTest
 @testable import MarkViewCore
 
 final class LoginScriptTests: XCTestCase {
     func testWritesExecutableScriptsAtomically() async throws {
-        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("login-script-\(UUID().uuidString)", isDirectory: true)
+        let scratch = try TemporaryDirectory.make(prefix: "login-script")
         let folder = scratch.appendingPathComponent("MarkView", isDirectory: true)
         defer { chmod(folder.path, 0o755); try? FileManager.default.removeItem(at: scratch) }
         func mode(_ url: URL) throws -> Int {

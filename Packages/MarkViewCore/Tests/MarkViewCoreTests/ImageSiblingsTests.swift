@@ -1,11 +1,11 @@
 import Foundation
+import TestSupport
 import XCTest
 @testable import MarkViewCore
 
 final class ImageSiblingsTests: XCTestCase {
     func testFinderOrderAndNavigation() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("siblings-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try TemporaryDirectory.make(prefix: "siblings")
         defer { try? FileManager.default.removeItem(at: directory) }
         for name in ["10.png", "2.png", "1.png", "notes.txt", ".hidden.png"] {
             try Data().write(to: directory.appendingPathComponent(name))

@@ -19,9 +19,13 @@ let package = Package(
                 .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
+        .target(
+            name: "TestSupport",
+            path: "Tests/TestSupport"
+        ),
         .testTarget(
             name: "MarkViewCoreTests",
-            dependencies: ["MarkViewCore"],
+            dependencies: ["MarkViewCore", "TestSupport"],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")
             ]

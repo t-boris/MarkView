@@ -41,7 +41,8 @@ implementation.
 - `MarkView/Bridge/`: Swift-to-JavaScript bridge: `WebViewBridge`, `TypedWebBridge` (validates every page message against
   `Resources/Editor/js/bridge-contract.json`), `PageMessages.swift` (the payload types), the scheme handlers and PDF export
 - `MarkView/Resources/Editor/`: bundled HTML (`index.html`, `terminal.html`, `discussion.html`, `book.html`), first-party JavaScript under `js/` (`mv-kit.js`, `markview-*.js`), and third-party vendor bundles under `vendor/` (`dompurify.min.js`, `turndown.min.js`, etc.). `MarkView/Resources/Themes/` and `Layouts/` hold the theme and layout-preset JSON
-- `Tests/Fixtures/`: test fixture data. `tools/tests/` holds the automated suites (`run.sh`, `manifest.json`);
+- `Tests/Fixtures/`: test fixture data. The core package's `TestSupport` target holds shared package-test fixtures.
+  `tools/tests/` holds the automated suites (`run.sh`, `manifest.json`);
   `tools/lint/architecture-lint.sh` holds the structural rules and their allow-lists, and `tools/lint/domain-dependencies.py` measures
   the dependencies between domain folders (`--why A B` names the types of an edge)
 - `MarkView.xcodeproj`: canonical Xcode project (XcodeGen and `project.yml` have been retired)
