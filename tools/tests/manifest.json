@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 172,
+  "suiteCount": 171,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1041,19 +1041,6 @@
         "tools/tests/document-translator-tests.sh",
         "MarkView/Models/Shared/UserPrompts.swift",
         "tools/tests/ProjectProvidingTestSupport.swift"
-      ]
-    },
-    {
-      "name": "editor-diagrams-tests",
-      "script": "tools/tests/editor-diagrams-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "tools/tests/EditorDiagramsWebTests.swift",
-        "tools/tests/editor-diagrams-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/markview-d3-mermaid.js"
       ]
     },
     {
@@ -2713,7 +2700,8 @@
         "MarkView/Resources/Editor/js/markview-data.js",
         "MarkViewHostedTests/WorkspaceEditorHostTests.swift",
         "MarkView/Resources/Editor/js/markview-document-files.js",
-        "MarkView/Resources/Editor/js/markview-render.js"
+        "MarkView/Resources/Editor/js/markview-render.js",
+        "MarkView/Resources/Editor/js/markview-d3-mermaid.js"
       ]
     },
     {
