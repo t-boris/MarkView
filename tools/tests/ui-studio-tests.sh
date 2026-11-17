@@ -14,7 +14,7 @@ swiftc -o "$out/ui-studio-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.sw
   MarkView/Models/UIStudio/UIStudioJSON.swift MarkView/Models/UIStudio/UIStudioModels.swift MarkView/Models/UIStudio/UIStudioSimulation.swift MarkView/Models/UIStudio/UIStudioAuthMock.swift \
   MarkView/Models/UIStudio/UIStudioRedaction.swift MarkView/Models/UIStudio/UIStudioLog.swift MarkView/Models/UIStudio/UIStudioPreparation.swift MarkView/Models/UIStudio/UIStudioBridge.swift \
   MarkView/Models/UIStudio/UIStudioChanges.swift MarkView/Models/UIStudio/UIStudioStore.swift MarkView/Models/Shared/SchemaVersionedStore.swift MarkView/Models/UIStudio/UIStudioEvidence.swift \
-  MarkView/Models/UIStudio/UIStudioPrompts.swift MarkView/Models/UIStudio/UIStudioContext.swift MarkView/Models/UIStudio/UIStudioSelection.swift MarkView/Models/Browser/BrowserElementPick.swift \
+  MarkView/Models/UIStudio/UIStudioPrompts.swift MarkView/Models/UIStudio/UIStudioContext.swift MarkView/Models/UIStudio/UIStudioSelection.swift \
   MarkView/Models/UIStudio/UIStudioPolicy.swift MarkView/Models/UIStudio/UIStudioGateway.swift MarkView/Models/UIStudio/UIStudioServer.swift MarkView/Models/UIStudio/UIStudioConnections.swift \
   MarkView/Models/UIStudio/UIStudioTracking.swift MarkView/Models/Lifecycle/BugReportWriter.swift MarkView/Models/Shared/FrontMatter.swift \
   MarkView/Models/UIStudio/UIStudioEnvironmentMap.swift MarkView/Models/UIStudio/UIStudioEnvironmentMapper.swift \

@@ -128,7 +128,6 @@
 		3A7797858C429A08562B496E /* FeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE180277E01B9DBC61C4110 /* FeatureModels.swift */; };
 		3A8553BD0417A4C3DED64762 /* QARunCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40EC4D0B33F766DF89989E1 /* QARunCleanup.swift */; };
 		3BA06ECBFADD3E1E89187AB1 /* CockpitRunStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5612E561DAD2527239AB27E /* CockpitRunStore.swift */; };
-		3C66B42CE08BE7AD585AC81A /* BrowserElementPick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */; };
 		3D26245935F584FAE724710E /* EditorDocumentRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AF52C251F7D6ADAE2EE8DED /* EditorDocumentRouting.swift */; };
 		3D9F7C1BE6A07DE7E8BFAF39 /* QAPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */; };
 		3E76683E13C010C82D63FBC1 /* DefinitionOfDoneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56712FFC082BC0126119C1DC /* DefinitionOfDoneView.swift */; };
@@ -963,7 +962,6 @@
 		9845BC21274AB0C15237A10A /* DeploymentDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentDiscovery.swift; sourceTree = "<group>"; };
 		988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSearchView.swift; sourceTree = "<group>"; };
 		9948C896E8CDF0E775CA331E /* CockpitLeverPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitLeverPanel.swift; sourceTree = "<group>"; };
-		9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserElementPick.swift; sourceTree = "<group>"; };
 		9A4D926B6E77144DA360543F /* ArchitectureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureStore.swift; sourceTree = "<group>"; };
 		C00CC5262ACFE91F4EE22174 /* XRayFilterStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayFilterStore.swift; sourceTree = "<group>"; };
 		3BFFF8C26811A3A21DDC827E /* LogicalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogicalView.swift; sourceTree = "<group>"; };
@@ -1491,7 +1489,6 @@
 				7DED21BC61360BE8D42222AB /* AgentBrowserRegistration.swift */,
 				4ED1088DB8E0637B1C695E71 /* BrowserAgentExecutor.swift */,
 				C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */,
-				9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */,
 				3E83CEDED9E2C01ACB93A1FC /* BrowserPagePDF.swift */,
 				007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */,
 				CE52195632D08967C57105E7 /* BrowserPasswordScript.swift */,
@@ -2864,7 +2861,6 @@
 				3F86E0D206B89BE60050116B /* BrowserAgentTools.swift in Sources */,
 				7BF2F153EB33E7C7F2F61838 /* BrowserAgentExecutor.swift in Sources */,
 				DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */,
-				3C66B42CE08BE7AD585AC81A /* BrowserElementPick.swift in Sources */,
 				4345AA82ADCF820AD138E290 /* BrowserPagePDF.swift in Sources */,
 				52D267AB5AD1B443C3C84F6A /* BrowserPasswordScript.swift in Sources */,
 				114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */,
@@ -3410,7 +3406,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.117;
+				CURRENT_PROJECT_VERSION = 6.30.118;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3425,7 +3421,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.117;
+				MARKETING_VERSION = 6.30.118;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3493,7 +3489,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.117;
+				CURRENT_PROJECT_VERSION = 6.30.118;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3514,7 +3510,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.117;
+				MARKETING_VERSION = 6.30.118;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3615,7 +3611,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.117;
+				CURRENT_PROJECT_VERSION = 6.30.118;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3636,7 +3632,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.117;
+				MARKETING_VERSION = 6.30.118;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

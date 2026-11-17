@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What the assistant returns for a request (EDIT-02…EDIT-04, DEC-010): the kind it chose — an answer, a context change
 /// (REQ-013) or a code change — and for a code change the scope it identified, a question when the request is materially

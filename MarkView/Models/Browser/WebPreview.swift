@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// What a preview tab shows while it looks for the project's web app.
 enum WebPreviewState: Equatable {

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 187,
+  "suiteCount": 186,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -314,16 +314,6 @@
         "tools/tests/browser-agent-tools-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "browser-element-pick-tests",
-      "script": "tools/tests/browser-element-pick-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Browser/BrowserElementPick.swift",
-        "tools/tests/BrowserElementPickTests.swift",
-        "tools/tests/browser-element-pick-tests.sh"
       ]
     },
     {
@@ -1161,7 +1151,7 @@
         "MarkView/Models/Appearance/WelcomeBackdrop.swift",
         "MarkView/Models/Book/PDFReader.swift",
         "MarkView/Models/Browser/BrowserAgentTabs.swift",
-        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
         "MarkView/Models/Browser/BrowserAddress.swift",
         "MarkView/Models/Workspace/BrowserHost.swift",
         "MarkView/Models/Browser/WebPreview.swift",
@@ -2763,7 +2753,7 @@
         "MarkView/Resources/Editor/index.html",
         "MarkViewHostedTests/TerminalLinkHostTests.swift",
         "MarkView/Models/Browser/BrowserDownloads.swift",
-        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
         "MarkView/Models/Browser/BrowserPagePDF.swift",
         "MarkView/Models/Browser/BrowserPasswordScript.swift",
         "MarkView/Models/Browser/BrowserPasswords.swift",
@@ -2835,7 +2825,7 @@
         "MarkView/Models/Shared/UserPrompts.swift",
         "MarkView/Models/Browser/BrowserDownloads.swift",
         "MarkView/Models/Browser/BrowserPagePDF.swift",
-        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
         "MarkView/Views/Browser/BrowserPopup.swift",
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
@@ -3405,7 +3395,7 @@
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
-        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
@@ -3520,7 +3510,7 @@
       "timeoutSeconds": 1200,
       "sources": [
         "MarkView/Models/UIStudio/UIStudioSession+Screens.swift",
-        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Shared/FrontMatter.swift",
@@ -3602,7 +3592,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/UIStudio/UIStudioSession+Screens.swift",
-        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/Lifecycle/FeatureVocabulary.swift",
         "MarkView/Models/Shared/FrontMatter.swift",
@@ -3679,7 +3669,7 @@
       "script": "tools/tests/ui-studio-tests.sh",
       "tier": "gui",
       "sources": [
-        "MarkView/Models/Browser/BrowserElementPick.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/Shared/FrontMatter.swift",
         "MarkView/Models/UIStudio/UIStudioAuthMock.swift",
