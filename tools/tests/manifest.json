@@ -2801,6 +2801,7 @@
       "name": "qa-web-fault-tests",
       "script": "tools/tests/qa-web-fault-tests.sh",
       "tier": "gui",
+      "timeoutSeconds": 900,
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/QA/QAAPI.swift",
