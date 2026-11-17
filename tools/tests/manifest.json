@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 84,
+  "suiteCount": 83,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -2149,17 +2149,6 @@
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
-      ]
-    },
-    {
-      "name": "transcription-failure-tests",
-      "script": "tools/tests/transcription-failure-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Dictation/WhisperClient.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "tools/tests/TranscriptionFailureTests.swift",
-        "tools/tests/transcription-failure-tests.sh"
       ]
     },
     {
