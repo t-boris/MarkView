@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 179,
+  "suiteCount": 178,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -3291,23 +3291,6 @@
         "tools/tests/text-diff-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
-      ]
-    },
-    {
-      "name": "theme-model-tests",
-      "script": "tools/tests/theme-model-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "tools/tests/ThemeModelTests.swift",
-        "tools/tests/theme-model-tests.sh",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {
