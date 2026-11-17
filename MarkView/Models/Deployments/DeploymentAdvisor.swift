@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The in-app answer to a question about an environment: MarkView looks (state and logs, read-only), then asks the
 /// project's own assistant (`CLICompletion`: no tools, nothing can change) to read that evidence, and shows the

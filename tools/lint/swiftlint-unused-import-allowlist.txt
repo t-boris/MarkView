@@ -28,7 +28,6 @@
 1 MarkView/Models/Cockpit/CockpitNotifier.swift
 1 MarkView/Models/Cockpit/CockpitStepAudit.swift
 1 MarkView/Models/Cockpit/CockpitStepMeter.swift
-1 MarkView/Models/Deployments/DeploymentPrompt.swift
 1 MarkView/Models/Deployments/DeploymentStore.swift
 1 MarkView/Models/Discussion/Discussion.swift
 1 MarkView/Models/Git/GitHubStore.swift
@@ -37,7 +36,6 @@
 1 MarkView/Models/Insight/SemanticUsage.swift
 1 MarkView/Models/Lifecycle/FeatureIntake.swift
 1 MarkView/Models/Lifecycle/FeatureJobs.swift
-1 MarkView/Models/Lifecycle/FeatureReviewGate.swift
 1 MarkView/Models/Lifecycle/HandoffPrompt.swift
 1 MarkView/Models/Lifecycle/IssueReconciler.swift
 1 MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift

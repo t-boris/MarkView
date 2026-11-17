@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 198,
+  "suiteCount": 196,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -919,16 +919,6 @@
       ]
     },
     {
-      "name": "deployment-prompt-tests",
-      "script": "tools/tests/deployment-prompt-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Deployments/DeploymentPrompt.swift",
-        "tools/tests/DeploymentPromptTests.swift",
-        "tools/tests/deployment-prompt-tests.sh"
-      ]
-    },
-    {
       "name": "deployment-ssh-tests",
       "script": "tools/tests/deployment-ssh-tests.sh",
       "tier": "pure",
@@ -1305,15 +1295,6 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "tools/tests/FeatureJobsChecks.swift",
         "tools/tests/feature-jobs-tests.sh"
-      ]
-    },
-    {
-      "name": "feature-review-gate-tests",
-      "script": "tools/tests/feature-review-gate-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/FeatureReviewGate.swift",
-        "tools/tests/FeatureReviewGateChecks.swift"
       ]
     },
     {
@@ -4548,7 +4529,7 @@
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "MarkView/Models/Deployments/DeploymentLogs.swift",
         "MarkView/Models/Deployments/DeploymentModels.swift",
-        "MarkView/Models/Deployments/DeploymentPrompt.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/DeploymentPrompt.swift",
         "MarkView/Models/Deployments/DeploymentStore+Databases.swift",
         "MarkView/Models/Deployments/DeploymentStore.swift",
         "MarkView/Models/Deployments/DeploymentsHost.swift",

@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The Deployments tool of a window: where the project runs and how each place is doing (`store`), the answers the project's assistant
 /// reads out of an environment (`advisor`), and the two ways the tab asks the assistant in the Agents panel for more.

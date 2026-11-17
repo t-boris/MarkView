@@ -1,9 +1,7 @@
-import Foundation
-
 /// The prompt that sends the assistant to find where the project runs (Deployments → Ask AI).
-enum DeploymentPrompt {
+public enum DeploymentPrompt {
     /// The prompt of the in-app answer: MarkView has already looked and read the logs; the model reads only that.
-    static func answer(environment name: String, id: String, question: String, report: String, evidence: [(title: String, text: String)]) -> String {
+    public static func answer(environment name: String, id: String, question: String, report: String, evidence: [(title: String, text: String)]) -> String {
         var text = """
         You are a careful site-reliability engineer. A person asks a question about one environment of their project ("\(name)", id \(id)) in MarkView's Deployments. MarkView has looked at it and read some logs; that evidence is below. Use ONLY the evidence. If it is not enough, say what is missing and give the exact read-only command to run next. Do not guess and do not invent numbers.
 
@@ -31,7 +29,7 @@ enum DeploymentPrompt {
     }
 
     /// A question about one environment, with what MarkView last saw and, when given, a log the person is reading.
-    static func ask(environment name: String, id: String, question: String, report: String, logTitle: String? = nil, log: String? = nil) -> String {
+    public static func ask(environment name: String, id: String, question: String, report: String, logTitle: String? = nil, log: String? = nil) -> String {
         var text = """
         Look into the environment "\(name)" (id \(id)) in this project's Deployments and answer my question.
 
@@ -52,7 +50,7 @@ enum DeploymentPrompt {
         return text
     }
 
-    static func analyze(project: String, existing: [String], hasMCP: Bool) -> String {
+    public static func analyze(project: String, existing: [String], hasMCP: Bool) -> String {
         let known = existing.isEmpty ? "No environment is set up yet." : "Already set up: \(existing.joined(separator: ", ")). Do not propose these again."
         let how = hasMCP
             ? "Use the MarkView tools: markview_guide with topic \"deployments\" first, then markview_deployments, then markview_deployments_propose for each place you find."

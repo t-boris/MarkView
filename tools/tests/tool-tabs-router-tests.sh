@@ -24,7 +24,7 @@ swiftc -target "$(uname -m)-apple-macos13.0" -parse-as-library -o "$out/tool-tab
     MarkView/Models/Deployments/DeploymentLogs.swift MarkView/Models/Deployments/CloudServices.swift MarkView/Models/AI/ProviderHints.swift \
     MarkView/Models/Deployments/DeploymentStore.swift MarkView/Models/Deployments/DeploymentStore+Databases.swift \
     MarkView/Models/Deployments/DatabaseExplorer.swift MarkView/Models/Deployments/DatabaseKeychain.swift \
-    MarkView/Models/Deployments/DeploymentAdvisor.swift MarkView/Models/Deployments/DeploymentPrompt.swift MarkView/Models/Deployments/DeploymentsHost.swift \
+    MarkView/Models/Deployments/DeploymentAdvisor.swift MarkView/Models/Deployments/DeploymentsHost.swift \
     MarkView/Models/Discussion/Discussion.swift MarkView/Models/Discussion/DiscussionPrompt.swift MarkView/Models/Discussion/DiscussionsHost.swift \
     MarkView/Models/Workspace/UIStudioHost.swift MarkView/Models/Workspace/CockpitHost.swift \
     MarkView/Models/Prototype/PrototypeFiles.swift MarkView/Models/Workspace/PrototypeStudioHost.swift \
