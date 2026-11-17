@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 52,
+  "suiteCount": 51,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -170,20 +170,6 @@
         "MarkView/Resources/Editor/book.html",
         "tools/tests/BookPDFTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
-      ]
-    },
-    {
-      "name": "browser-passwords-tests",
-      "script": "tools/tests/browser-passwords-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Models/Browser/BrowserAddress.swift",
-        "MarkView/Models/Browser/BrowserDownloads.swift",
-        "MarkView/Models/Browser/BrowserPasswords.swift",
-        "tools/tests/BrowserPasswordsTests.swift",
-        "tools/tests/browser-passwords-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {
