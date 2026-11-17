@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 87,
+  "suiteCount": 86,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -206,46 +206,6 @@
         "tools/tests/browser-passwords-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
-      ]
-    },
-    {
-      "name": "bug-basket-tests",
-      "script": "tools/tests/bug-basket-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Lifecycle/BugBasket.swift",
-        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Models/Lifecycle/HandoffPrompt.swift",
-        "MarkView/Models/Lifecycle/IssueListing.swift",
-        "tools/tests/BugBasketTests.swift",
-        "tools/tests/bug-basket-tests.sh",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1757,7 +1717,8 @@
         "MarkViewHostedTests/RemoteCodexContextHostTests.swift",
         "MarkView/Models/Cockpit/CockpitStepAudit.swift",
         "MarkView/Models/Cockpit/CockpitStepMeter.swift",
-        "MarkViewHostedTests/CockpitPolicyHostTests.swift"
+        "MarkViewHostedTests/CockpitPolicyHostTests.swift",
+        "MarkView/Models/Lifecycle/BugBasket.swift"
       ]
     },
     {

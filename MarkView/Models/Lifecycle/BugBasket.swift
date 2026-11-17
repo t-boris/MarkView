@@ -2,7 +2,7 @@ import Foundation
 
 // Batch "Fix with AI" (issue #31, docs/features/batch-fix-with-ai-for-multiple-bugs): the basket of
 // bug reports collected in the Issues panel, the one prompt that fixes them on one branch, and the
-// "Suggest similar" request. Foundation only, so tools/tests/bug-basket-tests.sh compiles it on its own.
+// "Suggest similar" request. The app-hosted tests check the shipping implementation.
 
 /// A bug report as the basket needs it. `path` is workspace-relative and is the identity: report
 /// ids are not unique (two files can both be BUG-004).
