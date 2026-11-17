@@ -144,6 +144,9 @@ enum DDEAppEntry {
     static func main() {
         #if MARKVIEW_HOSTED_TEST_HOST
         // The hosted fixture may run CLI entry points in a child process, without starting the app.
+        if CommandLine.arguments.contains("--mcp-browser") {
+            BrowserAgentTools.runServer(arguments: CommandLine.arguments)
+        }
         if CommandLine.arguments.contains("--mcp-project") {
             BrowserAgentTools.runServer(arguments: CommandLine.arguments, profile: ProjectAgentTools.profile)
         }
