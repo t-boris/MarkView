@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 175,
+  "suiteCount": 174,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -766,19 +766,6 @@
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/cycle-time-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
-      ]
-    },
-    {
-      "name": "data-viewers-tests",
-      "script": "tools/tests/data-viewers-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "tools/tests/DataViewersTests.swift",
-        "tools/tests/data-viewers-tests.sh",
-        "MarkView/Bridge/TypedWebBridge.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "MarkView/Resources/Editor/js/bridge-contract.json",
-        "MarkView/Resources/Editor/js/markview-data.js"
       ]
     },
     {
@@ -2756,7 +2743,8 @@
         "MarkView/Views/Appearance/AtmosphereBackdropLayers.swift",
         "MarkView/Views/Appearance/BackdropLayerBuilders.swift",
         "MarkView/Views/Appearance/DevBackdropLayers.swift",
-        "MarkView/Views/Appearance/ProjectBackdropLayers.swift"
+        "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
+        "MarkView/Resources/Editor/js/markview-data.js"
       ]
     },
     {
