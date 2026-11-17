@@ -324,6 +324,331 @@ final class UIStudioLifetimeHostTests: XCTestCase {
         check("no page events, no rows", StudioEventGrouping.group([]).isEmpty)
     }
 
+
+    @MainActor func testSelectionModel() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("mv-studio-model-" + UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let repo = tmp.appendingPathComponent("app")
+        try fm.createDirectory(at: repo.appendingPathComponent("src"), withIntermediateDirectories: true)
+        let cardText = """
+        export function Card({ title }) {
+          return (
+            <div className="card" style={{ padding: 8 }}>
+              <h3>{title}</h3>
+            </div>
+          );
+        }
+
+        export const footer = 'Made with care';
+        """
+        try cardText.write(to: repo.appendingPathComponent("src/Card.jsx"), atomically: true, encoding: .utf8)
+        let root = repo, appFolder = repo
+        check("absolute source path inside the project", StudioSelectionContext.projectPath(repo.appendingPathComponent("src/Card.jsx").path, root: root, appFolder: appFolder) == "src/Card.jsx")
+        check("dev server URL of a module", StudioSelectionContext.projectPath("http://localhost:5173/src/Card.jsx?t=12345", root: root, appFolder: appFolder) == "src/Card.jsx")
+        check("relative path of the app folder", StudioSelectionContext.projectPath("src/Card.jsx", root: root, appFolder: appFolder) == "src/Card.jsx")
+        check("a path outside the project is refused", StudioSelectionContext.projectPath("/etc/hosts", root: root, appFolder: appFolder) == nil)
+        check("a missing file is refused", StudioSelectionContext.projectPath("src/Nope.jsx", root: root, appFolder: appFolder) == nil)
+        // BUG-069: Turbopack (Next.js 16) names sources as file URLs in its maps and as [project]/… module ids.
+        check("BUG-069 a source map's file URL inside the project", StudioSelectionContext.projectPath(repo.appendingPathComponent("src/Card.jsx").absoluteString,
+                                                                                                   root: root, appFolder: appFolder) == "src/Card.jsx")
+        check("BUG-069 a Turbopack module id", StudioSelectionContext.projectPath("[project]/src/Card.jsx [app-client] (ecmascript)",
+                                                                           root: root, appFolder: appFolder) == "src/Card.jsx")
+        check("BUG-069 a file URL outside the project is refused", StudioSelectionContext.projectPath("file:///etc/hosts", root: root, appFolder: appFolder) == nil)
+        // An indexed map like Turbopack's: chunk lines 10… belong to Card.jsx, lines 20… to List.jsx. Line 11 has two segments:
+        // columns 0… map to Card.jsx line 2, columns 5… to line 3 column 3.
+        let indexed = """
+            {"version":3,"sources":[],"sections":[
+              {"offset":{"line":10,"column":0},"map":{"version":3,"sources":["file:///p/src/Card.jsx"],"names":[],"mappings":"AAAA;AACA,KACE;AAIF"}},
+              {"offset":{"line":20,"column":0},"map":{"version":3,"sources":["file:///p/src/List.jsx"],"names":[],"mappings":"AAAA;AAEA"}}]}
+            """.data(using: .utf8)!
+        let p1 = StudioSourceMap.original(in: indexed, line: 11, column: 1)
+        let p2 = StudioSourceMap.original(in: indexed, line: 12, column: 3)
+        let p3 = StudioSourceMap.original(in: indexed, line: 12, column: 9)
+        let p4 = StudioSourceMap.original(in: indexed, line: 22, column: 1)
+        check("BUG-069 a chunk position maps to its section's source and line",
+              p1 == StudioSourceMap.Position(source: "file:///p/src/Card.jsx", line: 1, column: 1)
+              && p2 == StudioSourceMap.Position(source: "file:///p/src/Card.jsx", line: 2, column: 1)
+              && p3 == StudioSourceMap.Position(source: "file:///p/src/Card.jsx", line: 3, column: 3)
+              && p4 == StudioSourceMap.Position(source: "file:///p/src/List.jsx", line: 3, column: 1),
+              "\(String(describing: p1)) \(String(describing: p2)) \(String(describing: p3)) \(String(describing: p4))")
+        check("BUG-069 a position before every section or beyond a map maps to nothing",
+              StudioSourceMap.original(in: indexed, line: 5, column: 1) == nil && StudioSourceMap.original(in: Data("{}".utf8), line: 1, column: 1) == nil)
+        let plainMap = Data(#"{"version":3,"sourceRoot":"/p/","sources":["src/App.jsx"],"names":[],"mappings":";;AAEA"}"#.utf8)
+        check("BUG-069 a plain map with a source root", StudioSourceMap.original(in: plainMap, line: 3, column: 7)
+              == StudioSourceMap.Position(source: "/p/src/App.jsx", line: 3, column: 1))
+        let snippet = StudioSelectionContext.snippet(of: cardText, line: 3, radius: 1)
+        check("the snippet marks the mapped line", snippet.contains("    3> ") && snippet.split(separator: "\n").count == 3, snippet)
+
+        func element(_ node: String?, _ index: Int, _ count: Int) -> StudioSelectionContext {
+            StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 10, "height": 10], "tag": "div.card", "selector": "div.card",
+                                    "source": ["framework": "react", "mapping": "exact", "file": "src/Card.jsx", "line": 3, "nodeId": node as Any,
+                                               "instanceIndex": index, "instanceCount": count]])!
+        }
+        let selected = element("src/Card.jsx:3:5", 1, 3)
+        check("AC-10 the selection knows its instance among shared ones", selected.instanceIndex == 1 && selected.instanceCount == 3 && selected.sourceNodeId == "src/Card.jsx:3:5")
+        if case .kept(let kept) = StudioSelectionRevalidation.decide(previous: selected, candidates: [element("src/Card.jsx:3:5", 0, 3), element("src/Card.jsx:3:5", 1, 3)]) {
+            check("PRE-09 the same instance is kept after a change", kept.instanceIndex == 1 && kept.revalidated)
+        } else { check("PRE-09 kept", false) }
+        if case .remapped = StudioSelectionRevalidation.decide(previous: selected, candidates: [element("src/Card.jsx:4:5", 1, 3)]) {
+            check("PRE-09 a moved source line is remapped", true)
+        } else { check("PRE-09 remapped", false) }
+        if case .cleared = StudioSelectionRevalidation.decide(previous: selected, candidates: [element("src/Other.jsx:1:1", 0, 2), element("src/Other.jsx:1:1", 2, 2)]) {
+            check("PRE-09 an ambiguous mapping is cleared", true)
+        } else { check("PRE-09 cleared", false) }
+        if case .cleared = StudioSelectionRevalidation.decide(previous: selected, candidates: []) { check("a vanished element clears the selection", true) } else { check("vanished", false) }
+
+        // BUG-070: a framework's own data requests go to the development server with no-cache, never to the simulation.
+        func framework(_ url: String, _ headers: [String: String] = [:]) -> Bool {
+            StudioConnectionPolicy.isFrameworkRequest(URL(string: url)!, headers: headers)
+        }
+        check("BUG-070 Next.js refresh and navigation payloads are the server's", framework("http://localhost:3000/?_rsc=1x2", ["rsc": "1"])
+              && framework("http://localhost:3000/orders", ["rsc": "1", "next-router-state-tree": "%5B%5D"]))
+        check("BUG-070 Next.js server actions are the server's", framework("http://localhost:3000/", ["next-action": "abc123"]))
+        check("BUG-070 Remix, SvelteKit, Nuxt and Astro data requests are the server's",
+              framework("http://localhost:5173/orders?_data=routes%2Forders") && framework("http://localhost:5173/orders.data")
+              && framework("http://localhost:5173/orders/__data.json?x-sveltekit-invalidated=01") && framework("http://localhost:3000/orders/_payload.json")
+              && framework("http://localhost:3000/__nuxt_island/Card.json") && framework("http://localhost:4321/_server-islands/Cart"))
+        check("BUG-070 the application's own API is not mistaken for a framework request",
+              !framework("http://localhost:3000/api/orders") && !framework("http://localhost:3000/api/data?page=2")
+              && !framework("http://localhost:3000/", ["accept": "text/x-component"]))
+        let pass = StudioBridge.passThrough(adding: StudioConnectionPolicy.frameworkRequestHeaders)
+        check("BUG-070 a framework request passes with no-cache", pass["action"] as? String == "pass"
+              && (pass["headers"] as? [String: String])?["cache-control"] == "no-cache")
+
+        // BUG-068: an element without source metadata is found again by what it is, not by where it was.
+        func plain(_ tag: String, _ classes: [String], _ text: String, component: String? = nil, node: String? = nil) -> StudioSelectionContext {
+            StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 10, "height": 10], "tag": tag, "selector": "body > section:nth-of-type(1) > button",
+                                    "text": text, "classes": classes,
+                                    "source": ["framework": component == nil ? "" : "react", "mapping": "none", "component": component ?? "",
+                                               "nodeId": node ?? ""]])!
+        }
+        let cta = plain("button.cta", ["cta"], "Plan with us")
+        if case .cleared = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.accept", ["accept"], "Accept all")]) {
+            check("BUG-068 another element at the old position is not taken for the selected one", true)
+        } else { check("BUG-068 another element at the old position is not taken for the selected one", false) }
+        if case .remapped(let found) = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.accept", ["accept"], "Accept all"),
+                                                                                                   plain("button.cta", ["cta"], "Plan with us")]) {
+            check("BUG-068 the same element is found where it is now", found.classes == ["cta"])
+        } else { check("BUG-068 the same element is found where it is now", false) }
+        if case .cleared = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.cta", ["cta"], "Book now")]) {
+            check("BUG-068 before a change, a different text means a different element", true)
+        } else { check("BUG-068 before a change, a different text means a different element", false) }
+        if case .remapped = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.cta", ["cta", "soft"], "Plan it with us")], afterEdit: true) {
+            check("BUG-068 after a change, the edited element is still found", true)
+        } else { check("BUG-068 after a change, the edited element is still found", false) }
+        let card = plain("div.mx-auto", ["mx-auto", "flex"], "Can't find the right package?", component: "PlanningInvitation",
+                         node: "react|PlanningInvitation|div")
+        let bannerButton = plain("div.mx-auto", ["mx-auto", "flex"], "A quick word on cookies", component: "ConsentBanner", node: "react|ConsentBanner|div")
+        if case .cleared = StudioSelectionRevalidation.decide(previous: card, candidates: [bannerButton], afterEdit: true) {
+            check("BUG-068 an element of another component is never taken, even after a change", true)
+        } else { check("BUG-068 an element of another component is never taken, even after a change", false) }
+    }
+
+    @MainActor func testServerConnectionsModel() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("mv-studio-model-" + UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        // DEC-006: a webpack dev server keeps the real clock; Turbopack and the others follow the scenario.
+        func clockReason(_ dependencies: [String: String], _ scripts: [String: String], command: String = "npm run dev") -> String? {
+            let folder = tmp.appendingPathComponent("clock-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let package: [String: Any] = ["dependencies": dependencies, "scripts": scripts]
+            try? JSONSerialization.data(withJSONObject: package).write(to: folder.appendingPathComponent("package.json"))
+            return StudioServerClock.realClockReason(command: command, folder: folder)
+        }
+        check("DEC-006 Next.js 16 (Turbopack) follows the scenario's clock", clockReason(["next": "16.2.1"], ["dev": "next dev"]) == nil)
+        check("DEC-006 Next.js 16 told to use webpack keeps the real clock", clockReason(["next": "16.2.1"], ["dev": "next dev --webpack"]) != nil)
+        check("DEC-006 Next.js 15 keeps the real clock unless it runs Turbopack",
+              clockReason(["next": "^15.1.0"], ["dev": "next dev"]) != nil && clockReason(["next": "^15.1.0"], ["dev": "next dev --turbopack"]) == nil)
+        check("DEC-006 an unreadable Next.js version is taken as webpack", clockReason(["next": "workspace:*"], ["dev": "next dev"]) != nil)
+        check("DEC-006 Create React App and webpack serve keep the real clock",
+              clockReason(["react-scripts": "5.0.1"], ["start": "react-scripts start"], command: "npm start") != nil
+              && clockReason(["webpack": "^5.0.0"], ["serve": "webpack serve --port 8085"], command: "pnpm run serve") != nil)
+        // BUG-081: Rspack bundles watchpack and compiles lazy chunks inside the page's request, so it rebuilt without end.
+        check("BUG-081 an Rspack dev server behind a named script keeps the real clock",
+              clockReason(["@rspack/cli": "^1.7.6"], ["dev:renderer": "rspack serve -c rspack.renderer.config.ts"],
+                          command: "pnpm run dev:renderer") != nil
+              && clockReason(["@rspack/cli": "^1.7.6"], ["dev": "rspack dev"]) != nil)
+        check("BUG-081 Rsbuild, Rspress and Modern.js dev servers keep the real clock",
+              clockReason(["@rsbuild/core": "^1.0.0"], ["dev": "rsbuild dev --open"]) != nil
+              && clockReason(["rspress": "^1.0.0"], ["dev": "rspress dev"]) != nil
+              && clockReason(["@modern-js/app-tools": "^2.0.0"], ["dev": "modern dev"]) != nil)
+        check("BUG-081 an Rspack production build script does not count as a dev server",
+              clockReason(["@rspack/cli": "^1.7.6"], ["dev": "rspack build && node server.js"]) == nil)
+        check("DEC-006 Vite and a Python server follow the scenario's clock (where they can)",
+              clockReason(["vite": "^5.0.0"], ["dev": "vite"]) == nil && clockReason([:], [:], command: "python3 server.py 8000") == nil)
+        // REQ-007: environments saved before the server connections, and a damaged entry, still load. A spec without the new
+        // fields encodes exactly like a file written before them (nil optionals are left out).
+        let oldFile = (try? JSONEncoder().encode(StudioEnvironmentSpec())) ?? Data()
+        let oldSpec = try? JSONDecoder().decode(StudioEnvironmentSpec.self, from: oldFile)
+        check("REQ-007 an environment saved before server connections loads", !String(decoding: oldFile, as: UTF8.self).contains("serverConnections")
+              && oldSpec != nil && oldSpec?.serverConnections == nil && oldSpec?.keptSecrets == nil)
+        var damagedObject = ((try? JSONSerialization.jsonObject(with: oldFile)) as? [String: Any]) ?? [:]
+        damagedObject["serverConnections"] = [["variable": "API_URL", "mode": "bogus"], 7]
+        let damaged = (try? JSONSerialization.data(withJSONObject: damagedObject)).flatMap { try? JSONDecoder().decode(StudioEnvironmentSpec.self, from: $0) }
+        check("REQ-007 a damaged connection entry does not make the environment unreadable",
+              damaged?.serverConnections?.first?.mode == .simulated && damaged?.serverConnections?.first?.variable == "API_URL"
+              && damaged?.serverConnections?.last?.variable == "", "\(String(describing: damaged?.serverConnections))")
+        let base = tmp.appendingPathComponent("connections")
+        let app = base.appendingPathComponent("apps/web")
+        func write(_ path: String, _ text: String) {
+            let file = base.appendingPathComponent(path)
+            try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: file, atomically: true, encoding: .utf8)
+        }
+        write("package.json", #"{"name":"root","workspaces":["apps/*","packages/*"]}"#)
+        write("apps/web/package.json", #"{"name":"web","dependencies":{"@acme/bff":"*","react":"19.0.0"}}"#)
+        write("apps/web/.env.example", """
+            # Services
+            API_URL=
+            API_SECRET=
+            NEXTAUTH_URL=http://localhost:3000
+            REDIS_URL=redis://localhost:6379
+            NEXT_PUBLIC_SUPABASE_URL=https://abc.supabase.co
+            """)
+        // A fake live-key shape, assembled so that secret scanners do not take the test file for a leaked key.
+        let fakeLiveKey = "sk_" + "live_" + "abcdefgh12345678"
+        write("apps/web/.env.local", """
+            export API_SECRET="real-secret-value-123" # not for tests
+            SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJl
+            NEXT_PUBLIC_SUPABASE_URL='https://user:pw@abc.supabase.co/rest/?x=1#top'
+            INTERNAL_API_URL=http://localhost:3000/api
+            STRIPE_SECRET_KEY=\(fakeLiveKey)
+            DATABASE_URL=postgres://u:p@localhost/db
+            """)
+        write("apps/web/app/page.tsx", "const r = await fetch(process.env.REPORTS_URL + '/x');\n")
+        write("apps/web/app/page.test.tsx", "process.env.TEST_ONLY_URL\n")
+        write("apps/web/e2e/seed.ts", "const pg = process.env.E2E_ONLY_URL ?? 'http://localhost:5432';\n")
+        write("packages/bff/package.json", #"{"name":"@acme/bff"}"#)
+        write("packages/bff/src/services.ts", """
+            import dotenv from "dotenv";
+            dotenv.config({ override: true });
+            export const SERVICES = {
+              core: {
+                urlEnv: "CORE_URL",
+                defaultUrl: "http://core:3045",
+                basePath: "/api/v1",
+              },
+            };
+            """)
+        write("packages/other/package.json", #"{"name":"@acme/other"}"#)
+        write("packages/other/index.ts", "fetch(process.env.OTHER_URL)\n")
+        write("apps/web/node_modules/x/index.js", "fetch(process.env.NODE_MODULE_URL)\n")
+
+        let found = StudioConnections.discover(root: base, appFolder: app, appOrigin: "http://localhost:3000")
+        let byName = Dictionary(uniqueKeysWithValues: found.connections.map { ($0.variable, $0) })
+        check("REQ-007 URL variables come from env files, the app's sources and the workspace packages it depends on",
+              Set(byName.keys) == ["CORE_URL", "NEXT_PUBLIC_SUPABASE_URL"], byName.keys.sorted().joined(separator: ","))
+        check("REQ-007 a registry's default address names the service", byName["CORE_URL"]?.origin == "http://core:3045"
+              && byName["CORE_URL"]?.basePath == "" && byName["CORE_URL"]?.foundIn == "packages/bff/src/services.ts:6",
+              "\(String(describing: byName["CORE_URL"]))")
+        check("REQ-007 an env value gives origin and path, without credentials, query or fragment",
+              byName["NEXT_PUBLIC_SUPABASE_URL"]?.origin == "https://abc.supabase.co" && byName["NEXT_PUBLIC_SUPABASE_URL"]?.basePath == "/rest"
+              && byName["NEXT_PUBLIC_SUPABASE_URL"]?.foundIn == "apps/web/.env.local", "\(String(describing: byName["NEXT_PUBLIC_SUPABASE_URL"]))")
+        let skipped = Dictionary(uniqueKeysWithValues: found.notRedirected.map { ($0.variable, $0.reason) })
+        check("REQ-007 a variable without any address is left unset", byName["API_URL"] == nil && byName["REPORTS_URL"] == nil
+              && skipped["API_URL"]?.contains("no address") == true && skipped["REPORTS_URL"] != nil)
+        check("REQ-007 the app's own address, non-HTTP services and databases stay as they are",
+              skipped["NEXTAUTH_URL"] != nil && skipped["REDIS_URL"]?.contains("redis:") == true && skipped["INTERNAL_API_URL"] != nil
+              && skipped["DATABASE_URL"] != nil && byName["DATABASE_URL"] == nil, skipped.keys.sorted().joined(separator: ","))
+        check("REQ-007 tests, other packages and node_modules are not read",
+              byName["TEST_ONLY_URL"] == nil && byName["E2E_ONLY_URL"] == nil && byName["OTHER_URL"] == nil && byName["NODE_MODULE_URL"] == nil)
+        check("REQ-007 secrets get test values shaped like the real ones",
+              found.testValues["API_SECRET"] == "markview-test-api-secret" && found.testValues["STRIPE_SECRET_KEY"] == "sk_test_markview_stripe_secret_key"
+              && found.testValues["SUPABASE_ANON_KEY"]?.hasPrefix("eyJ") == true
+              && found.testValues["DATABASE_URL"] == nil, found.secrets.joined(separator: ","))
+        // vivaa's @vivaa/auth isSupportedAnonKey: an auth middleware that rejects its key fails closed and sends every page to
+        // the login page (BUG-073).
+        func supportedAnonKey(_ value: String) -> Bool {
+            let segments = value.split(separator: ".", omittingEmptySubsequences: false)
+            return (segments.count == 3 && segments.allSatisfy { !$0.isEmpty })
+                || (value.hasPrefix("sb_publishable_") && value.count > "sb_publishable_".count)
+        }
+        let anon = found.testValues["SUPABASE_ANON_KEY"] ?? ""
+        check("BUG-073 a JWT secret's test value is a signed JWT that shape checks accept", supportedAnonKey(anon)
+              && StudioTestJWT.claims(of: anon)?["role"] == .string("anon") && StudioTestJWT.claims(of: anon)?["exp"] == .number(StudioTestJWT.expires)
+              && anon.hasPrefix(StudioTestJWT.base64URL(Data(#"{"alg":"HS256","typ":"JWT"}"#.utf8))), anon)
+        for missing in [nil, "", "replace_me"] as [String?] {
+            let value = StudioConnections.testValue(for: "NEXT_PUBLIC_SUPABASE_ANON_KEY", real: missing)
+            check("a missing or placeholder Supabase anon key produces a valid simulated key", supportedAnonKey(value)
+                  && StudioTestJWT.claims(of: value)?["role"] == .string("anon"))
+        }
+        let modernKey = StudioConnections.testValue(for: "NEXT_PUBLIC_SUPABASE_ANON_KEY", real: "sb_publishable_example")
+        let namedPublishable = StudioConnections.testValue(for: "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", real: nil)
+        let missingService = StudioConnections.testValue(for: "SUPABASE_SERVICE_ROLE_KEY", real: nil)
+        check("Supabase publishable and service keys have their expected test formats", supportedAnonKey(modernKey)
+              && modernKey.hasPrefix("sb_publishable_") && namedPublishable.hasPrefix("sb_publishable_")
+              && StudioTestJWT.claims(of: missingService)?["role"] == .string("service_role"))
+        let serviceRole = StudioConnections.testValue(for: "SUPABASE_SERVICE_ROLE_KEY", real: StudioTestJWT.make(
+            ["role": .string("service_role"), "ref": .string("real-project-ref"), "iss": .string("supabase")]))
+        let oddRole = StudioConnections.testValue(for: "SOME_TOKEN", real: StudioTestJWT.make(["role": .string("admin-of-everything")]))
+        check("BUG-073 only a known role claim is copied from the real key", StudioTestJWT.claims(of: serviceRole)?["role"] == .string("service_role")
+              && !"\(StudioTestJWT.claims(of: serviceRole) ?? [:])".contains("real-project-ref")
+              && StudioTestJWT.claims(of: serviceRole)?["iss"] == .string("markview-test")
+              && StudioTestJWT.claims(of: oddRole)?["role"] == .string("anon") && supportedAnonKey(serviceRole), serviceRole)
+        check("BUG-073 the test value is the same on every start", StudioConnections.testValue(for: "SUPABASE_ANON_KEY", real: "eyJa.eyJb.c")
+              == StudioConnections.testValue(for: "SUPABASE_ANON_KEY", real: "eyJa.eyJb.c"))
+        check("REQ-007 no real secret value is kept, only its hash",
+              found.secretHashes[StudioConnections.hash("real-secret-value-123")] == "API_SECRET"
+              && !"\(found.connections)\(found.testValues)\(found.notRedirected)".contains("real-secret-value-123")
+              && !"\(found.connections)".contains("user:pw"))
+        check("REQ-007 a known secret is redacted from a request", StudioConnections.redact("Bearer real-secret-value-123, x=1", hashes: found.secretHashes)
+              == "Bearer [redacted:API_SECRET], x=1")
+        check("REQ-007 code that loads env files over the environment is disclosed",
+              found.disclosures.contains { $0.hasPrefix("packages/bff/src/services.ts:2") }, found.disclosures.joined(separator: " "))
+        let overrides = StudioConnections.launchOverrides(found, ports: ["CORE_URL": 5001, "NEXT_PUBLIC_SUPABASE_URL": 5002], keptReal: ["STRIPE_SECRET_KEY"])
+        check("REQ-007 the server is started with simulated addresses and test secrets",
+              overrides["CORE_URL"] == "http://127.0.0.1:5001" && overrides["NEXT_PUBLIC_SUPABASE_URL"] == "http://127.0.0.1:5002/rest"
+              && overrides["API_SECRET"] == "markview-test-api-secret" && overrides["STRIPE_SECRET_KEY"] == nil && overrides["API_URL"] == nil,
+              overrides.keys.sorted().joined(separator: ","))
+        let saved = [StudioServerConnection(variable: "CORE_URL", origin: "http://core:3045", basePath: "", mode: .real, foundIn: "x")]
+        let again = StudioConnections.discover(root: base, appFolder: app, appOrigin: "http://localhost:3000", saved: saved)
+        check("REQ-007 a connection the person switched to Real stays real", again.connections.first { $0.variable == "CORE_URL" }?.mode == .real
+              && StudioConnections.launchOverrides(again, ports: ["CORE_URL": 5001], keptReal: [])["CORE_URL"] == nil)
+        let parsed = StudioConnections.parseEnvFile("export A=1\nB = \"two # three\"\nC=four # comment\n#D=5\nlower=6\nE='x'y\n")
+        check("REQ-007 dotenv lines are parsed", parsed.map { "\($0.name)=\($0.value)" } == ["A=1", "B=two # three", "C=four", "E=x"],
+              parsed.map { "\($0.name)=\($0.value)" }.joined(separator: " "))
+
+        // BUG-119: this application's instrumentation hook rejects a missing deployment selector, even after Next prints Ready.
+        write("apps/web/src/config.ts", "process.env.APP_ENVIRONMENT;\nprocess.env.USE_MOCKS;\nprocess.env.PATH;\n")
+        write("README.md", """
+            APP_ENVIRONMENT=prod
+            ```js
+            APP_ENVIRONMENT=prod
+            ```
+            ```sh
+            # Local setup; these assignments are data, never executed.
+            APP_ENVIRONMENT=dev
+            USE_MOCKS=true
+            API_URL=https://real.example.test
+            API_SECRET=do-not-copy-this-example
+            PATH=/untrusted
+            OTHER_ENV=dev
+            ```
+            """)
+        let local = StudioConnections.discover(root: base, appFolder: app, appOrigin: "http://localhost:3000")
+        let localOverrides = StudioConnections.launchOverrides(local, ports: [:], keptReal: [])
+        check("BUG-119 referenced local selectors and mock switches are read from workspace README setup blocks",
+              local.developmentValues == ["APP_ENVIRONMENT": "dev", "USE_MOCKS": "true"]
+              && localOverrides["APP_ENVIRONMENT"] == "dev" && localOverrides["USE_MOCKS"] == "true"
+              && local.disclosures.contains { $0.contains("APP_ENVIRONMENT=dev from README.md") })
+        check("BUG-119 README examples never copy secrets, addresses, executable paths or unreferenced settings",
+              localOverrides["PATH"] == nil && localOverrides["API_URL"] == nil && localOverrides["OTHER_ENV"] == nil
+              && localOverrides["API_SECRET"] != "do-not-copy-this-example"
+              && !local.connections.contains { $0.origin.contains("real.example.test") })
+        write("apps/web/.env.example", "APP_ENVIRONMENT=test\nUSE_MOCKS=true\n")
+        let template = StudioConnections.discover(root: base, appFolder: app, appOrigin: nil)
+        check("BUG-119 app-local env templates take precedence over README defaults",
+              template.developmentValues["APP_ENVIRONMENT"] == "test")
+        write("apps/web/.env.development.local", "APP_ENVIRONMENT=prod\nUSE_MOCKS=false\n")
+        let production = StudioConnections.discover(root: base, appFolder: app, appOrigin: nil)
+        check("BUG-119 an existing non-development setting is never replaced with an example or copied to launch overrides",
+              production.developmentValues.isEmpty)
+    }
+
     func testAssistantBoundaryFailsClosed() async {
         AIAssistantRunner.setTestRunner(nil)
         do {

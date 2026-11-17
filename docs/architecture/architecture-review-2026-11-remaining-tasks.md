@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4: UI Studio selection, source-map and server-connection checks run against shipping types in the app host. Both focused tests passed with all 69 named check sites retained; the corresponding standalone checks were removed and the remaining `ui-studio-tests` suite passed. Unique temporary project and connection fixtures are removed. Architecture lint and SwiftLint passed. The first hosted build failed because extraction accidentally included subsequent top-level helpers; correcting the extraction boundary fixed the build. Full automated tiers and final CI remain pending.
+
 D4: browser-profile, evidence-package and conversation-model checks now run against shipping types in the app host. All 3 focused tests passed, retaining all 63 named check sites; the corresponding standalone functions and calls were removed, and the remaining `ui-studio-tests` suite passed. Temporary browser and evidence fixtures use unique directories and are removed. Architecture lint, SwiftLint and repository hygiene passed. Full automated tiers and final CI remain pending.
 
 CI investigation: static UI Studio stage markers now go directly to stderr. A marker was observed in the xcodebuild log while the networking group was still running; that group passed in 44.8 seconds with nine markers (`/tmp/markview-studio-stage-progress.log`). This improves timeout diagnostics but does not establish the original CI timeout cause; final CI remains pending.
