@@ -35,7 +35,6 @@ swiftc -o "$out/phase5-tests" \
     "$ROOT/MarkView/Models/Shared/LinkedFolders.swift" "$ROOT/MarkView/Models/Shared/LinkedFolderStore.swift" \
     "$ROOT/MarkView/Models/AI/AICallLog.swift" \
     "$ROOT/MarkView/Models/AI/CLICompletion.swift" \
-    "$ROOT/MarkView/Models/AI/AgentProcesses.swift" \
     "$out/Stub.swift" \
     "$out/main.swift"
 

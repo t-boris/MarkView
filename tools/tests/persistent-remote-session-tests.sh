@@ -8,7 +8,7 @@ swiftc -parse-as-library -o "$out/persistent-remote-session-tests" Packages/Mark
     MarkView/Models/AgentTools/BrowserAgentTools.swift MarkView/Models/Remote/RemoteProtocol.swift \
     MarkView/Models/Terminal/RemoteConnectionState.swift MarkView/Models/Remote/RemoteChannel.swift \
     MarkView/Models/Remote/RemoteFraming.swift MarkView/Models/Remote/RemoteWorkspace.swift \
-    MarkView/Models/Remote/RemoteCommand.swift MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/AI/AgentProcesses.swift MarkView/Models/AI/Providers/*.swift \
+    MarkView/Models/Remote/RemoteCommand.swift MarkView/Models/Terminal/PTYWriter.swift MarkView/Models/AI/Providers/*.swift \
     MarkView/Models/Remote/RemoteWorkspaceTools.swift MarkView/Models/Remote/RemoteToolBridge.swift \
     MarkView/Models/Remote/RemoteToolRequests.swift MarkView/Models/Remote/RemoteProviderConfiguration.swift \
     MarkView/Models/Remote/RemoteHostController.swift MarkView/Models/Remote/RemoteTerminalConnection.swift \

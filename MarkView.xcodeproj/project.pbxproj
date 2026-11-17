@@ -204,7 +204,6 @@
 		5E108A9945E568EC0607EF13 /* RemoteCodexContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C770376BAF8D7725F4E23661 /* RemoteCodexContext.swift */; };
 		60125D29D78265A98CDC89FB /* ResearchMapExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2788EB7A36DDB6CABADB8642 /* ResearchMapExport.swift */; };
 		602AB6890DB7E2A7F5F041FD /* UIStudioPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DAE64D3DEB0D0DFB0ABB6A2 /* UIStudioPreparation.swift */; };
-		60CBCE2E62AC6BD1561DC4B6 /* AgentProcesses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DA99E32A3358E5851D585A /* AgentProcesses.swift */; };
 		60DA994337AC188D733175F7 /* WindowSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE614C3743EA3DA97AA56469 /* WindowSession.swift */; };
 		60E3B9524CBA5ED7607671DD /* TerminalLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A440251497E5756568B77B87 /* TerminalLink.swift */; };
 		61E0AFE7FC7643D3AB2DA6F4 /* IssueLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 551E5B9F47FAC2B7CC6D2AEE /* IssueLifecycle.swift */; };
@@ -661,7 +660,6 @@
 		13993FF35E01B9904DA7B594 /* ResearchJobs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchJobs.swift; sourceTree = "<group>"; };
 		14124D16ECA72DA14417C7DB /* RemoteHostController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHostController.swift; sourceTree = "<group>"; };
 		145EBE59BDFE2F25DB8F1068 /* markview-page-markdown.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-page-markdown.js"; sourceTree = "<group>"; };
-		14DA99E32A3358E5851D585A /* AgentProcesses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcesses.swift; sourceTree = "<group>"; };
 		15F3C39CF6E64AB9AA1EDA1B /* UIStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioView.swift; sourceTree = "<group>"; };
 		173CDBCF76BA471F54B8A3A7 /* RemoteTerminalConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTerminalConnection.swift; sourceTree = "<group>"; };
 		175983BAF7675BD2CB3EB938 /* DatabaseExplorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseExplorer.swift; sourceTree = "<group>"; };
@@ -1408,7 +1406,6 @@
 			isa = PBXGroup;
 			children = (
 				7EC1F9BA32F5B57727E0D268 /* ACPAssistant.swift */,
-				14DA99E32A3358E5851D585A /* AgentProcesses.swift */,
 				2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */,
 				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
 				F4700050C38EAE4C47A81DF3 /* AICallLog.swift */,
@@ -2603,7 +2600,6 @@
 			isa = PBXGroup;
 			children = (
 				7EC1F9BA32F5B57727E0D268 /* ACPAssistant.swift */,
-				14DA99E32A3358E5851D585A /* AgentProcesses.swift */,
 				2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */,
 				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
 				F4700050C38EAE4C47A81DF3 /* AICallLog.swift */,
@@ -2881,7 +2877,6 @@
 				6ADDB1842B093A3BB70A4DB4 /* AgentActivityMonitor.swift in Sources */,
 				F5A6B4994538AD8DB1534251 /* AgentBrowserRegistration.swift in Sources */,
 				B62A636C3D15F3FCDADB4309 /* AgentModelMenu.swift in Sources */,
-				60CBCE2E62AC6BD1561DC4B6 /* AgentProcesses.swift in Sources */,
 				05330764F69306E4CE65E7E6 /* AgentUsage.swift in Sources */,
 				7A3B0C6CF75D5CA3691C22CE /* AgentUsageLogs.swift in Sources */,
 				555AB3A34426446C7A47E20D /* AgentUsageTracker.swift in Sources */,
@@ -3477,7 +3472,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.99;
+				CURRENT_PROJECT_VERSION = 6.30.100;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -3492,7 +3487,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.99;
+				MARKETING_VERSION = 6.30.100;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -3559,7 +3554,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.99;
+				CURRENT_PROJECT_VERSION = 6.30.100;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3580,7 +3575,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.99;
+				MARKETING_VERSION = 6.30.100;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3680,7 +3675,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6.30.99;
+				CURRENT_PROJECT_VERSION = 6.30.100;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -3701,7 +3696,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 6.30.99;
+				MARKETING_VERSION = 6.30.100;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

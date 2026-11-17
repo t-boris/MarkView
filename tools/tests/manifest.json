@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 209,
+  "suiteCount": 208,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -8,7 +8,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/AI/ACPAssistant.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "tools/tests/ACPContinuationTests.swift",
         "tools/tests/CLICompletionTestSupport.swift",
@@ -68,18 +68,6 @@
       ]
     },
     {
-      "name": "agent-processes-tests",
-      "script": "tools/tests/agent-processes-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/AgentProcesses.swift",
-        "tools/tests/AgentProcessesTests.swift",
-        "tools/tests/agent-processes-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
       "name": "agent-usage-tests",
       "script": "tools/tests/agent-usage-tests.sh",
       "tier": "pure",
@@ -133,7 +121,7 @@
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/AI/AIOperation.swift",
         "MarkView/Models/Terminal/AgentActivityMonitor.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/AI/Providers/AgentActivity.swift",
@@ -253,7 +241,7 @@
         "MarkView/Bridge/BookPDFRenderer.swift",
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/Book/BookPDFAssistant.swift",
         "MarkView/Models/Book/BookPDFSource.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
@@ -461,7 +449,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/AI/ACPAssistant.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "tools/tests/CLICompletionTestSupport.swift",
         "tools/tests/CLICompletionTimeoutTests.swift",
@@ -533,7 +521,7 @@
       "script": "tools/tests/cockpit-child-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/Cockpit/CockpitChild.swift",
         "tools/tests/CockpitChildChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
@@ -656,7 +644,7 @@
       "script": "tools/tests/cockpit-runtime-integration-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/Cockpit/CockpitChild.swift",
         "MarkView/Models/Cockpit/CockpitExecution.swift",
         "MarkView/Models/Cockpit/CockpitHostBridge.swift",
@@ -1098,7 +1086,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/AI/ACPAssistant.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
         "MarkView/Models/AI/Providers/AgentActivity.swift",
@@ -1559,7 +1547,7 @@
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/AI/DiagramAI.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
@@ -1836,7 +1824,7 @@
       "script": "tools/tests/persistent-remote-session-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteChannel.swift",
@@ -2080,7 +2068,7 @@
       "sources": [
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/Shared/LinkedFolders.swift",
         "MarkView/Models/Shared/LinkedFolderStore.swift",
@@ -3053,7 +3041,7 @@
       "tier": "gui",
       "sources": [
         "MarkView/Models/Browser/BrowserAddress.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/AgentTools/AgentToolServer.swift",
         "MarkView/Models/Browser/BrowserAgentExecutor.swift",
@@ -3085,7 +3073,7 @@
       "script": "tools/tests/remote-codex-context-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteCodexContext.swift",
@@ -3138,7 +3126,7 @@
       "script": "tools/tests/remote-workspace-live.sh",
       "tier": "live",
       "sources": [
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteChannel.swift",
@@ -3184,7 +3172,7 @@
       "script": "tools/tests/remote-workspace-tests.sh",
       "tier": "pure",
       "sources": [
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",
         "MarkView/Models/Terminal/PTYWriter.swift",
         "MarkView/Models/Remote/RemoteChannel.swift",
@@ -3248,7 +3236,7 @@
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/AI/DiagramAI.swift",
         "MarkView/Models/AI/OutputLanguage.swift",
@@ -3612,7 +3600,7 @@
         "MarkView/Models/AI/ACPAssistant.swift",
         "MarkView/Models/AI/AIAssistants.swift",
         "MarkView/Models/AI/AICallLog.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/Browser/BrowserElementPick.swift",
         "MarkView/Models/Lifecycle/BugReportWriter.swift",
         "MarkView/Models/AI/CLICompletion.swift",
@@ -4455,7 +4443,7 @@
       "tier": "pure",
       "sources": [
         "MarkView/Models/AI/ACPAssistant.swift",
-        "MarkView/Models/AI/AgentProcesses.swift",
+        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/AI/CLICompletion.swift",
         "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
         "MarkView/Models/Lifecycle/HandoffPrompt.swift",

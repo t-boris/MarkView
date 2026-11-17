@@ -291,6 +291,8 @@ The discussion WebKit navigation policy callback now matches the SDK so WebKit c
 
 **D4. AR-44 steps 3-4 and the stubs.**
 
+The subprocess registry now lives in `MarkViewCore`, and its standalone script was replaced by a package test. The test passed with normal, finished and SIGTERM-ignoring child processes and concurrent registration; the manifest now has 208 suites. The test-runner checks and architecture lint passed. Version bumped to 6.30.100; the Debug build and warning ratchet passed with 0 warnings, and SwiftLint stayed at its 50-warning baseline. All 14 affected automatic pure suites passed; the changed package file also passed unused-import analysis with 0 warnings. All 108 package tests passed; a clean complete-concurrency build succeeded with no warnings in `AgentProcesses.swift` and 8 unique Swift warning lines elsewhere. CI remains to be verified.
+
 The existing `AnyCodable` implementation now lives in `MarkViewCore`, so the app and eight standalone suites share it instead of compiling a duplicate enum. A nested JSON round-trip passed along with all 107 package tests, eight affected pure and three GUI suites, all 50 hosted tests, Debug build, SwiftLint and architecture lint. The silent-decode allowance moved with its unchanged six union-decoder probes. Version bumped to 6.30.96; final CI and release verification remain outstanding.
 
 The project-change review layout test now exercises the shipping scanner, review model, file tree and view in the app host. The former script's three class/struct application stand-ins and its window-commands protocol stand-in were removed; the focused 400/800/1600 pt layout test passed. The manifest has 225 suites; all 27 hosted tests, manifest verification, Debug build and lints passed.
