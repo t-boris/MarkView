@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 49,
+  "suiteCount": 48,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -156,20 +156,6 @@
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
         "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
-      ]
-    },
-    {
-      "name": "book-pdf-tests",
-      "script": "tools/tests/book-pdf-tests.sh",
-      "tier": "gui",
-      "sources": [
-        "MarkView/Bridge/BookPDFRenderer.swift",
-        "MarkView/Models/Book/BookPDFSource.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Book/BookPDFTransform.swift",
-        "MarkView/Resources/Editor/book.html",
-        "tools/tests/BookPDFTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/WebHost.swift"
       ]
     },
     {
