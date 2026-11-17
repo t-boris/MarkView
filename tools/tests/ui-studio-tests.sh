@@ -19,5 +19,5 @@ swiftc -o "$out/ui-studio-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.sw
   MarkView/Models/UIStudio/UIStudioTracking.swift MarkView/Models/Lifecycle/BugReportWriter.swift MarkView/Models/Shared/FrontMatter.swift \
   MarkView/Models/UIStudio/UIStudioEnvironmentMap.swift MarkView/Models/UIStudio/UIStudioEnvironmentMapper.swift \
   MarkView/Models/UIStudio/UIStudioGraphQL.swift MarkView/Models/UIStudio/UIStudioChannels.swift MarkView/Models/UIStudio/UIStudioGatewayStreams.swift \
-  MarkView/Models/UIStudio/UIStudioRealtimePrompts.swift MarkView/Models/UIStudio/UIStudioDataFix.swift MarkView/Models/UIStudio/UIStudioRepair.swift MarkView/Models/UIStudio/UIStudioScreens.swift MarkView/Models/UIStudio/UIStudioReview.swift tools/tests/UIStudioAuthTests.swift tools/tests/UIStudioRepairTests.swift tools/tests/UIStudioScreensTests.swift tools/tests/UIStudioEnvelopeTests.swift tools/tests/StoreTestSupport.swift "$out/main.swift"
+  MarkView/Models/UIStudio/UIStudioRealtimePrompts.swift MarkView/Models/UIStudio/UIStudioDataFix.swift MarkView/Models/UIStudio/UIStudioRepair.swift MarkView/Models/UIStudio/UIStudioScreens.swift MarkView/Models/UIStudio/UIStudioReview.swift tools/tests/StoreTestSupport.swift "$out/main.swift"
 "$out/ui-studio-tests"

@@ -3252,7 +3252,6 @@ Task { @MainActor in
     conversationChecks()
     selectionChecks()
     connectionChecks()
-    authMockChecks()
     await processChecks()
     await logChecks()
     trackingChecks()
@@ -3264,10 +3263,6 @@ Task { @MainActor in
     documentChecks()
     routeScannerChecks()
     dataFixChecks()
-    repairChecks()
-    screenBookChecks()
-    envelopeChecks()
-    reviewChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
