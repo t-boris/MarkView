@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 96,
+  "suiteCount": 95,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1943,7 +1943,8 @@
         "MarkViewHostedTests/QARetentionHostTests.swift",
         "MarkViewHostedTests/WindowSessionHostTests.swift",
         "MarkView/Models/Workspace/WindowSessionSnapshotter.swift",
-        "MarkViewHostedTests/WindowSessionSnapshotHostTests.swift"
+        "MarkViewHostedTests/WindowSessionSnapshotHostTests.swift",
+        "MarkViewHostedTests/TabsControllerHostTests.swift"
       ]
     },
     {
@@ -2412,32 +2413,6 @@
         "MarkView/Models/Deployments/SystemProbe.swift",
         "tools/tests/SystemProbeTests.swift",
         "tools/tests/system-probe-tests.sh"
-      ]
-    },
-    {
-      "name": "tabs-controller-tests",
-      "script": "tools/tests/tabs-controller-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "MarkView/Models/Architecture/XRayScope.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
-        "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "tools/tests/TabsControllerStubs.swift",
-        "tools/tests/TabsControllerTests.swift",
-        "tools/tests/tabs-controller-tests.sh",
-        "MarkView/Models/Shared/UserPrompts.swift"
       ]
     },
     {

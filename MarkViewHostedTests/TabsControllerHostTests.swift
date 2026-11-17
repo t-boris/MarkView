@@ -1,18 +1,15 @@
 import Combine
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
 /// Behaviour of the shipping `TabsController` on real temporary files: opening, editing, saving, closing with the questions answered by a
 /// script, Close Documents, the reload of files that changed on disk, the follow of moved files, and what redraws what (`AR-14` step 5,
 /// `AR-15`). Nothing here shows a dialog or a window.
-@main
-enum TabsControllerChecks {
-    nonisolated(unsafe) static var failures = 0
-
-    static func check(_ condition: Bool, _ message: String) {
-        if !condition {
-            failures += 1
-            FileHandle.standardError.write(Data("FAIL: \(message)\n".utf8))
-        }
+private enum TabsControllerChecks {
+    static func check(_ condition: Bool, _ message: String, line: UInt = #line) {
+        XCTAssertTrue(condition, message, line: line)
     }
 
     /// A folder of its own for one check, removed afterwards.
@@ -62,7 +59,7 @@ enum TabsControllerChecks {
         }
     }
 
-    static func main() async {
+    static func run() async {
         await openEditSaveReload()
         await closeAsksAboutUnsavedChanges()
         await closeDocuments()
@@ -77,11 +74,7 @@ enum TabsControllerChecks {
         await tabKindsOpenWithoutTextLoad()
         await xrayTabsAndOpenText()
         await githubTabsAndSavingBeforeAJobReadsTheDisk()
-        if failures > 0 {
-            FileHandle.standardError.write(Data("\(failures) check(s) failed\n".utf8))
-            exit(1)
-        }
-        print("TabsController: open, edit, save, reload, close prompts, Close Documents, disk changes, moves, scroll table, redraws, X-Ray and GitHub tabs, save before an AI job passed")
+
     }
 
     @MainActor
@@ -389,7 +382,10 @@ enum TabsControllerChecks {
                 default: break
                 }
             }
-            let session = InsightSession()
+            guard let cache = try? InsightCache(workspaceURL: dir, sessionId: UUID(), pagePolicy: "") else {
+                check(false, "insight cache fixture created"); return
+            }
+            let session = InsightSession(folderURL: dir, mdFiles: [], graphRAG: nil, cache: cache)
             var insight = OpenTab(url: dir.appendingPathComponent(".insight-" + session.id.uuidString), content: "", originalContent: "")
             insight.kind = .insight(session)
             tabs.appendTab(insight)
@@ -532,4 +528,8 @@ enum TabsControllerChecks {
             tabs.shutdown()
         }
     }
+}
+
+extension EditorHostTests {
+    func testTabsControllerLifecycle() async { await TabsControllerChecks.run() }
 }
