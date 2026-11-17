@@ -51,7 +51,7 @@ struct QAPlanProblem: Equatable {
 }
 
 /// A step that needs a yes of its own: it changes data on production, or a person has to do it first.
-struct QAConfirmation: Equatable, Identifiable {
+struct QAConfirmation: Equatable, Identifiable, Sendable {
     var id: String
     var title: String
     var reason: String

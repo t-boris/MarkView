@@ -80,6 +80,7 @@ struct StandInFailure: LocalizedError {
 
 enum CLICompletion {
     struct Request {
+        func validateSchema() throws {}
         let project: URL?
         var prompt: String
         var systemPrompt: String? = nil

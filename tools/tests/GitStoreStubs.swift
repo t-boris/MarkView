@@ -11,6 +11,7 @@ enum ActionOutputLanguage {
 
 enum CLICompletion {
     struct Request {
+        func validateSchema() throws {}
         var project: URL?
         var prompt: String
         var systemPrompt: String

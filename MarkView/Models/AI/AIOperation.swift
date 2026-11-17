@@ -1,4 +1,7 @@
 import Foundation
+#if MARKVIEW_HOSTED_TEST_HOST
+import os
+#endif
 
 // MARK: - Typed AI Operation & JSON Salvage (AR-26)
 
@@ -173,14 +176,9 @@ enum AIAssistantRunner {
     #if MARKVIEW_HOSTED_TEST_HOST
     typealias TestRunner = @Sendable (CLICompletion.Request, (@Sendable (String) -> Void)?,
                                       (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result
-    // unchecked Sendable: the lock protects the hosted test runner's installation and lookup.
-    private final class TestBoundary: @unchecked Sendable {
-        let lock = NSLock()
-        var runner: TestRunner?
-    }
-    private static let testBoundary = TestBoundary()
+    private static let testBoundary = OSAllocatedUnfairLock(initialState: Optional<TestRunner>.none)
     static func setTestRunner(_ runner: TestRunner?) {
-        testBoundary.lock.withLock { testBoundary.runner = runner }
+        testBoundary.withLock { $0 = runner }
     }
     struct MissingTestRunner: Error {}
     #endif
@@ -188,7 +186,7 @@ enum AIAssistantRunner {
     static func run(_ request: CLICompletion.Request, _ onDelta: (@Sendable (String) -> Void)?,
                     _ onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
         #if MARKVIEW_HOSTED_TEST_HOST
-        guard let runner = testBoundary.lock.withLock({ testBoundary.runner }) else { throw MissingTestRunner() }
+        guard let runner = testBoundary.withLock({ $0 }) else { throw MissingTestRunner() }
         return try await runner(request, onDelta, onActivity)
         #else
         try await CLICompletion.run(request, onDelta: onDelta, onActivity: onActivity)
@@ -228,7 +226,7 @@ struct AIRepair<Input> {
 /// A feature declares what is its own: the request (prompt, system prompt, schema, timeout, effort, label), what its answer
 /// becomes, what makes it unacceptable, and how the next request differs. Errors of the run itself (CLI missing, failed, timed out)
 /// and cancellation are never repaired, and neither is an `AIUnrepairable` rejection: they end the operation at once.
-struct AIOperation<Input, Output> {
+struct AIOperation<Input: Sendable, Output> {
     typealias Delta = @Sendable (String) -> Void
     typealias Activity = @Sendable (CLICompletion.Activity) -> Void
     typealias Runner = (CLICompletion.Request, Delta?, Activity?) async throws -> CLICompletion.Result
@@ -280,6 +278,7 @@ struct AIOperation<Input, Output> {
         var attempt = 0
         while true {
             try Task.checkCancellation()
+            try request.validateSchema()
             let result = try await runner(request, onDelta, onActivity)
             await onResult?(result)
             let judged = AIAttempt(number: attempt + 1, isLast: attempt >= maxRepairAttempts)

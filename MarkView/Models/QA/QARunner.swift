@@ -41,7 +41,7 @@ struct QADriverRequest: Sendable {
 }
 
 /// API steps execute the saved request once and check its response without an assistant deciding the verdict.
-protocol QAAPIExecuting: AnyObject {
+protocol QAAPIExecuting: AnyObject, Sendable {
     func execute(_ request: QAAPIRequest) async throws -> QAAPIResult
 }
 
@@ -50,8 +50,8 @@ protocol QADriverFactory: AnyObject, Sendable {
 }
 
 /// The assistant: one structured answer to one prompt. What it costs is the caller's to account for.
-protocol QAAssistant: AnyObject {
-    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any?
+protocol QAAssistant: AnyObject, Sendable {
+    func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any?
 }
 
 /// One look at an actor's page. `isNew` when it is a screen that actor had not shown before (REQ-008): only such a screen is measured and
@@ -84,7 +84,7 @@ enum QARunEvent {
     case runFinished(QARunRecord)
 }
 
-protocol QARunObserver: AnyObject {
+protocol QARunObserver: AnyObject, Sendable {
     func handle(_ event: QARunEvent)
 }
 
@@ -120,7 +120,7 @@ final class QARunControl: @unchecked Sendable {
         lock.unlock()
         continuation?.resume(returning: .stop)
     }
-    func checkpoint(onPause: () -> Void) async -> Command {
+    func checkpoint(isolation: isolated (any Actor)? = #isolation, onPause: () -> Void) async -> Command {
         await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 lock.lock()
@@ -175,7 +175,7 @@ actor QARunSessions {
     }
 }
 
-final class QARunner {
+actor QARunner {
     struct Config {
         /// How many times the assistant may choose the same action on a page that has not changed before the step is given up as going in circles.
         /// A step has no other limit: a long form or a slow page needs as many actions as it needs (the person can always stop the run).
@@ -211,7 +211,7 @@ final class QARunner {
     private let factory: QADriverFactory
     private let assistant: QAAssistant
     private let runID: String
-    private let confirm: (QAConfirmation) async -> Bool
+    private let confirm: @Sendable (QAConfirmation) async -> Bool
     private weak var observer: QARunObserver?
     private let now: () -> Date
     private let config: Config
@@ -229,7 +229,7 @@ final class QARunner {
     private var branchContext: [String] = []
 
     init(scenario: QAScenario, plan: QAExecutionPlan, gate: QAGate, factory: QADriverFactory, assistant: QAAssistant, runID: String,
-         confirm: @escaping (QAConfirmation) async -> Bool, observer: QARunObserver? = nil, now: @escaping () -> Date = Date.init,
+         confirm: @escaping @Sendable (QAConfirmation) async -> Bool, observer: QARunObserver? = nil, now: @escaping () -> Date = Date.init,
          config: Config = Config(), control: QARunControl = QARunControl(), sessions: QARunSessions = QARunSessions()) {
         self.control = control
         self.sessions = sessions
@@ -546,7 +546,7 @@ final class QARunner {
             do {
                 let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(scenario.appKind),
                                                         prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: branchContext, branchPlan: QAStepPrompt.branchPlan(scenario: scenario, branch: branch), preparationEvidence: preparationEvidence),
-                                                        schema: QAStepPrompt.schema)
+                                                        schema: QAStepPrompt.schema, isolation: self)
                 decision = try QAStepPrompt.parse(answer, kind: scenario.appKind, allowsHTTP: task.allowsHTTP)
             } catch is CancellationError {
                 return .interrupted

@@ -64,7 +64,7 @@ implementation.
   handlers in `WebViewBridge.swift`/`EditorView.swift` and the matching editor
   JavaScript (`mv-kit.js` / `markview-bridge.js`).
 - Keep UI state mutations on `@MainActor`; move file, database, network, and
-  child-process work off the main thread (`SWIFT_STRICT_CONCURRENCY = targeted` is enabled).
+  child-process work off the main thread (`SWIFT_STRICT_CONCURRENCY = complete` is enabled on the app target).
 - Start every child process through `MarkViewCore.Subprocess`: `run` (async) or `runBlocking` (a
   thread that owns itself, never the main thread) for one-shot commands, `start` for streaming
   children. The child leads a process group of its own, a timeout or a cancelled task ends the

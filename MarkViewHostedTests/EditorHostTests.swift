@@ -18,6 +18,14 @@ private actor DraftCheckpointRecorder {
     func terminalWillClose() { calls += 1 }
 }
 
+@MainActor private final class WindowDelegateProbe: NSObject, NSWindowDelegate {
+    var resizeCount = 0
+    var closeCount = 0
+    var allowsClose = false
+    func windowDidResize(_ notification: Notification) { resizeCount += 1 }
+    func windowShouldClose(_ sender: NSWindow) -> Bool { closeCount += 1; return allowsClose }
+}
+
 @MainActor private final class CockpitTestAssistants: AssistantProviding {
     var currentAssistant: CLICompletion.Assistant? { nil }
     var sessions: [TerminalSession] { [] }
@@ -77,6 +85,36 @@ private actor DelayedSessionTestFactory: QADriverFactory {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    @MainActor
+    func testWindowDelegateForwardsOnlyOnMainThread() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-window-delegate-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let workspace = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: folder.appendingPathComponent("recent.json"))
+        let previous = WindowDelegateProbe()
+        let delegate = ProjectOperationWindowCloseDelegate(previous: previous, workspace: workspace)
+        let selector = #selector(NSWindowDelegate.windowDidResize(_:))
+        XCTAssertTrue(delegate.responds(to: selector))
+        XCTAssertTrue((delegate.forwardingTarget(for: selector) as AnyObject?) === previous)
+        _ = delegate.perform(selector, with: NSNotification(name: NSWindow.didResizeNotification, object: nil))
+        XCTAssertEqual(previous.resizeCount, 1)
+        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        XCTAssertFalse(delegate.windowShouldClose(window))
+        previous.allowsClose = true
+        XCTAssertTrue(delegate.windowShouldClose(window))
+        XCTAssertEqual(previous.closeCount, 2)
+        let background = await Task.detached {
+            let selector = NSSelectorFromString("windowDidResize:")
+            return (delegate.responds(to: selector), delegate.forwardingTarget(for: selector) != nil)
+        }.value
+        XCTAssertFalse(background.0)
+        XCTAssertFalse(background.1)
+        XCTAssertEqual(previous.resizeCount, 1)
+    }
+
     @MainActor
     func testTerminalEventsFromRealProcess() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-terminal-events-" + UUID().uuidString)
@@ -446,6 +484,40 @@ final class EditorHostTests: XCTestCase {
         XCTAssertEqual(raw.dictionary["count"] as? Int, 7)
         XCTAssertEqual((raw.dictionary["large"] as? NSNumber)?.uint64Value, UInt64.max)
         XCTAssertThrowsError(try AIRawJSONObject(["invalid": Date()]))
+    }
+
+    @MainActor
+    func testAssistantRequestOwnsValidatedSchema() async throws {
+        let nested = NSMutableDictionary(dictionary: ["label": "original", "values": [1, 2]])
+        var request = CLICompletion.Request(project: nil, prompt: "test", jsonSchema: ["nested": nested, "large": UInt64.max])
+        nested["label"] = "changed"
+        XCTAssertEqual((request.jsonSchema?["nested"] as? [String: Any])?["label"] as? String, "original")
+        XCTAssertEqual((request.jsonSchema?["large"] as? NSNumber)?.uint64Value, UInt64.max)
+        let snapshot = request
+        let detachedLabel = await Task.detached { (snapshot.jsonSchema?["nested"] as? [String: Any])?["label"] as? String }.value
+        XCTAssertEqual(detachedLabel, "original")
+
+        request.jsonSchema = ["invalid": Date()]
+        XCTAssertThrowsError(try request.validateSchema())
+        var called = false
+        let operation = AIOperation<CLICompletion.Request, CLICompletion.Result>.run(name: "invalid-schema", runner: { _, _, _ in
+            called = true
+            return try CLICompletion.Result(text: "", structured: nil, inputTokens: 0, outputTokens: 0, costUSD: nil)
+        })
+        do {
+            _ = try await operation.execute(request)
+            XCTFail("An invalid schema must fail before running an assistant")
+        } catch {}
+        XCTAssertFalse(called)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-invalid-schema-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            _ = try await ArchitectureStore().xrayCall(request, root: root, db: nil, call: 0)
+            XCTFail("X-Ray must reject an invalid schema")
+        } catch {}
+        request.jsonSchema = nil
+        XCTAssertNoThrow(try request.validateSchema())
     }
 
     func testProjectBootstrapPersistsEachStage() async throws {

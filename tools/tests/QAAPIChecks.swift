@@ -13,9 +13,10 @@ struct QAAPIChecks {
         do { try await operation(); check(name, false) }
         catch { check(name, true) }
     }
-    final class NoAssistant: QAAssistant {
+    // unchecked Sendable: the run owns the fixture until it completes, before the test reads the counter.
+    final class NoAssistant: QAAssistant, @unchecked Sendable {
         var calls = 0
-        func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+        func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any? {
             calls += 1
             throw QAAPIError.invalid("Saved API steps must never ask an assistant for their verdict.")
         }
@@ -25,10 +26,7 @@ struct QAAPIChecks {
             try QAAPIActor(request: request, credentials: .init(username: "alice", password: "fixture-secret"))
         }
     }
-    final class Observer: QARunObserver {
-        var events = 0
-        func handle(_ event: QARunEvent) { events += 1 }
-    }
+
     static func scenario(_ url: String, nodes: [QANode], edges: [QAEdge]? = nil) -> QAScenario {
         var s = QAScenario(id: "api", title: "API lifecycle", goal: "Verify the API", appKind: .api,
                            apps: [.init(id: "service", name: "API")],
@@ -47,12 +45,12 @@ struct QAAPIChecks {
         var gate = QAGate(plan: plan)
         check("scenario valid: \(s.title)", plan.canBeApproved)
         gate.approve(acknowledgedProduction: true)
-        let assistant = NoAssistant(), observer = Observer()
+        let assistant = NoAssistant(), observer = QAEventRecorder()
         let runner = QARunner(scenario: s, plan: plan, gate: gate, factory: FixtureFactory(), assistant: assistant, runID: QAStore.newRunID(at: Date()),
                               confirm: { _ in confirm }, observer: observer)
         let result = await runner.run()
         check("saved requests execute without assistant calls", assistant.calls == 0)
-        check("runner emits live events", observer.events > 0)
+        check("runner emits live events", !observer.events.isEmpty)
         return result
     }
     static func main() async throws {

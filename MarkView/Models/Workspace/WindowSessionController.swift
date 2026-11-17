@@ -251,25 +251,45 @@ final class WindowSessionController {
     }
 }
 
+/// The window delegate is only touched on AppKit's main thread, even when NSObject is queried from elsewhere.
+// unchecked Sendable: the weak delegate is assigned at main-actor initialization and read only after the main-thread guard.
+private final class MainThreadWindowDelegate: @unchecked Sendable {
+    private weak var delegate: NSWindowDelegate?
+
+    @MainActor init(_ delegate: NSWindowDelegate?) { self.delegate = delegate }
+
+    func responds(to selector: Selector?) -> Bool {
+        guard Thread.isMainThread else { return false }
+        return delegate?.responds(to: selector) == true
+    }
+
+    func target(for selector: Selector?) -> Any? {
+        guard Thread.isMainThread, delegate?.responds(to: selector) == true else { return nil }
+        return delegate
+    }
+}
+
 /// Intercepts the close button while a project's subprocesses are alive, while
-/// forwarding all other window delegate messages to SwiftUI's original delegate.
+/// forwarding other window delegate messages to SwiftUI's original delegate on the main thread.
 @MainActor
-private final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDelegate {
-    var previous: NSWindowDelegate?
+final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDelegate {
+    private let previous: NSWindowDelegate?
+    private nonisolated let forwarding: MainThreadWindowDelegate
     weak var workspace: (any WindowSessionWindow)?
     private var closeAfterStop = false
 
     init(previous: NSWindowDelegate?, workspace: any WindowSessionWindow) {
         self.previous = previous
+        self.forwarding = MainThreadWindowDelegate(previous)
         self.workspace = workspace
     }
 
-    override func responds(to selector: Selector!) -> Bool {
-        super.responds(to: selector) || previous?.responds(to: selector) == true
+    nonisolated override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || forwarding.responds(to: selector)
     }
 
-    override func forwardingTarget(for selector: Selector!) -> Any? {
-        previous?.responds(to: selector) == true ? previous : super.forwardingTarget(for: selector)
+    nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
+        forwarding.target(for: selector) ?? super.forwardingTarget(for: selector)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

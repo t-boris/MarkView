@@ -31,14 +31,35 @@ enum CLICompletion {
         }
     }
 
-    struct Request {
+    struct Request: Sendable {
+        private enum Schema: Sendable {
+            case absent
+            case json(Data)
+            case invalid
+        }
+        private struct InvalidSchema: LocalizedError {
+            var errorDescription: String? { "The assistant request's JSON schema is not valid JSON." }
+        }
         /// The project the request works for: its assistant and models answer it (BUG-021).
         /// nil only outside any project; then the defaults apply.
         let project: URL?
         var prompt: String
         var systemPrompt: String? = nil
         /// JSON Schema the answer must match; the parsed object is `Result.structured`.
-        var jsonSchema: [String: Any]? = nil
+        private var schema: Schema = .absent
+        var jsonSchema: [String: Any]? {
+            get {
+                guard case .json(let data) = schema else { return nil }
+                do { return try JSONSerialization.jsonObject(with: data) as? [String: Any] }
+                catch { return nil }
+            }
+            set {
+                guard let newValue else { schema = .absent; return }
+                guard JSONSerialization.isValidJSONObject(newValue) else { schema = .invalid; return }
+                do { schema = .json(try JSONSerialization.data(withJSONObject: newValue)) }
+                catch { schema = .invalid }
+            }
+        }
         /// Folder the CLI may read with its own tools. nil = no file access at all.
         var readableFolder: URL? = nil
         /// Further folders the CLI may read (a folder X-Ray's whole project); paths in the answer
@@ -62,6 +83,30 @@ enum CLICompletion {
         var images: [URL] = []
         /// What this call is for, as written to the AI call log (e.g. "explore:<slug>").
         var label = ""
+
+        init(project: URL?, prompt: String, systemPrompt: String? = nil, jsonSchema: [String: Any]? = nil,
+             readableFolder: URL? = nil, extraReadableFolders: [URL] = [], timeout: TimeInterval? = 180,
+             toolOverride: CLITool? = nil, assistantOverride: Assistant? = nil, model: String? = nil,
+             effort: String? = nil, allowWeb: Bool = false, images: [URL] = [], label: String = "") {
+            self.project = project
+            self.prompt = prompt
+            self.systemPrompt = systemPrompt
+            self.readableFolder = readableFolder
+            self.extraReadableFolders = extraReadableFolders
+            self.timeout = timeout
+            self.toolOverride = toolOverride
+            self.assistantOverride = assistantOverride
+            self.model = model
+            self.effort = effort
+            self.allowWeb = allowWeb
+            self.images = images
+            self.label = label
+            self.jsonSchema = jsonSchema
+        }
+
+        func validateSchema() throws {
+            if case .invalid = schema { throw InvalidSchema() }
+        }
 
         var tool: CLITool {
             get { assistantOverride?.tool ?? toolOverride ?? AIAssistantPreferences.backend(project: project) }
@@ -140,6 +185,7 @@ enum CLICompletion {
     static func run(_ request: Request,
                     onDelta: (@Sendable (String) -> Void)? = nil,
                     onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
+        try request.validateSchema()
         let started = Date()
         let tool = request.tool
         let model = request.resolvedModel

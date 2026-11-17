@@ -560,7 +560,7 @@ func liveTwoPlayers() async {
 }
 
 final class NativeFixtureAssistant: QAAssistant {
-    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+    func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any? {
         ["move": "done", "narration": "Observed fixture.", "action": ["kind": "none"], "reason": "", "blockReason": ""] as [String: Any]
     }
 }
@@ -568,14 +568,14 @@ final class NativeFixtureAssistant: QAAssistant {
 final class NativeStopAssistant: QAAssistant {
     let control: QARunControl
     init(_ control: QARunControl) { self.control = control }
-    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+    func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any? {
         control.stop()
         return ["move": "done", "narration": "Stopped.", "action": ["kind": "none"], "reason": "", "blockReason": ""] as [String: Any]
     }
 }
 
 final class NativeFailAssistant: QAAssistant {
-    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+    func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any? {
         throw NSError(domain: "Fixture", code: 1)
     }
 }
@@ -583,7 +583,7 @@ final class NativeFailAssistant: QAAssistant {
 final class NativeReadOnlyAssistant: QAAssistant {
     let identifier: String
     init(_ identifier: String) { self.identifier = identifier }
-    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+    func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any? {
         guard prompt.contains(identifier) else { throw NSError(domain: "Missing application observation", code: 1) }
         return ["move": "done", "narration": "The running application was observed.", "action": ["kind": "none"], "reason": "", "blockReason": ""] as [String: Any]
     }

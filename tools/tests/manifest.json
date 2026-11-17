@@ -2538,7 +2538,8 @@
         "tools/tests/AIOperationStub.swift",
         "tools/tests/QAAPIChecks.swift",
         "tools/tests/QANativeKeychainStub.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "tools/tests/QAEventRecorder.swift"
       ]
     },
     {
@@ -2728,7 +2729,8 @@
         "tools/tests/IssueChecksSupport.swift",
         "tools/tests/QAChecks.swift",
         "tools/tests/qa-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "tools/tests/QAEventRecorder.swift"
       ]
     },
     {

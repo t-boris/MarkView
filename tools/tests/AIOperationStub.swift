@@ -3,6 +3,7 @@ import Foundation
 // (QAGenerator, ResearchMapTranslation). Those suites never run an assistant, or inject their own runner, so `run` is never reached.
 enum CLICompletion {
     struct Request {
+        func validateSchema() throws {}
         var prompt: String
         var label = ""
     }

@@ -91,6 +91,8 @@ enum XRaySearch {
                                      components: [String], deployment: [String], attachments: [String] = [],
                                      project: URL? = nil) -> CLICompletion.Request {
         var request = request(query: query, symbol: nil, hints: hints, root: root, components: components, deployment: deployment, project: project)
+        // Keep an invalid base schema invalid rather than rebuilding it as an empty schema.
+        do { try request.validateSchema() } catch { return request }
         var schema = request.jsonSchema ?? [:]
         var properties = schema["properties"] as? [String: Any] ?? [:]
         properties["explanation"] = UnderstandingAnswer.schema

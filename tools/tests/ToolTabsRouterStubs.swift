@@ -147,6 +147,7 @@ enum CLICompletion {
     struct Assistant {}
 
     struct Request {
+        func validateSchema() throws {}
         let project: URL?
         var prompt: String
         var systemPrompt: String? = nil

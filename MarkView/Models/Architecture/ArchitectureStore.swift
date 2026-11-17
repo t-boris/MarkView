@@ -602,6 +602,7 @@ final class ArchitectureStore: ObservableObject {
     func xrayCall(_ request: CLICompletion.Request, root: URL, db: SemanticDatabase?,
                           call: Int, fresh: Bool = false, trackProgress: Bool = true,
                           accept: (([String: Any]) -> Bool)? = nil) async throws -> [String: Any] {
+        try request.validateSchema()
         var prepared = request
         prepared.model = request.xrayModel
         prepared.effort = "low"
@@ -868,7 +869,9 @@ final class ArchitectureStore: ObservableObject {
                 return request
             }
             // The same prompt over the same source was answered before: no CLI call.
-            let answerFile = Self.answerFile(for: request(prompt), context: signature ?? "", in: answerCache(root))
+            let cacheRequest = request(prompt)
+            try cacheRequest.validateSchema()
+            let answerFile = Self.answerFile(for: cacheRequest, context: signature ?? "", in: answerCache(root))
             var model: CodeArchitectureModel?
             if let cached = await Self.cachedValue(CodeArchitectureModel.self, at: answerFile),
                (try? await Task.detached { try CodeArchitecture.validateModel(cached, modules: modules, root: root) }.value) != nil {
@@ -1023,6 +1026,7 @@ final class ArchitectureStore: ObservableObject {
         // The request `DiagramAI.generate` sends, mirrored for the cache key.
         var mirror = CLICompletion.Request(project: project ?? root, prompt: prompt, systemPrompt: DiagramAI.system,
                                            jsonSchema: DiagramAI.schema, readableFolder: root)
+        try mirror.validateSchema()
         mirror.model = model
         let signature = modules.nodes.first { $0.id == "m:" }?.signature ?? ""
         let answerFile = Self.answerFile(for: mirror, context: signature, in: answerCache(root))

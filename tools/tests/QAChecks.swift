@@ -1136,7 +1136,16 @@ final class FakeFactory: QADriverFactory, @unchecked Sendable {
     func driver(_ actor: String?) -> FakeDriver? { drivers.first { $0.request.actor?.id == actor } }
 }
 
-final class ScriptedAssistant: QAAssistant {
+// unchecked Sendable: the lock guards every access to the recorded confirmation IDs.
+final class ConfirmationLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    func append(_ id: String) { lock.withLock { recorded.append(id) } }
+    var values: [String] { lock.withLock { recorded } }
+}
+
+// unchecked Sendable: the runner owns the fixture during a run; the waiting test reads it only after completion.
+final class ScriptedAssistant: QAAssistant, @unchecked Sendable {
     var script: [String: [[String: Any]]]
     var prompts: [String] = []
     var systems: [String] = []
@@ -1145,7 +1154,7 @@ final class ScriptedAssistant: QAAssistant {
     var respond: ((String) -> [String: Any]?)?
     private var calls = 0
     init(_ script: [String: [[String: Any]]] = [:]) { self.script = script }
-    func decide(system: String, prompt: String, schema: [String: Any]) async throws -> Any? {
+    func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any? {
         calls += 1
         prompts.append(prompt)
         systems.append(system)
@@ -1160,14 +1169,6 @@ final class ScriptedAssistant: QAAssistant {
     func asked(_ title: String) -> Bool { prompts.contains { $0.contains("): \(title)\n") } }
 }
 
-final class Recorder: QARunObserver {
-    var events: [QARunEvent] = []
-    var onEvent: ((QARunEvent) -> Void)?
-    func handle(_ event: QARunEvent) { events.append(event); onEvent?(event) }
-    var narrations: [QATimelineEntry] { events.compactMap { if case .narration(let entry) = $0 { return entry } else { return nil } } }
-    var shown: [QAScreenEvent] { events.compactMap { if case .screen(let screen) = $0 { return screen } else { return nil } } }
-    var screens: [(isNew: Bool, png: Data?)] { shown.map { ($0.isNew, $0.png) } }
-}
 
 func move(_ kind: String, _ ref: String = "e1", text: String = "", url: String = "", method: String = "", _ narration: String = "Doing it") -> [String: Any] {
     ["move": "act", "narration": narration, "action": ["kind": kind, "ref": ref, "text": text, "url": url, "method": method, "direction": "", "amount": 0], "reason": "", "blockReason": ""]
@@ -1185,7 +1186,7 @@ do {
         var record: QARunRecord
         var factory: FakeFactory
         var assistant: ScriptedAssistant
-        var recorder: Recorder
+        var recorder: QAEventRecorder
         var asked: [String]
         var gate: QAGate
         var result: QACheckResult? { record.results.first }
@@ -1202,16 +1203,17 @@ do {
         let plan = QAPlanner.make(scenario, targetID: target, savedLogins: saved)
         var gate = QAGate(plan: plan)
         if approve { gate.approve(acknowledgedProduction: true) }
-        let factory = FakeFactory(), assistant = ScriptedAssistant(script), recorder = Recorder()
+        let factory = FakeFactory(), assistant = ScriptedAssistant(script), recorder = QAEventRecorder()
         prepare(factory, assistant)
         recorder.onEvent = observe
-        var asked: [String] = []
+        let confirmations = ConfirmationLog()
         var tick = 0.0
         let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: "r1",
-                              confirm: { confirmation in asked.append(confirmation.id); return confirm }, observer: recorder,
+                              confirm: { confirmation in confirmations.append(confirmation.id); return confirm }, observer: recorder,
                               now: { tick += 1; return now.addingTimeInterval(tick) }, config: config, control: control, sessions: sessions)
-        let record = (try? runAsync { await runner.run() }.get()) ?? QARunRecord(id: "lost", scenarioID: "", targetID: "", targetKind: .local, selected: [], startedAt: now)
-        return Setup(record: record, factory: factory, assistant: assistant, recorder: recorder, asked: asked, gate: runner.gate)
+        let result = try? runAsync { (await runner.run(), await runner.gate) }.get()
+        let record = result?.0 ?? QARunRecord(id: "lost", scenarioID: "", targetID: "", targetKind: .local, selected: [], startedAt: now)
+        return Setup(record: record, factory: factory, assistant: assistant, recorder: recorder, asked: confirmations.values, gate: result?.1 ?? gate)
     }
 
     // A run that passes

@@ -217,8 +217,8 @@ enum ResearchMapTranslation {
 
     // MARK: - Checks
 
-    struct Problem: Equatable {
-        enum Severity { case error, warning }
+    struct Problem: Equatable, Sendable {
+        enum Severity: Sendable { case error, warning }
         /// The node id, or empty for the map.
         var node: String
         /// missing, unknown, duplicate, title, tags, evidence, description, address, code, fences, diagram, untranslated.
