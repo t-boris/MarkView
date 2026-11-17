@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 149,
+  "suiteCount": 147,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1215,44 +1215,6 @@
       ]
     },
     {
-      "name": "linked-folders-tests",
-      "script": "tools/tests/linked-folders-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/LinkedFolders.swift",
-        "MarkView/Models/Shared/LinkedFolderStore.swift",
-        "MarkView/Models/Appearance/ProjectColor.swift",
-        "MarkView/Models/Shared/ProjectSearch.swift",
-        "tools/tests/LinkedFoldersTests.swift",
-        "tools/tests/linked-folders-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
-      ]
-    },
-    {
       "name": "new-project-tests",
       "script": "tools/tests/new-project-tests.sh",
       "tier": "pure",
@@ -1522,22 +1484,6 @@
         "tools/tests/ProjectOperationMergeTests.swift",
         "tools/tests/project-operation-merge-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
-      ]
-    },
-    {
-      "name": "project-search-tests",
-      "script": "tools/tests/project-search-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Appearance/ProjectColor.swift",
-        "MarkView/Models/Shared/LinkedFolderStore.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Shared/ProjectSearch.swift",
-        "tools/tests/ProjectSearchTests.swift",
-        "tools/tests/project-search-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
       ]
     },
     {
@@ -2346,7 +2292,11 @@
         "MarkView/Models/AI/AIPrompts.swift",
         "MarkViewHostedTests/AssistantProviderHostTests.swift",
         "MarkView/Info.plist",
-        "MarkView/Models/AgentTools/BrowserAgentTools.swift"
+        "MarkView/Models/AgentTools/BrowserAgentTools.swift",
+        "MarkViewHostedTests/ProjectIndexHostTests.swift",
+        "MarkView/Models/Shared/LinkedFolderStore.swift",
+        "MarkView/Models/Shared/ProjectSearch.swift",
+        "MarkView/Models/Shared/LinkedFolders.swift"
       ]
     },
     {

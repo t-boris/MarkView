@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-# ProjectSearch reads linked folders; its database helper is stubbed as in linked-folders-tests.sh.
+# ProjectSearch reads linked folders; this standalone suite supplies its database helper below.
 cat > "$out/Stubs.swift" <<'SWIFT'
 import Foundation
 enum SemanticDatabase {
