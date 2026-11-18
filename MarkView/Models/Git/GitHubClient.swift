@@ -513,6 +513,10 @@ enum GitHubProfile {
 /// Runs the GitHub CLI for one repository. Everything happens off the main thread; both
 /// pipes are drained while `gh` runs, so a large answer (logs, diffs) cannot deadlock it.
 struct GitHubClient: Sendable {
+    #if MARKVIEW_HOSTED_TEST_HOST
+    private static let testGHExecutable = OSAllocatedUnfairLock(initialState: Optional<URL>.none)
+    static func setTestGHExecutable(_ executable: URL?) { testGHExecutable.withLock { $0 = executable } }
+    #endif
     let root: URL
     let repo: GitHubRepo
 
@@ -557,7 +561,11 @@ struct GitHubClient: Sendable {
         if git {
             executable = "/usr/bin/git"
         } else {
+            #if MARKVIEW_HOSTED_TEST_HOST
+            guard let gh = ghExecutable?.path ?? testGHExecutable.withLock({ $0?.path }) else { return nil }
+            #else
             guard let gh = ghExecutable?.path ?? ghPath() else { return nil }
+            #endif
             executable = gh
         }
         let inherited = ProcessInfo.processInfo.environment
@@ -568,6 +576,15 @@ struct GitHubClient: Sendable {
         env["NO_COLOR"] = "1"
         env["GIT_TERMINAL_PROMPT"] = "0"
         GitHubProfile.apply(to: &env, root: root)
+        #if MARKVIEW_HOSTED_TEST_HOST
+        if !git {
+            for key in Array(env.keys) where ["TOKEN", "SECRET", "PASSWORD", "API_KEY"].contains(where: { key.uppercased().contains($0) }) {
+                env.removeValue(forKey: key)
+            }
+            env["GH_CONFIG_DIR"] = root.resolvingSymlinksInPath().appendingPathComponent(".test-gh-config").path
+            env.removeValue(forKey: "GIT_SSH_COMMAND")
+        }
+        #endif
         return SubprocessSpec(
             executable: executable, arguments: arguments, cwd: root, environment: env,
             removedEnvironment: Set(inherited.keys).subtracting(env.keys),

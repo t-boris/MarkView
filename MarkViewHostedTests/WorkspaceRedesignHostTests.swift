@@ -319,6 +319,88 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowGitHubCheckoutWithLocalFixture() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-checkout-host-" + UUID().uuidString).resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func git(_ args: [String]) async throws -> String {
+            let output = await GitHubClient.execute(["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"] + args,
+                                                    in: root, git: true)
+            guard output.status == 0 else { throw NSError(domain: "LocalGitFixture", code: Int(output.status), userInfo: [NSLocalizedDescriptionKey: output.stderr]) }
+            return output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        _ = try await git(["init", "-q", "-b", "main"])
+        _ = try await git(["config", "core.hooksPath", "/dev/null"])
+        let tracked = root.appendingPathComponent("tracked.md")
+        try "initial\n".write(to: tracked, atomically: true, encoding: .utf8)
+        _ = try await git(["add", "tracked.md"])
+        _ = try await git(["commit", "-q", "-m", "initial"])
+        _ = try await git(["branch", "pr-5"])
+        _ = try await git(["branch", "pr-7"])
+        _ = try await git(["remote", "add", "origin", "https://github.com/fixture-org/fixture.git"])
+        let fixture = root.appendingPathComponent("fixture-gh")
+        let script = #"""
+        #!/bin/sh
+        set -eu
+        fixture_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+        [ "$(pwd -P)" = "$fixture_root" ] || exit 91
+        [ -f "$fixture_root/fixture-gh" ] || exit 92
+        [ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || exit 93
+        [ "${GH_CONFIG_DIR##*/}" = '.test-gh-config' ] || exit 94
+        config_parent=$(CDPATH= cd -- "$(dirname -- "$GH_CONFIG_DIR")" && pwd -P)
+        [ "$config_parent" = "$fixture_root" ] || exit 95
+        printf '%s\n' "$*" >> "$fixture_root/fixture-gh.log"
+        case "${1:-} ${2:-} ${3:-}" in
+          'pr checkout 5') exec /usr/bin/git switch -q pr-5 ;;
+          'pr checkout 7') exec /usr/bin/git switch -q pr-7 ;;
+          'pr checkout 8') echo 'fixture checkout failed' >&2; exit 1 ;;
+          *) printf '[]\n' ;;
+        esac
+        """#
+        try script.write(to: fixture, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.path)
+        GitHubClient.setTestGHExecutable(nil)
+        let disabled = await GitHubClient.execute(["--version"], in: root)
+        XCTAssertEqual(disabled.status, -1, "The test host must never discover the user's gh")
+        GitHubClient.setTestGHExecutable(fixture)
+        defer { GitHubClient.setTestGHExecutable(nil) }
+        let preflight = await GitHubClient.execute(["--version"], in: root)
+        guard preflight.status == 0 else { return XCTFail("Fixture preflight exited \(preflight.status): \(preflight.stderr)") }
+        let settings = Settings.standard
+        let previous = settings.stored(Setting.gitHubEnabled)
+        settings.set(true, for: Setting.gitHubEnabled)
+        defer {
+            if let previous { settings.set(previous, for: Setting.gitHubEnabled) } else { settings.remove(Setting.gitHubEnabled) }
+        }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        window.composition.gitClient.workingDirectory = root
+        let flow = window.flow
+        flow.setUp(at: root)
+        for _ in 0..<500 where flow.gitHub.client == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(flow.gitHub.selectedRepo?.slug, "fixture-org/fixture")
+        let checkout = await flow.checkoutPullRequest(5)
+        XCTAssertNil(checkout)
+        let firstBranch = try await git(["branch", "--show-current"])
+        XCTAssertEqual(firstBranch, "pr-5")
+        try "modified\n".write(to: tracked, atomically: true, encoding: .utf8)
+        let refused = await flow.checkoutPullRequest(6)
+        XCTAssertTrue(refused?.contains("uncommitted changes") == true)
+        XCTAssertTrue(refused?.contains("#6") == true)
+        let log = root.appendingPathComponent("fixture-gh.log")
+        XCTAssertFalse((try String(contentsOf: log, encoding: .utf8)).contains("pr checkout 6"))
+        _ = try await git(["checkout", "--", "tracked.md"])
+        try "untracked\n".write(to: root.appendingPathComponent("new.md"), atomically: true, encoding: .utf8)
+        let untracked = await flow.checkoutPullRequest(7)
+        XCTAssertNil(untracked)
+        let secondBranch = try await git(["branch", "--show-current"])
+        XCTAssertEqual(secondBranch, "pr-7")
+        let failure = await flow.checkoutPullRequest(8)
+        XCTAssertTrue(failure?.contains("fixture checkout failed") == true)
+        flow.close()
+    }
+
     @MainActor func testRealFeatureFlowProjectLifecycle() throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("feature-lifecycle-host-" + UUID().uuidString)
         let first = base.appendingPathComponent("first", isDirectory: true)
