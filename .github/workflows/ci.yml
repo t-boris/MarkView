@@ -174,7 +174,7 @@ jobs:
       - name: Run SwiftLint ratchet
         run: ./tools/lint/swiftlint-ratchet.py
 
-      - name: Check unused imports in changed app sources
+      - name: Check unused imports in changed and bounded recompiled sources
         timeout-minutes: 35
         env:
           BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
