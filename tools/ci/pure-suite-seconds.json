@@ -1,7 +1,6 @@
 {
   "ai-terminals-controller-tests": 53.0,
   "architecture-lint-tests": 24.5,
-  "assistant-provider-extension-tests": 23.0,
   "bridge-contract-tests": 15.0,
   "browser-host-tests": 33.7,
   "build-warnings-tests": 1.2,

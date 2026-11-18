@@ -789,3 +789,152 @@ private extension CLITool {
     static var codex: CLITool { CLITool(rawValue: "codex")! }
     static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
 }
+
+private struct ExtensionFixtureProvider: AssistantProvider, AssistantCompletionSupport {
+    let id = "fakeassist"
+    let displayName = "Fake Assistant"
+    let binaryName = "fakeassist"
+    let authStatusArgs: [String] = []
+    let loginCommand = ""
+    let fullAccessArgs = ["--yolo"]
+    let continueArgs = ["--resume-last"]
+    let terminalIcon = "star"
+    let fixesBugsAsGoal = true
+    func modelOptions() -> [AIModelOption] { [AIModelOption(id: "", name: "Default", detail: "")] }
+    func goalPrompt(_ objective: String, closing: String) -> String { "FAKE GOAL: \(objective)" }
+    var usage: (any AssistantUsageSupport)? { ExtensionFixtureUsage() }
+    var completion: (any AssistantCompletionSupport)? { self }
+    func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
+        CompletionLaunch(arguments: ["--fake-run"] + modelArgs(request.model) + (request.effort.map { ["--effort", $0] } ?? []),
+                         input: request.prompt, schemaFile: nil)
+    }
+    func makeParser() -> any CompletionStreamParser { ExtensionFixtureParser() }
+}
+
+private final class ExtensionFixtureParser: CompletionStreamParser {
+    func handle(_ json: [String: Any], output: inout CompletionOutput, sink: CompletionSink) {
+        guard let answer = json["answer"] as? String else { return }
+        output.text = answer
+        output.outputTokens = json["tokens"] as? Int ?? 0
+        sink.onDelta?(answer)
+    }
+}
+
+private struct ExtensionFixtureUsage: AssistantUsageSupport {
+    let shortName = "Fake"
+    let dataDirectoryName = ".fakeassist"
+    var localLogs: (any UsageLogFormat)? { ExtensionFixtureLog() }
+    func fetchOfficial(using transport: any UsageTransport) async -> UsageFetchResult { .signedOut }
+}
+
+private struct ExtensionFixtureLog: UsageLogFormat {
+    var marker: Data { Data("tokens".utf8) }
+    func roots(in dataDirectory: URL) -> [URL] { [dataDirectory.appendingPathComponent("logs", isDirectory: true)] }
+    func read(line: Data, dates: ISO8601DateFormatter, lastTotal: inout Int) -> UsageLineReading {
+        guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+              let tokens = object["tokens"] as? Int, let date = UsageLogLine.date(object["ts"], dates) else { return .unrecognised }
+        return .counted(key: nil, event: UsageEvent(date: date, tokens: tokens, costUSD: nil))
+    }
+}
+
+/// Isolated because registering a fixture provider affects the process-wide registry.
+final class AssistantExtensionHostTests: XCTestCase {
+    @MainActor func testProviderExtension() async throws {
+        executionTimeAllowance = 120
+        let environment = ProcessInfo.processInfo.environment
+        guard Bundle.main.bundleIdentifier == "com.markview.tests.apphost", AgentProcesses.count == 0,
+              let homePath = environment["MARKVIEW_CLI_TEST_HOME"], environment["CFFIXED_USER_HOME"] == homePath,
+              let fixturePath = environment["MARKVIEW_CLI_TEST_FIXTURE"], let scratchPath = environment["MARKVIEW_CLI_TEST_SCRATCH"] else {
+            XCTFail("Provider extension checks require an isolated host and local fixture")
+            return
+        }
+        let home = URL(fileURLWithPath: homePath).resolvingSymlinksInPath()
+        let root = home.deletingLastPathComponent()
+        let fixture = URL(fileURLWithPath: fixturePath).resolvingSymlinksInPath()
+        let scratch = URL(fileURLWithPath: scratchPath).resolvingSymlinksInPath()
+        let temporary = URL(fileURLWithPath: "/tmp").resolvingSymlinksInPath()
+        guard home.lastPathComponent == "home", root.lastPathComponent.hasPrefix("mvcli-test-"),
+              root.deletingLastPathComponent().path == temporary.path,
+              home.path == URL(fileURLWithPath: NSHomeDirectory()).resolvingSymlinksInPath().path,
+              fixture.path == root.appendingPathComponent("extension.py").path,
+              scratch.path == root.appendingPathComponent("scratch", isDirectory: true).path,
+              FileManager.default.isExecutableFile(atPath: fixture.path),
+              AICallLog.url.deletingLastPathComponent().resolvingSymlinksInPath().path.hasPrefix(home.path + "/") else {
+            XCTFail("Provider extension checks refused a nonisolated home, log or fixture")
+            return
+        }
+        let defaults = UserDefaults.standard
+        let domain = "com.markview.tests.apphost"
+        defaults.removePersistentDomain(forName: domain)
+        AssistantProviderRegistry.setTestProviders([ExtensionFixtureProvider()])
+        defer {
+            AICallLog.waitForPendingWrites()
+            AgentProcesses.terminateAll(grace: 0.2)
+            AssistantProviderRegistry.setTestProviders([])
+            defaults.removePersistentDomain(forName: domain)
+            defaults.synchronize()
+        }
+        let stored: [(String, String, String, String)] = [
+            ("claude", "Claude Code", "claude", "sparkle"), ("codex", "Codex", "codex", "chevron.left.forwardslash.chevron.right"),
+            ("cline", "Cline", "cline", "circle.hexagongrid"), ("copilot", "Copilot", "copilot", "airplane"),
+            ("antigravity", "Antigravity", "agy", "wand.and.stars")]
+        for (raw, name, binary, icon) in stored {
+            let tool = try XCTUnwrap(CLITool(rawValue: raw))
+            XCTAssertEqual(tool.displayName, name)
+            XCTAssertEqual(tool.binaryName, binary)
+            XCTAssertEqual(Setting.cliPath(raw).name, "settings.cli.\(raw)Path")
+            XCTAssertEqual(try JSONDecoder().decode(CLITool.self, from: Data("\"\(raw)\"".utf8)), tool)
+            XCTAssertEqual(TerminalProfile(rawValue: raw), .assistant(tool))
+            XCTAssertEqual(TerminalProfile(rawValue: raw)?.icon, icon)
+        }
+        XCTAssertEqual(TerminalProfile(rawValue: "shell"), .shell)
+        XCTAssertEqual(TerminalProfile.shell.icon, "terminal")
+        XCTAssertEqual(TerminalProfile.shell.title, "Shell")
+        XCTAssertNil(CLITool(rawValue: "gemini"))
+        XCTAssertNil(TerminalProfile(rawValue: "gemini"))
+        XCTAssertThrowsError(try JSONDecoder().decode(CLITool.self, from: Data("\"gemini\"".utf8)))
+        XCTAssertEqual(TerminalProfile.allCases.map(\.rawValue), ["claude", "codex", "cline", "copilot", "antigravity", "fakeassist", "shell"])
+        XCTAssertEqual(AssistantProviderRegistry.defaultTool.rawValue, "claude")
+        let fake = try XCTUnwrap(CLITool(rawValue: "fakeassist"))
+        XCTAssertEqual(CLITool.allCases.last, fake)
+        XCTAssertEqual(CLITool.allCases.count, 6)
+        XCTAssertEqual(fake.displayName, "Fake Assistant")
+        XCTAssertEqual(fake.binaryName, "fakeassist")
+        XCTAssertEqual(Setting.cliPath(fake.rawValue).name, "settings.cli.fakeassistPath")
+        XCTAssertEqual(fake.fullAccessArgs, ["--yolo"])
+        XCTAssertEqual(fake.continueArgs, ["--resume-last"])
+        XCTAssertEqual(fake.modelArgs("m"), ["--model", "m"])
+        XCTAssertTrue(fake.modelArgs(nil).isEmpty)
+        let profile = try XCTUnwrap(TerminalProfile(rawValue: "fakeassist"))
+        XCTAssertEqual(profile, .assistant(fake))
+        XCTAssertEqual(profile.tool, fake)
+        XCTAssertEqual(profile.title, "Fake Assistant")
+        XCTAssertEqual(profile.icon, "star")
+        XCTAssertEqual(HandoffPrompt.goal("tests pass", tool: fake), "FAKE GOAL: tests pass")
+        XCTAssertTrue(HandoffPrompt.feature("docs/features/x", tool: fake).hasPrefix("FAKE GOAL: Implement what docs/features/x specifies."))
+        XCTAssertTrue(HandoffPrompt.bug("docs/bugs/BUG-1.md", tool: fake).hasPrefix("FAKE GOAL: fix the bug described in docs/bugs/BUG-1.md"))
+        XCTAssertTrue(HandoffPrompt.bug("docs/bugs/BUG-1.md", tool: CLITool(rawValue: "codex")).hasPrefix("Fix the bug described in"))
+        XCTAssertTrue(CLITool.usageTracked.contains(fake) && fake.hasLocalLogs && fake.shortName == "Fake")
+        XCTAssertEqual(Setting.usageHidden(fake.rawValue).name, "settings.usage.fakeassist.hidden")
+        XCTAssertEqual(Setting.usageLimit(fake.rawValue).name, "settings.usage.fakeassist.limit")
+        let logs = root.appendingPathComponent("usage/.fakeassist/logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let now = Date(), stamp = UsageLogLine.timestampFormatter().string(from: Date())
+        try (["{\"ts\":\"\(stamp)\",\"tokens\":40}", "{\"ts\":\"\(stamp)\",\"tokens\":2}", "invalid"].joined(separator: "\n") + "\n")
+            .write(to: logs.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
+        let reader = try XCTUnwrap(UsageLogReader(agent: fake, home: root.appendingPathComponent("usage")))
+        let events = try reader.events(since: now.addingTimeInterval(-60))
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events.map(\.tokens).reduce(0, +), 42)
+        XCTAssertNil(UsageLogReader(agent: CLITool(rawValue: "antigravity")!, home: root.appendingPathComponent("usage")))
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        CLIToolLocator.setOverride(fixture.path, for: fake)
+        guard CLIToolLocator.resolve(fake) == fixture.path else { XCTFail("The fake provider must resolve to the fixture"); return }
+        var request = CLICompletion.Request(project: project, prompt: "hello fake")
+        request.tool = fake; request.model = "model-x"; request.effort = "low"
+        let result = try await CLICompletion.run(request)
+        XCTAssertEqual(result.text, "echo:hello fake|--model model-x --effort low")
+        XCTAssertEqual(result.outputTokens, 7)
+    }
+}

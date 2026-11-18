@@ -1,19 +1,25 @@
 #!/bin/bash
-# Exercise completion deadlines or ACP continuation against a local fixture in an isolated app host.
+# Exercise completion deadlines, ACP continuation or provider extension in an isolated app host.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-if (( $# > 1 )) || { (( $# == 1 )) && [[ "$1" != "--continuation" ]]; }; then
-    echo "usage: $0 [--continuation]" >&2; exit 2
+if (( $# > 1 )) || { (( $# == 1 )) && [[ "$1" != "--continuation" && "$1" != "--extension" ]]; }; then
+    echo "usage: $0 [--continuation|--extension]" >&2; exit 2
 fi
 fixture_source=Tests/Fixtures/assistant-cli-timeout.py
 fixture_name=timeout.py
 test_class=CLICompletionTimeoutHostTests
 test_method=testCompletionDeadlinesAndCancellation
-if (( $# == 1 )); then
+if (( $# == 1 )) && [[ "$1" == "--continuation" ]]; then
     fixture_source=Tests/Fixtures/assistant-acp-continuation.py
     fixture_name=continuation.py
     test_class=ACPContinuationHostTests
     test_method=testContinuationsAndPermissions
+fi
+if (( $# == 1 )) && [[ "$1" == "--extension" ]]; then
+    fixture_source=Tests/Fixtures/assistant-provider-extension.py
+    fixture_name=extension.py
+    test_class=AssistantExtensionHostTests
+    test_method=testProviderExtension
 fi
 scratch=$(mktemp -d /tmp/mvcli-test-XXXXXX)
 mkdir -p "$scratch/home" "$scratch/scratch"

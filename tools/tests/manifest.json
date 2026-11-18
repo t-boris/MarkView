@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 36,
+  "suiteCount": 35,
   "suites": [
     {
       "name": "ai-terminals-controller-tests",
@@ -1039,7 +1039,8 @@
         "MarkView/Models/Remote/RemoteTerminalConnection.swift",
         "Tests/Fixtures/assistant-persistent-echo.sh",
         "tools/tests/persistent-remote-relay.mjs",
-        "tools/tests/persistent-remote-host-tests.sh"
+        "tools/tests/persistent-remote-host-tests.sh",
+        "Tests/Fixtures/assistant-provider-extension.py"
       ]
     },
     {
@@ -1657,47 +1658,6 @@
         "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
         "MarkViewHostedTests/BackdropRegistryHostTests.swift",
         "tools/tests/backdrop-registry-tests.sh"
-      ]
-    },
-    {
-      "name": "assistant-provider-extension-tests",
-      "script": "tools/tests/assistant-provider-extension-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/ACPAssistant.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
-        "MarkView/Models/AI/CLICompletion.swift",
-        "MarkView/Models/Lifecycle/DefinitionOfDone.swift",
-        "MarkView/Models/Lifecycle/HandoffPrompt.swift",
-        "MarkView/Models/Terminal/TerminalProfile.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "tools/tests/AssistantExtensionTests.swift",
-        "tools/tests/CLICompletionTestSupport.swift",
-        "tools/tests/FakeAssistantProvider.swift",
-        "tools/tests/FakeAssistantProviderList.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
     {

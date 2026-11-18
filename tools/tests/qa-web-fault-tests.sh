@@ -24,6 +24,7 @@ MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme
   -skip-testing:MarkViewHostedTests/RemoteRelaySettingsHostTests \
   -skip-testing:MarkViewHostedTests/SavedRemoteConnectionsHostTests \
   -skip-testing:MarkViewHostedTests/CLICompletionTimeoutHostTests \
+  -skip-testing:MarkViewHostedTests/AssistantExtensionHostTests \
   -skip-testing:MarkViewHostedTests/ACPContinuationHostTests test
 # The workspace test owns a process registry and runs in a fresh host.
 bash tools/tests/remote-workspace-host-tests.sh
@@ -37,3 +38,5 @@ bash tools/tests/persistent-remote-host-tests.sh
 bash tools/tests/cli-completion-timeout-host-tests.sh
 # Run ACP continuation and permission checks in their own isolated host.
 bash tools/tests/cli-completion-timeout-host-tests.sh --continuation
+# Exercise the fake extension provider in a separate temporary-home host.
+bash tools/tests/cli-completion-timeout-host-tests.sh --extension
