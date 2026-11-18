@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# Live Copilot remains an explicit manual mode; automatic checks use the isolated app host.
+if [ -z "${MARKVIEW_COMPLETION_LIVE_COPILOT:-}" ]; then
+    exec bash tools/tests/cli-completion-timeout-host-tests.sh
+fi
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 swiftc -parse-as-library -o "$out/completion-timeout-tests" Packages/MarkViewCore/Sources/MarkViewCore/*.swift \

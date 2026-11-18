@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 42,
+  "suiteCount": 41,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -155,42 +155,6 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
-      ]
-    },
-    {
-      "name": "cli-completion-timeout-tests",
-      "script": "tools/tests/cli-completion-timeout-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/AI/ACPAssistant.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
-        "MarkView/Models/AI/CLICompletion.swift",
-        "tools/tests/CLICompletionTestSupport.swift",
-        "tools/tests/CLICompletionTimeoutTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
       ]
     },
@@ -1116,6 +1080,9 @@
         "MarkViewHostedTests/RemoteWorkspaceHostTests.swift",
         "MarkView/Models/Remote/RemoteRelaySettings.swift",
         "MarkViewHostedTests/RemoteRelaySettingsHostTests.swift",
+        "MarkViewHostedTests/CLICompletionTimeoutHostTests.swift",
+        "Tests/Fixtures/assistant-cli-timeout.py",
+        "tools/tests/cli-completion-timeout-host-tests.sh",
         "MarkView/Models/Remote/RemoteFraming.swift",
         "MarkView/Models/Remote/RemoteToolBridge.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",

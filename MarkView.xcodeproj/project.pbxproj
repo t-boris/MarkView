@@ -618,6 +618,7 @@
 		F00000000000000000000126 /* UIStudioLifetimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */; };
 		F0000000000000000000013C /* RemoteWorkspaceHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000013D /* RemoteWorkspaceHostTests.swift */; };
 		F0000000000000000000013E /* RemoteRelaySettingsHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000013F /* RemoteRelaySettingsHostTests.swift */; };
+		F00000000000000000000140 /* CLICompletionTimeoutHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000141 /* CLICompletionTimeoutHostTests.swift */; };
 		F0000000000000000000013A /* UIStudioRuntimeModelHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000013B /* UIStudioRuntimeModelHostTests.swift */; };
 		F00000000000000000000138 /* UIStudioScenarioHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000139 /* UIStudioScenarioHostTests.swift */; };
 		F00000000000000000000136 /* UIStudioModelHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000137 /* UIStudioModelHostTests.swift */; };
@@ -1378,6 +1379,7 @@
 		F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioLifetimeHostTests.swift; sourceTree = "<group>"; };
 		F0000000000000000000013D /* RemoteWorkspaceHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkspaceHostTests.swift; sourceTree = "<group>"; };
 		F0000000000000000000013F /* RemoteRelaySettingsHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelaySettingsHostTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000141 /* CLICompletionTimeoutHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionTimeoutHostTests.swift; sourceTree = "<group>"; };
 		F0000000000000000000013B /* UIStudioRuntimeModelHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRuntimeModelHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000139 /* UIStudioScenarioHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioScenarioHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000137 /* UIStudioModelHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioModelHostTests.swift; sourceTree = "<group>"; };
@@ -2651,6 +2653,7 @@
 				F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */,
 				F0000000000000000000013D /* RemoteWorkspaceHostTests.swift */,
 				F0000000000000000000013F /* RemoteRelaySettingsHostTests.swift */,
+				F00000000000000000000141 /* CLICompletionTimeoutHostTests.swift */,
 				F0000000000000000000013B /* UIStudioRuntimeModelHostTests.swift */,
 				F00000000000000000000139 /* UIStudioScenarioHostTests.swift */,
 				F00000000000000000000137 /* UIStudioModelHostTests.swift */,
@@ -3553,6 +3556,7 @@
 				F00000000000000000000126 /* UIStudioLifetimeHostTests.swift in Sources */,
 				F0000000000000000000013C /* RemoteWorkspaceHostTests.swift in Sources */,
 				F0000000000000000000013E /* RemoteRelaySettingsHostTests.swift in Sources */,
+				F00000000000000000000140 /* CLICompletionTimeoutHostTests.swift in Sources */,
 				F0000000000000000000013A /* UIStudioRuntimeModelHostTests.swift in Sources */,
 				F00000000000000000000138 /* UIStudioScenarioHostTests.swift in Sources */,
 				F00000000000000000000136 /* UIStudioModelHostTests.swift in Sources */,
