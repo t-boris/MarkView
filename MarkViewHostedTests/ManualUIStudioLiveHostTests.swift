@@ -3,6 +3,8 @@
 // it took and what the assistant cost. Run by tools/tests/ui-studio-live-run.sh on a COPY of the project.
 import AppKit
 import Foundation
+import XCTest
+@testable import MarkView
 
 final class LiveTotals: @unchecked Sendable {
     var calls = 0
@@ -18,23 +20,29 @@ final class LiveTotals: @unchecked Sendable {
     }
 }
 
+/// This class is excluded from the automatic host suite and requires explicit manual opt-in.
 @MainActor
-func liveRun() async {
-    let args = CommandLine.arguments
-    guard args.count >= 4 else {
-        print("usage: ui-studio-live-run <Editor/js folder> <project copy> repair|screens|load|review [scenario name]")
-        exit(2)
+final class ManualUIStudioLiveHostTests: XCTestCase {
+func testManualUIStudio() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["MARKVIEW_MANUAL_STUDIO"] == "1" else { throw XCTSkip("Manual UI Studio is not enabled.") }
+    let js = try XCTUnwrap(env["MARKVIEW_MANUAL_STUDIO_JS"])
+    let folderPath = try XCTUnwrap(env["MARKVIEW_MANUAL_STUDIO_PROJECT"])
+    let mode = try XCTUnwrap(env["MARKVIEW_MANUAL_STUDIO_MODE"])
+    let scenarioName = env["MARKVIEW_MANUAL_STUDIO_SCENARIO"]
+    AIAssistantRunner.setTestRunner { request, delta, activity in
+        try await CLICompletion.run(request, onDelta: delta, onActivity: activity)
     }
-    StudioSession.runtimeFolder = URL(fileURLWithPath: args[1])
-    StudioSession.nodePreloadURL = URL(fileURLWithPath: args[1]).appendingPathComponent("markview-ui-studio-node.cjs")
+    defer { AIAssistantRunner.setTestRunner(nil) }
+    StudioSession.runtimeFolder = URL(fileURLWithPath: js)
+    StudioSession.nodePreloadURL = URL(fileURLWithPath: js).appendingPathComponent("markview-ui-studio-node.cjs")
     // The launcher that serves an Electron app's renderer without Electron, as the app bundle has it.
-    WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: args[1]).appendingPathComponent("markview-web-only.mjs")
-    let folder = URL(fileURLWithPath: args[2]).resolvingSymlinksInPath()
-    let mode = args[3]
-    let scenarioName = args.count > 4 ? args[4] : nil
+    WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: js).appendingPathComponent("markview-web-only.mjs")
+    let folder = URL(fileURLWithPath: folderPath).resolvingSymlinksInPath()
     guard let target = WebAppPreview.targets(root: folder).first else {
         print("No web application target in \(folder.path)")
-        exit(2)
+        XCTFail("Manual UI Studio could not continue")
+        return
     }
     print("Target: \(target.label) `\(target.command)` ports \(target.ports) electron \(target.isElectron)")
     let totals = LiveTotals()
@@ -69,7 +77,8 @@ func liveRun() async {
         guard let wanted = session.savedScenarios.first(where: { $0.name == scenarioName || $0.id == scenarioName }) else {
             print("No scenario named \(scenarioName); saved: \(session.savedScenarios.map(\.name))")
             await session.close()
-            exit(2)
+            XCTFail("Manual UI Studio could not continue")
+        return
         }
         print("[\(elapsed())] activating scenario \(wanted.name)")
         session.activate(wanted)
@@ -176,10 +185,9 @@ func liveRun() async {
     print("[\(elapsed())] assistant calls: \(totals.calls), cost $\(String(format: "%.2f", totals.cost))")
     await session.close()
     withExtendedLifetime(windowServices) {}
-    exit(0)
 }
 
-func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
+func waitUntil(_ timeout: TimeInterval, _ condition: @escaping () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }
@@ -188,7 +196,4 @@ func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
     return condition()
 }
 
-let application = NSApplication.shared
-application.setActivationPolicy(.accessory)
-Task { @MainActor in await liveRun() }
-application.run()
+}

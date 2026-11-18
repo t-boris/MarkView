@@ -1112,8 +1112,6 @@
         "MarkView/Models/Browser/WebAppPreview.swift",
         "MarkView/Views/UIStudio/UIStudioPreviewHost.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/UIStudioLiveRun.swift",
-        "tools/tests/UIStudioLiveStubs.swift",
         "tools/tests/ui-studio-live-run.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
@@ -1145,7 +1143,8 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift",
+        "MarkViewHostedTests/ManualUIStudioLiveHostTests.swift"
       ]
     },
     {
