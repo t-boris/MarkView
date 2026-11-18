@@ -12,7 +12,7 @@ enum RemoteCodexContext {
 }
 @MainActor final class RemoteRelaySettings {
     static let shared = RemoteRelaySettings()
-    var relayURL = "http://127.0.0.1:16393", accessKey = ""
+    var relayURL = ProcessInfo.processInfo.environment["MARKVIEW_PERSISTENT_RELAY_URL"] ?? "", accessKey = ""
     func finishPendingChanges() async {}
 }
 enum RemoteRelayKeychain { static func account(for text: String) throws -> String { text } }
@@ -59,7 +59,10 @@ enum RemoteRelayKeychain { static func account(for text: String) throws -> Strin
 
 @main enum PersistentRemoteSessionTests {
     @MainActor static func main() async throws {
-        let relay = URL(string: "http://127.0.0.1:16393")!
+        guard let text = ProcessInfo.processInfo.environment["MARKVIEW_PERSISTENT_RELAY_URL"],
+              let relay = URL(string: text), relay.scheme == "http", relay.host == "127.0.0.1", relay.port != nil else {
+            fatalError("An isolated loopback relay is required")
+        }
         let first = try RemoteInvitation(relay: relay, persistent: true), second = try RemoteInvitation(relay: relay, persistent: true)
         for _ in 0..<50 {
             let channel = RemoteChannel(invitation: first, role: .work)
