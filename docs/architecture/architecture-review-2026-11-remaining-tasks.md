@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: feature display, closed-bug and explicit-terminal hand-off cases passed in the app host, along with the single-file definition-of-done path and cancellation of external issue opening. The display fixture now opens a project folder and restores its test-host recent-project settings, avoiding single-file database creation. Three focused tests passed together; the standalone suite remains while its other behavior is migrated.
+
 D4 in progress: the issue-opening and non-repository guards passed against the real FeatureFlowCoordinator. The test opens a GitHub issue tab through the isolated local fixture and confirms starting an issue outside a Git repository fails without sending a prompt; no real GitHub request is made.
 
 D4 in progress: the successful feature implementation hand-off passed with a real feature store and a test-host-only isolated evidence log, avoiding writes to the user's process-wide log. The test checks the transition to implementing and the serialized work-started event, including its project and assistant, and drains the fixture's writes before cleanup. Version bumped to 7.0.8; the Debug build and zero-warning ratchet passed, as did architecture lint, SwiftLint and unused-import analysis of both changed sources (0 warnings). Symbol inspection found the test log hooks in the hosted binary and not the normal Debug binary.

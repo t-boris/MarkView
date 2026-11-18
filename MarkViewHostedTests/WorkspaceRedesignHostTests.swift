@@ -397,6 +397,14 @@ extension EditorHostTests {
                                           layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
                                           research: window.composition.research)
         defer { flow.close() }
+        let fallback = FeatureFlowCoordinator(project: window.project, assistants: assistant, tabs: window, requests: window.requests,
+                                              layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
+                                              research: window.composition.research)
+        defer { fallback.close() }
+        fallback.openGitHubIssue(13)
+        fallback.reset()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(window.tabs.openTabs.isEmpty, "Closing the flow cancels opening the external issue page")
         flow.setUp(at: root)
         XCTAssertFalse(GitHubSettings.enabled)
         let activation = await flow.activateGitHub(expecting: "FIXTURE-ORG/FIXTURE", in: root)
@@ -852,6 +860,17 @@ extension EditorHostTests {
         XCTAssertEqual(recorded.project, root.standardizedFileURL.path)
         XCTAssertEqual(recorded.stage, .workStarted)
         XCTAssertTrue(recorded.note?.contains("Claude") == true)
+        let singleFileProject = ProjectContext(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("single-recent.json"))
+        singleFileProject.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let singleFileAssistant = FeatureFlowAssistantSpy(root: root)
+        let singleFileRequests = WindowRequests()
+        let singleFileFlow = FeatureFlowCoordinator(project: singleFileProject, assistants: singleFileAssistant, tabs: window,
+                                                    requests: singleFileRequests, layout: window.layout, chrome: window.chrome,
+                                                    gitClient: window.composition.gitClient, research: window.composition.research)
+        defer { singleFileFlow.close(); singleFileProject.close() }
+        singleFileFlow.implementWithAI(folder)
+        XCTAssertNil(singleFileRequests.doneRequest)
+        XCTAssertEqual(singleFileAssistant.sent.count, 1, "A single-file workspace uses the standard definition of done")
 
         let bug = try flow.features.createBug(BugReportDraft(title: "Broken", body: "A fixture", provenance: "Test"))
         let bugStatus = try XCTUnwrap(flow.features.bug(at: bug.url)?.status)
@@ -868,6 +887,15 @@ extension EditorHostTests {
         XCTAssertTrue(sentBug.prompt.contains(bug.url.lastPathComponent))
         XCTAssertTrue(sentBug.submit)
         XCTAssertNotEqual(flow.features.bug(at: bug.url)?.status, bugStatus)
+        XCTAssertTrue(flow.features.updateBug(bug.url) { front, _ in front.set("status", "closed") })
+        let beforeClosed = assistant.sent.count
+        flow.fixBugWithAI(bug.url)
+        XCTAssertEqual(assistant.sent.count, beforeClosed)
+        XCTAssertTrue(flow.features.lastError?.contains("closed") == true)
+        let otherTerminal = TerminalSession(directory: root, profile: .assistant(CLITool(rawValue: "codex")!))
+        flow.fixBugWithAI(root.appendingPathComponent("loose.md"), in: otherTerminal)
+        XCTAssertEqual(assistant.sent.count, beforeClosed + 1)
+        XCTAssertTrue(assistant.sent.last?.terminal === otherTerminal)
 
         let result = await flow.fixInPullRequest(14, prompt: "Please fix.")
         XCTAssertNil(result)
@@ -1014,6 +1042,12 @@ extension EditorHostTests {
         for url in [doc, outside, created] { try "fixture".write(to: url, atomically: true, encoding: .utf8) }
         let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: base.appendingPathComponent("recent.json"))
         defer { window.composition.close() }
+        let settings = Settings.standard
+        let previousFolder = settings.stored(Setting.lastFolder)
+        let previousProjects = settings.stored(Setting.recentProjects)
+        window.project.beginOpening(root)
+        if let previousFolder { settings.set(previousFolder, for: Setting.lastFolder) } else { settings.remove(Setting.lastFolder) }
+        if let previousProjects { settings.set(previousProjects, for: Setting.recentProjects) } else { settings.remove(Setting.recentProjects) }
         window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
         let flow = window.flow
         flow.startIntake(.bug, fromIssue: 7)
@@ -1054,12 +1088,27 @@ extension EditorHostTests {
         XCTAssertTrue(window.chrome.showFileTree)
         for _ in 0..<200 where window.tabs.activeTab?.url != created { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(window.tabs.activeTab?.url, created)
+        let prototypeOverview = root.appendingPathComponent("prototype-overview.md")
+        try "prototype".write(to: prototypeOverview, atomically: true, encoding: .utf8)
+        flow.featureWritten("from-prototype", overview: prototypeOverview)
+        XCTAssertEqual(flow.features.activeSlug, "from-prototype")
+        XCTAssertEqual(window.layout.featureStage, .build)
+        for _ in 0..<200 where window.tabs.activeTab?.url != prototypeOverview { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(window.tabs.activeTab?.url, prototypeOverview)
         flow.intakeFinished(.quickFeature, outcome: FeatureAssistant.IntakeOutcome(file: nil, feature: "quick"))
         XCTAssertEqual(window.layout.featureStage, .build)
         XCTAssertEqual(flow.features.activeSlug, "quick")
         flow.intakeFinished(.feature, outcome: FeatureAssistant.IntakeOutcome(file: nil, feature: "full"))
         XCTAssertEqual(window.layout.featureStage, .explore)
         XCTAssertEqual(flow.features.activeSlug, "full")
+        let bugFile = root.appendingPathComponent("bug.md")
+        try "bug".write(to: bugFile, atomically: true, encoding: .utf8)
+        window.chrome.showTOC = false
+        flow.intakeFinished(.bug, outcome: FeatureAssistant.IntakeOutcome(file: bugFile))
+        XCTAssertTrue(window.chrome.showTOC)
+        XCTAssertEqual(window.layout.navigatorTab, .feature)
+        for _ in 0..<200 where window.tabs.activeTab?.url != bugFile { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(window.tabs.activeTab?.url, bugFile)
         flow.showFeatureContext("ctx")
         XCTAssertEqual(flow.features.activeSlug, "ctx")
         XCTAssertEqual(window.layout.issuesFeature, "ctx")
