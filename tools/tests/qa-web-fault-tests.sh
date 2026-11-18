@@ -12,17 +12,34 @@ derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTest
 socket_dir=$(mktemp -d /tmp/mvhost.XXXXXX)
 trap 'rm -rf "$socket_dir"' EXIT
 extra_skips=()
-case "${MARKVIEW_QA_HOST_PART:-all}" in
+part="${MARKVIEW_QA_HOST_PART:-all}"
+case "$part" in
   all) ;;
   general) extra_skips=(-skip-testing:MarkViewHostedTests/EditorHostTests) ;;
-  editor)
+  editor|editor-[0-3])
+    editor_options=(-only-testing:MarkViewHostedTests/EditorHostTests)
+    expected=0
+    if [ "$part" != editor ]; then
+      MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+        -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
+        -only-testing:MarkViewHostedTests/EditorHostTests -enumerate-tests -test-enumeration-style flat \
+        -test-enumeration-format json -test-enumeration-output-path "$socket_dir/tests.json" test
+      python3 tools/ci/editor-test-shards.py "$socket_dir/tests.json" "${part#editor-}" 4 > "$socket_dir/selected.txt"
+      editor_options=()
+      while IFS= read -r test_id; do editor_options+=("-only-testing:$test_id"); done < "$socket_dir/selected.txt"
+      expected=${#editor_options[@]}
+    fi
     MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
       -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
-      -only-testing:MarkViewHostedTests/EditorHostTests test 2>&1 | tee "$socket_dir/editor.log"
-    if ! grep -Eq 'Executed [1-9][0-9]* tests?, with' "$socket_dir/editor.log"; then
-      echo "Editor host selection did not execute any tests" >&2
-      exit 1
-    fi
+      "${editor_options[@]}" test 2>&1 | tee "$socket_dir/editor.log"
+    python3 - "$socket_dir/editor.log" "$expected" <<'PY'
+import pathlib, re, sys
+log = pathlib.Path(sys.argv[1]).read_text(errors="replace")
+counts = [int(n) for n in re.findall(r"Executed (\d+) tests?, with", log)]
+expected = int(sys.argv[2])
+if not counts or max(counts) == 0 or (expected and max(counts) != expected):
+    sys.exit(f"Editor host ran {max(counts, default=0)} tests; expected {expected or 'at least one'}")
+PY
     exit
     ;;
   *) echo "Unknown QA host part: $MARKVIEW_QA_HOST_PART" >&2; exit 2 ;;

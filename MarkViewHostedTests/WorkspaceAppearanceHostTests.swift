@@ -1341,12 +1341,14 @@ final class Page: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         config.userContentController.addUserScript(still)
         web = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: height), configuration: config)
-        window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
+        window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.alphaValue = 0
         window.ignoresMouseEvents = true
         window.contentView = web
         super.init()
+        window.orderBack(nil)
+        XCTAssertTrue(NSScreen.screens.allSatisfy { !$0.frame.intersects(window.frame) }, "Theme host stays outside every display")
+        XCTAssertFalse(window.isKeyWindow || window.isMainWindow, "Theme host does not take focus")
         for name in ["bridge", "discussion", "terminal"] { config.userContentController.add(self, name: name) }
         web.navigationDelegate = self
         context.cleanups.append { [weak self] in self?.cleanup() }
@@ -1383,6 +1385,7 @@ final class Page: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         }
         themeWebSpin(60) { loaded }
         themeWebSpin(1.2)
+        XCTAssertEqual(js("return String(document.visibilityState);"), "visible", "Theme host must allow WebKit's rendering clock to run")
     }
 
     /// Runs a function body in the page; the result is a string (JSON for structures).

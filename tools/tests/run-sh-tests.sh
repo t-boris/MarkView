@@ -188,6 +188,30 @@ mkdir "$work/not-a-repo" && mkdir -p "$work/not-a-repo/tools/tests" && cp "$repo
 (cd "$work/not-a-repo" && GIT_CEILING_DIRECTORIES="$work" ./tools/tests/run.sh --changed > "$work/changed-norepo.out" 2>&1); rc=$?
 check $((rc != 3)) "--changed outside a git repository exits 3, not 0"
 
+# Xcode's enumerated editor methods must be distributed once, with no silent partial selection.
+python3 - "$PWD/tools/ci/editor-test-shards.py" "$work" <<'PY'
+import json, pathlib, subprocess, sys
+script, folder = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+path = folder / 'editor-enumeration.json'
+tests = [f'MarkViewHostedTests/EditorHostTests/testCase{i}()' for i in range(17)]
+def write(ids, errors=None):
+    path.write_text(json.dumps({'errors': errors or [], 'values': [{'enabledTests': [{'identifier': x} for x in ids]}]}))
+def run(shard):
+    return subprocess.run([sys.executable, str(script), str(path), str(shard), '4'], capture_output=True, text=True)
+write(tests)
+parts = [run(i) for i in range(4)]
+assert all(p.returncode == 0 for p in parts)
+actual = [line for p in parts for line in p.stdout.splitlines()]
+assert sorted(actual) == sorted(tests) and len(actual) == len(set(actual))
+write(tests + [tests[0]])
+assert run(0).returncode != 0
+write(tests, errors=['enumeration failed'])
+assert run(0).returncode != 0
+write(['OtherTests/Unexpected/testCase()'] * 4)
+assert run(0).returncode != 0
+PY
+check $? "editor shards cover every enumerated method exactly once and reject invalid enumerations"
+
 if [ "$failures" -gt 0 ]; then
     echo "run.sh checks FAILED: $failures"
     exit 1

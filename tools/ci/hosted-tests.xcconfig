@@ -1,0 +1,6 @@
+// Test-only overrides for the app and all Swift package dependencies.
+// Release builds use the project's normal optimized settings.
+ARCHS = arm64
+ONLY_ACTIVE_ARCH = YES
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+SWIFT_COMPILATION_MODE = incremental

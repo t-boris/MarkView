@@ -60,11 +60,14 @@ final class QAWebFaultTests: XCTestCase {
             let actor = QAWebActor(request: QADriverRequest(actor: QAActor(id: id, name: id), app: QAApp(id: "fixture", name: "Fixture"), address: address, login: nil),
                                    credentials: QACredentials(username: nil, password: nil))
             actor.session.webView.loadHTMLString("<title>Request fault fixture</title><p>Ready</p>", baseURL: URL(string: address))
-            for _ in 0..<100 {
+            let loadDeadline = Date().addingTimeInterval(15)
+            while Date() < loadDeadline {
                 if actor.session.webView.title == "Request fault fixture" { return actor }
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
-            throw NSError(domain: "qa-fault-fixture", code: 1)
+            await actor.close()
+            throw NSError(domain: "qa-fault-fixture", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "The isolated WebKit fixture did not load within 15 seconds"])
         }
         func evaluate(_ actor: QAWebActor, _ script: String) async throws -> Any? {
             try await actor.session.webView.callAsyncJavaScript(script, arguments: ["base": address], in: nil, contentWorld: .page)

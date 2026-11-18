@@ -862,7 +862,10 @@ extension EditorHostTests {
             client.startIgnore("one.txt", isDirectory: false)
             client.startIgnore("two.txt", isDirectory: false)
             let ignore = repo.appendingPathComponent(".gitignore")
-            check(await waitFor { ((try? String(contentsOf: ignore, encoding: .utf8)) ?? "").contains("/two.txt") }, "the second operation runs")
+            check(await waitFor {
+                let contents = (try? String(contentsOf: ignore, encoding: .utf8)) ?? ""
+                return contents.contains("/one.txt") && contents.contains("/two.txt")
+            }, "both requested operations run")
             let ignored = (try? String(contentsOf: ignore, encoding: .utf8)) ?? ""
             check(ignored.contains("/one.txt") && ignored.contains("/two.txt"), "an operation asked for later does not end the one before it")
 

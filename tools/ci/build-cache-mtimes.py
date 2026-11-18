@@ -24,7 +24,8 @@ def digest(path):
 
 def build_inputs():
     output = subprocess.check_output([
-        "git", "ls-files", "-z", "--", "MarkView", "MarkViewHostedTests", "MarkView.xcodeproj", "Packages", "tools/tests/*.swift"
+        "git", "ls-files", "-z", "--", "MarkView", "MarkViewHostedTests", "MarkView.xcodeproj", "Packages", "tools/tests/*.swift",
+        "tools/ci/hosted-tests.xcconfig"
     ])
     for name in output.split(b"\0"):
         if name:

@@ -1990,12 +1990,14 @@ window.addEventListener('unhandledrejection', function (e) { recordTestError('re
 """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
 config.userContentController.addUserScript(recorder)
 let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 820), configuration: config)
-// Never visible: far off screen, borderless, and never ordered front.
-let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1280, height: 820), styleMask: [.borderless], backing: .buffered, defer: false)
+// Keep the test outside every display and behind other windows, while allowing WebKit's rendering clock to advance.
+let window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1280, height: 820), styleMask: [.borderless], backing: .buffered, defer: false)
 window.isReleasedWhenClosed = false
-window.alphaValue = 0
 window.ignoresMouseEvents = true
 window.contentView = web
+window.orderBack(nil)
+check(NSScreen.screens.allSatisfy { !$0.frame.intersects(window.frame) }, "research-map host stays outside every display")
+check(!window.isKeyWindow && !window.isMainWindow, "research-map host does not take focus")
 defer { web.stopLoading(); web.navigationDelegate = nil; config.userContentController.removeScriptMessageHandler(forName: "bridge"); window.contentView = nil; window.close() }
 let loaded = Loaded()
 web.navigationDelegate = loaded
@@ -2079,6 +2081,7 @@ return JSON.stringify({ visibility: document.visibilityState, width: innerWidth,
   layout: !!window.MVResearchMapLayout, view: !!window.MVResearchMap, leave: typeof window.leaveResearchMap, set: typeof window.mvResearchMapSet });
 """)
 print("info page: \(probe)")
+check((probe["visibility"] as? String) == "visible", "the off-screen page runs with a visible rendering clock", "\(probe)")
 check((probe["layout"] as? Bool) == true && (probe["view"] as? Bool) == true && (probe["leave"] as? String) == "function" && (probe["set"] as? String) == "function",
       "the layout engine and the map view are loaded and expose the API", "\(probe)")
 

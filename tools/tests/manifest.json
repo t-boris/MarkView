@@ -301,6 +301,8 @@
       "tier": "gui",
       "timeoutSeconds": 900,
       "sources": [
+        "tools/ci/editor-test-shards.py",
+        "tools/ci/hosted-tests.xcconfig",
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/QA/QAAPI.swift",
         "MarkView/Models/QA/QAActions.swift",
@@ -1016,7 +1018,8 @@
       "script": "tools/tests/run-sh-tests.sh",
       "tier": "pure",
       "sources": [
-        "tools/tests/run.sh"
+        "tools/tests/run.sh",
+        "tools/ci/editor-test-shards.py"
       ]
     },
     {

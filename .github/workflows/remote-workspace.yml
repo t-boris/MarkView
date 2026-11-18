@@ -10,6 +10,7 @@ on:
       - 'MarkView/Models/AgentTools/BrowserAgentTools.swift'
       - 'MarkView/Models/Browser/BrowserControlServer.swift'
       - 'tools/remote-relay/**'
+      - 'tools/ci/hosted-tests.xcconfig'
       - 'tools/tests/Remote*'
       - 'tools/tests/SavedRemote*'
       - 'tools/tests/PersistentRemote*'
@@ -39,7 +40,7 @@ permissions:
 
 jobs:
   durable-relay:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     services:
       redis:
@@ -64,14 +65,32 @@ jobs:
   workspace-and-relay:
     runs-on: macos-latest
     timeout-minutes: 20
+    env:
+      XCODE_XCCONFIG_FILE: ${{ github.workspace }}/tools/ci/hosted-tests.xcconfig
     steps:
       - uses: actions/checkout@v4
+      - name: Identify Xcode
+        id: xcode
+        run: echo "version=$(xcodebuild -version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Restore hosted build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/MarkViewHostedData
+          key: markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkViewHostedTests/**', 'Packages/MarkViewCore/**', 'MarkView.xcodeproj/**', 'tools/tests/*.swift', 'tools/ci/hosted-tests.xcconfig', '!Packages/MarkViewCore/.build/**') }}
+          restore-keys: |
+            markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-
+      - name: Restore unchanged hosted build input timestamps
+        run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewHostedData/source-mtimes.json"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Check work-computer files, commands, encryption, HTTPS and the live Unix bridge
+        env:
+          MARKVIEW_HOSTED_TEST_DERIVED_DATA: ${{ runner.temp }}/MarkViewHostedData
         run: bash tools/tests/remote-workspace-tests.sh
       - name: Verify saved Keychain pairings and reconnecting concurrent sessions
+        env:
+          MARKVIEW_HOSTED_TEST_DERIVED_DATA: ${{ runner.temp }}/MarkViewHostedData
         run: |
           bash tools/tests/saved-remote-connections-host-tests.sh
           bash tools/tests/persistent-remote-host-tests.sh
