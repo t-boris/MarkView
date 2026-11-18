@@ -68,9 +68,23 @@ actor SpecificationHandoffStore {
     func state(project: URL, slug: String) throws -> HandoffState {
         let folder = try featureFolder(project: project, slug: slug)
         let history = try revisions(project: project, slug: slug)
+        return try makeState(folder: folder, history: history)
+    }
+
+    /// The start list only needs handed-off features. Do not traverse an unpublished feature folder.
+    func readyState(project: URL, slug: String) throws -> HandoffState? {
+        try Task.checkCancellation()
+        let history = try revisions(project: project, slug: slug)
+        guard !history.isEmpty else { return nil }
+        let folder = try featureFolder(project: project, slug: slug)
+        return try makeState(folder: folder, history: history)
+    }
+
+    private func makeState(folder: URL, history: [HandoffRevision]) throws -> HandoffState {
         let latest = history.last
         let links = try currentLinks(folder: folder)
-        let current = try hashes(in: folder)
+        // Without a revision there is nothing to compare or show in the versions view.
+        let current = latest == nil ? [:] : try hashes(in: folder)
         let previous = latest?.hashes ?? [:]
         let changes: [HandoffChange] = latest == nil ? [] : Set(current.keys).union(previous.keys).compactMap { path in
             if previous[path] == nil { return HandoffChange(path: path, kind: .added) }
@@ -229,6 +243,7 @@ actor SpecificationHandoffStore {
         guard let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return [:] }
         var result: [String: String] = [:]
         while let url = enumerator.nextObject() as? URL {
+            if destination == nil { try Task.checkCancellation() }
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(root) else { throw HandoffError.invalidPath(path) }
             let relative = String(path.dropFirst(root.count))
@@ -239,6 +254,7 @@ actor SpecificationHandoffStore {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+                if destination == nil { try Task.checkCancellation() }
                 hasher.update(data: chunk)
             }
             result[relative] = hasher.finalize().map { String(format: "%02x", $0) }.joined()
