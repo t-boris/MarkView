@@ -19,6 +19,33 @@ private final class RoutingAssistant: AssistantPrompting {
     func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? { nil }
 }
 
+@MainActor
+private final class FeatureFlowAssistantSpy: AssistantProviding, AssistantPrompting {
+    let session: TerminalSession
+    var sends = true
+    var assistantIsBusy = false
+    private(set) var sent: [(prompt: String, submit: Bool, terminal: TerminalSession)] = []
+    var currentAssistant: CLICompletion.Assistant? { nil }
+    var sessions: [TerminalSession] { [session] }
+    var shownID: UUID? { session.id }
+    init(root: URL) { session = TerminalSession(directory: root, profile: .assistant(CLITool(rawValue: "claude")!)) }
+    func liveModelReported(_ model: String, terminalID: UUID) {}
+    func openAITerminal(_ profile: TerminalProfile, resuming: Bool, model: String?) -> TerminalSession? { nil }
+    func showAIConsole() {}
+    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? {
+        guard sends else { return nil }
+        sent.append((prompt, submit, session))
+        return session
+    }
+    func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
+        guard sends else { return nil }
+        let target = terminal ?? session
+        guard let prompt = promptFor(target) else { return nil }
+        sent.append((prompt, submit, target))
+        return target
+    }
+}
+
 private final class DiscussionRunnerSpy: @unchecked Sendable {
     private let lock = NSLock()
     private var requests: [CLICompletion.Request] = []
@@ -255,6 +282,66 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowAssistantHandoffs() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-handoff-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "feature-handoff-host-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let project = ProjectContext(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"), settings: Settings(defaults))
+        project.beginOpening(root)
+        project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("window-recent.json"))
+        defer { window.composition.close() }
+        let assistant = FeatureFlowAssistantSpy(root: root)
+        let flow = FeatureFlowCoordinator(project: project, assistants: assistant, tabs: window, requests: window.requests,
+                                          layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
+                                          research: window.composition.research)
+        defer { flow.close(); project.close() }
+        _ = try ProjectWorkflowStore(projectRoot: root).save(.standard, expectedRevision: 0)
+        flow.features.setup(root: root)
+        let slug = try XCTUnwrap(flow.features.createFeature(title: "A feature", idea: "A fixture"))
+        let folder = root.appendingPathComponent("docs/features/\(slug)")
+        flow.implementWithAI(folder)
+        XCTAssertEqual(window.requests.doneRequest, folder)
+        XCTAssertTrue(assistant.sent.isEmpty)
+        let before = try XCTUnwrap(flow.features.feature(slug)?.status)
+        assistant.sends = false
+        flow.startImplementation(folder, done: .standard)
+        XCTAssertTrue(assistant.sent.isEmpty)
+        XCTAssertEqual(flow.features.feature(slug)?.status, before)
+        assistant.sends = true
+        flow.startImplementation(root.appendingPathComponent("notes.md"), done: .standard)
+        XCTAssertEqual(assistant.sent.count, 1)
+        XCTAssertTrue(assistant.sent[0].submit)
+        XCTAssertTrue(assistant.sent[0].prompt.contains("notes.md"))
+        XCTAssertEqual(flow.features.feature(slug)?.status, before)
+
+        let bug = try flow.features.createBug(BugReportDraft(title: "Broken", body: "A fixture", provenance: "Test"))
+        let bugStatus = try XCTUnwrap(flow.features.bug(at: bug.url)?.status)
+        let canStart = flow.features.lifecycle.canStartByHandoff(.bug, bug.id)
+        let target = flow.features.lifecycle.startTarget(.bug, from: bugStatus, issue: bug.id)
+        XCTAssertTrue(canStart, "Bug \(bug.id), stored status \(flow.features.lifecycle.storedStatus(.bug, bug.id) ?? "nil"), target \(target ?? "nil"), error \(flow.features.lastError ?? "none")")
+        assistant.sends = false
+        flow.fixBugWithAI(bug.url)
+        XCTAssertEqual(flow.features.bug(at: bug.url)?.status, bugStatus)
+        assistant.sends = true
+        flow.fixBugWithAI(bug.url)
+        XCTAssertEqual(assistant.sent.count, 2)
+        let sentBug = try XCTUnwrap(assistant.sent.last)
+        XCTAssertTrue(sentBug.prompt.contains(bug.url.lastPathComponent))
+        XCTAssertTrue(sentBug.submit)
+        XCTAssertNotEqual(flow.features.bug(at: bug.url)?.status, bugStatus)
+
+        let result = await flow.fixInPullRequest(14, prompt: "Please fix.")
+        XCTAssertNil(result)
+        XCTAssertEqual(assistant.sent.last?.prompt, "Please fix.\n\nNote: this is pull request #14; its branch may not be the one checked out here.")
+        let plain = await flow.fixInPullRequest(nil, prompt: "Review it.")
+        XCTAssertNil(plain)
+        XCTAssertEqual(assistant.sent.last?.prompt, "Review it.")
+    }
+
     @MainActor func testRealFeatureFlowLocalBranches() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-git-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
