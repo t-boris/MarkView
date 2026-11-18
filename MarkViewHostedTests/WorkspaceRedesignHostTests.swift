@@ -66,12 +66,13 @@ private final class DiscussionRunnerSpy: @unchecked Sendable {
 }
 
 private actor FeatureIntakeFixture {
-    enum Mode { case answer, fail, wait }
+    enum Mode { case answer, text, fail, wait }
     var mode: Mode = .answer
     var requests: [CLICompletion.Request] = []
     var cancellations = 0
     func setMode(_ mode: Mode) { self.mode = mode }
     func count() -> Int { requests.count }
+    func lastRequest() -> CLICompletion.Request? { requests.last }
     func cancellationCount() -> Int { cancellations }
     func run(_ request: CLICompletion.Request, _ delta: (@Sendable (String) -> Void)?,
              _ activity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
@@ -81,6 +82,8 @@ private actor FeatureIntakeFixture {
             let object: [String: Any] = ["title": "Fixture feature", "idea": "A fixture", "problem": "A problem", "scope": "A scope",
                                          "analysis": "An analysis", "assumptions": [], "acceptance_criteria": ["It works"]]
             return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+        case .text:
+            return try CLICompletion.Result(text: "Fixture answer", structured: nil, inputTokens: 0, outputTokens: 0, costUSD: nil)
         case .fail:
             throw NSError(domain: "FeatureIntakeFixture", code: 7, userInfo: [NSLocalizedDescriptionKey: "fixture failure"])
         case .wait:
@@ -316,6 +319,50 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowSelectedTextAction() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-selection-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try ProjectWorkflowStore(projectRoot: root).save(.standard, expectedRevision: 0)
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let tabs = FeatureFlowTabsSpy()
+        let assistant = FeatureFlowAssistantSpy(root: root)
+        let flow = FeatureFlowCoordinator(project: window.project, assistants: assistant, tabs: tabs, requests: window.requests,
+                                          layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
+                                          research: window.composition.research)
+        defer { flow.close() }
+        flow.features.setup(root: root)
+        let slug = try XCTUnwrap(flow.features.createFeature(title: "Test feature", idea: "An idea"))
+        let overview = try XCTUnwrap(flow.features.feature(slug)?.overviewURL)
+        tabs.activeTab = OpenTab(url: overview, content: "", originalContent: "")
+        let fixture = FeatureIntakeFixture()
+        await fixture.setMode(.text)
+        AIAssistantRunner.setTestRunner { request, delta, activity in try await fixture.run(request, delta, activity) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        flow.runFeatureAction("ask", text: "selected passage", question: "why?")
+        for _ in 0..<500 {
+            if flow.features.assistant.results.first?.pending == false { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let result = try XCTUnwrap(flow.features.assistant.results.first)
+        XCTAssertFalse(result.pending)
+        XCTAssertEqual(result.text, "Fixture answer")
+        XCTAssertEqual(result.feature, slug)
+        let request = await fixture.lastRequest()
+        let sent = try XCTUnwrap(request)
+        XCTAssertTrue(sent.prompt.contains("selected passage"))
+        XCTAssertTrue(sent.prompt.contains("why?"))
+        XCTAssertTrue(sent.prompt.contains("docs/features/\(slug)/overview.md"))
+        XCTAssertEqual(window.layout.navigatorTab, .feature)
+        XCTAssertTrue(window.chrome.showTOC)
+        flow.runFeatureAction("nonsense", text: "ignored", question: "")
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let count = await fixture.count()
+        XCTAssertEqual(count, 1)
+    }
+
     @MainActor func testRealFeatureFlowConflictAndBugBasketHandoffs() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-basket-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
