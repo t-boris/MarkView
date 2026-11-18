@@ -218,6 +218,11 @@ extension EditorHostTests {
         XCTAssertNil(checkout)
         let firstBranch = try await git(["branch", "--show-current"])
         XCTAssertEqual(firstBranch, "pr-5")
+        XCTAssertEqual(window.composition.gitClient.branch, "pr-5")
+        for _ in 0..<200 where window.project.fileTree.rootNode?.children?.contains(where: { $0.name == "tracked.md" }) != true {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(window.project.fileTree.rootNode?.children?.contains(where: { $0.name == "tracked.md" }) == true)
         let log = root.appendingPathComponent("fixture-gh.log")
         let before = try String(contentsOf: log, encoding: .utf8).components(separatedBy: "pr checkout 5").count
         let sameBranch = await flow.fixInPullRequest(5, prompt: "Fix the fixture.")
@@ -477,6 +482,15 @@ extension EditorHostTests {
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, third.id), "open")
         XCTAssertTrue(flow.bugBatch.notice?.contains(third.id) == true)
         XCTAssertTrue(flow.bugBatch.basket.isEmpty)
+        let fourth = try flow.features.createBug(BugReportDraft(title: "Fourth bug", body: "Fourth", provenance: "Test"))
+        let fifth = try flow.features.createBug(BugReportDraft(title: "Fifth bug", body: "Fifth", provenance: "Test"))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: fourth.url)))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: fifth.url)))
+        flow.fixBasketWithAI()
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, fourth.id), "fixing")
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, fifth.id), "fixing")
+        XCTAssertTrue(flow.bugBatch.basket.isEmpty)
+        XCTAssertNil(flow.bugBatch.notice)
     }
 
     @MainActor func testRealFeatureFlowIntakeSubmission() async throws {
@@ -529,11 +543,13 @@ extension EditorHostTests {
         await fixture.setMode(.fail)
         results = []
         window.requests.intake = IntakeRequest(kind: .bug)
+        let openBeforeFailure = tabs.opened
         flow.submitIntake(.bug, from: "it breaks", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
         let failed = try await wait { !results.isEmpty }
         XCTAssertTrue(failed)
         XCTAssertEqual(results.first ?? nil, "fixture failure")
         XCTAssertEqual(window.requests.intake?.kind, .bug)
+        XCTAssertEqual(tabs.opened, openBeforeFailure)
 
         await fixture.setMode(.delayedAnswer)
         results = []
@@ -561,6 +577,9 @@ extension EditorHostTests {
         }
         let count = await fixture.count()
         XCTAssertEqual(count, previous + 1)
+        let openBeforeClose = tabs.opened
+        let featureFolder = root.appendingPathComponent("docs/features")
+        let featuresBeforeClose = try FileManager.default.contentsOfDirectory(atPath: featureFolder.path).sorted()
         flow.close()
         let cancelled = try await wait { results.count == 2 }
         if !cancelled {
@@ -571,6 +590,8 @@ extension EditorHostTests {
         let cancelledCalls = await fixture.cancellationCount()
         XCTAssertEqual(cancelledCalls, 1)
         XCTAssertNotNil(window.requests.intake)
+        XCTAssertEqual(tabs.opened, openBeforeClose)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: featureFolder.path).sorted(), featuresBeforeClose)
     }
 
     @MainActor func testRealFeatureFlowStartIssueOnLocalBranch() async throws {
@@ -639,6 +660,7 @@ extension EditorHostTests {
         XCTAssertTrue(otherAssistant.sent.isEmpty)
         let blank = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("blank.json"))
         defer { blank.composition.close() }
+        XCTAssertNil(blank.flow.projectRoot)
         let noFolder = await blank.flow.startIssueWithAI(issue)
         XCTAssertEqual(noFolder, "No folder open.")
     }
@@ -677,6 +699,7 @@ extension EditorHostTests {
         XCTAssertEqual(assistant.sent.count, 1)
         XCTAssertTrue(assistant.sent[0].submit)
         XCTAssertTrue(assistant.sent[0].prompt.contains("notes.md"))
+        XCTAssertFalse(assistant.sent[0].prompt.contains("MarkView issue lifecycle"))
         XCTAssertEqual(flow.features.feature(slug)?.status, before)
         let evidenceURL = root.appendingPathComponent("test-lifecycle-events.jsonl")
         let evidence = LifecycleLog(testURL: evidenceURL)
@@ -688,7 +711,9 @@ extension EditorHostTests {
         let sentFeature = try XCTUnwrap(assistant.sent.last)
         XCTAssertTrue(sentFeature.submit)
         XCTAssertTrue(sentFeature.prompt.contains("docs/features/\(slug)"))
+        XCTAssertTrue(sentFeature.prompt.contains("MarkView issue lifecycle for feature \(slug)"))
         XCTAssertEqual(flow.features.feature(slug)?.status, "implementing")
+        XCTAssertEqual(flow.features.lifecycle.history(.feature, slug)?.changes.last?.actor.kind, .human)
         for _ in 0..<500 where evidence.events(project: root.standardizedFileURL.path, feature: slug).isEmpty {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
@@ -730,8 +755,10 @@ extension EditorHostTests {
         XCTAssertEqual(assistant.sent.count, 3)
         let sentBug = try XCTUnwrap(assistant.sent.last)
         XCTAssertTrue(sentBug.prompt.contains(bug.url.lastPathComponent))
+        XCTAssertTrue(sentBug.prompt.contains("MarkView issue lifecycle for bug \(bug.id)"))
         XCTAssertTrue(sentBug.submit)
         XCTAssertNotEqual(flow.features.bug(at: bug.url)?.status, bugStatus)
+        XCTAssertEqual(flow.features.lifecycle.history(.bug, bug.id)?.changes.last?.actor.kind, .human)
         XCTAssertTrue(flow.features.updateBug(bug.url) { front, _ in front.set("status", "closed") })
         let beforeClosed = assistant.sent.count
         flow.fixBugWithAI(bug.url)
@@ -860,6 +887,7 @@ extension EditorHostTests {
         if let previousProjects { settings.set(previousProjects, for: Setting.recentProjects) } else { settings.remove(Setting.recentProjects) }
         window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
         let flow = window.flow
+        XCTAssertEqual(flow.projectRoot?.standardizedFileURL.path, root.standardizedFileURL.path)
         flow.resumeHandoff(slug: "f1", title: "No project", linkedFiles: ["docs/a.md"])
         XCTAssertNil(window.requests.handoffResume)
         flow.features.setup(root: root)
@@ -936,6 +964,8 @@ extension EditorHostTests {
         XCTAssertEqual(flow.researchDefaultTargets, [doc])
         await window.tabs.openTextFile(outside)
         XCTAssertTrue(flow.researchDefaultTargets.isEmpty)
+        window.toolTabs.open(.git)
+        XCTAssertTrue(flow.researchDefaultTargets.isEmpty, "A tool tab is not a research document")
         flow.showCreatedProject(root, specification: "new-idea")
         XCTAssertEqual(flow.features.activeSlug, "new-idea")
         XCTAssertEqual(window.layout.leftPanel, "issues")

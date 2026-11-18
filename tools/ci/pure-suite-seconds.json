@@ -7,7 +7,6 @@
   "cockpit-build-phase-tests": 0.0,
   "cockpit-runtime-integration-tests": 0.0,
   "document-files-tests": 0.1,
-  "feature-flow-coordinator-tests": 62.0,
   "no-process-outside-subprocess-lint": 0.5,
   "qa-native-tests": 70.6,
   "run-sh-tests": 9.2,

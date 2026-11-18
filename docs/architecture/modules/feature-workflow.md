@@ -865,6 +865,8 @@ Settings read indirectly: `actions.outputLanguage` (conversation language), `AIA
     - Imported GitHub issue bodies and fetched web pages go into prompts unfiltered, which is a prompt-injection surface. The CLI is read-only (`CLICompletion.swift`).
 16. **Tests (2.17.0: none).** Standalone suites now exist for the discovery flow, the review gate, the flow coordinator and the issue lifecycle (`tools/tests/feature-discovery-tests.sh`, `feature-review-gate-tests.sh`, `feature-flow-coordinator-tests.sh`, `issue-lifecycle-tests.sh`). Whether feature parsing, `nextID`, `cleanUp` link rewriting and `bugSections` are covered was not checked.
 
+    The former flow coordinator standalone suite has since moved to the app-hosted `FeatureFlowCoordinatorHostTests.swift`.
+
 ---
 
 ## Glossary
