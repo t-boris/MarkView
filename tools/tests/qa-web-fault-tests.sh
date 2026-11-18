@@ -18,4 +18,7 @@ MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme
   -skip-testing:MarkViewHostedTests/ThemeWebHostTests \
   -skip-testing:MarkViewHostedTests/UIStudioWebHostTests \
   -skip-testing:MarkViewHostedTests/WelcomeScreenHostTests \
-  -skip-testing:MarkViewHostedTests/ProjectAIChoiceHostTests test
+  -skip-testing:MarkViewHostedTests/ProjectAIChoiceHostTests \
+  -skip-testing:MarkViewHostedTests/RemoteWorkspaceHostTests test
+# The workspace test owns a process registry and runs in a fresh host.
+bash tools/tests/remote-workspace-host-tests.sh

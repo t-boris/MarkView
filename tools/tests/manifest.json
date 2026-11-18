@@ -1113,6 +1113,13 @@
         "MarkView/Models/AgentTools/DiscussionAgentTools.swift",
         "MarkView/Models/AgentTools/ProjectAgentTools.swift",
         "MarkViewHostedTests/RemoteChannelHostTests.swift",
+        "MarkViewHostedTests/RemoteWorkspaceHostTests.swift",
+        "MarkView/Models/Remote/RemoteFraming.swift",
+        "MarkView/Models/Remote/RemoteToolBridge.swift",
+        "MarkView/Models/Remote/RemoteWorkspace.swift",
+        "tools/tests/remote-browser-tests.sh",
+        "tools/tests/remote-relay-settings-tests.sh",
+        "tools/tests/remote-workspace-host-tests.sh",
         "MarkView/Models/Remote/RemoteChannel.swift",
         "MarkView/Models/Remote/RemoteToolRequests.swift",
         "MarkView/Models/Research/ResearchJobs.swift",
@@ -1244,8 +1251,8 @@
       ]
     },
     {
-      "name": "remote-workspace-tests",
-      "script": "tools/tests/remote-workspace-tests.sh",
+      "name": "remote-relay-tests",
+      "script": "tools/tests/remote-relay-tests.sh",
       "tier": "pure",
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
@@ -1262,7 +1269,7 @@
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/RemoteWorkspaceTests.swift",
+        "tools/tests/RemoteWorkspaceModes.swift",
         "tools/tests/remote-browser-tests.sh",
         "tools/tests/remote-relay-settings-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",

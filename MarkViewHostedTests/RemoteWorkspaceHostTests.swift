@@ -1,12 +1,12 @@
+import Darwin
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
 
-@main
-enum RemoteWorkspaceTests {
-    static var checks = 0
-    static func check(_ condition: Bool, _ message: String) {
-        checks += 1
-        if !condition { fatalError(message) }
-    }
+/// Exercises the work-computer endpoint and its private Unix bridge in an isolated test host.
+final class RemoteWorkspaceHostTests: XCTestCase {
+    static func check(_ condition: Bool, _ message: String) { XCTAssertTrue(condition, message) }
     static func text(_ value: RemoteJSON) -> String { value["content"].array?.first?["text"].string ?? "" }
     static func session(_ result: RemoteJSON) -> String? {
         let text = text(result)
@@ -30,19 +30,13 @@ enum RemoteWorkspaceTests {
         var count: Int { lock.lock(); defer { lock.unlock() }; return value }
     }
     static func expectFailure(_ message: String, _ body: () throws -> Void) {
-        do { try body(); check(false, message) } catch { checks += 1 }
+        XCTAssertThrowsError(try body(), message)
     }
 
-    static func main() async throws {
-        if CommandLine.arguments.contains("--remote-workspace-mcp") { RemoteUnixRPC.runMCP(arguments: CommandLine.arguments) }
-        if CommandLine.arguments.contains("--remote-workspace-guard") { RemoteUnixRPC.runGuard() }
-        if let index = CommandLine.arguments.firstIndex(of: "--provider-command"), CommandLine.arguments.count > index + 4 {
-            let args = CommandLine.arguments
-            let directory = URL(fileURLWithPath: args[index + 4])
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            print(try RemoteProviderConfiguration.command(tool: RemoteProviderConfiguration.tool(named: args[index + 1])!, executable: args[index + 2],
-                app: args[index + 3], socket: directory.appendingPathComponent("test.sock").path,
-                context: .object(["cwd": .string("/test/work"), "hostname": .string("test-work")]), directory: directory, model: nil, resume: false))
+    func testRemoteWorkspace() async throws {
+        executionTimeAllowance = 180
+        guard Bundle.main.bundleIdentifier == "com.markview.tests.apphost", AgentProcesses.count == 0 else {
+            XCTFail("The remote workspace test requires an isolated host with no registered child processes")
             return
         }
         let fixture = FileManager.default.temporaryDirectory.appendingPathComponent("mv-remote-tests-" + UUID().uuidString)
@@ -56,65 +50,65 @@ enum RemoteWorkspaceTests {
 
         let invitation = try RemoteInvitation(relay: URL(string: "https://relay.example.com/base")!)
         let copy = try RemoteInvitation(code: invitation.code)
-        check(copy.room == invitation.room && copy.token(for: .home) == invitation.token(for: .home), "Pairing code must round-trip.")
-        check(copy.token(for: .work) != copy.token(for: .home), "Roles require different credentials.")
+        Self.check(copy.room == invitation.room && copy.token(for: .home) == invitation.token(for: .home), "Pairing code must round-trip.")
+        Self.check(copy.token(for: .work) != copy.token(for: .home), "Roles require different credentials.")
         let message = RemoteMessage("input", .string("Привет 🌍"))
         let sealed = try invitation.seal(message, sender: .work)
-        check(!(Data(base64Encoded: sealed).map { String(decoding: $0, as: UTF8.self).contains("Привет") } ?? true), "The relay must not see plaintext.")
+        Self.check(!(Data(base64Encoded: sealed).map { String(decoding: $0, as: UTF8.self).contains("Привет") } ?? true), "The relay must not see plaintext.")
         let opened = try copy.open(sealed, sender: .work)
-        check(opened.id == message.id && opened.payload == message.payload, "Authenticated messages must round-trip.")
-        expectFailure("A reflected message must fail role authentication.") { _ = try copy.open(sealed, sender: .home) }
+        Self.check(opened.id == message.id && opened.payload == message.payload, "Authenticated messages must round-trip.")
+        Self.expectFailure("A reflected message must fail role authentication.") { _ = try copy.open(sealed, sender: .home) }
         let other = try RemoteInvitation(relay: invitation.relay)
-        expectFailure("A different room cannot decrypt a message.") { _ = try other.open(sealed, sender: .work) }
-        expectFailure("External plaintext HTTP must be rejected.") { _ = try RemoteInvitation(relay: URL(string: "http://relay.example.com")!) }
-        expectFailure("Credentials in a URL must be rejected.") { _ = try RemoteInvitation(relay: URL(string: "https://user:password@relay.example.com")!) }
-        expectFailure("Invalid codes must be rejected.") { _ = try RemoteInvitation(code: "not a connection") }
+        Self.expectFailure("A different room cannot decrypt a message.") { _ = try other.open(sealed, sender: .work) }
+        Self.expectFailure("External plaintext HTTP must be rejected.") { _ = try RemoteInvitation(relay: URL(string: "http://relay.example.com")!) }
+        Self.expectFailure("Credentials in a URL must be rejected.") { _ = try RemoteInvitation(relay: URL(string: "https://user:password@relay.example.com")!) }
+        Self.expectFailure("Invalid codes must be rejected.") { _ = try RemoteInvitation(code: "not a connection") }
         _ = try RemoteInvitation(relay: URL(string: "http://127.0.0.1:8787")!)
         let largeMessage = RemoteMessage("toolResult", .string(String(repeating: "large image or file data;", count: 100000)))
         let frames = try RemoteFraming.frames(for: largeMessage)
-        check(frames.count > 1, "Large tool results must be framed for serverless payload limits.")
+        Self.check(frames.count > 1, "Large tool results must be framed for serverless payload limits.")
         var assembler = RemoteReassembler(), assembled: RemoteMessage?
         for frame in frames {
             let box = try invitation.seal(frame, sender: .home)
-            check(box.utf8.count <= RemoteFraming.maxEncryptedBytes, "Every encrypted frame must fit the serverless request limit.")
+            Self.check(box.utf8.count <= RemoteFraming.maxEncryptedBytes, "Every encrypted frame must fit the serverless request limit.")
             assembled = try assembler.accept(invitation.open(box, sender: .home))
         }
-        check(assembled?.id == largeMessage.id && assembled?.payload == largeMessage.payload, "Framing must retain the original tool ID and complete contents.")
+        Self.check(assembled?.id == largeMessage.id && assembled?.payload == largeMessage.payload, "Framing must retain the original tool ID and complete contents.")
         let retried = try assembler.accept(frames.last!)
-        check(retried?.id == largeMessage.id, "The final frame must remain retryable until the application acknowledges it.")
+        Self.check(retried?.id == largeMessage.id, "The final frame must remain retryable until the application acknowledges it.")
         assembler.acknowledge(largeMessage.id)
         let replayed = try assembler.accept(frames[0])
-        check(replayed == nil, "A completed operation must not be delivered again under new transport retries.")
+        Self.check(replayed == nil, "A completed operation must not be delivered again under new transport retries.")
 
         let workspace = try await RemoteWorkspace(root: workRoot, deviceID: UUID().uuidString)
         @Sendable func call(_ name: String, _ args: [String: RemoteJSON] = [:], id: UUID = UUID()) async -> RemoteJSON {
             await workspace.call(id: id, name: name, arguments: .object(args))
         }
         func commandOutputUntilExit(_ first: RemoteJSON) async -> String {
-            var current = first, output = text(first)
+            var current = first, output = Self.text(first)
             for _ in 0..<10 {
-                guard let id = session(current) else { return output }
+                guard let id = Self.session(current) else { return output }
                 current = await call("write_stdin", ["session_id": .string(id), "yield_time_ms": .int(1000)])
-                output += "\n" + text(current)
+                output += "\n" + Self.text(current)
             }
             fatalError("The test command did not finish: \(output)")
         }
         let read = await call("read_file", ["path": .string("identity.txt")])
-        check(text(read).contains("WORK ONLY") && !text(read).contains("HOME ONLY"), "The workspace must read the work file, never its home namesake.")
+        Self.check(Self.text(read).contains("WORK ONLY") && !Self.text(read).contains("HOME ONLY"), "The workspace must read the work file, never its home namesake.")
         let absolute = await call("read_file", ["path": .string(workRoot.appendingPathComponent("identity.txt").path)])
-        check(text(read) == text(absolute), "Absolute work paths must resolve to the same file.")
+        Self.check(Self.text(read) == Self.text(absolute), "Absolute work paths must resolve to the same file.")
         let escaped = await call("read_file", ["path": .string("escape/identity.txt")])
-        check(escaped["isError"].bool == true, "File reads must reject symlink escapes.")
+        Self.check(escaped["isError"].bool == true, "File reads must reject symlink escapes.")
         let traversal = await call("write_file", ["path": .string("../home/identity.txt"), "content": .string("bad")])
-        check(traversal["isError"].bool == true, "File writes must reject path traversal.")
+        Self.check(traversal["isError"].bool == true, "File writes must reject path traversal.")
         let writeID = UUID()
         _ = await call("write_file", ["path": .string("new/file.txt"), "content": .string("alpha alpha")], id: writeID)
         let ambiguous = await call("edit_file", ["path": .string("new/file.txt"), "old_text": .string("alpha"), "new_text": .string("beta")])
-        check(ambiguous["isError"].bool == true, "Edits must refuse ambiguous matches.")
+        Self.check(ambiguous["isError"].bool == true, "Edits must refuse ambiguous matches.")
         let edit = await call("edit_file", ["path": .string("new/file.txt"), "old_text": .string("alpha"), "new_text": .string("beta"), "replace_all": .bool(true)])
-        check(edit["isError"].bool == false, "Explicit replace-all must work.")
+        Self.check(edit["isError"].bool == false, "Explicit replace-all must work.")
         _ = await call("write_file", ["path": .string("new/file.txt"), "content": .string("alpha alpha")], id: writeID)
-        check(try String(contentsOf: workRoot.appendingPathComponent("new/file.txt"), encoding: .utf8) == "beta beta", "Retrying a previous write must not overwrite subsequent edits.")
+        Self.check(try String(contentsOf: workRoot.appendingPathComponent("new/file.txt"), encoding: .utf8) == "beta beta", "Retrying a previous write must not overwrite subsequent edits.")
 
         let bounded = try await RemoteWorkspace(root: workRoot, deviceID: UUID().uuidString, resultCacheBytes: 0)
         let oldID = UUID()
@@ -122,37 +116,37 @@ enum RemoteWorkspaceTests {
         _ = await bounded.call(id: UUID(), name: "write_file", arguments: .object(["path": .string("cache.txt"), "content": .string("second")]))
         let expiredRetry = await bounded.call(id: oldID, name: "write_file", arguments: .object(["path": .string("cache.txt"), "content": .string("first")]))
         let afterExpiredRetry = try String(contentsOf: workRoot.appendingPathComponent("cache.txt"), encoding: .utf8)
-        check(expiredRetry["isError"].bool == true && afterExpiredRetry == "second", "Evicting a cached result must never replay a completed write.")
+        Self.check(expiredRetry["isError"].bool == true && afterExpiredRetry == "second", "Evicting a cached result must never replay a completed write.")
         await bounded.close()
         try Data(repeating: 1, count: 1024 * 1024).write(to: workRoot.appendingPathComponent("control-characters.txt"))
         let oversized = await call("read_file", ["path": .string("control-characters.txt")])
-        check(oversized["isError"].bool == true && text(oversized).contains("Read a smaller portion"), "JSON escaping must not turn a bounded file into an oversized transport message.")
+        Self.check(oversized["isError"].bool == true && Self.text(oversized).contains("Read a smaller portion"), "JSON escaping must not turn a bounded file into an oversized transport message.")
 
         let shell = await call("exec_command", ["cmd": .string("pwd; cat identity.txt; printf built > build.txt; /usr/bin/git init -q"), "yield_time_ms": .int(1000)])
         let shellOutput = await commandOutputUntilExit(shell)
-        check(shellOutput.contains("WORK ONLY") && shellOutput.contains(workRoot.path), "Commands must execute in the work-computer root.")
-        check(shellOutput.contains("Exit code: 0") && FileManager.default.fileExists(atPath: workRoot.appendingPathComponent(".git").path), "Git must run on the work computer: \(shellOutput)")
-        check(!FileManager.default.fileExists(atPath: homeRoot.appendingPathComponent("build.txt").path), "Commands must leave the home fixture unchanged.")
+        Self.check(shellOutput.contains("WORK ONLY") && shellOutput.contains(workRoot.path), "Commands must execute in the work-computer root.")
+        Self.check(shellOutput.contains("Exit code: 0") && FileManager.default.fileExists(atPath: workRoot.appendingPathComponent(".git").path), "Git must run on the work computer: \(shellOutput)")
+        Self.check(!FileManager.default.fileExists(atPath: homeRoot.appendingPathComponent("build.txt").path), "Commands must leave the home fixture unchanged.")
         let dedupeID = UUID()
         let dedupeArgs: [String: RemoteJSON] = ["cmd": .string("printf x >> once.txt; sleep 0.1"), "yield_time_ms": .int(1000)]
         async let a = call("exec_command", dedupeArgs, id: dedupeID)
         async let b = call("exec_command", dedupeArgs, id: dedupeID)
         let pair = await (a, b)
-        check(pair.0 == pair.1, "Concurrent duplicate requests must share one command result.")
-        check(try String(contentsOf: workRoot.appendingPathComponent("once.txt"), encoding: .utf8) == "x", "A retried command must execute exactly once.")
+        Self.check(pair.0 == pair.1, "Concurrent duplicate requests must share one command result.")
+        Self.check(try String(contentsOf: workRoot.appendingPathComponent("once.txt"), encoding: .utf8) == "x", "A retried command must execute exactly once.")
 
         let large = await call("exec_command", ["cmd": .string("/usr/bin/head -c 300000 /dev/zero | /usr/bin/tr '\\0' x; printf FINAL_MARKER"), "yield_time_ms": .int(2000)])
-        check(text(large).contains("FINAL_MARKER") && text(large).contains("Exit code: 0"), "Large pipe output must drain completely without deadlocking or losing the tail.")
+        Self.check(Self.text(large).contains("FINAL_MARKER") && Self.text(large).contains("Exit code: 0"), "Large pipe output must drain completely without deadlocking or losing the tail.")
         let running = await call("exec_command", ["cmd": .string("read reply; printf 'REPLY:%s' \"$reply\""), "yield_time_ms": .int(0)])
-        check(session(running) != nil, "A running command must return a session ID.")
-        let input = await call("write_stdin", ["session_id": .string(session(running)!), "chars": .string("from work\n"), "yield_time_ms": .int(1000)])
-        check(text(input).contains("REPLY:from work") && text(input).contains("Exit code: 0"), "Command input and completion must use the same work process.")
+        Self.check(Self.session(running) != nil, "A running command must return a session ID.")
+        let input = await call("write_stdin", ["session_id": .string(Self.session(running)!), "chars": .string("from work\n"), "yield_time_ms": .int(1000)])
+        Self.check(Self.text(input).contains("REPLY:from work") && Self.text(input).contains("Exit code: 0"), "Command input and completion must use the same work process.")
         let counter = await call("exec_command", ["cmd": .string("/usr/bin/wc -c"), "yield_time_ms": .int(0)])
-        let countResult = await call("write_stdin", ["session_id": .string(session(counter)!), "chars": .string(String(repeating: "x", count: 60000)), "close_stdin": .bool(true), "yield_time_ms": .int(2000)])
-        check(text(countResult).contains("60000") && text(countResult).contains("Exit code: 0"), "Large stdin must drain under backpressure before EOF.")
+        let countResult = await call("write_stdin", ["session_id": .string(Self.session(counter)!), "chars": .string(String(repeating: "x", count: 60000)), "close_stdin": .bool(true), "yield_time_ms": .int(2000)])
+        Self.check(Self.text(countResult).contains("60000") && Self.text(countResult).contains("Exit code: 0"), "Large stdin must drain under backpressure before EOF.")
         let sleeper = await call("exec_command", ["cmd": .string("sleep 30"), "yield_time_ms": .int(0)])
-        let stopped = await call("write_stdin", ["session_id": .string(session(sleeper)!), "terminate": .bool(true), "yield_time_ms": .int(1000)])
-        check(text(stopped).contains("Exit code:"), "Stopping a command must terminate it.")
+        let stopped = await call("write_stdin", ["session_id": .string(Self.session(sleeper)!), "terminate": .bool(true), "yield_time_ms": .int(1000)])
+        Self.check(Self.text(stopped).contains("Exit code:"), "Stopping a command must terminate it.")
 
         // Browser calls use the work endpoint and the same retry/size/disconnect rules as writes.
         actor BrowserFixture {
@@ -172,68 +166,73 @@ enum RemoteWorkspaceTests {
             await browser.call(name, args)
         })
         let tabs = await browserWorkspace.call(id: UUID(), name: "browser_tabs", arguments: .object([:]))
-        check(text(tabs).contains("WORK tab T2"), "Browser discovery must reach the work endpoint.")
+        Self.check(Self.text(tabs).contains("WORK tab T2"), "Browser discovery must reach the work endpoint.")
         let clickID = UUID(), clickArgs = RemoteJSON.object(["tab": .string("T2"), "ref": .string("e1")])
         async let clickA = browserWorkspace.call(id: clickID, name: "browser_click", arguments: clickArgs)
         async let clickB = browserWorkspace.call(id: clickID, name: "browser_click", arguments: clickArgs)
         let clicks = await (clickA, clickB)
         let clickCount = await browser.count()
-        check(clicks.0 == clicks.1 && text(clicks.0).contains("T2") && clickCount == 1, "Retried browser mutations must execute once and retain the target tab.")
+        Self.check(clicks.0 == clicks.1 && Self.text(clicks.0).contains("T2") && clickCount == 1, "Retried browser mutations must execute once and retain the target tab.")
         let screenshot = await browserWorkspace.call(id: UUID(), name: "browser_screenshot", arguments: .object([:]))
-        check(screenshot["content"].array?.first?["data"].string == "work-image", "Screenshot MCP image blocks must survive unchanged.")
+        Self.check(screenshot["content"].array?.first?["data"].string == "work-image", "Screenshot MCP image blocks must survive unchanged.")
         let noBrowser = await call("browser_tabs")
-        check(noBrowser["isError"].bool == true, "Missing window bindings must fail without using a home browser.")
+        Self.check(noBrowser["isError"].bool == true, "Missing window bindings must fail without using a home browser.")
         await browserWorkspace.close()
         let afterClose = await browserWorkspace.call(id: UUID(), name: "browser_click", arguments: clickArgs)
         let closedClicks = await browser.count()
-        check(afterClose["isError"].bool == true && closedClicks == 1, "Disconnected browser calls must not execute.")
+        Self.check(afterClose["isError"].bool == true && closedClicks == 1, "Disconnected browser calls must not execute.")
 
         let listed = RemoteWorkspaceTools.response(to: .object(["id": .int(1), "method": .string("tools/list")])) { _, _, _ in .null }
-        check(listed?["result"]["tools"].array?.count == RemoteWorkspaceTools.names.count, "Both providers must discover the complete workspace interface.")
+        Self.check(listed?["result"]["tools"].array?.count == RemoteWorkspaceTools.names.count, "Both providers must discover the complete workspace interface.")
         let advertised = listed?["result"]["tools"].array ?? []
-        check(Set(advertised.compactMap { $0["name"].string }).isSuperset(of: BrowserAgentTools.tools.map(\.name)), "Both providers must discover every shipping browser tool.")
-        check(advertised.filter { $0["name"].string?.hasPrefix("browser_") == true }.allSatisfy {
+        Self.check(Set(advertised.compactMap { $0["name"].string }).isSuperset(of: BrowserAgentTools.tools.map(\.name)), "Both providers must discover every shipping browser tool.")
+        Self.check(advertised.filter { $0["name"].string?.hasPrefix("browser_") == true }.allSatisfy {
             $0["inputSchema"]["properties"]["project_folder"] == .null
         }, "Remote browser tools must not route using an agent's home folder.")
         let browserRPC = RemoteWorkspaceTools.response(to: .object(["id": .int(7), "method": .string("tools/call"),
             "params": .object(["name": .string("browser_snapshot"), "arguments": .object(["tab": .string("T2")])])])) { _, name, args in
                 .textResult(name + " " + (args["tab"].string ?? ""))
             }
-        check(text(browserRPC?["result"] ?? .null) == "browser_snapshot T2", "The stdio MCP dispatcher must forward browser calls and arguments.")
-        check(["Bash", "Read", "Write", "Edit", "apply_patch", "exec_command", "shell_command", "mcp__work__read_file", ""].allSatisfy {
+        Self.check(Self.text(browserRPC?["result"] ?? .null) == "browser_snapshot T2", "The stdio MCP dispatcher must forward browser calls and arguments.")
+        Self.check(["Bash", "Read", "Write", "Edit", "apply_patch", "exec_command", "shell_command", "mcp__work__read_file", ""].allSatisfy {
             RemoteUnixRPC.guardResponse(for: $0)["hookSpecificOutput"]["permissionDecision"].string == "deny"
         }, "Both providers must receive a supported denial for native home tools and malformed names.")
-        check([RemoteWorkspaceTools.toolPrefix + "read_file", "AskUserQuestion", "update_plan"].allSatisfy {
+        Self.check([RemoteWorkspaceTools.toolPrefix + "read_file", "AskUserQuestion", "update_plan"].allSatisfy {
             RemoteUnixRPC.guardResponse(for: $0) == .object([:])
         }, "Allowed tools must use a neutral hook result accepted by both Claude and Codex.")
         let context = await workspace.describe()
-        check(context["computer"].string == "work" && context["file_tools"]["root_writable"].bool == true,
+        Self.check(context["computer"].string == "work" && context["file_tools"]["root_writable"].bool == true,
               "Workspace info must identify the work computer and report its actual writable root.")
-        check(context["file_tools"]["write_operations"].array == [.string("write_file"), .string("edit_file")],
+        Self.check(context["file_tools"]["write_operations"].array == [.string("write_file"), .string("edit_file")],
               "The work endpoint must advertise its file-edit capabilities independently of the home sandbox.")
         for provider in RemoteProviderConfiguration.tools {
             let command = try RemoteProviderConfiguration.command(tool: provider, executable: "/test/agent", app: "/test/MarkView's App",
                 socket: fixture.appendingPathComponent("bridge.sock").path, context: context, directory: fixture, model: "model; touch /unwanted", resume: false)
-            check(command.contains("--remote-workspace-guard") || provider.rawValue == "claude", "Codex must configure the native-tool guard.")
-            check(!command.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex native execution must retain its sandbox.")
-            check(command.contains("'model; touch /unwanted'"), "Model values must remain one quoted argument.")
+            Self.check(command.contains("--remote-workspace-guard") || provider.rawValue == "claude", "Codex must configure the native-tool guard.")
+            Self.check(!command.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex native execution must retain its sandbox.")
+            Self.check(command.contains("'model; touch /unwanted'"), "Model values must remain one quoted argument.")
             if provider.rawValue == "codex" {
-                check(command.contains("'--sandbox' 'read-only'") && command.contains("'--cd' " + RemoteProviderConfiguration.quote(fixture.path)),
+                Self.check(command.contains("'--sandbox' 'read-only'") && command.contains("'--cd' " + RemoteProviderConfiguration.quote(fixture.path)),
                       "Codex must retain native read-only access in the transport directory.")
                 let server = "mcp_servers." + RemoteWorkspaceTools.serverName
-                check(command.contains(server + ".required=true") && command.contains(server + ".default_tools_approval_mode=\"approve\""), "Codex must require and authorize the owned work MCP server without prompting in never-approval mode.")
+                Self.check(command.contains(server + ".required=true") && command.contains(server + ".default_tools_approval_mode=\"approve\""), "Codex must require and authorize the owned work MCP server without prompting in never-approval mode.")
             }
         }
         let settings = try JSONDecoder().decode(RemoteJSON.self, from: Data(contentsOf: fixture.appendingPathComponent("claude-settings.json")))
-        check(settings["hooks"]["PreToolUse"].array?.count == 1, "Claude must have the same fail-closed native-tool guard.")
+        Self.check(settings["hooks"]["PreToolUse"].array?.count == 1, "Claude must have the same fail-closed native-tool guard.")
         let config = try JSONDecoder().decode(RemoteJSON.self, from: Data(contentsOf: fixture.appendingPathComponent("mcp.json")))
-        check(config["mcpServers"][RemoteWorkspaceTools.serverName]["args"].array?.first?.string == "--remote-workspace-mcp", "MCP configuration must use this app's embedded bridge.")
+        Self.check(config["mcpServers"][RemoteWorkspaceTools.serverName]["args"].array?.first?.string == "--remote-workspace-mcp", "MCP configuration must use this app's embedded bridge.")
         let quitCommand = await call("exec_command", ["cmd": .string("sleep 30"), "yield_time_ms": .int(0)])
+        guard let quitSession = Self.session(quitCommand), AgentProcesses.count == 1 else {
+            await workspace.close()
+            XCTFail("The isolated test must own exactly one registered child before testing shutdown")
+            return
+        }
         AgentProcesses.terminateAll(grace: 0.2)
-        let quitResult = await call("write_stdin", ["session_id": .string(session(quitCommand)!), "yield_time_ms": .int(1000)])
-        check(text(quitResult).contains("Exit code:"), "App termination must stop work-computer commands through the shared process registry.")
-        print("Remote workspace core: \(checks) checks passed.")
-        if !CommandLine.arguments.contains("--core-only") {
+        let quitResult = await call("write_stdin", ["session_id": .string(quitSession), "yield_time_ms": .int(1000)])
+        Self.check(Self.text(quitResult).contains("Exit code:"), "App termination must stop work-computer commands through the shared process registry.")
+        print("Remote workspace core checks passed.")
+        if ProcessInfo.processInfo.environment["MARKVIEW_REMOTE_CORE_ONLY"] != "1" {
             let bridge = try RemoteToolBridge { id, name, args in await workspace.call(id: id, name: name, arguments: args) }
             defer { bridge.stop() }
             let viaBridge = await Task.detached {
@@ -244,8 +243,8 @@ enum RemoteWorkspaceTests {
             let viaBrowserBridge = await Task.detached {
                 RemoteUnixRPC.call(socket: browserBridge.path, id: UUID(), name: "browser_snapshot", arguments: .object(["tab": .string("T2")]))
             }.value
-            check(text(viaBrowserBridge).contains("browser_snapshot T2"), "The real Unix bridge must accept browser tool names.")
-            check(text(viaBridge).contains("WORK ONLY"), "The real per-session Unix bridge must reach the selected workspace.")
+            Self.check(Self.text(viaBrowserBridge).contains("browser_snapshot T2"), "The real Unix bridge must accept browser tool names.")
+            Self.check(Self.text(viaBridge).contains("WORK ONLY"), "The real per-session Unix bridge must reach the selected workspace.")
             // AR-40: the bridge serves only a caller that holds its token; every other request is closed unanswered.
             let served = Counter()
             let guarded = try RemoteToolBridge { _, name, _ in served.increment(); return .textResult("served " + name) }
@@ -255,27 +254,27 @@ enum RemoteWorkspaceTests {
             let token = PrivateSocket.readToken(forSocket: guardedPath) ?? ""
             let tokenMode = (try? FileManager.default.attributesOfItem(atPath: PrivateSocket.tokenPath(forSocket: guardedPath))[.posixPermissions] as? NSNumber)?.intValue
             let socketMode = (try? FileManager.default.attributesOfItem(atPath: guardedPath)[.posixPermissions] as? NSNumber)?.intValue
-            check(token.count == 64 && tokenMode == 0o600 && socketMode == 0o600, "The bridge socket and its 256-bit token file are private to this user.")
+            Self.check(token.count == 64 && tokenMode == 0o600 && socketMode == 0o600, "The bridge socket and its 256-bit token file are private to this user.")
             let withoutToken = try JSONEncoder().encode(call)
             let wrongToken = try JSONEncoder().encode(RemoteBridgeRequest(token: "wrong", message: call))
             let emptyToken = try JSONEncoder().encode(RemoteBridgeRequest(token: "", message: call))
             let rightToken = try JSONEncoder().encode(RemoteBridgeRequest(token: token, message: call))
             let replies = await Task.detached { [withoutToken, wrongToken, emptyToken, rightToken] in
-                (rawBridgeReply(guardedPath, line: withoutToken), rawBridgeReply(guardedPath, line: wrongToken),
-                 rawBridgeReply(guardedPath, line: emptyToken), served.count, rawBridgeReply(guardedPath, line: rightToken))
+                (Self.rawBridgeReply(guardedPath, line: withoutToken), Self.rawBridgeReply(guardedPath, line: wrongToken),
+                 Self.rawBridgeReply(guardedPath, line: emptyToken), served.count, Self.rawBridgeReply(guardedPath, line: rightToken))
             }.value
-            check(replies.0 == nil && replies.1 == nil && replies.2 == nil && replies.3 == 0,
+            Self.check(replies.0 == nil && replies.1 == nil && replies.2 == nil && replies.3 == 0,
                   "A bridge request without the token, with a wrong one or an empty one is closed unanswered and never reaches the handler.")
-            check(replies.4.flatMap { try? JSONDecoder().decode(RemoteJSON.self, from: $0) }.map(text)?.contains("served read_file") == true && served.count == 1,
+            Self.check(replies.4.flatMap { try? JSONDecoder().decode(RemoteJSON.self, from: $0) }.map(Self.text)?.contains("served read_file") == true && served.count == 1,
                   "A bridge request with the token is served.")
             let tokenFile = PrivateSocket.tokenPath(forSocket: guardedPath)
             guarded.stop()
-            check(!FileManager.default.fileExists(atPath: guardedPath) && !FileManager.default.fileExists(atPath: tokenFile),
+            Self.check(!FileManager.default.fileExists(atPath: guardedPath) && !FileManager.default.fileExists(atPath: tokenFile),
                   "Stopping the bridge removes its socket and token file.")
         } else { print("Unix bridge integration not run (--core-only).") }
         await workspace.close()
         let closed = await call("exec_command", ["cmd": .string("touch must-not-run")])
-        check(closed["isError"].bool == true && !FileManager.default.fileExists(atPath: workRoot.appendingPathComponent("must-not-run").path), "Disconnected workspaces must refuse commands.")
-        print("Remote workspace: \(checks) checks passed.")
+        Self.check(closed["isError"].bool == true && !FileManager.default.fileExists(atPath: workRoot.appendingPathComponent("must-not-run").path), "Disconnected workspaces must refuse commands.")
+        print("Remote workspace checks passed.")
     }
 }

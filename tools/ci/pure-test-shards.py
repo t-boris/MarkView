@@ -12,7 +12,7 @@ suites = [suite["name"] for suite in manifest["suites"] if suite["tier"] == "pur
 if len(set(suites)) != len(suites):
     sys.exit("Duplicate pure suite name in manifest")
 if os.environ.get("MARKVIEW_REMOTE_SKIP_DUPLICATE_PURE") == "1":
-    required = {"remote-workspace-tests", "remote-relay-settings-tests"}
+    required = {"remote-relay-tests", "remote-relay-settings-tests"}
     missing = required.difference(suites)
     if missing:
         sys.exit("Remote de-duplication requires these pure suites: " + ", ".join(sorted(missing)))
