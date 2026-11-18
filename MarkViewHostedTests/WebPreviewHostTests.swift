@@ -311,56 +311,72 @@ try? fm.removeItem(at: bridge)
 
 // MARK: Probing a real server
 
-let port = 47_000 + Int.random(in: 0..<2_000)
-let server = Process()
-server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-server.arguments = ["-m", "http.server", String(port), "--bind", "127.0.0.1"]
-server.standardOutput = FileHandle.nullDevice
-server.standardError = FileHandle.nullDevice
-try! server.run()
+func openListeningSocket() -> (fd: Int32, port: Int) {
+    let fd = Darwin.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
+    var reuse: Int32 = 1
+    _ = Darwin.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = 0
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+    _ = withUnsafePointer(to: &addr) { ptr in
+        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    _ = Darwin.listen(fd, 8)
+    var bound = sockaddr_in()
+    var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+    _ = withUnsafeMutablePointer(to: &bound) { ptr in
+        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.getsockname(fd, $0, &len) }
+    }
+    return (fd, Int(UInt16(bigEndian: bound.sin_port)))
+}
+
+let (closedFD, closedPort) = openListeningSocket()
+Darwin.close(closedFD)
+
+let (serverFD, port) = openListeningSocket()
+DispatchQueue.global(qos: .userInitiated).async {
+    let response = Array("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".utf8)
+    while true {
+        let client = Darwin.accept(serverFD, nil, nil)
+        guard client >= 0 else { break }
+        var buf = [UInt8](repeating: 0, count: 1024)
+        _ = Darwin.read(client, &buf, buf.count)
+        _ = response.withUnsafeBytes { raw in Darwin.write(client, raw.baseAddress!, raw.count) }
+        Darwin.close(client)
+    }
+}
 var probed: URL?
 var probeDone = false
 var deadPort: URL?
 Task {
-    for _ in 0..<40 {
-        probed = await WebAppPreview.firstAnswering([port - 1, port])
-        if probed != nil { break }
-        try? await Task.sleep(nanoseconds: 150_000_000)
-    }
-    deadPort = await WebAppPreview.firstAnswering([port - 1])
+    probed = await WebAppPreview.firstAnswering([closedPort, port])
+    deadPort = await WebAppPreview.firstAnswering([closedPort])
     probeDone = true
 }
 let probeEnd = Date().addingTimeInterval(20)
 while !probeDone && Date() < probeEnd { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
-server.terminate()
+Darwin.close(serverFD)
 check("answering port found", probed?.absoluteString == "http://localhost:\(port)/", "\(String(describing: probed))")
 check("silent port not reported", probeDone && deadPort == nil)
 
 // BUG-076: a server that accepts connections but takes long to render a page is listening, though it does not answer a GET in
 // time; nothing listens on a closed port.
-let slowPort = 49_000 + Int.random(in: 0..<2_000)
-let slow = Process()
-slow.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-slow.arguments = ["-c", "import socket, time\ns = socket.socket()\ns.bind(('127.0.0.1', \(slowPort)))\ns.listen(8)\nprint('up', flush=True)\n"
-                  + "conns = []\nwhile True:\n    conns.append(s.accept())\n"]
-let slowOut = Pipe()
-slow.standardOutput = slowOut
-slow.standardError = FileHandle.nullDevice
-try! slow.run()
-_ = slowOut.fileHandleForReading.availableData
+let (slowFD, slowPort) = openListeningSocket()
 var listening: URL?
 var slowAnswering: URL?
 var closedListening: URL?
 var listenDone = false
 Task {
-    listening = await WebAppPreview.firstListening([slowPort - 1, slowPort])
+    listening = await WebAppPreview.firstListening([closedPort, slowPort])
     slowAnswering = await WebAppPreview.firstAnswering([slowPort], timeout: 0.8)
-    closedListening = await WebAppPreview.firstListening([slowPort - 1])
+    closedListening = await WebAppPreview.firstListening([closedPort])
     listenDone = true
 }
 let listenEnd = Date().addingTimeInterval(20)
 while !listenDone && Date() < listenEnd { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
-slow.terminate()
+Darwin.close(slowFD)
 check("BUG-076 a slow server is found listening", listening?.absoluteString == "http://localhost:\(slowPort)/", "\(String(describing: listening))")
 check("BUG-076 the same server does not answer a GET within the probe's time", listenDone && slowAnswering == nil)
 check("BUG-076 a closed port is not listening", listenDone && closedListening == nil)

@@ -54,14 +54,28 @@ struct AgentUsageBar: View {
 
     private static func hiddenAgents() -> Set<CLITool> { Set(CLITool.usageTracked.filter(AgentUsageTracker.isHidden)) }
 
+    static let rowsPerColumn = 2
+
+    /// Packs the visible agents into vertical columns of at most `rowsPerColumn` chips so the bar takes a
+    /// compact two-row grid in the workspace header instead of one wide horizontal row.
+    static func columns(for agents: [CLITool]) -> [[CLITool]] {
+        stride(from: 0, to: agents.count, by: rowsPerColumn).map { start in
+            Array(agents[start ..< min(start + rowsPerColumn, agents.count)])
+        }
+    }
+
     private var agents: [CLITool] { tracker.detected.filter { !hidden.contains($0) } }
 
     private func chips(_ detail: AgentUsageChip.Detail) -> some View {
-        HStack(spacing: 4) {
-            ForEach(agents) { agent in
-                AgentUsageChip(agent: agent, tracker: tracker, detail: detail,
-                               showingDetails: Binding(get: { detailsFor == agent },
-                                                       set: { detailsFor = $0 ? agent : (detailsFor == agent ? nil : detailsFor) }))
+        HStack(alignment: .top, spacing: 4) {
+            ForEach(Self.columns(for: agents), id: \.first) { column in
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(column) { agent in
+                        AgentUsageChip(agent: agent, tracker: tracker, detail: detail,
+                                       showingDetails: Binding(get: { detailsFor == agent },
+                                                               set: { detailsFor = $0 ? agent : (detailsFor == agent ? nil : detailsFor) }))
+                    }
+                }
             }
         }
         .fixedSize()
@@ -119,7 +133,7 @@ struct AgentUsageChip: View {
         let snapshot = tracker.snapshots[agent]
         Button { showingDetails.toggle() } label: {
             content(snapshot, detail: detail)
-                .padding(.horizontal, 6).padding(.vertical, 2)
+                .padding(.horizontal, 6).padding(.vertical, 1.5)
                 .background(RoundedRectangle(cornerRadius: 4).fill(palette.border.opacity(0.45)))
                 .contentShape(Rectangle())
         }
