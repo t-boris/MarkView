@@ -904,7 +904,6 @@
         "MarkView/Models/Remote/RemoteWorkspace.swift",
         "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/RemoteProviderLiveChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "MarkView/Models/AI/Providers/AgentActivity.swift",
@@ -927,7 +926,8 @@
         "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
+        "MarkView/Models/AI/Providers/CopilotProvider.swift",
+        "MarkViewHostedTests/ManualRemoteProviderHostTests.swift"
       ]
     },
     {

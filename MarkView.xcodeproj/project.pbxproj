@@ -575,6 +575,7 @@
 		5105DD4BD39C4CDE80163528 /* QANativeBehaviorChecks.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5BFFB77BD514FD699CD9F38 /* QANativeBehaviorChecks.swift */; };
 		35EC159B7EDC442D8E88547F /* CockpitRuntimeIntegrationHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA975C20BF04F63A9762A12 /* CockpitRuntimeIntegrationHostTests.swift */; };
 		61985CBB5868433BA83F4C7B /* ManualPrototypeLiveHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B21BE727611645A7A4CDC129 /* ManualPrototypeLiveHostTests.swift */; };
+		A76A10CF40964DC789C83AD7 /* ManualRemoteProviderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11DF76010D224CE59A851DBD /* ManualRemoteProviderHostTests.swift */; };
 		3EB8A0168433470DBEE1A43C /* ManualProviderLiveHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E91BA018084BC1AFB2AA64 /* ManualProviderLiveHostTests.swift */; };
 		C7A532E67C6A410D857E41DD /* ManualUIStudioLiveHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6E1CA438284F109C641E7E /* ManualUIStudioLiveHostTests.swift */; };
 		C263824AACED4BA48B71DD25 /* ManualNativeQAHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B605C2B6EFC543F099ED0C66 /* ManualNativeQAHostTests.swift */; };
@@ -1348,6 +1349,7 @@
 		E5BFFB77BD514FD699CD9F38 /* QANativeBehaviorChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = tools/tests/QANativeBehaviorChecks.swift; sourceTree = SOURCE_ROOT; };
 		7EA975C20BF04F63A9762A12 /* CockpitRuntimeIntegrationHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRuntimeIntegrationHostTests.swift; sourceTree = "<group>"; };
 		B21BE727611645A7A4CDC129 /* ManualPrototypeLiveHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualPrototypeLiveHostTests.swift; sourceTree = "<group>"; };
+		11DF76010D224CE59A851DBD /* ManualRemoteProviderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualRemoteProviderHostTests.swift; sourceTree = "<group>"; };
 		C3E91BA018084BC1AFB2AA64 /* ManualProviderLiveHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualProviderLiveHostTests.swift; sourceTree = "<group>"; };
 		9F6E1CA438284F109C641E7E /* ManualUIStudioLiveHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualUIStudioLiveHostTests.swift; sourceTree = "<group>"; };
 		B605C2B6EFC543F099ED0C66 /* ManualNativeQAHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualNativeQAHostTests.swift; sourceTree = "<group>"; };
@@ -2672,6 +2674,7 @@
 				E5BFFB77BD514FD699CD9F38 /* QANativeBehaviorChecks.swift */,
 				7EA975C20BF04F63A9762A12 /* CockpitRuntimeIntegrationHostTests.swift */,
 				B21BE727611645A7A4CDC129 /* ManualPrototypeLiveHostTests.swift */,
+				11DF76010D224CE59A851DBD /* ManualRemoteProviderHostTests.swift */,
 				C3E91BA018084BC1AFB2AA64 /* ManualProviderLiveHostTests.swift */,
 				9F6E1CA438284F109C641E7E /* ManualUIStudioLiveHostTests.swift */,
 				B605C2B6EFC543F099ED0C66 /* ManualNativeQAHostTests.swift */,
@@ -3587,6 +3590,7 @@
 				5105DD4BD39C4CDE80163528 /* QANativeBehaviorChecks.swift in Sources */,
 				35EC159B7EDC442D8E88547F /* CockpitRuntimeIntegrationHostTests.swift in Sources */,
 				61985CBB5868433BA83F4C7B /* ManualPrototypeLiveHostTests.swift in Sources */,
+				A76A10CF40964DC789C83AD7 /* ManualRemoteProviderHostTests.swift in Sources */,
 				3EB8A0168433470DBEE1A43C /* ManualProviderLiveHostTests.swift in Sources */,
 				C7A532E67C6A410D857E41DD /* ManualUIStudioLiveHostTests.swift in Sources */,
 				C263824AACED4BA48B71DD25 /* ManualNativeQAHostTests.swift in Sources */,

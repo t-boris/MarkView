@@ -1,4 +1,6 @@
 import Foundation
+import XCTest
+@testable import MarkView
 
 private actor ToolAudit {
     private var calls: [String] = []
@@ -6,25 +8,27 @@ private actor ToolAudit {
     func names() -> Set<String> { Set(calls) }
 }
 
-@main
-enum RemoteProviderLiveChecks {
-    static func main() async {
-        do { try await check() }
-        catch {
-            FileHandle.standardError.write(Data(("Remote provider live check failed: " + error.localizedDescription + "\n").utf8))
-            exit(1)
+/// Manual remote-provider check: it never connects to a relay without an explicit opt-in.
+final class ManualRemoteProviderHostTests: XCTestCase {
+    func testManualRemoteProvider() async throws {
+        guard ProcessInfo.processInfo.environment["MARKVIEW_MANUAL_REMOTE_PROVIDER"] == "1" else {
+            throw XCTSkip("Manual remote provider is not enabled.")
         }
+        try await Self.check()
     }
 
     private static func check() async throws {
-        guard (6...7).contains(CommandLine.arguments.count),
-              let provider = RemoteProviderConfiguration.tool(named: CommandLine.arguments[1]),
-              let relay = URL(string: CommandLine.arguments[4]) else {
-            throw RemoteFailure.invalid("Usage: remote-provider-live <claude|codex> <executable> <MarkView executable> <relay URL> <access-key file>")
+        let environment = ProcessInfo.processInfo.environment
+        guard let providerName = environment["MARKVIEW_MANUAL_REMOTE_PROVIDER_NAME"],
+              let provider = RemoteProviderConfiguration.tool(named: providerName),
+              let relayText = environment["MARKVIEW_MANUAL_REMOTE_RELAY"],
+              let relay = URL(string: relayText),
+              let executable = environment["MARKVIEW_MANUAL_REMOTE_EXECUTABLE"],
+              let app = environment["MARKVIEW_MANUAL_REMOTE_APP"],
+              let keyFile = environment["MARKVIEW_MANUAL_REMOTE_KEY_FILE"] else {
+            throw RemoteFailure.invalid("Missing manual remote-provider parameters.")
         }
-        let naturalEdit = CommandLine.arguments.last == "--natural-edit"
-        let executable = CommandLine.arguments[2]
-        let app = CommandLine.arguments[3]
+        let naturalEdit = environment["MARKVIEW_MANUAL_REMOTE_NATURAL_EDIT"] == "1"
         let resumeFixture = ProcessInfo.processInfo.environment["MARKVIEW_LIVE_RESUME_FIXTURE"].map { URL(fileURLWithPath: $0) }
         let fixture = resumeFixture ?? FileManager.default.temporaryDirectory.appendingPathComponent("mv-provider-live-" + UUID().uuidString)
         let workRoot = fixture.appendingPathComponent("work"), homeRoot = fixture.appendingPathComponent("home")
@@ -47,7 +51,7 @@ enum RemoteProviderLiveChecks {
         let workspace = try await RemoteWorkspace(root: workRoot, deviceID: UUID().uuidString)
         let requests = RemoteToolRequests(channel: home)
         let audit = ToolAudit()
-        let key = try String(contentsOfFile: CommandLine.arguments[5], encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = try String(contentsOfFile: keyFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         try await home.register(accessKey: key)
         let bridge = try RemoteToolBridge { id, name, arguments in await requests.call(id: id, name: name, arguments: arguments) }
         defer { bridge.stop() }
