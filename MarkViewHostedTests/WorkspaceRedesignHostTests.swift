@@ -67,7 +67,7 @@ private final class DiscussionRunnerSpy: @unchecked Sendable {
 }
 
 private actor FeatureIntakeFixture {
-    enum Mode { case answer, delayedAnswer, text, fail, wait }
+    enum Mode { case answer, bugAnswer, delayedAnswer, text, fail, wait }
     var mode: Mode = .answer
     var requests: [CLICompletion.Request] = []
     var cancellations = 0
@@ -87,6 +87,10 @@ private actor FeatureIntakeFixture {
         switch mode {
         case .answer:
             return try Self.answer()
+        case .bugAnswer:
+            return try CLICompletion.Result(text: "", structured: ["title": "Fixture bug", "summary": "A fixture",
+                                                                          "severity": "medium", "questions": []],
+                                            inputTokens: 0, outputTokens: 0, costUSD: nil)
         case .delayedAnswer:
             try await Task.sleep(nanoseconds: 200_000_000)
             return try Self.answer()
@@ -397,6 +401,11 @@ extension EditorHostTests {
         }
         let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
         defer { window.composition.close() }
+        let previousFolder = settings.stored(Setting.lastFolder)
+        let previousProjects = settings.stored(Setting.recentProjects)
+        window.project.beginOpening(root)
+        if let previousFolder { settings.set(previousFolder, for: Setting.lastFolder) } else { settings.remove(Setting.lastFolder) }
+        if let previousProjects { settings.set(previousProjects, for: Setting.recentProjects) } else { settings.remove(Setting.recentProjects) }
         window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
         window.composition.gitClient.workingDirectory = root
         let assistant = FeatureFlowAssistantSpy(root: root)
@@ -422,6 +431,22 @@ extension EditorHostTests {
         flow.openGitHubIssue(12)
         guard case .github(let item)? = window.tabs.activeTab?.kind else { return XCTFail("The issue tab was not opened") }
         XCTAssertEqual(item, .issue(number: 12, repo: "fixture-org/fixture", title: "#12"))
+        let bugFixture = FeatureIntakeFixture()
+        await bugFixture.setMode(.bugAnswer)
+        AIAssistantRunner.setTestRunner { request, delta, activity in try await bugFixture.run(request, delta, activity) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        var intakeResults: [String?] = []
+        window.requests.intake = IntakeRequest(kind: .bug)
+        flow.submitIntake(.bug, from: "A synthetic failure", attachments: [], linkedIssue: 42, commentOnIssue: true) { intakeResults.append($0) }
+        for _ in 0..<500 where intakeResults.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(intakeResults.count, 1)
+        XCTAssertNil(intakeResults.first ?? "missing")
+        let bug = try XCTUnwrap(flow.features.bugs.first)
+        let bugFront = FrontMatter.split(try String(contentsOf: bug.url, encoding: .utf8)).0
+        XCTAssertEqual(bugFront.string("issue"), "#42")
+        let localLog = root.appendingPathComponent("fixture-gh.log")
+        XCTAssertTrue((try String(contentsOf: localLog, encoding: .utf8)).contains("issue comment 42"))
+        AIAssistantRunner.setTestRunner(nil)
         let checkout = await flow.checkoutPullRequest(5)
         XCTAssertNil(checkout)
         let firstBranch = try await git(["branch", "--show-current"])
