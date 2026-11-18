@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 37,
+  "suiteCount": 36,
   "suites": [
     {
       "name": "ai-terminals-controller-tests",
@@ -289,55 +289,6 @@
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
-    },
-    {
-      "name": "persistent-remote-session-tests",
-      "script": "tools/tests/persistent-remote-session-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
-        "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PTYWriter.swift",
-        "MarkView/Models/Remote/RemoteChannel.swift",
-        "MarkView/Models/Remote/RemoteCommand.swift",
-        "MarkView/Models/Terminal/RemoteConnectionState.swift",
-        "MarkView/Models/Remote/RemoteFraming.swift",
-        "MarkView/Models/Remote/RemoteHostController.swift",
-        "MarkView/Models/Remote/RemoteProtocol.swift",
-        "MarkView/Models/Remote/RemoteProviderConfiguration.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Remote/RemoteTerminalConnection.swift",
-        "MarkView/Models/Remote/RemoteToolBridge.swift",
-        "MarkView/Models/Remote/RemoteToolRequests.swift",
-        "MarkView/Models/Remote/RemoteWorkspace.swift",
-        "MarkView/Models/Remote/RemoteWorkspaceTools.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
-        "tools/tests/PersistentRemoteSessionTests.swift",
-        "tools/tests/persistent-remote-relay.mjs",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift"
       ]
     },
     {
@@ -1083,7 +1034,12 @@
         "MarkView/Models/Remote/RemoteAssistantHost.swift",
         "MarkView/Models/Remote/RemoteConnectionsStore.swift",
         "Tests/Fixtures/saved-remote-relay.py",
-        "tools/tests/saved-remote-connections-host-tests.sh"
+        "tools/tests/saved-remote-connections-host-tests.sh",
+        "MarkView/Models/Remote/RemoteHostController.swift",
+        "MarkView/Models/Remote/RemoteTerminalConnection.swift",
+        "Tests/Fixtures/assistant-persistent-echo.sh",
+        "tools/tests/persistent-remote-relay.mjs",
+        "tools/tests/persistent-remote-host-tests.sh"
       ]
     },
     {

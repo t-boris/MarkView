@@ -20,6 +20,7 @@ MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme
   -skip-testing:MarkViewHostedTests/WelcomeScreenHostTests \
   -skip-testing:MarkViewHostedTests/ProjectAIChoiceHostTests \
   -skip-testing:MarkViewHostedTests/RemoteWorkspaceHostTests \
+  -skip-testing:MarkViewHostedTests/PersistentRemoteHostTests \
   -skip-testing:MarkViewHostedTests/RemoteRelaySettingsHostTests \
   -skip-testing:MarkViewHostedTests/SavedRemoteConnectionsHostTests \
   -skip-testing:MarkViewHostedTests/CLICompletionTimeoutHostTests \
@@ -30,6 +31,8 @@ bash tools/tests/remote-workspace-host-tests.sh
 bash tools/tests/remote-relay-settings-tests.sh
 # Exercise saved pairings against an isolated Keychain service and offline relay.
 bash tools/tests/saved-remote-connections-host-tests.sh
+# Exercise persistent terminals with an isolated relay and local echo executable.
+bash tools/tests/persistent-remote-host-tests.sh
 # Run fake CLI processes with a separate home and child registry.
 bash tools/tests/cli-completion-timeout-host-tests.sh
 # Run ACP continuation and permission checks in their own isolated host.

@@ -10,7 +10,6 @@
   "document-files-tests": 0.1,
   "feature-flow-coordinator-tests": 62.0,
   "no-process-outside-subprocess-lint": 0.5,
-  "persistent-remote-session-tests": 42.0,
   "qa-native-tests": 70.6,
   "run-sh-tests": 9.2,
   "tool-tabs-router-tests": 38.1,

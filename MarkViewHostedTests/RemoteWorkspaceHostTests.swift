@@ -4,6 +4,172 @@ import MarkViewCore
 import XCTest
 @testable import MarkView
 
+@MainActor private final class PersistentRemoteRecorder: TerminalConnectionObserver {
+    var output = ""
+    var exited = false
+    var state = "not started"
+    func connectionDidReceive(_ data: Data) { output += String(decoding: data, as: UTF8.self) }
+    func connectionDidExit(_ code: Int32) { exited = true }
+    func connectionDidChangeState(_ phase: RemoteConnectionState.Phase, detail: String) { state = "\(phase): \(detail)" }
+}
+
+/// The wrapper supplies a unique home, local echo executable and owned loopback relay.
+final class PersistentRemoteHostTests: XCTestCase {
+    @MainActor func testPersistentRemoteSessions() async throws {
+        executionTimeAllowance = 240
+        let environment = ProcessInfo.processInfo.environment
+        guard Bundle.main.bundleIdentifier == "com.markview.tests.apphost", AgentProcesses.count == 0,
+              let homePath = environment["MARKVIEW_PERSISTENT_TEST_HOME"],
+              environment["CFFIXED_USER_HOME"] == homePath, environment["HOME"] == homePath,
+              environment["SHELL"] == "/bin/sh", environment["ZDOTDIR"] == homePath,
+              let fixturePath = environment["MARKVIEW_PERSISTENT_TEST_FIXTURE"],
+              let idText = environment["MARKVIEW_PERSISTENT_TEST_ID"], let identifier = UUID(uuidString: idText),
+              let relayText = environment["MARKVIEW_PERSISTENT_TEST_RELAY"], let relay = URL(string: relayText),
+              relay.scheme == "http", relay.host == "127.0.0.1", let port = relay.port, (1...65535).contains(port) else {
+            XCTFail("Persistent remote isolation is incomplete")
+            return
+        }
+        let home = URL(fileURLWithPath: homePath).resolvingSymlinksInPath()
+        let scratch = home.deletingLastPathComponent()
+        let fixture = URL(fileURLWithPath: fixturePath).resolvingSymlinksInPath()
+        let tmp = URL(fileURLWithPath: "/tmp").resolvingSymlinksInPath()
+        guard home.lastPathComponent == "home", scratch.lastPathComponent.hasPrefix("mvpersist-test-"),
+              scratch.deletingLastPathComponent().path == tmp.path,
+              home.path == URL(fileURLWithPath: NSHomeDirectory()).resolvingSymlinksInPath().path,
+              fixture.path == scratch.appendingPathComponent("fixture/echo.sh").path,
+              FileManager.default.isExecutableFile(atPath: fixture.path),
+              environment["MARKVIEW_SOCKET_DIR"].map({ URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) == scratch.path,
+              Int(try String(contentsOf: scratch.appendingPathComponent("relay.port"), encoding: .ascii)) == port else {
+            XCTFail("Persistent remote fixture paths or relay are invalid")
+            return
+        }
+        let support = try XCTUnwrap(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+        guard support.resolvingSymlinksInPath().path.hasPrefix(home.path + "/") else {
+            XCTFail("Application Support must remain in the temporary home")
+            return
+        }
+        let settings = Settings.standard
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
+        let oldClaude = settings.stored(Setting.cliPath(claude.rawValue))
+        let oldCodex = settings.stored(Setting.cliPath(codex.rawValue))
+        let oldLinks = settings.stored(Setting.openTerminalLinksInApp)
+        let oldClaudeTools = settings.stored(claude.agentToolsKey)
+        let oldCodexTools = settings.stored(codex.agentToolsKey)
+        defer {
+            settings.set(oldClaude, for: Setting.cliPath(claude.rawValue))
+            settings.set(oldCodex, for: Setting.cliPath(codex.rawValue))
+            settings.set(oldLinks, for: Setting.openTerminalLinksInApp)
+            settings.set(oldClaudeTools, for: claude.agentToolsKey)
+            settings.set(oldCodexTools, for: codex.agentToolsKey)
+        }
+        CLIToolLocator.setOverride(fixturePath, for: claude)
+        CLIToolLocator.setOverride(fixturePath, for: codex)
+        settings.set(true, for: Setting.openTerminalLinksInApp)
+        settings.set(true, for: claude.agentToolsKey)
+        settings.set(true, for: codex.agentToolsKey)
+        let resolvedClaude = await CLIToolLocator.resolveThorough(claude)
+        let resolvedCodex = await CLIToolLocator.resolveThorough(codex)
+        guard resolvedClaude == fixturePath, resolvedCodex == fixturePath else {
+            XCTFail("Both providers must resolve to the isolated echo fixture")
+            return
+        }
+        let suite = "com.markview.persistent-remote-tests." + identifier.uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); defaults.synchronize() }
+        Settings(defaults).set(relayText, for: Setting.remoteRelayURL)
+        let relaySettings = RemoteRelaySettings(defaults: defaults,
+            keychain: RemoteRelayKeychain(service: "MarkView persistent remote tests " + identifier.uuidString))
+        await relaySettings.finishPendingChanges()
+        let first = try RemoteInvitation(relay: relay, persistent: true)
+        let second = try RemoteInvitation(relay: relay, persistent: true)
+        for _ in 0..<50 {
+            let channel = RemoteChannel(invitation: first, role: .work)
+            let receiver = Task { try? await channel.receive { _ in } }
+            await Task.yield()
+            await channel.close()
+            _ = await receiver.value
+        }
+        let a = scratch.appendingPathComponent("a", isDirectory: true)
+        let b = scratch.appendingPathComponent("b", isDirectory: true)
+        for (folder, text) in [(a, "WORK A"), (b, "WORK B")] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: folder.appendingPathComponent("identity.txt"))
+        }
+        func wait(_ message: String, seconds: Double = 30, _ predicate: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(seconds)
+            while !predicate(), Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+            guard predicate() else { XCTFail(message); throw RemoteFailure.invalid(message) }
+        }
+        let workspaceA = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: scratch.appendingPathComponent("recent-a.json"))
+        let workspaceB = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: scratch.appendingPathComponent("recent-b.json"))
+        workspaceA.project.fileTree.rootNode = FileNode(url: a, isDirectory: true)
+        workspaceB.project.fileTree.rootNode = FileNode(url: b, isDirectory: true)
+        let windowA = UUID(), windowB = UUID()
+        AgentToolServer.register(windowA, AgentToolWindow(workspace: { workspaceA }, root: { a }, browser: { _, _ in .init(text: "BROWSER " + windowA.uuidString) }))
+        AgentToolServer.register(windowB, AgentToolWindow(workspace: { workspaceB }, root: { b }, browser: { _, _ in .init(text: "BROWSER " + windowB.uuidString) }))
+        defer {
+            AgentToolServer.unregister(windowA); AgentToolServer.unregister(windowB)
+            workspaceA.composition.close(); workspaceB.composition.close()
+            AgentToolServer.shutdown()
+        }
+        var readyA = false, readyB = false
+        let homeA = RemoteHostController(relaySettings: relaySettings) { phase, _ in if phase == .waiting { readyA = true } }
+        let homeB = RemoteHostController(relaySettings: relaySettings) { phase, _ in if phase == .waiting { readyB = true } }
+        homeA.start(code: try first.code); homeB.start(code: try second.code)
+        defer { homeA.suspend(); homeB.suspend() }
+        try await wait("Both home endpoints register") { readyA && readyB }
+        let workA = try await RemoteTerminalConnection(invitation: first, root: a, browserWindowID: windowA, provider: claude, model: nil, resume: true)
+        let workB = try await RemoteTerminalConnection(invitation: second, root: b, browserWindowID: windowB, provider: codex, model: nil, resume: true)
+        let recorderA = PersistentRemoteRecorder(), recorderB = PersistentRemoteRecorder()
+        workA.observer = recorderA; workB.observer = recorderB
+        workA.start(); workB.start()
+        defer { workA.stop(); workB.stop() }
+        do {
+            try await wait("Both real terminal fixtures start") { recorderA.output.contains("SESSION_STARTED") && recorderB.output.contains("SESSION_STARTED") }
+        } catch {
+            print("Fixture state: home A=\(homeA.status); home B=\(homeB.status); work A=\(recorderA.state); work B=\(recorderB.state); output bytes=\(recorderA.output.utf8.count),\(recorderB.output.utf8.count); fixture PID file exists=\(FileManager.default.fileExists(atPath: scratch.appendingPathComponent("children.pid").path))")
+            throw error
+        }
+        workA.write("ECHO_A\n"); workB.write("ECHO_B\n")
+        try await wait("Terminal streams stay isolated") {
+            recorderA.output.contains("ECHO_A") && recorderB.output.contains("ECHO_B") && !recorderA.output.contains("ECHO_B")
+        }
+        let workspaces = support.appendingPathComponent("MarkView/RemoteWorkspaces", isDirectory: true)
+        let folders = try FileManager.default.contentsOfDirectory(at: workspaces, includingPropertiesForKeys: nil)
+        var identities: Set<String> = [], browsers: Set<String> = []
+        for folder in folders {
+            guard let data = try? Data(contentsOf: folder.appendingPathComponent("mcp.json")),
+                  let config = try? JSONDecoder().decode(RemoteJSON.self, from: data),
+                  let socket = config["mcpServers"][RemoteWorkspaceTools.serverName]["args"].array?.last?.string else { continue }
+            let file = await Task.detached { RemoteUnixRPC.call(socket: socket, id: UUID(), name: "read_file", arguments: .object(["path": .string("identity.txt")])) }.value
+            let browser = await Task.detached { RemoteUnixRPC.call(socket: socket, id: UUID(), name: "browser_tabs", arguments: .object([:])) }.value
+            identities.insert(file["content"].array?.first?["text"].string ?? "")
+            browsers.insert(browser["content"].array?.first?["text"].string ?? "")
+        }
+        XCTAssertTrue(identities.contains { $0.contains("WORK A") } && identities.contains { $0.contains("WORK B") })
+        XCTAssertEqual(browsers, Set(["BROWSER " + windowA.uuidString, "BROWSER " + windowB.uuidString]))
+        let initialStarts = recorderA.output.components(separatedBy: "SESSION_STARTED").count
+        homeA.suspend()
+        let restarted = RemoteHostController(relaySettings: relaySettings)
+        restarted.start(code: try first.code)
+        defer { restarted.suspend() }
+        try await wait("Restart restores the saved pairing") { recorderA.output.components(separatedBy: "SESSION_STARTED").count > initialStarts }
+        var outage = URLRequest(url: relay.appendingPathComponent("test/outage")); outage.httpMethod = "POST"
+        _ = try await URLSession.shared.data(for: outage)
+        let beforeA = recorderA.output.components(separatedBy: "SESSION_STARTED").count
+        let beforeB = recorderB.output.components(separatedBy: "SESSION_STARTED").count
+        try await wait("Both sessions recover after an outage", seconds: 45) {
+            recorderA.output.components(separatedBy: "SESSION_STARTED").count > beforeA && recorderB.output.components(separatedBy: "SESSION_STARTED").count > beforeB
+        }
+        let revoker = RemoteChannel(invitation: first, role: .work)
+        try await revoker.revokeAccess()
+        try await wait("Revocation ends the first session") { recorderA.exited }
+        workB.write("STILL_CONNECTED\n")
+        try await wait("The other session remains connected") { recorderB.output.contains("STILL_CONNECTED") }
+    }
+}
+
 /// Exercises the work-computer endpoint and its private Unix bridge in an isolated test host.
 final class RemoteWorkspaceHostTests: XCTestCase {
     static func check(_ condition: Bool, _ message: String) { XCTAssertTrue(condition, message) }
