@@ -46,6 +46,15 @@ private final class FeatureFlowAssistantSpy: AssistantProviding, AssistantPrompt
     }
 }
 
+@MainActor
+private final class FeatureFlowTabsSpy: FeatureFlowTabs {
+    var activeTab: OpenTab?
+    private(set) var opened: [URL] = []
+    func openFile(_ url: URL) { opened.append(url) }
+    func showGitHubTab(_ item: GitHubItem, root: URL) {}
+    func reloadChangedOpenFiles(all: Bool) async {}
+}
+
 private final class DiscussionRunnerSpy: @unchecked Sendable {
     private let lock = NSLock()
     private var requests: [CLICompletion.Request] = []
@@ -54,6 +63,31 @@ private final class DiscussionRunnerSpy: @unchecked Sendable {
     func recordCancellation() { lock.lock(); cancellations += 1; lock.unlock() }
     var seen: [CLICompletion.Request] { lock.lock(); defer { lock.unlock() }; return requests }
     var cancellationCount: Int { lock.lock(); defer { lock.unlock() }; return cancellations }
+}
+
+private actor FeatureIntakeFixture {
+    enum Mode { case answer, fail, wait }
+    var mode: Mode = .answer
+    var requests: [CLICompletion.Request] = []
+    var cancellations = 0
+    func setMode(_ mode: Mode) { self.mode = mode }
+    func count() -> Int { requests.count }
+    func cancellationCount() -> Int { cancellations }
+    func run(_ request: CLICompletion.Request, _ delta: (@Sendable (String) -> Void)?,
+             _ activity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
+        requests.append(request)
+        switch mode {
+        case .answer:
+            let object: [String: Any] = ["title": "Fixture feature", "idea": "A fixture", "problem": "A problem", "scope": "A scope",
+                                         "analysis": "An analysis", "assumptions": [], "acceptance_criteria": ["It works"]]
+            return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+        case .fail:
+            throw NSError(domain: "FeatureIntakeFixture", code: 7, userInfo: [NSLocalizedDescriptionKey: "fixture failure"])
+        case .wait:
+            do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch { cancellations += 1; throw error }
+            throw CancellationError()
+        }
+    }
 }
 
 private struct WorkspaceRedesignFixture {
@@ -282,6 +316,77 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowIntakeSubmission() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-intake-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = FeatureIntakeFixture()
+        AIAssistantRunner.setTestRunner { request, delta, activity in try await fixture.run(request, delta, activity) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        _ = try ProjectWorkflowStore(projectRoot: root).save(.standard, expectedRevision: 0)
+        let tabs = FeatureFlowTabsSpy()
+        let flow = FeatureFlowCoordinator(project: window.project, assistants: window.terminals, tabs: tabs, requests: window.requests,
+                                          layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
+                                          research: window.composition.research)
+        defer { flow.close() }
+        flow.features.setup(root: root)
+        func wait(_ condition: () -> Bool) async throws -> Bool {
+            for _ in 0..<500 {
+                if condition() { return true }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            return condition()
+        }
+        var results: [String?] = []
+        window.requests.intake = IntakeRequest(kind: .quickFeature)
+        flow.submitIntake(.quickFeature, from: "make it", attachments: [], linkedIssue: 5, commentOnIssue: false) { results.append($0) }
+        let success = try await wait { !results.isEmpty }
+        XCTAssertTrue(success)
+        XCTAssertEqual(results.count, 1)
+        XCTAssertNil(results.first ?? "missing")
+        XCTAssertNil(window.requests.intake)
+        XCTAssertEqual(flow.features.features.first?.title, "Fixture feature")
+        XCTAssertEqual(window.layout.featureStage, .build)
+        let overview = try XCTUnwrap(flow.features.features.first?.overviewURL)
+        XCTAssertEqual(tabs.opened, [overview])
+
+        await fixture.setMode(.fail)
+        results = []
+        window.requests.intake = IntakeRequest(kind: .bug)
+        flow.submitIntake(.bug, from: "it breaks", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
+        let failed = try await wait { !results.isEmpty }
+        XCTAssertTrue(failed)
+        XCTAssertEqual(results.first ?? nil, "fixture failure")
+        XCTAssertEqual(window.requests.intake?.kind, .bug)
+
+        await fixture.setMode(.wait)
+        results = []
+        let previous = await fixture.count()
+        flow.submitIntake(.quickFeature, from: "one", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
+        flow.submitIntake(.quickFeature, from: "two", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
+        XCTAssertEqual(results.count, 1)
+        XCTAssertTrue(results.first.flatMap { $0 }?.contains("already being made") == true)
+        for _ in 0..<200 {
+            if await fixture.count() > previous { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let count = await fixture.count()
+        XCTAssertEqual(count, previous + 1)
+        flow.close()
+        let cancelled = try await wait { results.count == 2 }
+        if !cancelled {
+            flow.features.assistant.stopAction("intake:quick-feature")
+            _ = try await wait { results.count == 2 }
+        }
+        XCTAssertTrue(cancelled, "Closing the window must cancel the pending assistant request and notify the sheet")
+        let cancelledCalls = await fixture.cancellationCount()
+        XCTAssertEqual(cancelledCalls, 1)
+        XCTAssertNotNil(window.requests.intake)
+    }
+
     @MainActor func testRealFeatureFlowStartIssueOnLocalBranch() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-issue-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

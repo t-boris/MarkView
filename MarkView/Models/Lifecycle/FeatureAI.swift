@@ -241,7 +241,11 @@ final class FeatureAssistant: ObservableObject {
             stopRequested.remove(key)
         }
         do {
-            let result = try await task.value
+            let result = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
             if stopRequested.contains(key) {
                 markStopped(key)
                 return nil
