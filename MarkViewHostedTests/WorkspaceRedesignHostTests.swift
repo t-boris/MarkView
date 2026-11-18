@@ -413,6 +413,8 @@ extension EditorHostTests {
                                           layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
                                           research: window.composition.research)
         defer { flow.close() }
+        let evidence = LifecycleLog(testURL: root.appendingPathComponent("test-lifecycle-events.jsonl"))
+        flow.features.testLifecycleLog = evidence
         let fallback = FeatureFlowCoordinator(project: window.project, assistants: assistant, tabs: window, requests: window.requests,
                                               layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
                                               research: window.composition.research)
@@ -428,6 +430,21 @@ extension EditorHostTests {
         XCTAssertTrue(GitHubSettings.enabled)
         for _ in 0..<500 where flow.gitHub.client == nil { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(flow.gitHub.selectedRepo?.slug, "fixture-org/fixture")
+        window.composition.gitClient.branchReports.send("fixture-branch")
+        XCTAssertEqual(flow.gitHub.branch, "fixture-branch")
+        let lifecycleFeature = try XCTUnwrap(flow.features.createFeature(title: "Poll fixture", idea: "A fixture"))
+        flow.features.updateFeature(lifecycleFeature) { front, _ in front.set("issue", "#42") }
+        _ = evidence.record(.workStarted, project: root.standardizedFileURL.path, feature: lifecycleFeature, actor: "Tester")
+        await evidence.drainTestWrites()
+        let pollLog = root.appendingPathComponent("fixture-gh.log")
+        XCTAssertFalse((try String(contentsOf: pollLog, encoding: .utf8)).contains("api graphql"))
+        let pollClient = try XCTUnwrap(flow.gitHub.client)
+        flow.gitHub.polls.send(pollClient)
+        for _ in 0..<500 {
+            if ((try? String(contentsOf: pollLog, encoding: .utf8)) ?? "").contains("api graphql") { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue((try String(contentsOf: pollLog, encoding: .utf8)).contains("api graphql"), "A GitHub poll reaches feature lifecycle synchronization")
         flow.openGitHubIssue(12)
         guard case .github(let item)? = window.tabs.activeTab?.kind else { return XCTFail("The issue tab was not opened") }
         XCTAssertEqual(item, .issue(number: 12, repo: "fixture-org/fixture", title: "#12"))
@@ -512,6 +529,7 @@ extension EditorHostTests {
         for _ in 0..<500 where pids.contains(where: { Darwin.kill($0, 0) == 0 }) { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertTrue(pids.allSatisfy { Darwin.kill($0, 0) != 0 }, "Every blocked fixture process must end")
         XCTAssertEqual(assistant.sent.count, beforeStop, "Closing cancels a log hand-off that has not completed")
+        await evidence.drainTestWrites()
     }
 
     @MainActor func testRealFeatureFlowProjectLifecycle() async throws {

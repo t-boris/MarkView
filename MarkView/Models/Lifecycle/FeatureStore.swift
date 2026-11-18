@@ -141,7 +141,7 @@ final class FeatureStore: ObservableObject {
         generation += 1
         tasks.cancelAll()
         jobs.cancelAll()
-        if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
+        if let project = lifecycleProject { lifecycleLog.release(project, by: self) }
         lastLifecycleSync = nil
         polling.stop(key: pollKey)
         changeDebounce?.cancel()
@@ -733,13 +733,20 @@ final class FeatureStore: ObservableObject {
     #if MARKVIEW_HOSTED_TEST_HOST
     var testLifecycleLog: LifecycleLog?
     #endif
+    private var lifecycleLog: LifecycleLog {
+        #if MARKVIEW_HOSTED_TEST_HOST
+        return testLifecycleLog ?? LifecycleLog.shared
+        #else
+        return LifecycleLog.shared
+        #endif
+    }
 
     var lifecycleProject: String? { recordsLifecycle ? root?.standardizedFileURL.path : nil }
 
     /// The delivery evidence recorded on this Mac for a feature, oldest first.
     func lifecycleEvents(_ slug: String) -> [LifecycleEvent] {
         guard let project = lifecycleProject else { return [] }
-        return LifecycleLog.shared.events(project: project, feature: slug)
+        return lifecycleLog.events(project: project, feature: slug)
     }
 
     /// The feature was handed to implementation by `tool` (an AI assistant, Create issues, UI Studio): a status before
@@ -757,11 +764,7 @@ final class FeatureStore: ObservableObject {
     func recordImplementationStarted(_ slug: String, tool: CLITool, directory: URL, runningSince: Date?) {
         guard let project = lifecycleProject else { return }
         let actor = lifecycleActor, started = Date()
-        #if MARKVIEW_HOSTED_TEST_HOST
-        let log = testLifecycleLog ?? LifecycleLog.shared
-        #else
-        let log = LifecycleLog.shared
-        #endif
+        let log = lifecycleLog
         let fallback = AIAssistantPreferences.model(for: tool, project: root) ?? AIAssistantPreferences.configuredModel(for: tool)
         // The start is recorded once, from values copied above, even when the folder or the window closes right after the click (BUG-008).
         // task: writes one journal record from copied values and touches no store; it must not be dropped by closing the folder
@@ -794,10 +797,10 @@ final class FeatureStore: ObservableObject {
     /// Record an automatic capture once: the same stage with the same note (a pull request or a
     /// commit) is never recorded twice, also when two windows look.
     private func recordCapture(_ stage: EvidenceStage, date: Date, note: String, feature slug: String, project: String, actor: String) {
-        let seen = LifecycleLog.shared.events(project: project, feature: slug).contains {
+        let seen = lifecycleLog.events(project: project, feature: slug).contains {
             $0.stage == stage && $0.note == note
         }
-        if !seen { LifecycleLog.shared.record(stage, project: project, feature: slug, actor: actor, note: note, at: date) }
+        if !seen { lifecycleLog.record(stage, project: project, feature: slug, actor: actor, note: note, at: date) }
     }
 
     /// Review, CI, pull requests and merges on GitHub, stamped with GitHub's times: pull requests
@@ -805,7 +808,7 @@ final class FeatureStore: ObservableObject {
     /// to main. Called on the GitHub integration's poll (so never when it is off), at most every
     /// idle interval, by the store that records the project's automatic events.
     func syncLifecycle(with client: GitHubClient) {
-        guard let project = lifecycleProject, let root, LifecycleLog.shared.claim(project, by: self) else { return }
+        guard let project = lifecycleProject, let root, lifecycleLog.claim(project, by: self) else { return }
         if let last = lastLifecycleSync, Date().timeIntervalSince(last) < GitHubSettings.idleInterval { return }
         let targets = lifecycleTargets
         guard !targets.isEmpty else { return }
@@ -819,7 +822,7 @@ final class FeatureStore: ObservableObject {
                         recordCapture(capture.stage, date: capture.date, note: capture.note, feature: target.slug, project: project, actor: actor)
                     }
                     // CI of each pull request's last commit (request, start, re-runs), until CI passed is recorded.
-                    let done = Set(LifecycleLog.shared.events(project: project, feature: target.slug)
+                    let done = Set(lifecycleLog.events(project: project, feature: target.slug)
                         .filter { $0.stage == .ciPassed }.compactMap(\.note))
                     for head in found.heads where !done.contains(head.note) {
                         guard let runs = try? await client.ciRuns(commit: head.sha, note: head.note) else { continue }
@@ -829,7 +832,7 @@ final class FeatureStore: ObservableObject {
                     }
                 }
                 // Commits on main from the last week still without "CI passed".
-                let events = LifecycleLog.shared.events(project: project, feature: target.slug)
+                let events = lifecycleLog.events(project: project, feature: target.slug)
                 let passed = Set(events.filter { $0.stage == .ciPassed }.compactMap(\.note))
                 let pending = events.filter {
                     $0.stage == .mergedToMain && $0.note?.hasPrefix("commit ") == true
@@ -855,7 +858,7 @@ final class FeatureStore: ObservableObject {
     /// its issues, made after implementation started, is "merged to main" at its commit time.
     /// Local git only (no GitHub needed); run from the store's poll about once a minute.
     private func syncLifecycleWithGit() {
-        guard let project = lifecycleProject, let root, LifecycleLog.shared.claim(project, by: self) else { return }
+        guard let project = lifecycleProject, let root, lifecycleLog.claim(project, by: self) else { return }
         let targets = lifecycleTargets
         guard !targets.isEmpty else { return }
         let actor = lifecycleActor

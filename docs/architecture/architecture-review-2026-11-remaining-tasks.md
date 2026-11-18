@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: GitHub poll forwarding and branch updates passed through the real FeatureFlowCoordinator and feature store with an isolated evidence log and local CLI fixture. The test verifies the branch report and the lifecycle GraphQL request; it drains the temporary log and writes no lifecycle events to the user's log. Version bumped to 7.0.9; the Debug build and zero-warning ratchet passed, as did architecture lint, SwiftLint and unused-import analysis of the changed source (0 warnings).
+
 D4 in progress: linked-issue bug intake and its optional comment passed through the real assistant and GitHub client with isolated fixtures. The generated report retains the issue number and the local CLI fixture receives the comment; no real provider or GitHub request is made. Test-host recent-project settings are restored.
 
 D4 in progress: intake attachment, linked-issue and concurrent-success checks passed against the real assistant and feature store. The first expanded test ended with an unexpected CancellationError while the fixture inspected a nonexistent `sources` folder; source files live in `references`. The corrected retry reached the final cancellation assertion but found the fixture had not reopened the intake sheet after the preceding success. Both fixture mistakes were corrected and the full focused test passed. The standalone FeatureFlowCoordinator suite remains while its other behavior is checked.
