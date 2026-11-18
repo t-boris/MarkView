@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: conflict and bug-basket hand-off checks passed against the real FeatureFlowCoordinator and stores with a scripted terminal receiver. They cover an empty conflict list, a busy receiver, conflict prompt content, a single bug, a busy or unavailable receiver, successful batch hand-off and persisted lifecycle states. Remaining scenarios in the standalone suite are still open.
+
 D4 in progress: moving intake submission and cancellation checks to the real FeatureAssistant through the test-host-only assistant boundary. The first hosted test found that cancelling the window's intake task did not cancel the assistant's nested task; the fixture's temporary database was also removed while still open. Cancellation is now forwarded to the nested task; the fixture records the tab request without opening a separate single-file database. The focused test passed, including success, failure, concurrent submissions and cancellation; no temporary intake folders remain. All seven migrated FeatureFlowCoordinator tests passed together. Version bumped to 7.0.6; the Debug build, zero-warning ratchet, architecture lint, SwiftLint and unused-import analysis of the changed file (0 warnings) passed. Final tiers and CI remain pending.
 
 D4 in progress: the issue-to-agent branch check passed in a throwaway Git repository with a scripted terminal receiver, covering branch creation and reuse, the last ten comments, an empty title and the no-project guard. All six migrated FeatureFlowCoordinator tests passed together; architecture lint and SwiftLint passed. The old suite is retained.

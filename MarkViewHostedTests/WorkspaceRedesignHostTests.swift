@@ -316,6 +316,69 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowConflictAndBugBasketHandoffs() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-basket-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try ProjectWorkflowStore(projectRoot: root).save(.standard, expectedRevision: 0)
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let assistant = FeatureFlowAssistantSpy(root: root)
+        let git = window.composition.gitClient
+        let flow = FeatureFlowCoordinator(project: window.project, assistants: assistant, tabs: window, requests: window.requests,
+                                          layout: window.layout, chrome: window.chrome, gitClient: git,
+                                          research: window.composition.research)
+        defer { flow.close() }
+        flow.resolveConflictsWithAI()
+        XCTAssertTrue(assistant.sent.isEmpty)
+        git.branch = "feature"
+        git.operationInProgress = "merge"
+        git.repoStatus = GitRepoStatus.parse("u UU N... 100644 100644 100644 100644 aaaa bbbb cccc src/a.swift\0u UU N... 100644 100644 100644 100644 aaaa bbbb cccc src/b.swift\0")
+        assistant.assistantIsBusy = true
+        flow.resolveConflictsWithAI()
+        XCTAssertTrue(assistant.sent.isEmpty)
+        XCTAssertTrue(git.lastError?.contains("still working") == true)
+        assistant.assistantIsBusy = false
+        flow.resolveConflictsWithAI()
+        let conflict = try XCTUnwrap(assistant.sent.last)
+        for text in ["src/a.swift", "src/b.swift", "merge", "feature"] { XCTAssertTrue(conflict.prompt.contains(text)) }
+        XCTAssertTrue(conflict.submit)
+
+        flow.features.setup(root: root)
+        let first = try flow.features.createBug(BugReportDraft(title: "First bug", body: "First", provenance: "Test"))
+        let second = try flow.features.createBug(BugReportDraft(title: "Second bug", body: "Second", provenance: "Test"))
+        let firstReport = try XCTUnwrap(flow.features.bug(at: first.url))
+        let secondReport = try XCTUnwrap(flow.features.bug(at: second.url))
+        flow.bugBatch.toggle(firstReport)
+        flow.fixBasketWithAI()
+        XCTAssertEqual(assistant.sent.count, 1, "One bug is not a batch")
+        flow.bugBatch.toggle(secondReport)
+        XCTAssertEqual(flow.bugBatch.eligible.count, 2)
+        assistant.assistantIsBusy = true
+        flow.fixBasketWithAI()
+        XCTAssertEqual(assistant.sent.count, 1)
+        XCTAssertEqual(flow.bugBatch.eligible.count, 2)
+        assistant.assistantIsBusy = false
+        assistant.sends = false
+        flow.fixBasketWithAI()
+        XCTAssertEqual(assistant.sent.count, 1)
+        XCTAssertEqual(flow.bugBatch.eligible.count, 2)
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, first.id), "open")
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, second.id), "open")
+        XCTAssertNotNil(flow.bugBatch.notice)
+        assistant.sends = true
+        flow.fixBasketWithAI()
+        XCTAssertEqual(assistant.sent.count, 2)
+        let sent = try XCTUnwrap(assistant.sent.last)
+        XCTAssertTrue(sent.prompt.contains(first.id))
+        XCTAssertTrue(sent.prompt.contains(second.id))
+        XCTAssertTrue(sent.submit)
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, first.id), "fixing")
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, second.id), "fixing")
+        XCTAssertTrue(flow.bugBatch.basket.isEmpty)
+    }
+
     @MainActor func testRealFeatureFlowIntakeSubmission() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-intake-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
