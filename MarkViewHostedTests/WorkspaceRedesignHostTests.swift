@@ -415,4 +415,45 @@ extension EditorHostTests {
         try await Task.sleep(nanoseconds: 150_000_000)
         XCTAssertEqual(reports.count, reportCount, "A closed window no longer responds to activation")
     }
+
+    @MainActor func testRealWindowCompositionRoutesSavedFiles() async throws {
+        guard Bundle.main.bundleIdentifier == "com.markview.tests.apphost" else {
+            XCTFail("The automatic-analysis setting may only be changed in the isolated test host")
+            return
+        }
+        let original = Settings.standard.stored(Setting.autoAnalyze)
+        Settings.standard.set(false, for: Setting.autoAnalyze)
+        defer { Settings.standard.set(original, for: Setting.autoAnalyze) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-save-" + UUID().uuidString)
+        let sibling = URL(fileURLWithPath: root.path + "-other", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: sibling) }
+        let inside = root.appendingPathComponent("inside.md")
+        let outside = sibling.appendingPathComponent("outside.md")
+        for url in [inside, outside] { try "fixture".write(to: url, atomically: true, encoding: .utf8) }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        await window.tabs.openTextFile(outside)
+        await window.tabs.openTextFile(inside)
+        let architecture = window.codeXRay.architecture
+        architecture.startAutomaticCodeAnalysis(root: root, db: nil)
+        XCTAssertEqual(architecture.automaticState, .off)
+        func recordedChange() throws -> Date? {
+            let scheduler = try XCTUnwrap(Mirror(reflecting: architecture).children.first { $0.label == "scheduler" }?.value as? AutoAnalysisScheduler)
+            return scheduler.lastChange
+        }
+        XCTAssertNil(try recordedChange())
+        window.tabs.saveFile(at: 0)
+        XCTAssertNil(try recordedChange(), "A sibling folder with the same prefix is outside the project")
+        window.tabs.saveFile(at: 1)
+        XCTAssertNotNil(try recordedChange(), "Saving in the project notifies its actual analysis scheduler")
+        window.composition.close()
+        architecture.startAutomaticCodeAnalysis(root: root, db: nil)
+        defer { architecture.reset() }
+        XCTAssertNil(try recordedChange())
+        window.tabs.saveFile(at: 1)
+        XCTAssertNil(try recordedChange(), "A closed window no longer forwards saved-file events")
+    }
 }
