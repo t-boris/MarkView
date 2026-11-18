@@ -7,6 +7,10 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-18
 
+D4: all 86 non-interactive native QA checks passed against the real app types in the hosted GUI suite and in the old no-fixture driver. The fixture-app interaction is now a manual live suite under DEC-013; its 30 shipping-source triggers also select the automatic hosted suite. The manifest has 30 suites: 9 pure, 15 GUI and 6 manual live. Repository hygiene, architecture lint, SwiftLint and assignment of all nine pure suites to three CI shards passed; final full-tier and CI verification remain open.
+
+D4 in progress: the 86 native QA rendering, key, evidence and permission checks now share one implementation between the real app host and the standalone fixture driver; both the hosted test and standalone no-fixture run passed. The fixture-app interaction is being classified as manual live work under DEC-013, while the app-hosted behavior checks remain automatic.
+
 D4: X-Ray ownership checks now run against real architecture, review, filter, explanation and navigation stores, with temporary local Git and SQLite fixtures and an isolated assistant runner. All seven hosted tests passed together, including delayed cancellation, streaming, failed-analysis retry and review persistence. The former standalone driver and application stand-ins were removed; all 48 former shipping-source triggers select the hosted suite. Repository hygiene, architecture lint, SwiftLint and assignment of all 10 pure suites to three CI shards passed. The manifest has 30 suites: 10 pure, 15 GUI and 5 live. Other standalone migrations and final verification remain open.
 
 D4 in progress: X-Ray code-explanation cancellation, cleanup and retry, and navigation-question stop and replacement passed against the real stores with an isolated assistant runner. Both focused tests, repository hygiene, architecture lint and SwiftLint passed. The standalone harness and its replacement assistant and database remain while project-change, review, filtering and the rest of navigation behavior are transferred.

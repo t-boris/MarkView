@@ -259,7 +259,7 @@
     {
       "name": "qa-native-tests",
       "script": "tools/tests/qa-native-tests.sh",
-      "tier": "pure",
+      "tier": "live",
       "sources": [
         "MarkView/Models/QA/QAAPI.swift",
         "MarkView/Models/QA/QAActions.swift",
@@ -295,7 +295,8 @@
         "tools/tests/QANativeChecks.swift",
         "tools/tests/QANativeKeychainStub.swift",
         "tools/tests/qa-native-tests.sh",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "tools/tests/QANativeBehaviorChecks.swift"
       ]
     },
     {
@@ -843,7 +844,13 @@
         "MarkView/Models/Architecture/StreamedRefresh.swift",
         "MarkView/Models/Architecture/XRayFilterStore.swift",
         "MarkView/Models/Architecture/XRaySearch.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/PullRequestHistory.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/PullRequestHistory.swift",
+        "tools/tests/QANativeBehaviorChecks.swift",
+        "MarkView/Models/QA/QANativeAccessibility.swift",
+        "MarkView/Models/QA/QANativeActor.swift",
+        "MarkView/Models/QA/QANativeCapture.swift",
+        "MarkView/Models/QA/QANativeFactory.swift",
+        "MarkView/Models/QA/QANativeTree.swift"
       ]
     },
     {

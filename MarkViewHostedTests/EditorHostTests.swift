@@ -86,6 +86,10 @@ private actor DelayedSessionTestFactory: QADriverFactory {
 
 /// The real editor with the real per-window parts, in the isolated app-hosted test build.
 final class EditorHostTests: XCTestCase {
+    @MainActor func testRealNativeQABehavior() {
+        runQANativeBehaviorChecks { name, condition in XCTAssertTrue(condition, name) }
+    }
+
     @MainActor
     func testWindowDelegateForwardsOnlyOnMainThread() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-window-delegate-\(UUID().uuidString)")

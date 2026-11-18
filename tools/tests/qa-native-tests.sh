@@ -6,8 +6,9 @@
 # under a folder of the repository's ignored build/ directory (Launch Services does not list applications in temporary folders), drives it with a
 # real QANativeActor without bringing it to the front, and ends it, unregistering it afterwards. It needs the Accessibility and Screen Recording
 # permissions of the process that runs this script and is skipped, with a message, when either is missing. Nothing reads the Keychain.
-#   tools/tests/qa-native-tests.sh              pure and live
-#   QA_NATIVE_LIVE=0 tools/tests/qa-native-tests.sh    pure only
+# The fixture-app interaction is a manual live suite; the same pure behavior checks run automatically in the app host.
+#   tools/tests/qa-native-tests.sh                   manual pure and live fixture checks
+#   QA_NATIVE_LIVE=0 tools/tests/qa-native-tests.sh  pure checks only
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
@@ -22,7 +23,7 @@ trap cleanup EXIT
 M=MarkView/Models
 cp tools/tests/QANativeChecks.swift "$out/main.swift"
 swiftc -target "$(uname -m)-apple-macos13.0" -o "$out/qa-native" \
-    "$M/QA/QANativeTree.swift" "$M/QA/QANativeAccessibility.swift" "$M/QA/QANativeCapture.swift" "$M/QA/QANativeActor.swift" "$M/QA/QANativeFactory.swift" tools/tests/QANativeKeychainStub.swift \
+    tools/tests/QANativeBehaviorChecks.swift "$M/QA/QANativeTree.swift" "$M/QA/QANativeAccessibility.swift" "$M/QA/QANativeCapture.swift" "$M/QA/QANativeActor.swift" "$M/QA/QANativeFactory.swift" tools/tests/QANativeKeychainStub.swift \
     "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAStore.swift" MarkView/Models/Shared/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/AI/AIOperation.swift" tools/tests/AIOperationStub.swift "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/QA/QAEffort.swift" \
     "$M/QA/QATriage.swift" "$M/QA/QAInputMark.swift" "$M/QA/QAActions.swift" "$M/QA/QATestImage.swift" "$M/QA/QARunner.swift" "$M/QA/QALanguage.swift" "$M/QA/QAPageEvidence.swift" "$M/QA/QACredentials.swift" "$M/QA/QAScenarioEdit.swift" "$M/QA/QAAttachments.swift" \
     "$M/QA/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
