@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 30,
+  "suiteCount": 31,
   "suites": [
     {
       "name": "architecture-lint-tests",
@@ -1474,6 +1474,18 @@
         "tools/lint/swiftlint-unused-import-allowlist.txt",
         "tools/ci/unused-import-changes.py"
       ]
+    },
+    {
+      "name": "terminal-host-tests",
+      "script": "tools/tests/terminal-host-tests.sh",
+      "tier": "gui",
+      "sources": [
+        "MarkViewHostedTests/TerminalLayoutHostTests.swift",
+        "MarkViewHostedTests/TerminalLinkHostTests.swift",
+        "MarkView/Models/Terminal/TerminalSession.swift",
+        "MarkView/Resources/Editor/terminal.html"
+      ],
+      "timeoutSeconds": 600
     }
   ]
 }

@@ -356,7 +356,15 @@ private func runUIStudioSession() async {
     watchdog.reached("Select mode finds the element's source without running its action")
     let postsBefore = session.requests.filter { $0.contract == "POST /api/items" }.count
     session.setMode(.select)
-    try? await Task.sleep(nanoseconds: 600_000_000)
+    var pickerReady = false
+    for _ in 0..<100 {
+        if await text("return document.documentElement.style.cursor;") == "crosshair" {
+            pickerReady = true
+            break
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+    }
+    check("AC-08 select mode is ready before the click", pickerReady)
     await clickElement("#add")
     _ = await waitUntil(10) { session.selection != nil }
     let selection = session.selection

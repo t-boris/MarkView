@@ -17,6 +17,8 @@ MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" 
   -only-testing:MarkViewHostedTests -skip-testing:MarkViewHostedTests/UIStudioSessionHostTests \
   -skip-testing:MarkViewHostedTests/CockpitRuntimeIntegrationHostTests \
   -skip-testing:MarkViewHostedTests/ManualPrototypeLiveHostTests \
+  -skip-testing:MarkViewHostedTests/TerminalLayoutHostTests \
+  -skip-testing:MarkViewHostedTests/TerminalLinkHostTests \
   -skip-testing:MarkViewHostedTests/ManualRemoteProviderHostTests \
   -skip-testing:MarkViewHostedTests/ManualProviderLiveHostTests \
   -skip-testing:MarkViewHostedTests/ManualUIStudioLiveHostTests \

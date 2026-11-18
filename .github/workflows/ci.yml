@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [qa-web-fault-tests, workflow-editor-layout-tests, research-map-web-tests, theme-web-tests, ui-studio-web-tests, welcome-screen-tests, backdrop-registry-tests, project-ai-choice-tests, studio-session, studio-network, studio-recovery]
+        suite: [qa-web-fault-tests, terminal-host-tests, workflow-editor-layout-tests, research-map-web-tests, theme-web-tests, ui-studio-web-tests, welcome-screen-tests, backdrop-registry-tests, project-ai-choice-tests, studio-session, studio-network, studio-recovery]
     steps:
       - uses: actions/checkout@v4
       - name: Identify Xcode

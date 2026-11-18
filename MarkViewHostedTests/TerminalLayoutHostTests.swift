@@ -18,7 +18,12 @@ import MarkViewCore
         checks += 1
         if !passed { failures += 1; print("FAIL: \(name)") }
     }
-    func js(_ source: String) async throws -> Any? { try await session.webView.evaluateJavaScript(source) }
+    func js(_ source: String) async throws -> Any? {
+        try Task.checkCancellation()
+        let value = try await session.webView.evaluateJavaScript(source)
+        try Task.checkCancellation()
+        return value
+    }
     func pause(_ ms: UInt64 = 150) async { try? await Task.sleep(nanoseconds: ms * 1_000_000) }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         session.messages.userContentController(controller, didReceive: message)
@@ -171,6 +176,20 @@ final class TerminalLayoutHostTests: XCTestCase {
             done.fulfill()
         }
         checks.start(entry: entry, directory: root)
+        let diagnostic = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard !Task.isCancelled, !checks.launched else { return }
+            let value = try? await checks.js("""
+                (() => { const host = document.getElementById('term'); return {
+                  state: document.readyState, visibility: document.visibilityState,
+                  hostWidth: host?.clientWidth, hostHeight: host?.clientHeight,
+                  hasTerminal: !!window.testTerm, hasFit: !!window.testFit,
+                  innerWidth, innerHeight
+                }; })()
+                """)
+            print("Terminal startup diagnostic: \(String(describing: value))")
+        }
+        defer { diagnostic.cancel() }
         await fulfillment(of: [done], timeout: 60)
         XCTAssertEqual(checks.failures, 0)
         XCTAssertEqual(checks.checks, 61)
