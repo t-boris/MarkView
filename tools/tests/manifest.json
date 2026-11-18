@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 38,
+  "suiteCount": 37,
   "suites": [
     {
       "name": "ai-terminals-controller-tests",
@@ -1079,7 +1079,11 @@
         "Tests/Fixtures/prototype-audit/screens/settings.js",
         "Tests/Fixtures/prototype-audit/screens/stuck.js",
         "Tests/Fixtures/prototype-audit/screens/trade.js",
-        "MarkView/Models/Cockpit/CockpitQAAttempt.swift"
+        "MarkView/Models/Cockpit/CockpitQAAttempt.swift",
+        "MarkView/Models/Remote/RemoteAssistantHost.swift",
+        "MarkView/Models/Remote/RemoteConnectionsStore.swift",
+        "Tests/Fixtures/saved-remote-relay.py",
+        "tools/tests/saved-remote-connections-host-tests.sh"
       ]
     },
     {
@@ -1249,46 +1253,6 @@
       "tier": "pure",
       "sources": [
         "tools/tests/run.sh"
-      ]
-    },
-    {
-      "name": "saved-remote-connections-tests",
-      "script": "tools/tests/saved-remote-connections-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Remote/RemoteAssistantHost.swift",
-        "MarkView/Models/Remote/RemoteChannel.swift",
-        "MarkView/Models/Terminal/RemoteConnectionState.swift",
-        "MarkView/Models/Remote/RemoteConnectionsStore.swift",
-        "MarkView/Models/Remote/RemoteFraming.swift",
-        "MarkView/Models/Remote/RemoteProtocol.swift",
-        "MarkView/Models/Remote/RemoteRelaySettings.swift",
-        "tools/tests/SavedRemoteConnectionsTests.swift",
-        "MarkView/Models/AI/Providers/AgentActivity.swift",
-        "MarkView/Models/AI/Providers/AgentUsage.swift",
-        "MarkView/Models/AI/Providers/AgentUsageLogs.swift",
-        "MarkView/Models/AI/Providers/AntigravityProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantACP.swift",
-        "MarkView/Models/AI/Providers/AssistantActivitySupport.swift",
-        "MarkView/Models/AI/Providers/AssistantCompletion.swift",
-        "MarkView/Models/AI/Providers/AssistantLiveModelSwitch.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift",
-        "MarkView/Models/AI/Providers/AssistantProvider.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderList.swift",
-        "MarkView/Models/AI/Providers/AssistantProviderRegistry.swift",
-        "MarkView/Models/AI/Providers/AssistantRemote.swift",
-        "MarkView/Models/AI/Providers/AssistantSessionLog.swift",
-        "MarkView/Models/AI/Providers/AssistantUsageSupport.swift",
-        "MarkView/Models/AI/Providers/CLITool.swift",
-        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
-        "MarkView/Models/AI/Providers/ClaudeSessionModel.swift",
-        "MarkView/Models/AI/Providers/ClineProvider.swift",
-        "MarkView/Models/AI/Providers/CodexProvider.swift",
-        "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift"
       ]
     },
     {

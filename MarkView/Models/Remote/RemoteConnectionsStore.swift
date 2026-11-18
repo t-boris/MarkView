@@ -25,6 +25,7 @@ final class RemoteConnectionsStore: ObservableObject {
     @Published private(set) var storageError: String?
     @Published private(set) var isLoading = true
     private let keychain: RemoteRelayKeychain
+    private let relaySettings: RemoteRelaySettings?
     private let account = "saved-connections-v1"
     private var loading: Task<Void, Never>?
     private var saving: Task<Void, Never>?
@@ -39,8 +40,10 @@ final class RemoteConnectionsStore: ObservableObject {
     /// the rest (`AR-19`).
     private let requests = TaskBag()
 
-    init(keychain: RemoteRelayKeychain = RemoteRelayKeychain(service: "MarkView saved remote connections." + (Bundle.main.bundleIdentifier ?? "cli"), maxBytes: 1_048_576)) {
+    init(keychain: RemoteRelayKeychain = RemoteRelayKeychain(service: "MarkView saved remote connections." + (Bundle.main.bundleIdentifier ?? "cli"), maxBytes: 1_048_576),
+         relaySettings: RemoteRelaySettings? = nil) {
         self.keychain = keychain
+        self.relaySettings = relaySettings
         loading = Task { [weak self] in
             guard let self else { return }
             do {
@@ -178,7 +181,7 @@ final class RemoteConnectionsStore: ObservableObject {
     }
 
     private func startHost(_ entry: SavedRemoteConnection) {
-        let host = RemoteHostController { [weak self] phase, text in self?.update(entry.id, phase, text) }
+        let host = RemoteHostController(relaySettings: relaySettings) { [weak self] phase, text in self?.update(entry.id, phase, text) }
         hosts[entry.id] = host
         host.start(code: entry.code)
     }

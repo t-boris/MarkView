@@ -13,7 +13,8 @@ on:
       - 'tools/tests/Remote*'
       - 'tools/tests/SavedRemote*'
       - 'tools/tests/PersistentRemote*'
-      - 'tools/tests/saved-remote-connections-tests.sh'
+      - 'tools/tests/saved-remote-connections-host-tests.sh'
+      - 'Tests/Fixtures/saved-remote-relay.py'
       - 'tools/tests/persistent-remote*'
       - 'tools/tests/remote-workspace-tests.sh'
       - 'tools/tests/remote-workspace-host-tests.sh'
@@ -71,5 +72,5 @@ jobs:
         run: bash tools/tests/remote-workspace-tests.sh
       - name: Verify saved Keychain pairings and reconnecting concurrent sessions
         run: |
-          bash tools/tests/saved-remote-connections-tests.sh
+          bash tools/tests/saved-remote-connections-host-tests.sh
           bash tools/tests/persistent-remote-session-tests.sh

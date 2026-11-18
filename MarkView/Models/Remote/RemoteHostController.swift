@@ -9,6 +9,7 @@ import MarkViewCore
 @MainActor
 final class RemoteHostController: ObservableObject {
     private let onState: ((RemoteConnectionState.Phase, String) -> Void)?
+    private let relaySettings: RemoteRelaySettings?
     @Published private(set) var status = "Remote access is off."
     @Published private(set) var connectionCode = ""
     @Published private(set) var isHosting = false
@@ -26,7 +27,8 @@ final class RemoteHostController: ObservableObject {
     /// ends them, and a new one of a kind replaces the one before it (`AR-19`).
     private let transportTasks = TaskBag()
 
-    init(onState: ((RemoteConnectionState.Phase, String) -> Void)? = nil) {
+    init(relaySettings: RemoteRelaySettings? = nil, onState: ((RemoteConnectionState.Phase, String) -> Void)? = nil) {
+        self.relaySettings = relaySettings
         self.onState = onState
     }
 
@@ -43,7 +45,7 @@ final class RemoteHostController: ObservableObject {
                     self.channel = channel; requests = RemoteToolRequests(channel: channel)
                     do {
                         setState(.connecting, "Connecting to relay…")
-                        let settings = RemoteRelaySettings.shared
+                        let settings = relaySettings ?? RemoteRelaySettings.shared
                         await settings.finishPendingChanges()
                         let sameRelay = (try? RemoteRelayKeychain.account(for: settings.relayURL)) == (try? RemoteRelayKeychain.account(for: invitation.relay.absoluteString))
                         do { try await channel.prepareSession(reset: reset) }

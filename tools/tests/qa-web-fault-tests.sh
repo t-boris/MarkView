@@ -21,12 +21,15 @@ MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme
   -skip-testing:MarkViewHostedTests/ProjectAIChoiceHostTests \
   -skip-testing:MarkViewHostedTests/RemoteWorkspaceHostTests \
   -skip-testing:MarkViewHostedTests/RemoteRelaySettingsHostTests \
+  -skip-testing:MarkViewHostedTests/SavedRemoteConnectionsHostTests \
   -skip-testing:MarkViewHostedTests/CLICompletionTimeoutHostTests \
   -skip-testing:MarkViewHostedTests/ACPContinuationHostTests test
 # The workspace test owns a process registry and runs in a fresh host.
 bash tools/tests/remote-workspace-host-tests.sh
 # Write and read the temporary relay credentials in separate isolated hosts.
 bash tools/tests/remote-relay-settings-tests.sh
+# Exercise saved pairings against an isolated Keychain service and offline relay.
+bash tools/tests/saved-remote-connections-host-tests.sh
 # Run fake CLI processes with a separate home and child registry.
 bash tools/tests/cli-completion-timeout-host-tests.sh
 # Run ACP continuation and permission checks in their own isolated host.
