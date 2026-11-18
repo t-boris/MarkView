@@ -206,7 +206,7 @@ working tree has unrelated changes. Run `./release.sh --publish` there; it produ
 signed, notarized and stapled DMG as GitHub release `v<version>` (marked Latest; it
 refuses anything but a clean checkout of `origin/main` and an unused version).
 Notarization uses the `markview-notary` keychain profile (`NOTARY_PROFILE` overrides
-it). Wait for the `Build & Release` run of the merge commit to succeed (it only compiles
+it); `NOTARY_KEYCHAIN` optionally selects the keychain containing that profile. Wait for the `Build & Release` run of the merge commit to succeed (it only compiles
 the app and publishes nothing: the signed DMG is the only installer on GitHub). Verify the app version, code signature, and that
 `spctl` accepts the DMG as notarized, and report the release URL and local paths with
 the merged PR link. A docs-only change is committed directly to `main` (see Git

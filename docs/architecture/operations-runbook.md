@@ -207,6 +207,7 @@ Process lessons that affect operations:
 |---|---|---|
 | `SIGN_IDENTITY` | `release.sh` | overrides the auto-detected Developer ID identity |
 | `NOTARY_PROFILE` | `release.sh` | `notarytool` keychain profile; turns on notarization and stapling |
+| `NOTARY_KEYCHAIN` | `release.sh` | optional keychain containing the notary profile; the default keychain is used when unset |
 | `TARGET_BUILD_DIR`, `UNLOCALIZED_RESOURCES_FOLDER_PATH`, `SRCROOT` | pre-build script, `MarkView.xcodeproj/project.pbxproj` | Xcode build settings; destination of the editor copy |
 | `HOME` | legacy paths | User home directory |
 | `GH_TOKEN` (`secrets.GITHUB_TOKEN`) | `.github/workflows/publish-release.yml` | CI release publishing |

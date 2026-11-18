@@ -103,7 +103,7 @@ The app reads no environment variables of its own. It **sets** these for child p
 | `git` via `GitHubClient` / PR fetch | `GIT_TERMINAL_PROMPT=0` (not set by `GitClient`) |
 | Terminal shell | `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=MarkView`, `LANG` if unset, `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`. Removes `CLAUDECODE` and `CLAUDE_CODE_*` |
 
-Scripts read `SIGN_IDENTITY` and `NOTARY_PROFILE` (`release.sh`). CI uses `GH_TOKEN`. See [build-release-testing](./modules/build-release-testing.md).
+Scripts read `SIGN_IDENTITY`, `NOTARY_PROFILE` and the optional `NOTARY_KEYCHAIN` (`release.sh`). CI uses `GH_TOKEN`. See [build-release-testing](./modules/build-release-testing.md).
 
 ## 5. Hard-coded limits worth knowing
 

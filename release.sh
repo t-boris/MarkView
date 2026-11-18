@@ -9,7 +9,7 @@
 # The DMG is notarized and stapled with the `xcrun notarytool store-credentials` keychain
 # profile in NOTARY_PROFILE (default: markview-notary). NOTARY_PROFILE= skips notarization for
 # a local build; --publish always requires it, because Gatekeeper rejects an unnotarized
-# download.
+# download. NOTARY_KEYCHAIN can select a non-default keychain containing that profile.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -30,8 +30,15 @@ IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | grep -m1 
 
 # Check the notary credentials before spending a build.
 NOTARY_PROFILE=${NOTARY_PROFILE-markview-notary}
+run_notary() {
+    if [ -n "${NOTARY_KEYCHAIN:-}" ]; then
+        xcrun notarytool "$@" --keychain "$NOTARY_KEYCHAIN"
+    else
+        xcrun notarytool "$@"
+    fi
+}
 if [ -n "$NOTARY_PROFILE" ]; then
-    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || {
+    run_notary history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || {
         echo "Notary profile '$NOTARY_PROFILE' is missing or invalid; create it with"
         echo "  xcrun notarytool store-credentials $NOTARY_PROFILE --key <AuthKey.p8> --key-id <id> --issuer <uuid>"
         echo "or set NOTARY_PROFILE= to build without notarization (not allowed with --publish)"
@@ -79,11 +86,11 @@ codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 
 if [ -n "$NOTARY_PROFILE" ]; then
     echo "▸ Notarizing…"
-    SUBMIT=$(xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1) || true
+    SUBMIT=$(run_notary submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1) || true
     echo "$SUBMIT"
     if ! grep -q "status: Accepted" <<<"$SUBMIT"; then
         ID=$(awk '/^ *id:/{print $2; exit}' <<<"$SUBMIT")
-        [ -n "$ID" ] && xcrun notarytool log "$ID" --keychain-profile "$NOTARY_PROFILE" || true
+        [ -n "$ID" ] && run_notary log "$ID" --keychain-profile "$NOTARY_PROFILE" || true
         echo "Notarization was not accepted"; exit 1
     fi
     xcrun stapler staple "$DMG"

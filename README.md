@@ -935,7 +935,8 @@ xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -de
 - `MarkView.xcodeproj` (plus the local `Packages/MarkViewCore` Swift package) is the source of truth for the Xcode project (XcodeGen and `project.yml` have been retired).
 - `release.sh` signs with the first *Developer ID Application* identity in your keychain and
   enables the hardened runtime. With a `notarytool` profile (`NOTARY_PROFILE`, default
-  `markview-notary`) it notarizes and staples the DMG; `--publish` creates the GitHub
+  `markview-notary`) it notarizes and staples the DMG; `NOTARY_KEYCHAIN` can select a
+  non-default keychain for the profile. `--publish` creates the GitHub
   release, only from a clean checkout of `origin/main`.
 - CI runs `Packages/MarkViewCore` tests, `./tools/tests/run.sh --tier pure`, and compiles every push and pull request. The signed DMG is published by
   `./release.sh --publish`; the manual *Publish Release* workflow can build one in CI when the signing
