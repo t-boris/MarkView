@@ -279,4 +279,28 @@ extension EditorHostTests {
         composition.flow.gitHub.selectedRepo = nil
         await pending.value
     }
+
+    @MainActor func testRealWindowCompositionReloadsProjectTree() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-reload-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let document = root.appendingPathComponent("document.md")
+        try "before".write(to: document, atomically: true, encoding: .utf8)
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        await window.tabs.openTextFile(document)
+        XCTAssertEqual(window.tabs.activeTab?.content, "before")
+        try "after".write(to: document, atomically: true, encoding: .utf8)
+        let added = root.appendingPathComponent("added.md")
+        try "new".write(to: added, atomically: true, encoding: .utf8)
+        await window.tabs.reloadChangedOpenFiles(all: true)
+        XCTAssertEqual(window.tabs.activeTab?.content, "after")
+        for _ in 0..<100 {
+            if window.project.fileTree.rootNode?.children?.contains(where: { $0.url == added }) == true { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(window.project.fileTree.rootNode?.children?.contains(where: { $0.url == added }) == true,
+                      "Reloading an externally changed tab refreshes the real project tree")
+    }
 }
