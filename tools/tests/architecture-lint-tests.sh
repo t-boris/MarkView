@@ -165,6 +165,9 @@ try:
     write(root, composition, close.replace("        taskBag.cancelAll()", "        if condition {\n            taskBag.cancelAll()\n        }"))
     code, out = run(root)
     check(code == 1 and "[window-shutdown-order]" in out, "a conditional shutdown call cannot replace an unconditional one")
+    write(root, composition, close.replace("        tabs.shutdown()", "        return\n        tabs.shutdown()"))
+    code, out = run(root)
+    check(code == 1 and "[window-shutdown-order]" in out, "an early return cannot make shutdown calls unreachable")
 
     # --- no-loose-swift
     root = fresh()
