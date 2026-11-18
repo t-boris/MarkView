@@ -2407,6 +2407,358 @@ final class UIStudioLifetimeHostTests: XCTestCase {
         withExtendedLifetime(recordSubscription) {}
     }
 
+
+    @MainActor func testChangeManager() async throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("mv-studio-changes-" + UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let repo = tmp.appendingPathComponent("app")
+        try fm.createDirectory(at: repo.appendingPathComponent("src"), withIntermediateDirectories: true)
+        let card = """
+        export function Card({ title }) {
+          return (
+            <div className="card" style={{ padding: 8 }}>
+              <h3>{title}</h3>
+            </div>
+          );
+        }
+
+        export const footer = 'Made with care';
+        """
+        try card.write(to: repo.appendingPathComponent("src/Card.jsx"), atomically: true, encoding: .utf8)
+        try "body { margin: 0; }\n".write(to: repo.appendingPathComponent("src/app.css"), atomically: true, encoding: .utf8)
+        shell("git init -q && git add -A && git -c user.email=t@e -c user.name=t commit -qm init", in: repo)
+        func read(_ path: String) -> String { (try? String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)) ?? "<missing>" }
+        let (rev1, snapshot) = await StudioRevisionProbe.compute(root: repo)
+        check("revision of a clean tree names the commit", rev1.head != nil && rev1.changedFiles == 0)
+        let edits = [StudioEdit(path: "src/Card.jsx", search: "style={{ padding: 8 }}", replace: "style={{ padding: 16 }}"),
+                     StudioEdit(path: "src/Card.jsx", search: "<h3>{title}</h3>", replace: "<h3 className=\"title\">{title}</h3>")]
+        do {
+            let changes = try await StudioChanges.plan(edits, snapshot: snapshot)
+            check("plan combines edits of one file", changes.count == 1 && changes[0].after?.contains("padding: 16") == true && changes[0].after?.contains("className=\"title\"") == true)
+            try StudioChanges.write(changes, root: repo)
+            check("AC-12 the source file changed on disk", read("src/Card.jsx").contains("padding: 16"))
+            let patch = await StudioChanges.unifiedDiff(changes)
+            check("the patch is a unified diff of the change", patch.contains("--- a/src/Card.jsx") && patch.contains("+    <div className=\"card\" style={{ padding: 16 }}>"), patch)
+
+            // AC-14: an independent later edit survives the undo of the AI change.
+            let independent = read("src/Card.jsx").replacingOccurrences(of: "Made with care", with: "Made with love")
+            try! independent.write(to: repo.appendingPathComponent("src/Card.jsx"), atomically: true, encoding: .utf8)
+            let undo = await StudioChanges.undoPlan(changes[0], root: repo)
+            if case .clean(_, let text) = undo {
+                check("AC-14 undo removes the AI change", text?.contains("padding: 8") == true && text?.contains("<h3>{title}</h3>") == true)
+                check("AC-14 undo keeps the independent edit", text?.contains("Made with love") == true)
+            } else { check("AC-14 undo is clean", false, "\(undo)") }
+
+            // An overlapping later edit becomes a conflict, not a rollback.
+            let overlapping = read("src/Card.jsx").replacingOccurrences(of: "padding: 16", with: "padding: 24")
+            try! overlapping.write(to: repo.appendingPathComponent("src/Card.jsx"), atomically: true, encoding: .utf8)
+            if case .conflict(_, let merged, let hunks) = await StudioChanges.undoPlan(changes[0], root: repo) {
+                check("an overlapping edit makes the undo a conflict with markers", hunks >= 1 && merged.contains("<<<<<<<"))
+            } else { check("overlapping undo conflicts", false) }
+            check("the conflict wrote nothing", read("src/Card.jsx").contains("padding: 24"))
+        } catch { check("plan and write", false, "\(error)") }
+
+        // AC-13: a file changed by hand while the assistant worked is a conflict; the hand edit is kept.
+        let (_, start) = await StudioRevisionProbe.compute(root: repo)
+        try! "body { margin: 4px; }\n".write(to: repo.appendingPathComponent("src/app.css"), atomically: true, encoding: .utf8)
+        do {
+            _ = try await StudioChanges.plan([StudioEdit(path: "src/app.css", search: "margin: 4px", replace: "margin: 0")], snapshot: start)
+            check("AC-13 a concurrent manual change is detected", false)
+        } catch StudioChangeError.conflict(let paths) {
+            check("AC-13 a concurrent manual change is detected", paths == ["src/app.css"])
+            check("AC-13 the manual change is not lost", read("src/app.css").contains("margin: 4px"))
+        } catch { check("AC-13 conflict", false, "\(error)") }
+
+        // An unsaved editor buffer counts as a change (applied editor buffers, EDIT-05).
+        let (rev2, withBuffer) = await StudioRevisionProbe.compute(root: repo, editorBuffers: ["src/app.css": "body {}"])
+        check("unsaved editor buffers change the revision", rev2.editorBuffers == 1 && rev2.id != rev1.id)
+        do {
+            _ = try await StudioChanges.plan([StudioEdit(path: "src/app.css", search: "margin: 4px", replace: "margin: 1px")], snapshot: withBuffer)
+            check("an unsaved buffer is a conflict", false)
+        } catch StudioChangeError.conflict { check("an unsaved buffer is a conflict", true) } catch { check("unsaved buffer", false, "\(error)") }
+
+        let (rev3, fresh) = await StudioRevisionProbe.compute(root: repo)
+        check("uncommitted changes are part of the revision", rev3.changedFiles >= 1 && rev3.id != rev1.id)
+        do {
+            _ = try await StudioChanges.plan([StudioEdit(path: "src/app.css", search: "nothing like this", replace: "x")], snapshot: fresh)
+            check("missing search text fails", false)
+        } catch StudioChangeError.notFound { check("missing search text fails", true) } catch { check("missing search", false, "\(error)") }
+        do {
+            _ = try await StudioChanges.plan([StudioEdit(path: "src/app.css", search: " ", replace: "  ")], snapshot: fresh)
+            check("ambiguous search text fails", false)
+        } catch StudioChangeError.ambiguous { check("ambiguous search text fails", true) } catch { check("ambiguous search", false, "\(error)") }
+
+        for bad in ["../outside.css", "/etc/hosts", "node_modules/x/index.js", ".git/config", ".markview/studio/environment.json", "src/logo.png"] {
+            check("path refused: \(bad)", StudioChanges.validatedURL(bad, root: repo) == nil)
+        }
+        try? fm.createSymbolicLink(at: repo.appendingPathComponent("link"), withDestinationURL: tmp)
+        check("a symlink leading outside the project is refused", StudioChanges.validatedURL("link/escape.css", root: repo) == nil)
+        check("a new file inside src is allowed", StudioChanges.validatedURL("src/new/Badge.css", root: repo) != nil)
+
+        // Atomic writes: a failing file puts the earlier ones back.
+        let good = StudioFileChange(path: "src/app.css", before: read("src/app.css"), after: "body { color: red; }\n")
+        let failing = StudioFileChange(path: "../x.css", before: nil, after: "x")
+        do { try StudioChanges.write([good, failing], root: repo); check("a failing write throws", false) } catch {
+            check("a failing write puts earlier files back", read("src/app.css") == good.before)
+        }
+        // A created file: undo removes it only while it is unchanged.
+        let createdFile = StudioFileChange(path: "src/Badge.css", before: nil, after: ".badge {}\n")
+        try? StudioChanges.write([createdFile], root: repo)
+        if case .clean(_, let text) = await StudioChanges.undoPlan(createdFile, root: repo) { check("undo of a created file removes it", text == nil) } else { check("undo created", false) }
+    }
+
+    @MainActor func testEnvironmentMap() async {
+    func isStrict(_ schema: Any) -> Bool {
+        guard let object = schema as? [String: Any] else { return true }
+        if let properties = object["properties"] as? [String: Any] {
+            let required = Set((object["required"] as? [String]) ?? [])
+            guard required == Set(properties.keys), object["additionalProperties"] as? Bool == false else { return false }
+            return properties.values.allSatisfy(isStrict)
+        }
+        if let items = object["items"] { return isStrict(items) }
+        return true
+    }
+        // The inventory's boundary: what the assistant returned is normalized, and what does not fit is left out.
+        let answer: [String: Any] = [
+            "services": [
+                ["name": "app", "baseURL": "", "variable": "", "side": "both"],
+                ["name": "Marketplace Core", "baseURL": "https://core.example.test/v1/", "variable": "process.env.CORE_URL", "side": "server"],
+                ["name": "app", "baseURL": "", "variable": "", "side": "browser"],
+            ],
+            "endpoints": [
+                ["service": "marketplace core", "resource": "bundles", "method": "get", "path": "${process.env.CORE_URL}/bundles/search?category=${id}",
+                 "callSite": "src/lib/core.ts:12", "side": "server"],
+                ["service": "marketplace-core", "resource": "bundles", "method": "GET", "path": "/bundles/{bundleId}", "callSite": "/Users/x/src/a.ts:3", "side": "server"],
+                ["service": "marketplace-core", "resource": "bundles", "method": "GET", "path": "https://core.example.test/v1/bundles/[slug]/reviews/", "callSite": "", "side": "browser"],
+                ["service": "marketplace-core", "resource": "bundles", "method": "GET", "path": "/bundles/:id", "callSite": "", "side": "server"],
+                ["service": "app", "resource": "", "method": "POST", "path": "/api/consents", "callSite": "app/consent.tsx:40", "side": "browser"],
+                ["service": "app", "resource": "session", "method": "GET", "path": "/api/auth/session", "callSite": "../outside.ts:1", "side": "browser"],
+                ["service": "app", "resource": "session", "method": "GET", "path": "/api/auth/session", "callSite": "", "side": "browser"],
+                ["service": "app", "resource": "x", "method": "OPTIONS", "path": "/api/x", "callSite": "", "side": "browser"],
+                ["service": "app", "resource": "x", "method": "GET", "path": "/api/../secrets", "callSite": "", "side": "browser"],
+                ["service": "Payments", "resource": "intents", "method": "POST", "path": "/v1/payment_intents", "callSite": "", "side": "server"],
+            ],
+            "notes": ["A WebSocket to wss://live.example.test", "  "],
+            "userRoles": ["names": ["customer", "master", "fairy", "support", "admin", "bad role", "customer"], "ordinary": "customer"],
+        ]
+        let inventory = StudioMapParsing.inventory(from: answer)
+        let core = inventory?.services.first { $0.name == "marketplace-core" }
+        check("REQ-014 the inventory keeps each service once, with a plain name, its address and its variable",
+              inventory?.services.map(\.name) == ["app", "marketplace-core", "payments"] && core?.baseURL == "https://core.example.test/v1"
+              && core?.variable == "CORE_URL" && core?.side == .server, "\(inventory?.services ?? [])")
+        let paths = inventory?.entries.map { "\($0.service) \($0.endpoint.method) \($0.endpoint.path)" } ?? []
+        check("REQ-014 endpoint paths become route templates without the address, the query or a trailing slash",
+              paths == ["marketplace-core GET /bundles/search", "marketplace-core GET /bundles/:bundleId", "marketplace-core GET /bundles/:slug/reviews",
+                        "app POST /api/consents", "app GET /api/auth/session", "payments POST /v1/payment_intents"], "\(paths)")
+        check("REQ-014 the inventory drops unknown methods, paths with .., duplicates (whatever the parameters are called) and call sites outside the project",
+              inventory?.entries.count == 6 && inventory?.entries[1].endpoint.callSite == "" && inventory?.entries[4].endpoint.callSite == ""
+              && inventory?.entries[0].endpoint.callSite == "src/lib/core.ts:12" && inventory?.entries[3].endpoint.resource == "api",
+              "\(inventory?.entries.map(\.endpoint) ?? [])")
+        check("REQ-014 an endpoint of a service the answer did not list gets that service, and blank notes are dropped",
+              inventory?.services.last?.name == "payments" && inventory?.notes == ["A WebSocket to wss://live.example.test"])
+        check("REQ-014 an answer without the inventory's shape is unreadable",
+              StudioMapParsing.inventory(from: ["services": [], "endpoints": "GET /x"]) == nil && StudioMapParsing.inventory(from: "text") == nil
+              && StudioMapParsing.inventory(from: ["services": [], "endpoints": [], "notes": []])?.entries.isEmpty == true)
+        check("REQ-014 the inventory keeps the user roles the code checks and the ordinary one",
+              inventory?.roles == ["customer", "master", "fairy", "support", "admin"] && inventory?.ordinaryRole == "customer"
+              && StudioMapParsing.inventory(from: ["services": [], "endpoints": [], "userRoles": ["names": [], "ordinary": "client"]])?.roles == ["client"]
+              && StudioMapParsing.inventory(from: ["services": [], "endpoints": []])?.roles.isEmpty == true, "\(inventory?.roles ?? [])")
+        let vivaaRoles = ["customer", "master", "fairy", "support", "admin"]
+        check("REQ-014 the test user gets the ordinary role only when the application does not know its role",
+              StudioMapPlanner.testUserRole(current: "member", roles: vivaaRoles, ordinary: "customer") == "customer"
+              && StudioMapPlanner.testUserRole(current: "admin", roles: vivaaRoles, ordinary: "customer") == nil
+              && StudioMapPlanner.testUserRole(current: "member", roles: [], ordinary: "") == nil
+              && StudioMapPlanner.testUserRole(current: "member", roles: vivaaRoles, ordinary: "") == nil)
+        let customer = StudioRole.tester(role: "customer")
+        check("REQ-014 the built-in test user with the application's role keeps everything else",
+              customer.roleName == "customer" && customer.user["email"] == StudioRole.tester.user["email"] && customer.token == StudioRole.tester.token
+              && StudioRole.tester(role: nil) == StudioRole.tester && StudioRole.tester.roleName == "member")
+        check("REQ-014 the inventory and refill schemas are strict", isStrict(StudioMapPrompts.inventorySchema) && isStrict(StudioMapPrompts.refillSchema))
+
+        // Groups: a resource that fills a group is split, small resources of one service are packed together.
+        var big = StudioMapInventory()
+        big.services = [StudioMapService(name: "core"), StudioMapService(name: "app")]
+        for index in 1...10 { big.entries.append(.init(service: "core", endpoint: StudioMapEndpoint(method: "GET", path: "/bundles/\(index)", resource: "bundles"))) }
+        for resource in ["cities", "categories", "fx"] {
+            big.entries.append(.init(service: "core", endpoint: StudioMapEndpoint(method: "GET", path: "/\(resource)", resource: resource)))
+        }
+        for index in 1...6 { big.entries.append(.init(service: "core", endpoint: StudioMapEndpoint(method: "GET", path: "/orders/\(index)", resource: "orders"))) }
+        big.entries.append(.init(service: "app", endpoint: StudioMapEndpoint(method: "GET", path: "/api/auth/session", resource: "session")))
+        let groups = StudioMapPlanner.groups(big)
+        check("REQ-014 the inventory is split into groups of at most eight endpoints by service and resource",
+              groups.map(\.id) == ["core/bundles", "core/bundles-2", "core/cities+categories+fx", "core/orders", "app/session"]
+              && groups.map(\.endpoints.count) == [8, 2, 3, 6, 1] && groups.allSatisfy { $0.status == .pending },
+              "\(groups.map { "\($0.id) \($0.endpoints.count)" })")
+        var small = StudioMapLimits()
+        small.maxGroups = 2
+        check("REQ-014 a map keeps at most maxGroups groups", StudioMapPlanner.groups(big, limits: small).count == 2)
+
+        // Planning: where a group's rules point, and what is already covered.
+        let connections = [StudioServerConnection(variable: "CORE_URL", origin: "http://core.example.test", basePath: "/v1", mode: .simulated, foundIn: ".env")]
+        let services = StudioMapPlanner.resolve([StudioMapService(name: "app"), StudioMapService(name: "core", baseURL: "https://other.example.test", variable: "CORE_URL"),
+                                                 StudioMapService(name: "pay", baseURL: "https://pay.example.test/v1"), StudioMapService(name: "unknown")],
+                                                connections: connections)
+        check("REQ-014 a service's address is its simulated connection's, else its base URL; the application's is its own server",
+              services.map(\.address) == ["", "http://core.example.test/v1", "https://pay.example.test/v1", nil], "\(services.map(\.address))")
+        let bundle = StudioMapEndpoint(method: "GET", path: "/bundles/:id")
+        check("REQ-014 a rule path is the full URL on another service and the path alone on the application's server",
+              StudioMapPlanner.rulePath(bundle, service: services[1]) == "http://core.example.test/v1/bundles/:id"
+              && StudioMapPlanner.rulePath(bundle, service: services[0]) == "/bundles/:id" && StudioMapPlanner.rulePath(bundle, service: services[3]) == nil)
+        let rules = [StudioRule(id: "get-bundle", method: "GET", path: "http://core.example.test/v1/bundles/:bundleId", operation: .get, entity: "bundles")]
+        let search = StudioMapEndpoint(method: "GET", path: "/bundles/search")
+        check("REQ-014 an endpoint is covered by a registered rule of the same method, origin and route",
+              StudioMapPlanner.isCovered(bundle, service: services[1], rules: rules)
+              && !StudioMapPlanner.isCovered(StudioMapEndpoint(method: "POST", path: "/bundles/:id"), service: services[1], rules: rules)
+              && !StudioMapPlanner.isCovered(bundle, service: services[2], rules: rules)
+              && !StudioMapPlanner.isCovered(StudioMapGroup(id: "g", service: "core", resource: "bundles", endpoints: [bundle, StudioMapEndpoint(method: "GET", path: "/cities")]),
+                                             service: services[1], rules: rules))
+        check("REQ-014 a request matches its endpoint on the service's origin, the application's on its own origin",
+              StudioMapPlanner.matches(bundle, service: services[1], method: "get", url: URL(string: "http://core.example.test/v1/bundles/7?x=1")!, appOrigin: nil)
+              && !StudioMapPlanner.matches(bundle, service: services[1], method: "GET", url: URL(string: "http://core.example.test/v2/bundles/7")!, appOrigin: nil)
+              && !StudioMapPlanner.matches(search, service: services[1], method: "GET", url: URL(string: "http://core.example.test/v1/bundles/7")!, appOrigin: nil)
+              && StudioMapPlanner.matches(StudioMapEndpoint(method: "GET", path: "/api/auth/session"), service: services[0], method: "GET",
+                                          url: URL(string: "http://localhost:3000/api/auth/session")!, appOrigin: "http://localhost:3000")
+              && !StudioMapPlanner.matches(StudioMapEndpoint(method: "GET", path: "/api/auth/session"), service: services[0], method: "GET",
+                                           url: URL(string: "http://other.test/api/auth/session")!, appOrigin: "http://localhost:3000"))
+        var resumeMap = StudioEnvironmentMap(inventoried: true)
+        resumeMap.groups = ["a", "b", "c", "d", "e", "f"].map { StudioMapGroup(id: $0, service: "core", resource: $0, endpoints: [bundle]) }
+        resumeMap.groups[1].status = .preparing
+        resumeMap.groups[2].status = .done
+        resumeMap.groups[3].status = .failed
+        resumeMap.groups[3].attempts = 1
+        resumeMap.groups[4].status = .failed
+        resumeMap.groups[4].attempts = 2
+        resumeMap.groups[5].status = .unsupported
+        check("REQ-014 a session resumes groups not started, interrupted, or failed in fewer than two sessions",
+              StudioMapPlanner.resumable(resumeMap, sessions: 2) == ["a", "b", "d"], "\(StudioMapPlanner.resumable(resumeMap, sessions: 2))")
+        check("REQ-014 a completed or cancelled map is not redone; a missing, interrupted or other folder's map is",
+              StudioEnvironmentMapper.needsMapping(nil, appFolder: "web")
+              && StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .complete, appFolder: "other"), appFolder: "web")
+              && StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .mapping, appFolder: "web"), appFolder: "web")
+              && !StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .complete, appFolder: "web"), appFolder: "web")
+              && !StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .cancelled, appFolder: "web"), appFolder: "web")
+              && StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .failed, appFolder: "web", inventoryAttempts: 2), appFolder: "web")
+              && !StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .failed, appFolder: "web", inventoryAttempts: 3), appFolder: "web"))
+
+        // Groups share entities: what is already registered is left out of a group's proposal.
+        var shared = StudioEnvironmentSpec()
+        shared.entities = [StudioEntity(name: "categories", fields: [StudioField(name: "name", type: "string")])]
+        shared.rules = [StudioRule(id: "list-categories", method: "GET", path: "http://core.example.test/v1/categories", operation: .list, entity: "categories")]
+        var groupProposal = StudioProposal()
+        groupProposal.entities = shared.entities
+        groupProposal.rules = [StudioRule(id: "list-categories", method: "GET", path: "http://core.example.test/v1/categories", operation: .list, entity: "categories"),
+                               StudioRule(id: "list-categories", method: "GET", path: "http://core.example.test/v1/catalog-categories", operation: .list, entity: "categories")]
+        groupProposal.records = ["categories": [.object(["id": .string("c1"), "name": .string("Spa")]), .object(["id": .string("c9"), "name": .string("Food")])]]
+        let state: [String: [StudioJSON]] = ["categories": [.object(["id": .string("c1"), "name": .string("Spa")])]]
+        let (clean, dropped) = StudioMapPlanner.deduplicated(groupProposal, spec: shared, state: state)
+        check("REQ-014 a group's proposal leaves out rules and records that exist and renames a rule id in use",
+              clean.rules.map(\.id) == ["list-categories-2"] && clean.rules.first?.path.hasSuffix("/catalog-categories") == true
+              && clean.records["categories"]?.count == 1 && clean.records["categories"]?.first?["id"]?.stringValue == "c9" && dropped.count == 2,
+              "\(clean.rules.map(\.id)) \(dropped)")
+        var registeredSim = StudioSimulator(spec: shared, scenario: StudioScenario(id: "s", name: "S", kind: .populated))
+        check("REQ-014 the deduplicated proposal registers", registeredSim.register(clean).isEmpty)
+
+        // Map again keeps the project's and the person's rules with the entities they read.
+        var prepared = StudioEnvironmentSpec()
+        prepared.entities = [StudioEntity(name: "items", fields: [StudioField(name: "cityId", type: "string", references: "cities")]),
+                             StudioEntity(name: "cities"), StudioEntity(name: "bundles")]
+        prepared.rules = [StudioRule(id: "items", method: "GET", path: "/api/items", operation: .list, entity: "items", origin: .project),
+                          StudioRule(id: "bundles", method: "GET", path: "/api/bundles", operation: .list, entity: "bundles", origin: .agent)]
+        prepared.seed = ["items": [], "cities": [.object(["id": .string("x")])], "bundles": [.object(["id": .string("b")])]]
+        prepared.dependencies = [StudioDependency(id: "GET /api/bundles", mode: .simulated, note: ""), StudioDependency(id: "GET /api/items", mode: .simulated, note: "")]
+        prepared.preparedRoutes = ["/"]
+        prepared.map = StudioEnvironmentMap(status: .complete, appFolder: "web")
+        let fresh = StudioMapPlanner.withoutPrepared(prepared)
+        check("REQ-014 Map again removes the assistant's rules and the data only they use, and the map",
+              fresh.rules.map(\.id) == ["items"] && fresh.entities.map(\.name) == ["items", "cities"] && fresh.seed.keys.sorted() == ["cities", "items"]
+              && fresh.dependencies.map(\.id) == ["GET /api/items"] && fresh.map == nil && fresh.preparedRoutes == nil)
+
+        // An environment written before the map still loads; a damaged map does not make it unreadable.
+        let older = #"{"schemaVersion":1,"entities":[{"name":"items","idField":"id","fields":[]}],"rules":[{"id":"list","method":"GET","path":"/api/items","operation":"list","entity":"items","evidence":[],"origin":"project","version":1}],"seed":{},"allowedRequests":[],"confidentialFields":[],"dependencies":[]}"#
+        let decodedOlder = try? StudioStore.decoder.decode(StudioEnvironmentSpec.self, from: Data(older.utf8))
+        check("REQ-014 an environment file written before the map decodes, without a map", decodedOlder?.rules.count == 1 && decodedOlder?.map == nil)
+        let damaged = older.replacingOccurrences(of: #""dependencies":[]}"#, with: #""dependencies":[],"map":{"status":"weird","groups":[{"id":"g1","status":"strange","endpoints":[{"method":"GET","path":"/a"},{"path":"/b"}]},{"service":"no id"},7],"services":"x","started":"yesterday"}}"#)
+        let decodedDamaged = try? StudioStore.decoder.decode(StudioEnvironmentSpec.self, from: Data(damaged.utf8))
+        check("REQ-014 a damaged map is read leniently and the environment still loads",
+              decodedDamaged?.rules.count == 1 && decodedDamaged?.map?.status == .mapping && decodedDamaged?.map?.groups.map(\.id) == ["g1"]
+              && decodedDamaged?.map?.groups.first?.status == .pending && decodedDamaged?.map?.groups.first?.endpoints.count == 1
+              && decodedDamaged?.map?.services.isEmpty == true && decodedDamaged?.map?.started == nil, "\(String(describing: decodedDamaged?.map))")
+        let notObject = older.replacingOccurrences(of: #""dependencies":[]}"#, with: #""dependencies":[],"map":"broken"}"#)
+        check("REQ-014 a map that is not an object reads as a map never made",
+              (try? StudioStore.decoder.decode(StudioEnvironmentSpec.self, from: Data(notObject.utf8)))?.map.map { !$0.inventoried && $0.groups.isEmpty } == true)
+        var saved = StudioEnvironmentMap(status: .complete, appFolder: "web", started: Date(timeIntervalSince1970: 1_800_000_000), inventoried: true,
+                                         inventoryAttempts: 1, services: services, notes: ["n"], gaps: ["g"], userRoles: vivaaRoles, ordinaryRole: "customer")
+        saved.groups = groups
+        saved.groups[0].status = .done
+        saved.groups[0].rules = ["r1"]
+        var withMap = StudioEnvironmentSpec()
+        withMap.map = saved
+        withMap.testUserRole = "customer"
+        let roundTrip = (try? StudioStore.encoder.encode(withMap)).flatMap { try? StudioStore.decoder.decode(StudioEnvironmentSpec.self, from: $0) }
+        check("REQ-014 the map and the test user's role are saved and read back unchanged", roundTrip?.map == saved && roundTrip?.testUserRole == "customer"
+              && decodedOlder?.testUserRole == nil && decodedDamaged?.map?.userRoles.isEmpty == true)
+
+        // The coherence check: references between records and the coverage of every value a list filters by.
+        var data = StudioEnvironmentSpec()
+        data.entities = [StudioEntity(name: "categories", fields: [StudioField(name: "name", type: "string")]),
+                         StudioEntity(name: "cities", fields: [StudioField(name: "name", type: "string")]),
+                         StudioEntity(name: "bundles", fields: [StudioField(name: "categoryId", type: "string"),
+                                                                StudioField(name: "cityId", type: "string", references: "cities"),
+                                                                StudioField(name: "status", type: "string", enumValues: ["live", "draft"]),
+                                                                StudioField(name: "tagIds", type: "array")]),
+                         StudioEntity(name: "orders", fields: [])]
+        data.rules = [StudioRule(id: "search", method: "GET", path: "/bundles/search", operation: .list, entity: "bundles", filters: ["categoryId", "status", "limit"]),
+                      StudioRule(id: "orders", method: "GET", path: "/orders", operation: .list, entity: "orders")]
+        data.seed = [
+            "categories": [.object(["id": .string("c1"), "name": .string("Spa")]), .object(["id": .string("c2"), "name": .string("Food")]),
+                           .object(["id": .string("c3"), "name": .string("Tours")])],
+            "cities": [.object(["id": .string("tlv"), "name": .string("Tel Aviv")])],
+            "bundles": (1...6).map { .object(["id": .string("b\($0)"), "categoryId": .string("c1"), "cityId": .string($0 == 6 ? "haifa" : "tlv"),
+                                              "status": .string("live")]) },
+        ]
+        let gaps = StudioCoherence.check(data)
+        let dangling = gaps.first { $0.kind == .dangling }
+        let uncovered = gaps.filter { $0.kind == .uncovered }
+        check("REQ-014 the coherence check finds a reference to a record that does not exist",
+              dangling?.entity == "bundles" && dangling?.field == "cityId" && dangling?.values == ["haifa"]
+              && dangling?.line.contains("bundles.cityId points at cities that do not exist: haifa") == true, "\(gaps.map(\.line))")
+        check("REQ-014 the coherence check finds filter values with no records, through a reference named after its entity and an enumeration",
+              uncovered.map(\.field) == ["categoryId", "status"] && uncovered.first?.values == ["c2", "c3"]
+              && uncovered.first?.line.contains("c2 (Food), c3 (Tours)") == true && uncovered.last?.values == ["draft"], "\(uncovered.map(\.line))")
+        check("REQ-014 the coherence check finds an empty list and ignores paging parameters",
+              gaps.contains { $0.kind == .empty && $0.entity == "orders" } && !gaps.contains { $0.field == "limit" } && gaps.count == 4, "\(gaps.map(\.line))")
+        var fixed = data
+        fixed.seed["bundles"] = ["c1", "c1", "c2", "c2", "c3", "c3"].enumerated().map { index, category in
+            .object(["id": .string("b\(index)"), "categoryId": .string(category), "cityId": .string("tlv"), "status": .string(index % 2 == 0 ? "live" : "draft")])
+        }
+        fixed.seed["orders"] = [.object(["id": .number(1)])]
+        check("REQ-014 coherent records leave no gap", StudioCoherence.check(fixed).isEmpty, "\(StudioCoherence.check(fixed).map(\.line))")
+        check("REQ-014 entities are refilled after the entities they point at",
+              StudioCoherence.refillOrder(["bundles", "categories", "cities"], spec: data) == [["categories", "cities"], ["bundles"]],
+              "\(StudioCoherence.refillOrder(["bundles", "categories", "cities"], spec: data))")
+        let keep = StudioEnvironmentMapper.referencedIDs(of: "categories", spec: data, seed: data.seed, except: [])
+        let bundlesEntity = data.entity("bundles")!
+        check("REQ-014 refilled records are checked: types, references, ids used twice and ids others point at",
+              keep == ["c1"]
+              && !StudioEnvironmentMapper.refillProblems([.object(["id": .string("x"), "name": .string("New")])], entity: data.entity("categories")!,
+                                                         spec: data, seed: data.seed, keep: keep, limits: StudioMapLimits()).isEmpty
+              && StudioEnvironmentMapper.refillProblems([.object(["id": .string("c1"), "name": .string("Spa")])], entity: data.entity("categories")!,
+                                                        spec: data, seed: data.seed, keep: keep, limits: StudioMapLimits()).isEmpty
+              && !StudioEnvironmentMapper.refillProblems([.object(["id": .string("b1"), "cityId": .string("nowhere")])], entity: bundlesEntity,
+                                                         spec: data, seed: data.seed, keep: [], limits: StudioMapLimits()).isEmpty
+              && !StudioEnvironmentMapper.refillProblems([.object(["id": .string("b1")]), .object(["id": .string("b1")])], entity: bundlesEntity,
+                                                         spec: data, seed: data.seed, keep: [], limits: StudioMapLimits()).isEmpty)
+        let groupText = StudioMapPrompts.groupPrompt(groups[0], service: StudioMapService(name: "core", variable: "CORE_URL", address: "http://core.example.test/v1"),
+                                                     context: StudioMapContext(appFolder: "web", appOrigin: nil, connections: connections), spec: data,
+                                                     problems: ["bundles: id b1 is used twice"])
+        check("REQ-014 a group's prompt has its endpoints with their rule paths, the registered entities with their ids, coverage and the last problems",
+              groupText.contains("GET /bundles/1") && groupText.contains("rule path `http://core.example.test/v1/bundles/1`")
+              && groupText.contains("categories (id id)") && groupText.contains("c2 \"Food\"") && groupText.contains("2-4 records")
+              && groupText.contains("id b1 is used twice") && groupText.contains("CORE_URL → http://core.example.test/v1"))
+    }
+
     func testAssistantBoundaryFailsClosed() async {
         AIAssistantRunner.setTestRunner(nil)
         do {

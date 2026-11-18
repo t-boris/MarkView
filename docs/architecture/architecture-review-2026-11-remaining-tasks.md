@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4: UI Studio change-management and environment-map checks run against shipping types in the app host. Both focused tests passed with all 67 named check sites retained; the standalone checks were removed and the remaining `ui-studio-tests` suite passed. The change-manager test uses and removes a unique temporary Git repository. Architecture lint and SwiftLint passed. Full automated tiers and final CI remain pending.
+
 D4: UI Studio redaction, sanitized-environment, bridge-validation, preparation-queue and log checks run against shipping types in the app host. All three focused tests passed with 77 named check sites retained; the corresponding standalone checks were removed and the remaining `ui-studio-tests` suite passed. The runtime source path is derived from the test source location. Temporary log fixtures are removed. Architecture lint and SwiftLint passed. Full automated tiers and final CI remain pending.
 
 D4: UI Studio simulator, request policy, scenario persistence and legacy-store recovery checks run against shipping types in the app host. The focused test passed with all 60 named check sites retained; the standalone checks and their store-fixture dependency were removed, and the remaining `ui-studio-tests` suite passed. The first remaining-suite build failed because a preparation check shared the old empty-scenario fixture; recreating it locally fixed the suite. Architecture lint, SwiftLint and repository hygiene passed. Full automated tiers and final CI remain pending.
