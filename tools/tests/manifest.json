@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 33,
+  "suiteCount": 32,
   "suites": [
     {
       "name": "ai-terminals-controller-tests",
@@ -164,57 +164,6 @@
       "sources": [
         "MarkView/Resources/Editor/js/markview-document-files.js",
         "tools/tests/document-files.test.js"
-      ]
-    },
-    {
-      "name": "browser-host-tests",
-      "script": "tools/tests/browser-host-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "tools/tests/ProjectProvidingTestSupport.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
-        "MarkView/Models/AI/OutputLanguage.swift",
-        "MarkView/Models/AgentTools/BrowserAgentTools.swift",
-        "MarkView/Models/Appearance/AppTheme.swift",
-        "MarkView/Models/Appearance/BackdropRegistry.swift",
-        "MarkView/Models/Appearance/ProjectBackdrop.swift",
-        "MarkView/Models/Appearance/ThemeCatalog.swift",
-        "MarkView/Models/Appearance/ThemeDefinition.swift",
-        "MarkView/Models/Appearance/WelcomeBackdrop.swift",
-        "MarkView/Models/Book/PDFReader.swift",
-        "MarkView/Models/Browser/BrowserAgentTabs.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BrowserElementPick.swift",
-        "MarkView/Models/Browser/BrowserAddress.swift",
-        "MarkView/Models/Workspace/BrowserHost.swift",
-        "MarkView/Models/Browser/WebPreview.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/BackgroundFileScans.swift",
-        "MarkView/Models/Workspace/DocumentScrollSideTable.swift",
-        "MarkView/Models/Workspace/DocumentState.swift",
-        "MarkView/Models/Architecture/XRayScope.swift",
-        "MarkView/Models/Git/GitHubItem.swift",
-        "MarkView/Models/Shared/ArchiveSupport.swift",
-        "MarkView/Models/Shared/FileType.swift",
-        "MarkView/Models/Workspace/EditorDocumentRouting.swift",
-        "MarkView/Models/Workspace/PanelLayout.swift",
-        "MarkView/Models/Shared/ProjectProviding.swift",
-        "MarkView/Models/Shared/SchemaVersionedStore.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/TabClosing.swift",
-        "MarkView/Models/Workspace/TabsController.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "MarkView/Models/Browser/WebAppPreview.swift",
-        "MarkView/Models/Workspace/WindowChrome.swift",
-        "MarkView/Models/Workspace/WindowSession.swift",
-        "MarkView/Models/Workspace/WindowUIState.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/BrowserHostStubs.swift",
-        "tools/tests/BrowserHostTests.swift",
-        "tools/tests/browser-host-tests.sh",
-        "MarkView/Models/AgentTools/AgentToolWindow.swift",
-        "MarkView/Models/Shared/UserPrompts.swift",
-        "tools/tests/ScriptedPrompts.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/InsightSessionTestSupport.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/FeatureStoreTestSupport.swift"
       ]
     },
     {
@@ -990,7 +939,11 @@
         "MarkViewHostedTests/ToolTabsRouterHostTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/ConflictPrompt.swift",
         "MarkView/Models/Workspace/FeatureFlowCoordinator.swift",
-        "MarkView/Models/Lifecycle/LifecycleCapture.swift"
+        "MarkView/Models/Lifecycle/LifecycleCapture.swift",
+        "MarkView/Models/Browser/BrowserAgentTabs.swift",
+        "MarkView/Models/Workspace/BrowserHost.swift",
+        "MarkView/Models/AgentTools/AgentToolWindow.swift",
+        "MarkViewHostedTests/BrowserHostHostTests.swift"
       ]
     },
     {
