@@ -11,6 +11,5 @@
   "no-process-outside-subprocess-lint": 0.5,
   "qa-native-tests": 70.6,
   "run-sh-tests": 9.2,
-  "tool-tabs-router-tests": 38.1,
   "xray-task-ownership-tests": 78.7
 }
