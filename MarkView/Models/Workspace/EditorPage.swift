@@ -12,7 +12,7 @@ enum EditorPage {
     // File URLs have an opaque origin here and cannot load those sibling resources.
     static let resourceBaseURL = URL(string: "mvproto://site/")!
 
-    static func resourceHandler(root: URL) -> PrototypeSchemeHandler {
+    @MainActor static func resourceHandler(root: URL) -> PrototypeSchemeHandler {
         PrototypeSchemeHandler(root: root)
     }
 
