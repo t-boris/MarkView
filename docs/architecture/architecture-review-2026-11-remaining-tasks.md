@@ -7,6 +7,12 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-18
 
+Unlocked-session general GUI follow-up: `qa-web-fault-tests` passed, including 306 hosted tests (3 optional skips, 0 failures) and all seven subsequently isolated host checks (`/tmp/markview-qa-host-unlocked-7011.log`). Final CI still requires verification.
+
+UI Studio follow-up: the isolated network and recovery groups passed in 43.6 and 183.8 seconds respectively (`/tmp/markview-studio-network-unlocked.log`, `/tmp/markview-studio-recovery-unlocked.log`). Together with the unlocked session group below, all three groups passed.
+
+Unlocked-session follow-up: the isolated terminal GUI suite passed all five XCTest cases (`/tmp/markview-terminal-unlocked.log`), including all 61 layout checks, editor-line navigation, terminal links and both child-process checks. The UI Studio session scenario also passed in 138.2 seconds with the readiness check retained (`/tmp/markview-studio-unlocked.log`). The earlier locked-session failures were not reproduced in these focused unlocked runs. Final CI still requires verification.
+
 CI duration diagnostics: the manifest runner buffers each suite's output until the suite ends, so UI Studio's stage markers did not reach the CI log during a long-running or hung suite. The runner now forwards those static markers while preserving the complete buffered output and existing process-group timeouts. Regression checks verified early delivery even when a marker is split across writes, successful suite completion and retention of the full output; the complete pure tier passed 8/8 (`/tmp/markview-pure-ci-progress.log`). This improves visibility and diagnosis, not the suite's execution time; final CI remains open.
 
 D4 isolation follow-up: two graph profiling tests constructed `WorkspaceManager` without an explicit recent-files URL, causing them to read the user's `recentFiles.json`. They set the fixture root directly and do not invoke the method that saves recent files. Both fixtures now use temporary recent-file paths; the synthetic accessibility test and the real-project profiling test passed (`/tmp/markview-graph-recents-isolation.log`, 2 tests, 0 failures). The profiled project remains read-only.
