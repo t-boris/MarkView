@@ -890,7 +890,8 @@
         "MarkViewHostedTests/BrowserHostHostTests.swift",
         "MarkViewHostedTests/AITerminalsControllerHostTests.swift",
         "MarkView/Models/Terminal/AgentActivityMonitor.swift",
-        "MarkView/Models/Workspace/AITerminalsController.swift"
+        "MarkView/Models/Workspace/AITerminalsController.swift",
+        "MarkViewHostedTests/XRayOwnershipHostTests.swift"
       ]
     },
     {
