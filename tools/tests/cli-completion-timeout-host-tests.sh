@@ -1,12 +1,24 @@
 #!/bin/bash
-# Exercise completion deadlines against a local fixture in an isolated app host.
+# Exercise completion deadlines or ACP continuation against a local fixture in an isolated app host.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-if (( $# )); then echo "usage: $0" >&2; exit 2; fi
+if (( $# > 1 )) || { (( $# == 1 )) && [[ "$1" != "--continuation" ]]; }; then
+    echo "usage: $0 [--continuation]" >&2; exit 2
+fi
+fixture_source=Tests/Fixtures/assistant-cli-timeout.py
+fixture_name=timeout.py
+test_class=CLICompletionTimeoutHostTests
+test_method=testCompletionDeadlinesAndCancellation
+if (( $# == 1 )); then
+    fixture_source=Tests/Fixtures/assistant-acp-continuation.py
+    fixture_name=continuation.py
+    test_class=ACPContinuationHostTests
+    test_method=testContinuationsAndPermissions
+fi
 scratch=$(mktemp -d /tmp/mvcli-test-XXXXXX)
-mkdir -p "$scratch/home"
-cp Tests/Fixtures/assistant-cli-timeout.py "$scratch/timeout.py"
-chmod 755 "$scratch/timeout.py"
+mkdir -p "$scratch/home" "$scratch/scratch"
+cp "$fixture_source" "$scratch/$fixture_name"
+chmod 755 "$scratch/$fixture_name"
 cleanup() {
     local status=$? pid command group tag
     trap - EXIT INT TERM
@@ -17,7 +29,7 @@ cleanup() {
             [[ "$pid" =~ ^[0-9]+$ ]] || continue
             command=$(ps -p "$pid" -o command= 2>/dev/null)
             case "$command" in
-                *"/$tag/timeout.py"*)
+                *"/$tag/$fixture_name"*)
                     group=$(ps -p "$pid" -o pgid= 2>/dev/null | tr -d ' ')
                     if [[ "$group" == "$pid" ]]; then kill -KILL -- "-$pid" 2>/dev/null; else kill -KILL "$pid" 2>/dev/null; fi
                     ;;
@@ -33,11 +45,12 @@ trap 'exit 143' TERM
 unset MARKVIEW_COMPLETION_LIVE_COPILOT TEST_RUNNER_MARKVIEW_COMPLETION_LIVE_COPILOT
 export TEST_RUNNER_CFFIXED_USER_HOME="$scratch/home"
 export TEST_RUNNER_MARKVIEW_CLI_TEST_HOME="$scratch/home"
-export TEST_RUNNER_MARKVIEW_CLI_TEST_FIXTURE="$scratch/timeout.py"
+export TEST_RUNNER_MARKVIEW_CLI_TEST_SCRATCH="$scratch/scratch"
+export TEST_RUNNER_MARKVIEW_CLI_TEST_FIXTURE="$scratch/$fixture_name"
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
 MARKVIEW_SOCKET_DIR="$scratch" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
-  -only-testing:MarkViewHostedTests/CLICompletionTimeoutHostTests/testCompletionDeadlinesAndCancellation test 2>&1 | tee "$scratch/test.log"
-grep -F "Test Case '-[MarkViewHostedTests.CLICompletionTimeoutHostTests testCompletionDeadlinesAndCancellation]' passed" "$scratch/test.log" >/dev/null || {
-    echo "The completion deadline test did not run successfully" >&2; exit 1;
+  -only-testing:MarkViewHostedTests/"$test_class"/"$test_method" test 2>&1 | tee "$scratch/test.log"
+grep -F "Test Case '-[MarkViewHostedTests.$test_class $test_method]' passed" "$scratch/test.log" >/dev/null || {
+    echo "The $test_class test did not run successfully" >&2; exit 1;
 }

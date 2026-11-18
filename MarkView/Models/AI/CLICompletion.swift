@@ -262,6 +262,23 @@ enum CLICompletion {
 
     /// Empty working directory for runs that must not see any files.
     private static func scratchDirectory() -> URL {
+        #if MARKVIEW_HOSTED_TEST_HOST
+        let environment = ProcessInfo.processInfo.environment
+        if let homePath = environment["MARKVIEW_CLI_TEST_HOME"],
+           environment["CFFIXED_USER_HOME"] == homePath,
+           let scratchPath = environment["MARKVIEW_CLI_TEST_SCRATCH"] {
+            let home = URL(fileURLWithPath: homePath).resolvingSymlinksInPath()
+            let root = home.deletingLastPathComponent()
+            let scratch = URL(fileURLWithPath: scratchPath).resolvingSymlinksInPath()
+            let temporaryRoot = URL(fileURLWithPath: "/tmp").resolvingSymlinksInPath()
+            if home.lastPathComponent == "home", root.lastPathComponent.hasPrefix("mvcli-test-"),
+               home.path.hasPrefix(temporaryRoot.path + "/"),
+               scratch.path == root.appendingPathComponent("scratch", isDirectory: true).path {
+                try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+                return scratch
+            }
+        }
+        #endif
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("markview-cli", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
