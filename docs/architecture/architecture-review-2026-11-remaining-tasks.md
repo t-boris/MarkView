@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: intake attachment, linked-issue and concurrent-success checks passed against the real assistant and feature store. The first expanded test ended with an unexpected CancellationError while the fixture inspected a nonexistent `sources` folder; source files live in `references`. The corrected retry reached the final cancellation assertion but found the fixture had not reopened the intake sheet after the preceding success. Both fixture mistakes were corrected and the full focused test passed. The standalone FeatureFlowCoordinator suite remains while its other behavior is checked.
+
 D4 in progress: project-switch cancellation and GitHub settings observer checks passed for FeatureFlowCoordinator. A hand-off result from the previous project is dropped; turning integration on and off updates the store, and a closed flow no longer follows the setting. The test host cannot discover the user's GitHub CLI, and its previous setting is restored.
 
 D4 in progress: the mixed-eligibility bug-basket hand-off passed with real per-item workflow rules. The test verifies that two startable bugs are sent and marked, a third restricted bug stays open and is named in the notice, and the restricted bug is absent from the prompt.

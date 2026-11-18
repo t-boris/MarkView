@@ -67,22 +67,29 @@ private final class DiscussionRunnerSpy: @unchecked Sendable {
 }
 
 private actor FeatureIntakeFixture {
-    enum Mode { case answer, text, fail, wait }
+    enum Mode { case answer, delayedAnswer, text, fail, wait }
     var mode: Mode = .answer
     var requests: [CLICompletion.Request] = []
     var cancellations = 0
     func setMode(_ mode: Mode) { self.mode = mode }
     func count() -> Int { requests.count }
     func lastRequest() -> CLICompletion.Request? { requests.last }
+    func firstRequest(label: String) -> CLICompletion.Request? { requests.first { $0.label == label } }
     func cancellationCount() -> Int { cancellations }
+    private static func answer() throws -> CLICompletion.Result {
+        let object: [String: Any] = ["title": "Fixture feature", "idea": "A fixture", "problem": "A problem", "scope": "A scope",
+                                     "analysis": "An analysis", "assumptions": [], "acceptance_criteria": ["It works"]]
+        return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
     func run(_ request: CLICompletion.Request, _ delta: (@Sendable (String) -> Void)?,
              _ activity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
         requests.append(request)
         switch mode {
         case .answer:
-            let object: [String: Any] = ["title": "Fixture feature", "idea": "A fixture", "problem": "A problem", "scope": "A scope",
-                                         "analysis": "An analysis", "assumptions": [], "acceptance_criteria": ["It works"]]
-            return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+            return try Self.answer()
+        case .delayedAnswer:
+            try await Task.sleep(nanoseconds: 200_000_000)
+            return try Self.answer()
         case .text:
             return try CLICompletion.Result(text: "Fixture answer", structured: nil, inputTokens: 0, outputTokens: 0, costUSD: nil)
         case .fail:
@@ -704,8 +711,10 @@ extension EditorHostTests {
             return condition()
         }
         var results: [String?] = []
+        let attachment = root.appendingPathComponent("attachment.md")
+        try "attachment fixture".write(to: attachment, atomically: true, encoding: .utf8)
         window.requests.intake = IntakeRequest(kind: .quickFeature)
-        flow.submitIntake(.quickFeature, from: "make it", attachments: [], linkedIssue: 5, commentOnIssue: false) { results.append($0) }
+        flow.submitIntake(.quickFeature, from: "make it", attachments: [attachment], linkedIssue: 5, commentOnIssue: false) { results.append($0) }
         let success = try await wait { !results.isEmpty }
         XCTAssertTrue(success)
         XCTAssertEqual(results.count, 1)
@@ -715,6 +724,14 @@ extension EditorHostTests {
         XCTAssertEqual(window.layout.featureStage, .build)
         let overview = try XCTUnwrap(flow.features.features.first?.overviewURL)
         XCTAssertEqual(tabs.opened, [overview])
+        let front = FrontMatter.split(try String(contentsOf: overview, encoding: .utf8)).0
+        XCTAssertEqual(front.string("issue"), "#5")
+        let intakeRequest = await fixture.firstRequest(label: "intake:quick-feature")
+        XCTAssertTrue(intakeRequest?.prompt.contains("make it") == true)
+        XCTAssertTrue(intakeRequest?.prompt.contains("attachment.md") == true)
+        let sources = overview.deletingLastPathComponent().appendingPathComponent(FeatureObjectKind.source.folder)
+        let files = try FileManager.default.contentsOfDirectory(atPath: sources.path)
+        XCTAssertTrue(files.contains { $0.hasSuffix("-attachment.md") })
 
         await fixture.setMode(.fail)
         results = []
@@ -725,8 +742,21 @@ extension EditorHostTests {
         XCTAssertEqual(results.first ?? nil, "fixture failure")
         XCTAssertEqual(window.requests.intake?.kind, .bug)
 
+        await fixture.setMode(.delayedAnswer)
+        results = []
+        let existingFeatures = flow.features.features.count
+        flow.submitIntake(.quickFeature, from: "first", attachments: [], linkedIssue: 5, commentOnIssue: false) { results.append($0) }
+        flow.submitIntake(.quickFeature, from: "second", attachments: [], linkedIssue: 5, commentOnIssue: false) { results.append($0) }
+        XCTAssertEqual(results.count, 1)
+        XCTAssertTrue(results.first.flatMap { $0 }?.contains("already being made") == true)
+        let delayedFinished = try await wait { results.count == 2 }
+        XCTAssertTrue(delayedFinished)
+        XCTAssertNil(results.last ?? "missing")
+        XCTAssertEqual(flow.features.features.count, existingFeatures + 1)
+
         await fixture.setMode(.wait)
         results = []
+        window.requests.intake = IntakeRequest(kind: .quickFeature)
         let previous = await fixture.count()
         flow.submitIntake(.quickFeature, from: "one", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
         flow.submitIntake(.quickFeature, from: "two", attachments: [], linkedIssue: nil, commentOnIssue: false) { results.append($0) }
