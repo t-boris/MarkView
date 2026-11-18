@@ -456,4 +456,93 @@ extension EditorHostTests {
         window.tabs.saveFile(at: 1)
         XCTAssertNil(try recordedChange(), "A closed window no longer forwards saved-file events")
     }
+
+    @MainActor func testRealWindowCompositionConstructsPartsOnDemand() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-lazy-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        let composition = window.composition
+        func isConstructed(_ name: String) throws -> Bool {
+            let stored = try XCTUnwrap(Mirror(reflecting: composition).children.first { $0.label?.hasSuffix("_" + name) == true })
+            let value = Mirror(reflecting: stored.value)
+            XCTAssertEqual(value.displayStyle, .optional, "Lazy storage for \(name) must be observable as an optional")
+            return !value.children.isEmpty
+        }
+        for name in ["research", "terminals", "flow", "codeXRay"] {
+            XCTAssertTrue(try isConstructed(name), "Connecting the window constructs \(name)")
+        }
+        for name in ["browser", "toolTabs", "fileOperations", "translator", "insight"] {
+            XCTAssertFalse(try isConstructed(name), "An unused \(name) is not constructed")
+        }
+        let browser = composition.browser
+        XCTAssertTrue(try isConstructed("browser"))
+        XCTAssertTrue(browser === composition.browser, "The same browser host is reused")
+        XCTAssertFalse(try isConstructed("toolTabs"), "Opening the browser does not construct the tool tabs")
+    }
+
+    @MainActor func testRealWindowCompositionSharesPrompts() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-prompts-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let prompts = ScriptedPrompts()
+        let window = WorkspaceManager(prompts: prompts, recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        let composition = window.composition
+        for component in [composition.project as AnyObject, composition.tabs, composition.terminals,
+                          composition.browser, composition.codeXRay, composition.insight] {
+            let injected = try XCTUnwrap(Mirror(reflecting: component).children.first { $0.label == "prompts" }?.value as? any UserPrompts)
+            XCTAssertTrue(injected as AnyObject === prompts, "Each real component receives the window's prompt handler")
+        }
+        let document = root.appendingPathComponent("document.md")
+        try "before".write(to: document, atomically: true, encoding: .utf8)
+        await composition.tabs.openTextFile(document)
+        let id = try XCTUnwrap(composition.tabs.activeTab?.id)
+        composition.tabs.updateTabContent("changed", documentID: id)
+        prompts.script = [.press("Cancel"), .press("Don't Save")]
+        composition.tabs.closeTab(at: 0)
+        XCTAssertEqual(composition.tabs.openTabs.count, 1)
+        composition.tabs.closeTab(at: 0)
+        XCTAssertTrue(composition.tabs.openTabs.isEmpty)
+        XCTAssertEqual(prompts.titles, ["Save changes?", "Save changes?"])
+        XCTAssertEqual(try String(contentsOf: document, encoding: .utf8), "before")
+    }
+
+    @MainActor func testRealWindowCompositionSharesWindowParts() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-parts-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        let parts = window.composition
+        func check(_ owner: AnyObject, _ field: String, _ expected: AnyObject, line: UInt = #line) throws {
+            let actual = try XCTUnwrap(Mirror(reflecting: owner).children.first { $0.label == field }?.value, line: line)
+            XCTAssertTrue(actual as AnyObject === expected, "\(type(of: owner)).\(field) must use this window's component", line: line)
+        }
+        try check(parts.terminals, "projectContext", parts.project)
+        try check(parts.research, "project", parts.project)
+        try check(parts.research, "tasks", parts.taskBag)
+        try check(parts.flow, "project", parts.project)
+        try check(parts.flow, "assistants", parts.terminals)
+        try check(parts.flow, "tabs", window)
+        try check(parts.flow, "gitClient", parts.gitClient)
+        try check(parts.flow, "research", parts.research)
+        try check(parts.browser, "project", parts.project)
+        try check(parts.browser, "tabs", parts.tabs)
+        try check(parts.browser, "terminals", parts.terminals)
+        try check(parts.codeXRay, "project", parts.project)
+        try check(parts.insight, "project", parts.project)
+        try check(parts.insight, "tasks", parts.taskBag)
+        try check(parts.translator, "project", parts.project)
+        try check(parts.translator, "tabs", parts.tabs)
+        try check(parts.translator, "tasks", parts.taskBag)
+        try check(parts.fileOperations, "project", parts.project)
+        try check(parts.fileOperations, "tabs", parts.tabs)
+        try check(parts.fileOperations, "tasks", parts.taskBag)
+        try check(parts.toolTabs, "project", parts.project)
+        try check(parts.toolTabs, "tabs", parts.tabs)
+        try check(parts.toolTabs, "terminals", parts.terminals)
+        XCTAssertTrue(parts.toolTabs.features === parts.flow.features)
+    }
 }
