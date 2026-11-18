@@ -362,10 +362,10 @@ enum CLIToolLocator {
     /// Run a CLI off the main thread on the PATH the AI CLIs get (`subprocessPath`), through the shared runner
     /// (`Subprocess`: pipes drained concurrently, the whole process group ended at `timeout`). A timeout is
     /// exit code -2 with the elapsed time at the start of `stderr`.
-    static func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> RunResult {
+    static func run(_ executable: String, _ arguments: [String], stdin: Data? = nil, timeout: TimeInterval) async -> RunResult {
         let result = await Subprocess.run(SubprocessSpec(
             executable: executable, arguments: arguments, environment: ["PATH": subprocessPath(toolPath: executable)],
-            timeout: timeout))
+            stdin: stdin, timeout: timeout))
         if result.timedOut {
             return RunResult(exitCode: -2, stdout: result.stdout, stderr: "Timed out after \(Int(timeout))s. \(result.stderr)")
         }

@@ -25,9 +25,15 @@ struct UsageCommandResult: Sendable {
 protocol UsageTransport: Sendable {
     func http(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
     /// Exit code -1 is "could not start" and -2 "stopped at our timeout".
-    func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> UsageCommandResult
+    func run(_ executable: String, _ arguments: [String], stdin: Data?, timeout: TimeInterval) async -> UsageCommandResult
     /// The assistant's executable, or nil when it is not installed.
     func resolve(_ tool: CLITool) -> String?
+}
+
+extension UsageTransport {
+    func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> UsageCommandResult {
+        await run(executable, arguments, stdin: nil, timeout: timeout)
+    }
 }
 
 protocol AssistantUsageSupport: Sendable {
