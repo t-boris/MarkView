@@ -209,7 +209,7 @@ struct AITerminalPanel: View {
                 if let session = terminals.shown {
                     TerminalHostView(session: session).id(session.id)
                 } else {
-                    placeholder
+                    placeholder(height: max(0, geometry.size.height - 40))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -319,27 +319,62 @@ struct AITerminalPanel: View {
         .help("New terminal: Claude Code, Codex, Cline, Copilot, Antigravity, or shell")
     }
 
-    private var placeholder: some View {
-        VStack(spacing: 10) {
-            Spacer()
-            Image(systemName: "terminal").uiFont(size: 26).foregroundColor(palette.textDim)
-            if terminals.workspaceRoot == nil && !folderOpen {
-                Text("Open a folder to start a terminal").uiFont(size: 11).foregroundColor(palette.textDim)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 12)
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100 * min(fontScale, 1.5)))], spacing: 8) {
-                    ForEach(TerminalProfile.allCases) { profile in
-                        Button { terminals.openAITerminal(profile) } label: {
-                            Label(profile.title, systemImage: profile.icon).uiFont(size: 11)
+    private func placeholder(height: CGFloat) -> some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Image(systemName: "terminal")
+                    .uiFont(size: 24, weight: .medium)
+                    .foregroundColor(palette.accent)
+                    .frame(width: 56, height: 56)
+                    .background(palette.accent.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.bottom, 18)
+
+                Text("Start a session")
+                    .uiFont(size: 17, weight: .semibold)
+                    .foregroundColor(palette.textBright)
+                if terminals.workspaceRoot == nil && !folderOpen {
+                    Text("Open a folder to start a terminal.")
+                        .uiFont(size: 12).foregroundColor(palette.textDim)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 6)
+                } else {
+                    Text("Choose an assistant or open a shell in your project.")
+                        .uiFont(size: 12).foregroundColor(palette.textDim)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 6)
+                        .padding(.bottom, 22)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 145 * min(fontScale, 1.5)), spacing: 8)], spacing: 8) {
+                        ForEach(TerminalProfile.allCases) { profile in
+                            Button { terminals.openAITerminal(profile) } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: profile.icon)
+                                        .foregroundColor(palette.accent)
+                                        .frame(width: 20)
+                                    Text(profile.title).foregroundColor(palette.text)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right")
+                                        .uiFont(size: 9, weight: .semibold)
+                                        .foregroundColor(palette.textDim)
+                                }
+                                .uiFont(size: 12, weight: .medium)
+                                .padding(.horizontal, 12).padding(.vertical, 12)
+                                .background(palette.bgSidebar)
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.border))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
-            Spacer()
+            .frame(maxWidth: 500)
+            .padding(24)
+            .frame(maxWidth: .infinity, minHeight: height)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
