@@ -6,7 +6,6 @@
   "browser-host-tests": 33.7,
   "build-warnings-tests": 1.2,
   "cockpit-build-phase-tests": 0.0,
-  "cockpit-qa-attempt-tests": 6.6,
   "cockpit-runtime-integration-tests": 0.0,
   "document-files-tests": 0.1,
   "feature-flow-coordinator-tests": 62.0,

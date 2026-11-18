@@ -9,6 +9,40 @@ import XCTest
     func showQATool() { shown += 1 }
 }
 
+private actor CockpitAttemptTestDriver: QAActorDriver, QAAPIExecuting {
+    let waits: Bool
+    private(set) var started = false
+    private(set) var cancelled = false
+    init(waits: Bool) { self.waits = waits }
+    func open(_ address: String) async throws {}
+    func observe() async throws -> QAObservation { QAObservation(address: "fixture", title: "Fixture", snapshot: "fixture") }
+    func perform(_ action: QAAction) async throws -> String { "fixture" }
+    func screenshot() async -> Data? { nil }
+    func arm(_ fault: QAFault) async throws {}
+    func faultHits() async -> Int { 0 }
+    func close() async {}
+    func execute(_ request: QAAPIRequest) async throws -> QAAPIResult {
+        started = true
+        if waits {
+            do { try await Task.sleep(nanoseconds: 120_000_000_000) }
+            catch { cancelled = true; throw error }
+        }
+        return QAAPIResult(passed: true, evidence: "fixture response")
+    }
+}
+
+private actor CockpitAttemptTestFactory: QADriverFactory {
+    let driver: CockpitAttemptTestDriver
+    init(driver: CockpitAttemptTestDriver) { self.driver = driver }
+    func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver { driver }
+}
+
+private final class CockpitAttemptNoAssistant: QAAssistant {
+    func decide(system: String, prompt: String, schema: [String: Any], isolation: isolated (any Actor)?) async throws -> Any? {
+        throw QAAPIError.invalid("The fixture must never invoke an assistant")
+    }
+}
+
 extension EditorHostTests {
     @MainActor func testCockpitQAAttemptRefusesUnsafeStarts() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cockpit-qa-host-" + UUID().uuidString)
@@ -27,7 +61,7 @@ extension EditorHostTests {
         let passed = CockpitHostReply(result: CockpitHostResult(passed: true, detail: "ready", build: "fixture"), error: "")
         let failed = CockpitHostReply(result: CockpitHostResult(passed: false, detail: "failed", build: "fixture"), error: "failed")
         let window = CockpitAttemptTestWindow()
-        defer { window.qa.close() }
+        defer { window.qa.run.stop(); window.qa.close() }
         let denied = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: false).run(scenarioID: "missing", previous: passed)
         XCTAssertFalse(denied.error.isEmpty, "Production QA needs its explicit confirmation")
         let unsuccessful = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: true).run(scenarioID: "missing", previous: failed)
@@ -47,6 +81,90 @@ extension EditorHostTests {
         window.qa.releaseCockpitReservation(next)
         XCTAssertFalse(window.qa.run.isRunning)
         XCTAssertEqual(window.shown, 0, "No refused attempt opens the QA tool")
+    }
+
+    @MainActor func testCockpitQAAttemptExecutionAndCancellation() async throws {
+        guard Bundle.main.bundleIdentifier == "com.markview.tests.apphost" else {
+            XCTFail("QA fixtures require the isolated app host")
+            return
+        }
+        let originalVideo = Settings.standard.stored(Setting.qaRecordVideo)
+        let originalDepth = Settings.standard.stored(Setting.qaReviewDepth)
+        defer {
+            Settings.standard.set(originalVideo, for: Setting.qaRecordVideo)
+            Settings.standard.set(originalDepth, for: Setting.qaReviewDepth)
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cockpit-qa-execution-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let node = QANode(id: "check", kind: .check, title: "Fixture request", detail: "Check fixture response",
+                          changesData: .no, api: QAAPIRequest(path: "/fixture"))
+        var scenario = QAScenario(id: "fixture", title: "Fixture", goal: "Check fixture", appKind: .api,
+            apps: [QAApp(id: "app", name: "Fixture")],
+            targets: [QATarget(id: "local", kind: .local, name: "Local", locations: ["app": QALocation(url: "http://127.0.0.1:1")])],
+            actors: [QAActor(id: "actor", name: "Fixture actor", app: "app")], nodes: [node], start: node.id,
+            created: Date(timeIntervalSince1970: 1_800_000_000), updated: Date(timeIntervalSince1970: 1_800_000_000))
+        scenario.selected = scenario.enumerateBranches().branches.map(\.id)
+        scenario.summary = "Fixture summary"
+        scenario.summarySource = QASummary.source(scenario)
+        try QAStore.saveScenario(scenario, root: root)
+        let persistedScenario = try XCTUnwrap(QAStore.loadScenarios(root).scenarios.first)
+        guard QASummary.current(persistedScenario) != nil else {
+            XCTFail("The fixture summary must be current so no assistant summary can start")
+            return
+        }
+        let review = try CockpitQAReviewBuilder.make(scenario: scenario, targetID: "local", savedLogins: [])
+        let step = CockpitStep(title: "QA", agent: "Test", assignment: "Check", completionCondition: "Done", qaScenarioID: scenario.id)
+        let verify = CockpitStep(title: "Verify", agent: "Test", assignment: "Review", completionCondition: "Done")
+        var plan = CockpitPlan(goal: "Check fixture", controls: CockpitControls(), scenarios: [scenario.id], steps: [step, verify],
+                               successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        plan.qaReviews = [review]
+        XCTAssertNotNil(CockpitApproval(plan: plan, productionConfirmed: false))
+        let window = CockpitAttemptTestWindow()
+        defer { window.qa.run.stop(); window.qa.close() }
+        window.qa.testSavedLogins = []
+        window.qa.run.recordVideo = false
+        window.qa.run.reviewDepth = .off
+        window.qa.run.testRunnerAssistant = CockpitAttemptNoAssistant()
+        let passed = CockpitHostReply(result: CockpitHostResult(passed: true, detail: "ready", build: "fixture"), error: "")
+
+        let completeDriver = CockpitAttemptTestDriver(waits: false)
+        window.qa.run.testDriverFactory = CockpitAttemptTestFactory(driver: completeDriver)
+        var stale = plan
+        stale.qaReviews?[0].fingerprint += "-stale"
+        let refused = await CockpitQAAttempt(workspace: window, root: root, plan: stale, productionConfirmed: false).run(scenarioID: scenario.id, previous: passed)
+        XCTAssertTrue(refused.error.contains("plan changed"), refused.error)
+        let refusedRequestStarted = await completeDriver.started
+        XCTAssertFalse(refusedRequestStarted, "A changed review must never start the fixture")
+        let complete = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: false).run(scenarioID: scenario.id, previous: passed)
+        XCTAssertTrue(complete.error.isEmpty, complete.error)
+        XCTAssertTrue(complete.result.passed)
+        XCTAssertNotNil(complete.result.qaRunID)
+        XCTAssertEqual(window.shown, 1)
+        let evidence = try CockpitResults.loadAll(root: root)
+        XCTAssertEqual(evidence.count, 1)
+        XCTAssertEqual(evidence.first?.result.qaRunID, complete.result.qaRunID)
+        XCTAssertFalse(evidence.first?.detailsDeleted ?? true, "The linked QA evidence remains on disk")
+        let completedRequestStarted = await completeDriver.started
+        XCTAssertTrue(completedRequestStarted)
+
+        let waitingDriver = CockpitAttemptTestDriver(waits: true)
+        window.qa.run.testDriverFactory = CockpitAttemptTestFactory(driver: waitingDriver)
+        let attempt = CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: false)
+        let running = Task { await attempt.run(scenarioID: scenario.id, previous: passed) }
+        for _ in 0..<300 where !(await waitingDriver.started) { try await Task.sleep(nanoseconds: 10_000_000) }
+        let waitingRequestStarted = await waitingDriver.started
+        XCTAssertTrue(waitingRequestStarted, "The fixture request starts before cancellation")
+        let concurrent = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: false).run(scenarioID: scenario.id, previous: passed)
+        XCTAssertTrue(concurrent.error.contains("already active"))
+        XCTAssertTrue(window.qa.run.isRunning, "A second attempt must not interrupt the active run")
+        running.cancel()
+        let stopped = await running.value
+        XCTAssertFalse(stopped.error.isEmpty)
+        for _ in 0..<300 where window.qa.run.isRunning { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(window.qa.run.isRunning, "Cancelling the attempt stops its QA run")
+        let waitingRequestCancelled = await waitingDriver.cancelled
+        XCTAssertTrue(waitingRequestCancelled, "Cancellation reaches the fixture request")
     }
 
     @MainActor func testCockpitPolicyAndControls() async {

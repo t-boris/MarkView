@@ -51,6 +51,10 @@ final class QAModel: ObservableObject {
 
     /// The run in progress, or the last one (REQ-003). It outlives switching to another scenario.
     let run = QARunModel()
+#if MARKVIEW_HOSTED_TEST_HOST
+    /// The isolated app host supplies fixture identities instead of reading the person's Keychain.
+    var testSavedLogins: [SavedLogin]?
+#endif
     /// The runs of the scenario on disk, to look at again and mark (REQ-015).
     let archive = QARunArchive()
 
@@ -240,6 +244,13 @@ final class QAModel: ObservableObject {
     }
 
     func refreshSavedLogins() async {
+#if MARKVIEW_HOSTED_TEST_HOST
+        if let testSavedLogins {
+            savedLogins = testSavedLogins
+            refreshGate()
+            return
+        }
+#endif
         let logins = await Task.detached(priority: .utility) { BrowserPasswordStore.shared.all() }.value
         savedLogins = logins
         refreshGate()

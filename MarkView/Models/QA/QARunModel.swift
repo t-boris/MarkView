@@ -121,6 +121,11 @@ final class QARunModel: ObservableObject {
     private var sink: QAEventSink?
     private var assistant: QACLIAssistant?
     private var selectedAssistant: CLICompletion.Assistant?
+#if MARKVIEW_HOSTED_TEST_HOST
+    /// The isolated app host uses local fixtures for the runner instead of a real browser or assistant.
+    var testDriverFactory: (any QADriverFactory)?
+    var testRunnerAssistant: (any QAAssistant)?
+#endif
     private var answer: CheckedContinuation<Bool, Never>?
     private var nextFeedID = 1
     private var reviewCost = 0.0
@@ -230,17 +235,24 @@ final class QARunModel: ObservableObject {
         let assistant = QACLIAssistant(project: root, assistant: selectedAssistant)
         self.sink = sink
         self.assistant = assistant
-        let factory: QADriverFactory
+        let factory: any QADriverFactory
         switch scenario.appKind {
         case .web: factory = QAWebDriverFactory()
         case .api: factory = QAAPIDriverFactory()
         case .nativeMacOS: factory = QANativeDriverFactory()
         }
+#if MARKVIEW_HOSTED_TEST_HOST
+        let runnerFactory = testDriverFactory ?? factory
+        let runnerAssistant: any QAAssistant = testRunnerAssistant ?? assistant
+#else
+        let runnerFactory = factory
+        let runnerAssistant: any QAAssistant = assistant
+#endif
         var config = QARunner.Config()
         config.captureInputs = recordVideo
         config.keepSessions = true
         config.startPoint = startPoint
-        let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: factory, assistant: assistant, runID: runID,
+        let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: runnerFactory, assistant: runnerAssistant, runID: runID,
                               confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, observer: sink, config: config, control: control, sessions: sessions)
 
         let (queue, jobsContinuation) = AsyncStream.makeStream(of: ReviewJob.self)

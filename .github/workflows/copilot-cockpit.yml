@@ -45,10 +45,10 @@ jobs:
       - name: Check planning, approval, recovery and QA retention
         run: |
           ( tools/tests/cockpit-build-phase-tests.sh ) & a=$!
-          ( tools/tests/cockpit-qa-attempt-tests.sh ) & b=$!
+          # Cockpit QA-attempt checks run with the shipping app in CI's hosted suite.
           ( swift test --package-path Packages/MarkViewCore --filter FeatureReviewGateTests; ./tools/lint/architecture-lint.sh ) & c=$!
           status=0
-          for job in "$a" "$b" "$c"; do wait "$job" || status=1; done
+          for job in "$a" "$c"; do wait "$job" || status=1; done
           exit "$status"
       - name: Check Temporal workflow
         working-directory: tools/cockpit-temporal

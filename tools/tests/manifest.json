@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 39,
+  "suiteCount": 38,
   "suites": [
     {
       "name": "ai-terminals-controller-tests",
@@ -129,20 +129,6 @@
       "sources": [
         "tools/cockpit-temporal/scripts/build-runtime-phase.sh",
         "tools/cockpit-temporal/scripts/build-runtime.sh"
-      ]
-    },
-    {
-      "name": "cockpit-qa-attempt-tests",
-      "script": "tools/tests/cockpit-qa-attempt-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Cockpit/CockpitPlan.swift",
-        "MarkView/Models/Cockpit/CockpitQAAttempt.swift",
-        "MarkView/Models/Workspace/ToolRegistry.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "tools/tests/CockpitQAAttemptChecks.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
       ]
     },
     {
@@ -1092,7 +1078,8 @@
         "Tests/Fixtures/prototype-audit/screens/scroller.js",
         "Tests/Fixtures/prototype-audit/screens/settings.js",
         "Tests/Fixtures/prototype-audit/screens/stuck.js",
-        "Tests/Fixtures/prototype-audit/screens/trade.js"
+        "Tests/Fixtures/prototype-audit/screens/trade.js",
+        "MarkView/Models/Cockpit/CockpitQAAttempt.swift"
       ]
     },
     {
