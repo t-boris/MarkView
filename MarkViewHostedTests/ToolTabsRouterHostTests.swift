@@ -26,6 +26,16 @@ private final class DiscussionRunnerSpy: @unchecked Sendable {
     var cancellationCount: Int { lock.lock(); defer { lock.unlock() }; return cancellations }
 }
 
+@MainActor
+private final class TerminalPolicyPrompts: UserPrompts {
+    var answers: [Int?] = []
+    private(set) var asked: [UserPrompt] = []
+    func ask(_ prompt: UserPrompt) -> Int? {
+        asked.append(prompt)
+        return answers.isEmpty ? nil : answers.removeFirst()
+    }
+}
+
 
 extension EditorHostTests {
     @MainActor func testRealAITerminalsLifecycleAndPersistence() throws {
@@ -130,6 +140,274 @@ extension EditorHostTests {
         XCTAssertEqual(requestedProfile, .shell)
         XCTAssertTrue(restoredShell.hasPendingPaste)
         XCTAssertNil(other.terminals.sendToAssistant(submit: true, to: restoredShell) { _ in nil })
+    }
+
+    @MainActor func testRealAITerminalResumesWithoutStartingAnAssistant() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-resume-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shell = root.appendingPathComponent("fixture-shell")
+        let shellSource = """
+        #!/bin/sh
+        printf 'fixture ready\\n'
+        IFS= read -r line || exit 1
+        printf '%s' "$line" > command.txt
+        while IFS= read -r line; do :; done
+        """
+        try shellSource.write(to: shell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
+        let oldShell = getenv("SHELL").map { String(cString: $0) }
+        let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
+        let settings = Settings.standard
+        let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+        let oldSaved = settings.stored(savedKey)
+        let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
+        let oldTools = settings.stored(codex.agentToolsKey)
+        settings.set(false, for: codex.agentToolsKey)
+        setenv("SHELL", shell.path, 1)
+        setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
+        defer {
+            settings.set(oldSaved, for: savedKey)
+            settings.set(oldTools, for: codex.agentToolsKey)
+            if let oldShell { setenv("SHELL", oldShell, 1) } else { unsetenv("SHELL") }
+            if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
+            else { unsetenv("MARKVIEW_SOCKET_DIR") }
+        }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer {
+            AgentToolServer.unregister(window.browser.controlID)
+            window.composition.close()
+            if AgentToolServer.socketPath?.hasPrefix(root.path + "/") == true { AgentToolServer.shutdown() }
+        }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let terminal = try XCTUnwrap(window.terminals.openAITerminal(TerminalProfile(codex), resuming: true))
+        terminal.start()
+        let pid = terminal.shellPID
+        XCTAssertGreaterThan(pid, 0)
+        let commandFile = root.appendingPathComponent("command.txt")
+        for _ in 0..<500 where !FileManager.default.fileExists(atPath: commandFile.path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let command = try String(contentsOf: commandFile, encoding: .utf8)
+        XCTAssertTrue(command.contains("resume --last"), "The restored terminal sends the provider's resume command")
+        if let reap = terminal.terminate() { await reap.value }
+        XCTAssertEqual(kill(pid, 0), -1)
+    }
+
+    @MainActor func testRealRemoteAITerminalStaysOutOfLocalSavedProfiles() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-remote-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = Settings.standard
+        let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+        let oldSaved = settings.stored(savedKey)
+        let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
+        let oldTools = settings.stored(codex.agentToolsKey)
+        let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
+        settings.set(nil, for: savedKey)
+        settings.set(false, for: codex.agentToolsKey)
+        setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
+        defer {
+            settings.set(oldSaved, for: savedKey)
+            settings.set(oldTools, for: codex.agentToolsKey)
+            if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
+            else { unsetenv("MARKVIEW_SOCKET_DIR") }
+        }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer {
+            AgentToolServer.unregister(window.browser.controlID)
+            window.composition.close()
+            if AgentToolServer.socketPath?.hasPrefix(root.path + "/") == true { AgentToolServer.shutdown() }
+        }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let terminals = window.terminals
+        terminals.workspaceRoot = root
+        let local = try XCTUnwrap(terminals.openAITerminal(TerminalProfile(codex)))
+        let invitation = try RemoteInvitation(relay: XCTUnwrap(URL(string: "http://127.0.0.1:1")), persistent: true)
+        let remote = try await terminals.openRemoteAITerminal(code: invitation.code, provider: codex, model: nil, resume: true)
+        XCTAssertTrue(remote.isRemote)
+        XCTAssertFalse(remote.isRunning, "The fixture must not connect to a relay")
+        XCTAssertEqual(remote.title, "Home · Codex")
+        XCTAssertTrue(terminals.shown === remote)
+        XCTAssertEqual(settings.stored(savedKey)?["profiles"] as? [String], ["codex"])
+        terminals.closeAITerminal(remote.id)
+        XCTAssertTrue(terminals.shown === local)
+        do {
+            _ = try await terminals.openRemoteAITerminal(code: "invalid", provider: codex, model: nil, resume: false)
+            XCTFail("An invalid invitation must be refused")
+        } catch {
+            XCTAssertEqual(terminals.sessions.count, 1)
+            XCTAssertTrue(terminals.sessions.first === local)
+        }
+        let otherRoot = root.appendingPathComponent("other", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherRoot, withIntermediateDirectories: true)
+        var refusedConnection: RemoteTerminalConnection?
+        RemoteTerminalConnection.testOnInitialized = { connection in
+            refusedConnection = connection
+            terminals.workspaceRoot = otherRoot
+        }
+        defer { RemoteTerminalConnection.testOnInitialized = nil }
+        do {
+            _ = try await terminals.openRemoteAITerminal(code: invitation.code, provider: codex, model: nil, resume: false)
+            XCTFail("A connection for the old project must be refused")
+        } catch {
+            XCTAssertEqual(terminals.sessions.count, 1)
+            XCTAssertTrue(terminals.sessions.first === local)
+            XCTAssertTrue(refusedConnection?.testIsStopped == true)
+            XCTAssertEqual(settings.stored(savedKey)?["profiles"] as? [String], ["codex"])
+        }
+    }
+
+    @MainActor func testRealAITerminalPolicyPromptAndRestart() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-policy-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shell = root.appendingPathComponent("fixture-shell")
+        let shellSource = """
+        #!/bin/sh
+        printf 'fixture ready\\n'
+        while IFS= read -r line; do
+          printf 'MCP server was blocked by policy: "markview-browser"\\n'
+        done
+        """
+        try shellSource.write(to: shell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
+        let settings = Settings.standard
+        let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+        let oldSaved = settings.stored(savedKey)
+        let copilot = try XCTUnwrap(CLITool(rawValue: "copilot"))
+        let oldTools = settings.stored(copilot.agentToolsKey)
+        let oldShell = getenv("SHELL").map { String(cString: $0) }
+        let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
+        settings.set(true, for: copilot.agentToolsKey)
+        setenv("SHELL", shell.path, 1)
+        setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
+        defer {
+            settings.set(oldSaved, for: savedKey)
+            settings.set(oldTools, for: copilot.agentToolsKey)
+            if let oldShell { setenv("SHELL", oldShell, 1) } else { unsetenv("SHELL") }
+            if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
+            else { unsetenv("MARKVIEW_SOCKET_DIR") }
+        }
+        let prompts = TerminalPolicyPrompts()
+        prompts.answers = [1, nil, 0]
+        let window = WorkspaceManager(prompts: prompts, recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer {
+            AgentToolServer.unregister(window.browser.controlID)
+            window.composition.close()
+            if AgentToolServer.socketPath?.hasPrefix(root.path + "/") == true { AgentToolServer.shutdown() }
+        }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let terminal = try XCTUnwrap(window.terminals.openAITerminal(TerminalProfile(copilot)))
+        terminal.start()
+        let originalPID = terminal.shellPID
+        XCTAssertGreaterThan(originalPID, 0)
+        for _ in 0..<500 where prompts.asked.count < 1 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(prompts.asked.count, 1)
+        XCTAssertEqual(prompts.asked.first?.buttons, ["Restart Copilot Without Them", "Later"])
+        XCTAssertTrue(prompts.asked.first?.detail.contains("markview-browser") == true)
+        XCTAssertFalse(settings.value(copilot.agentToolsKey))
+        XCTAssertEqual(terminal.shellPID, originalPID, "Later must leave the terminal running")
+        settings.set(true, for: copilot.agentToolsKey)
+        terminal.write("again\r")
+        for _ in 0..<500 where prompts.asked.count < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(prompts.asked.count, 2)
+        XCTAssertEqual(terminal.shellPID, originalPID, "No answer must leave the terminal running")
+        settings.set(true, for: copilot.agentToolsKey)
+        terminal.write("again\r")
+        for _ in 0..<500 where prompts.asked.count < 3 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(prompts.asked.count, 3)
+        XCTAssertNotEqual(terminal.shellPID, originalPID)
+        XCTAssertTrue(terminal.startupCommand?.contains("--continue") == true)
+        XCTAssertFalse(terminal.startupCommand?.contains("--additional-mcp-config") == true)
+        let restartedPID = terminal.shellPID
+        XCTAssertGreaterThan(restartedPID, 0)
+        if let reap = terminal.terminate() { await reap.value }
+        for _ in 0..<500 where kill(originalPID, 0) == 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(kill(originalPID, 0), -1)
+        XCTAssertEqual(kill(restartedPID, 0), -1)
+    }
+
+    @MainActor func testRealAITerminalLiveModelChanges() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-model-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shell = root.appendingPathComponent("fixture-shell")
+        let shellSource = """
+        #!/bin/sh
+        printf 'fixture ready\\n'
+        IFS= read -r line || exit 1
+        printf 'started' > started.txt
+        IFS= read -r line || exit 1
+        printf '%s' "$line" > model-command.txt
+        while IFS= read -r line; do :; done
+        """
+        try shellSource.write(to: shell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
+        let settings = Settings.standard
+        let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+        let oldSaved = settings.stored(savedKey)
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        let oldTools = settings.stored(claude.agentToolsKey)
+        let modelKey = Setting.cliModel(claude.rawValue)
+        let oldModel = settings.stored(modelKey)
+        let oldShell = getenv("SHELL").map { String(cString: $0) }
+        let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
+        settings.set(false, for: claude.agentToolsKey)
+        settings.set("", for: modelKey)
+        setenv("SHELL", shell.path, 1)
+        setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
+        defer {
+            settings.set(oldSaved, for: savedKey)
+            settings.set(oldTools, for: claude.agentToolsKey)
+            settings.set(oldModel, for: modelKey)
+            if let oldShell { setenv("SHELL", oldShell, 1) } else { unsetenv("SHELL") }
+            if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
+            else { unsetenv("MARKVIEW_SOCKET_DIR") }
+        }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer {
+            AgentToolServer.unregister(window.browser.controlID)
+            window.composition.close()
+            if AgentToolServer.socketPath?.hasPrefix(root.path + "/") == true { AgentToolServer.shutdown() }
+        }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let terminals = window.terminals
+        let terminal = try XCTUnwrap(terminals.openAITerminal(TerminalProfile(claude)))
+        XCTAssertNil(terminal.model)
+        terminal.start()
+        let pid = terminal.shellPID
+        XCTAssertGreaterThan(pid, 0)
+        let started = root.appendingPathComponent("started.txt")
+        for _ in 0..<500 where !FileManager.default.fileExists(atPath: started.path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: started.path))
+        terminals.liveModelReported("opus", terminalID: terminal.id)
+        XCTAssertEqual(terminal.observedModel, "opus")
+        XCTAssertNil(terminal.model, "The first report names the CLI default, not a model choice")
+        terminals.liveModelReported("sonnet", terminalID: terminal.id)
+        XCTAssertEqual(terminal.model, "sonnet")
+        XCTAssertTrue(terminal.title.contains("sonnet"))
+        XCTAssertEqual(settings.value(modelKey), "sonnet")
+        for _ in 0..<500 where terminal.printed(within: 3) { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(terminals.assistantIsBusy)
+        terminals.switchModel(of: terminal, to: "opus")
+        XCTAssertEqual(terminal.pendingModelPick, "opus")
+        let commandFile = root.appendingPathComponent("model-command.txt")
+        for _ in 0..<500 where !FileManager.default.fileExists(atPath: commandFile.path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let command = try String(contentsOf: commandFile, encoding: .utf8)
+        XCTAssertTrue(command.contains("/model opus"))
+        terminals.liveModelReported("opus", terminalID: terminal.id)
+        XCTAssertNil(terminal.pendingModelPick)
+        XCTAssertEqual(terminal.model, "opus")
+        XCTAssertEqual(settings.value(modelKey), "opus")
+        if let reap = terminal.terminate() { await reap.value }
+        XCTAssertEqual(kill(pid, 0), -1)
+        terminals.liveModelReported("haiku", terminalID: terminal.id)
+        XCTAssertEqual(terminal.model, "opus", "Reports for a stopped terminal are ignored")
     }
 
     @MainActor func testRealToolTabsRoutingAndProjectLifecycle() async throws {

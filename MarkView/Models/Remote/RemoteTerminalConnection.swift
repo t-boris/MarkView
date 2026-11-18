@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 final class RemoteTerminalConnection: TerminalConnection {
+    #if MARKVIEW_HOSTED_TEST_HOST
+    /// Lets an isolated host test change the project at the asynchronous connection boundary.
+    static var testOnInitialized: ((RemoteTerminalConnection) -> Void)?
+    var testIsStopped: Bool { stopped }
+    #endif
     weak var observer: (any TerminalConnectionObserver)?
     private let onState: ((RemoteTerminalConnection, RemoteConnectionState.Phase, String) -> Void)?
     private var channel: RemoteChannel?
@@ -28,6 +33,9 @@ final class RemoteTerminalConnection: TerminalConnection {
         self.invitation = invitation; self.root = root; self.browserWindowID = browserWindowID
         self.provider = provider; self.model = model; self.resume = resume; self.savedConnectionID = savedConnectionID
         self.onState = onState
+        #if MARKVIEW_HOSTED_TEST_HOST
+        Self.testOnInitialized?(self)
+        #endif
     }
 
     private func setState(_ phase: RemoteConnectionState.Phase, _ detail: String) {
