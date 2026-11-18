@@ -2,7 +2,7 @@
 type: feature
 id: architecture-review-2026-11
 title: Architecture Review 2026-11
-status: implementing
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-15
 provenance: Created by an AI agent through MarkView from docs/architecture/architecture-review-2026-11.md
@@ -19,6 +19,7 @@ understanding:
   Dependencies: unknown
   Acceptance Criteria: unknown
 issues: [414]
+schema: 1
 ---
 
 # Architecture Review 2026-11
