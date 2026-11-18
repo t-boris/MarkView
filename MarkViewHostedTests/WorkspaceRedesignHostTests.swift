@@ -282,6 +282,63 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowStartIssueOnLocalBranch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-issue-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func git(_ args: [String]) async throws -> String {
+            let result = await GitHubClient.execute(["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"] + args,
+                                                    in: root, git: true)
+            guard result.status == 0 else { throw NSError(domain: "LocalGitFixture", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: result.stderr]) }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        _ = try await git(["init", "-q", "-b", "main"])
+        _ = try await git(["config", "core.hooksPath", "/dev/null"])
+        _ = try await git(["commit", "--allow-empty", "-q", "-m", "initial"])
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        window.composition.gitClient.workingDirectory = root
+        let assistant = FeatureFlowAssistantSpy(root: root)
+        let flow = FeatureFlowCoordinator(project: window.project, assistants: assistant, tabs: window, requests: window.requests,
+                                          layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
+                                          research: window.composition.research)
+        defer { flow.close() }
+        let comments = (0..<12).map { #"{"author":{"login":"user\#($0)"},"body":"comment \#($0)"}"# }.joined(separator: ",")
+        let json = #"{"number":12,"title":"Fix the Crash on Save!","state":"OPEN","url":"https://example.invalid/12","body":"It crashes.","comments":[\#(comments)]}"#
+        let issue = try JSONDecoder().decode(GHIssue.self, from: Data(json.utf8))
+        let error = await flow.startIssueWithAI(issue)
+        XCTAssertNil(error)
+        let branch = try await git(["branch", "--show-current"])
+        XCTAssertEqual(branch, "issue-12-fix-the-crash-on-save")
+        let sent = try XCTUnwrap(assistant.sent.first)
+        XCTAssertTrue(sent.submit)
+        XCTAssertTrue(sent.prompt.contains("Fix the Crash on Save!"))
+        XCTAssertTrue(sent.prompt.contains("It crashes."))
+        XCTAssertTrue(sent.prompt.contains("You are on branch issue-12-fix-the-crash-on-save"))
+        XCTAssertFalse(sent.prompt.contains("- user0:"))
+        XCTAssertFalse(sent.prompt.contains("- user1:"))
+        XCTAssertTrue(sent.prompt.contains("- user2: comment 2"))
+        XCTAssertTrue(sent.prompt.contains("- user11: comment 11"))
+        _ = try await git(["switch", "-q", "main"])
+        let repeated = await flow.startIssueWithAI(issue)
+        XCTAssertNil(repeated)
+        let branches = try await git(["branch", "--list", "issue-12*"])
+        XCTAssertEqual(branches.split(separator: "\n").count, 1)
+        let reopened = try await git(["branch", "--show-current"])
+        XCTAssertEqual(reopened, "issue-12-fix-the-crash-on-save")
+        let bare = try JSONDecoder().decode(GHIssue.self, from: Data(#"{"number":3,"title":"!!!","state":"OPEN","url":"https://example.invalid/3","body":null,"comments":[]}"#.utf8))
+        let bareError = await flow.startIssueWithAI(bare)
+        XCTAssertNil(bareError)
+        let bareBranch = try await git(["branch", "--show-current"])
+        XCTAssertEqual(bareBranch, "issue-3")
+        XCTAssertTrue(assistant.sent.last?.prompt.contains("(no description)") == true)
+        let blank = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("blank.json"))
+        defer { blank.composition.close() }
+        let noFolder = await blank.flow.startIssueWithAI(issue)
+        XCTAssertEqual(noFolder, "No folder open.")
+    }
+
     @MainActor func testRealFeatureFlowAssistantHandoffs() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-handoff-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
