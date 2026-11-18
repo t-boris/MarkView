@@ -404,6 +404,9 @@ extension EditorHostTests {
         XCTAssertTrue(GitHubSettings.enabled)
         for _ in 0..<500 where flow.gitHub.client == nil { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(flow.gitHub.selectedRepo?.slug, "fixture-org/fixture")
+        flow.openGitHubIssue(12)
+        guard case .github(let item)? = window.tabs.activeTab?.kind else { return XCTFail("The issue tab was not opened") }
+        XCTAssertEqual(item, .issue(number: 12, repo: "fixture-org/fixture", title: "#12"))
         let checkout = await flow.checkoutPullRequest(5)
         XCTAssertNil(checkout)
         let firstBranch = try await git(["branch", "--show-current"])
@@ -768,6 +771,19 @@ extension EditorHostTests {
         let bareBranch = try await git(["branch", "--show-current"])
         XCTAssertEqual(bareBranch, "issue-3")
         XCTAssertTrue(assistant.sent.last?.prompt.contains("(no description)") == true)
+        let nonRepo = FileManager.default.temporaryDirectory.appendingPathComponent("feature-nonrepo-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: nonRepo, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: nonRepo) }
+        let otherProject = ProjectContext(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("nonrepo-recent.json"))
+        otherProject.fileTree.rootNode = FileNode(url: nonRepo, isDirectory: true)
+        let otherAssistant = FeatureFlowAssistantSpy(root: nonRepo)
+        let otherFlow = FeatureFlowCoordinator(project: otherProject, assistants: otherAssistant, tabs: window, requests: window.requests,
+                                               layout: window.layout, chrome: window.chrome, gitClient: GitClient(),
+                                               research: window.composition.research)
+        defer { otherFlow.close(); otherProject.close() }
+        let noRepository = await otherFlow.startIssueWithAI(issue)
+        XCTAssertTrue(noRepository?.hasPrefix("Could not switch to issue-12-fix-the-crash-on-save:") == true)
+        XCTAssertTrue(otherAssistant.sent.isEmpty)
         let blank = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("blank.json"))
         defer { blank.composition.close() }
         let noFolder = await blank.flow.startIssueWithAI(issue)
