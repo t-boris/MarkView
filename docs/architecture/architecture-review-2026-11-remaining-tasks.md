@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: the isolated local GitHub fixture passed integration activation and pull-request assistant hand-off checks. It verifies case-insensitive repository matching, reuse of an already checked-out branch and switching to another branch before hand-off. No real GitHub request is made; the prior test-host integration setting is restored.
+
 D4 in progress: an isolated, fail-closed GitHub CLI boundary now supports app-hosted checkout and integration checks. The normal application retains its existing CLI lookup; the fixture executes only a local script in a temporary repository, and the test-host environment removes inherited secrets. The checkout and two existing GitHub command/profile tests passed together, covering a clean tree, a tracked change, an untracked file and a fixture error; no temporary checkout folders remain. Earlier fixture runs failed before creating their command log; a preflight identified the guard comparing `/var` with `/private/var` for the same directory, so it now compares physical parent directories. Version bumped to 7.0.7; the Debug build and zero-warning ratchet passed. Symbol inspection found the test override in the hosted binary and not in the normal Debug binary. Architecture lint, SwiftLint and unused-import analysis of the changed source (0 warnings) passed.
 
 D4 in progress: FeatureFlowCoordinator setup, same-folder reuse, folder change, basket reset and shutdown checks passed against the real stores. GitHub integration stayed disabled in the isolated test host; its prior setting was restored. The standalone suite remains while its other behavior is migrated.

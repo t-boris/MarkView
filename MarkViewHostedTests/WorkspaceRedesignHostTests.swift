@@ -354,6 +354,8 @@ extension EditorHostTests {
           'pr checkout 5') exec /usr/bin/git switch -q pr-5 ;;
           'pr checkout 7') exec /usr/bin/git switch -q pr-7 ;;
           'pr checkout 8') echo 'fixture checkout failed' >&2; exit 1 ;;
+          'pr view 5') printf '{"number":5,"title":"Fixture 5","headRefName":"pr-5","baseRefName":"main","state":"OPEN","url":"https://example.invalid/5"}\n' ;;
+          'pr view 7') printf '{"number":7,"title":"Fixture 7","headRefName":"pr-7","baseRefName":"main","state":"OPEN","url":"https://example.invalid/7"}\n' ;;
           *) printf '[]\n' ;;
         esac
         """#
@@ -368,7 +370,7 @@ extension EditorHostTests {
         guard preflight.status == 0 else { return XCTFail("Fixture preflight exited \(preflight.status): \(preflight.stderr)") }
         let settings = Settings.standard
         let previous = settings.stored(Setting.gitHubEnabled)
-        settings.set(true, for: Setting.gitHubEnabled)
+        settings.set(false, for: Setting.gitHubEnabled)
         defer {
             if let previous { settings.set(previous, for: Setting.gitHubEnabled) } else { settings.remove(Setting.gitHubEnabled) }
         }
@@ -376,24 +378,39 @@ extension EditorHostTests {
         defer { window.composition.close() }
         window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
         window.composition.gitClient.workingDirectory = root
-        let flow = window.flow
+        let assistant = FeatureFlowAssistantSpy(root: root)
+        let flow = FeatureFlowCoordinator(project: window.project, assistants: assistant, tabs: window, requests: window.requests,
+                                          layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
+                                          research: window.composition.research)
+        defer { flow.close() }
         flow.setUp(at: root)
+        XCTAssertFalse(GitHubSettings.enabled)
+        let activation = await flow.activateGitHub(expecting: "FIXTURE-ORG/FIXTURE", in: root)
+        XCTAssertNil(activation)
+        XCTAssertTrue(GitHubSettings.enabled)
         for _ in 0..<500 where flow.gitHub.client == nil { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(flow.gitHub.selectedRepo?.slug, "fixture-org/fixture")
         let checkout = await flow.checkoutPullRequest(5)
         XCTAssertNil(checkout)
         let firstBranch = try await git(["branch", "--show-current"])
         XCTAssertEqual(firstBranch, "pr-5")
+        let log = root.appendingPathComponent("fixture-gh.log")
+        let before = try String(contentsOf: log, encoding: .utf8).components(separatedBy: "pr checkout 5").count
+        let sameBranch = await flow.fixInPullRequest(5, prompt: "Fix the fixture.")
+        XCTAssertNil(sameBranch)
+        XCTAssertEqual(assistant.sent.last?.prompt, "Fix the fixture.")
+        let after = try String(contentsOf: log, encoding: .utf8).components(separatedBy: "pr checkout 5").count
+        XCTAssertEqual(after, before, "A pull request already checked out is not checked out again")
         try "modified\n".write(to: tracked, atomically: true, encoding: .utf8)
         let refused = await flow.checkoutPullRequest(6)
         XCTAssertTrue(refused?.contains("uncommitted changes") == true)
         XCTAssertTrue(refused?.contains("#6") == true)
-        let log = root.appendingPathComponent("fixture-gh.log")
         XCTAssertFalse((try String(contentsOf: log, encoding: .utf8)).contains("pr checkout 6"))
         _ = try await git(["checkout", "--", "tracked.md"])
         try "untracked\n".write(to: root.appendingPathComponent("new.md"), atomically: true, encoding: .utf8)
-        let untracked = await flow.checkoutPullRequest(7)
+        let untracked = await flow.fixInPullRequest(7, prompt: "Fix the other fixture.")
         XCTAssertNil(untracked)
+        XCTAssertEqual(assistant.sent.last?.prompt, "Fix the other fixture.")
         let secondBranch = try await git(["branch", "--show-current"])
         XCTAssertEqual(secondBranch, "pr-7")
         let failure = await flow.checkoutPullRequest(8)
