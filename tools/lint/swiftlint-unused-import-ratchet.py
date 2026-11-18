@@ -74,12 +74,15 @@ def analyze(path):
 actual = {}
 failed = False
 with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-    for path, count, error in pool.map(analyze, sorted(selected)):
+    futures = [pool.submit(analyze, path) for path in sorted(selected)]
+    for completed, future in enumerate(concurrent.futures.as_completed(futures), start=1):
+        path, count, error = future.result()
         if error:
             print(f"{path}: analyzer failed: {error}", file=sys.stderr, flush=True)
             failed = True
         else:
             actual[path] = count
+            print(f"Analyzed {completed}/{len(selected)}: {path}", flush=True)
 if failed:
     sys.exit(1)
 

@@ -7,6 +7,44 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-18
 
+Boris requires the entire CI to finish within eight minutes, including queue and setup; [DEC-019](../features/architecture-review-2026-11/decisions/DEC-019.md) records the requirement. The current configuration does not meet it. Investigation and implementation are open; the currently running pre-change CI is diagnostic evidence only.
+
+CI timing evidence: the pre-change ARM Release build step alone took 9 minutes 49 seconds in [Build & Release run 44302386793](https://github.com/t-boris/MarkView/actions/runs/44302386793). The workflow-layout test took 225 seconds and its job took more than ten minutes after a separate hosted build. The run also queued multiple macOS jobs behind other jobs. A two-file SwiftLint batching pilot took 11.0 seconds versus 10.3 seconds for the two individual invocations; it did not establish a speedup. The eight-minute target remains open.
+
+The pre-change [CI run 44302387150](https://github.com/t-boris/MarkView/actions/runs/44302387150) finished in 41 minutes with five failed hosted jobs (research map, general QA, welcome screen, theme and Studio networking). Its build and pure tests passed. [Build & Release](https://github.com/t-boris/MarkView/actions/runs/44302386793) and [Cockpit](https://github.com/t-boris/MarkView/actions/runs/44302386857) passed. The fixes and unresolved work are recorded below and in F-007 through F-011; a fresh final CI has not yet run.
+
+The same CI's unused-import step succeeded, analyzing 93 changed files in 25 minutes 56 seconds (`/tmp/markview-ci-build-complete.log`). It deliberately fell back to changed files because 572 compiled files exceeded the bounded coverage budget. The wrapper now reports each finished file as it completes, and its 10 failure-handling tests passed (`/tmp/markview-analyzer-progress-tests.log`); this is diagnostic output, not a speedup. A bounded strategy for large changes that meets DEC-019 without hiding files remains open.
+
+Workflow-layout follow-up: fixed waits after each change were replaced with repeated view-geometry measurements that return only after three stable samples, retaining the prior 0.9-second maximum. Both layout and interaction tests passed locally; layout fell from 158.0 seconds (`/tmp/markview-gui-final-candidate.log`) to 73.3 seconds (`/tmp/markview-workflow-settle-pilot.log`). This is a local measurement; CI timing and the full eight-minute target remain unverified.
+
+CI coverage audit: research-map layout and UI Studio Node suites were not selected by any CI workflow. They now run in parallel in the existing Linux web job; both passed locally (`/tmp/markview-ci-node-checks.log`). This needs CI verification.
+
+CI queue follow-up: pure shards 1 and 2 now use Linux ARM instead of macOS; both passed in a read-only ARM Linux container (`/tmp/markview-ci-linux-arm-shards.log`). Shard 0 remains on macOS because its architecture-lint fixtures require Apple's `plutil`, and the shard allocator explicitly keeps that suite on shard 0. The two web suites also passed in Linux ARM (`/tmp/markview-ci-linux-arm-web-tests.log`); the web job now uses ARM too. The test runner now checks executable mode bits before direct execution because `os.access` on a container bind mount reported a non-executable Python script executable. The hosted build cache is saved by the shorter terminal suite rather than the long general QA suite, allowing later queued jobs to reuse it. CI verification and measured end-to-end timing remain open.
+
+After these runner and CI changes, all eight pure manifest suites passed locally (`/tmp/markview-ci-refactor-pure.log`). The shard assignment was also checked with a synthetic longer suite: every pure suite remained assigned exactly once and the macOS-only architecture fixture remained on shard 0.
+
+CI diagnostic: the ARM64 research-map WebKit job timed out at 600 seconds after a cold hosted build; the test itself began about seven minutes into the job and the page reported hidden visibility. The same test passed locally in 54.5 seconds. [F-007](../features/architecture-review-2026-11/findings/F-007.md) records the unresolved failure.
+
+CI diagnostic: the theme WebKit job also timed out after a cold hosted build; its test had begun about seven minutes into the step, and a system spell-server timeout appeared in the log. The cause of the test slowdown is not yet established ([F-010](../features/architecture-review-2026-11/findings/F-010.md)).
+
+CI diagnostic: the welcome animation job also failed; animated views reported animation disabled and frame differences were zero. The test assumed the runner's Reduce Motion setting was off. The isolated test now controls that setting while retaining its separate on/off check; CI verification remains open ([F-008](../features/architecture-review-2026-11/findings/F-008.md)).
+
+Welcome follow-up: both welcome tests passed locally after controlling the test process's Reduce Motion getter; the complete screen scenario took 296.6 seconds (`/tmp/markview-welcome-controlled-motion.log`). CI verification remains open.
+
+Welcome timing follow-up: the test's fixed layout waits now poll for three stable view-geometry samples, bounded by the previous maximum wait. The full welcome screen test passed twice locally in 101.7 and 101.8 seconds (`/tmp/markview-welcome-stable-layout.log`, `/tmp/markview-welcome-stable-repeat.log`), compared with 296.6 seconds immediately before this change; the catalogue test also passed. CI timing remains unverified.
+
+CI diagnostic: the general GUI job failed a fixed-wait dialog-animation check and timed out after 900 seconds before all checks ran. That check now waits for the actual completion condition, with the original assertion retained. CI verification, the timeout and the eight-minute target remain open ([F-009](../features/architecture-review-2026-11/findings/F-009.md)).
+
+CI diagnostic: UI Studio's networking scenario also failed when background mapping completed before the test observed its intermediate state. The fixture now gates the relevant map groups and explicitly sends the categories request after the group starts; its original outcomes remain checked. The networking group passed locally in 44.6 seconds (`/tmp/markview-studio-network-gated.log`); CI verification remains open ([F-011](../features/architecture-review-2026-11/findings/F-011.md)).
+
+Dialog follow-up: the focused off-screen window test passed locally in 2.1 seconds (`/tmp/markview-ci-qa-dialog-fix.log`). The full CI timeout and CI verification remain open.
+
+General-host timing follow-up: CI is split into an `EditorHostTests` job and a general-host job, retaining all host tests and the seven isolated follow-ups. The default local wrapper still runs the combined suite. The editor part passed all 215 tests locally in 205.2 seconds (`/tmp/markview-qa-editor-split.log`), and a fake-command probe verified that a zero-test editor selection fails. The general part passed 91 tests with three optional skips in 178.4 seconds and all seven follow-ups (`/tmp/markview-qa-general-split.log`), for the same 306 main tests as the previous combined run. CI timing and the eight-minute target remain open.
+
+Research-map follow-up: redundant per-check WebKit error-count queries were replaced by asynchronous recorder messages without removing behavior checks or final page-error assertions. The local test passed in 55.5 seconds, so this does not demonstrate a local speedup. Progress is now forwarded during the suite; the runner's regression checks passed. CI verification remains open.
+
+Boris specified ARM only on 2026-11-18; [DEC-018](../features/architecture-review-2026-11/decisions/DEC-018.md) records Apple Silicon as the sole macOS app build and test architecture. All three Xcode configurations already specify `arm64`, and the Release CI matrix is ARM-only. Platform-independent Linux checks remain applicable.
+
 Unlocked-session general GUI follow-up: `qa-web-fault-tests` passed, including 306 hosted tests (3 optional skips, 0 failures) and all seven subsequently isolated host checks (`/tmp/markview-qa-host-unlocked-7011.log`). Final CI still requires verification.
 
 UI Studio follow-up: the isolated network and recovery groups passed in 43.6 and 183.8 seconds respectively (`/tmp/markview-studio-network-unlocked.log`, `/tmp/markview-studio-recovery-unlocked.log`). Together with the unlocked session group below, all three groups passed.

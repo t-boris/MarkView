@@ -1832,9 +1832,10 @@ private let mapPage = """
 """
 private let mapAppJS = """
 fetch('/api/session').then(r => r.json()).then(s => { document.getElementById('user').textContent = s.user; });
-setTimeout(() => fetch('http://catalog.example.test/v1/categories').then(r => r.json()).then(list => {
+function loadCategories() { return fetch('http://catalog.example.test/v1/categories').then(r => r.json()).then(list => {
   document.getElementById('categories').textContent = list.map(c => c.name).join(',');
-}), 1500);
+}); }
+setTimeout(loadCategories, 1500);
 function bundles(category) { return fetch('http://catalog.example.test/v1/bundles/search?categoryId=' + category).then(r => r.json()); }
 function bundle(id) { return fetch('http://catalog.example.test/v1/bundles/' + id).then(r => r.json()); }
 function orders() { return fetch('http://catalog.example.test/v1/orders').then(r => r.json()); }
@@ -1850,11 +1851,12 @@ export async function cities() {
 """
 
 /// A project with browser and server call sites; returns its application folder.
-private func mapFixture(_ root: URL) -> URL {
+private func mapFixture(_ root: URL, manualCategories: Bool = false) -> URL {
     let web = root.appendingPathComponent("web")
     try? FileManager.default.createDirectory(at: web.appendingPathComponent("server"), withIntermediateDirectories: true)
     try? mapPage.write(to: web.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
-    try? mapAppJS.write(to: web.appendingPathComponent("app.js"), atomically: true, encoding: .utf8)
+    let appJS = manualCategories ? mapAppJS.replacingOccurrences(of: "setTimeout(loadCategories, 1500);", with: "") : mapAppJS
+    try? appJS.write(to: web.appendingPathComponent("app.js"), atomically: true, encoding: .utf8)
     try? mapServerJS.write(to: web.appendingPathComponent("server/catalog.js"), atomically: true, encoding: .utf8)
     return web
 }
@@ -1941,6 +1943,7 @@ private final class MapAssistant: @unchecked Sendable {
     var groupDelay = 0.2
     private(set) var groupCalls: [String] = []
     private(set) var groupPrompts: [String: String] = [:]
+    private var heldGroups: Set<String> = []
     /// The inventory call fails, as when the assistant does not finish within its deadline.
     var inventoryFails = false
 
@@ -1961,6 +1964,9 @@ private final class MapAssistant: @unchecked Sendable {
                 groupPrompts[id] = request.prompt
                 return delays[id] ?? groupDelay
             }
+            while lock.withLock({ heldGroups.contains(id) }) {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             structured = mapGroupAnswer(id)
         case "ui-studio:review":
@@ -1975,6 +1981,8 @@ private final class MapAssistant: @unchecked Sendable {
     func calls() -> [String] { lock.withLock { groupCalls } }
     func prompt(_ id: String) -> String { lock.withLock { groupPrompts[id] ?? "" } }
     func set(_ delays: [String: Double], other: Double = 0.2) { lock.withLock { self.delays = delays; groupDelay = other } }
+    func hold(_ groups: Set<String>) { lock.withLock { heldGroups = groups } }
+    func releaseGroups() { lock.withLock { heldGroups.removeAll() } }
 }
 
 /// REQ-014 in real sessions: the application is mapped once, in the background, from one inventory call; every group is
@@ -2012,8 +2020,10 @@ private func environmentMapChecks() async {
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-map-\(UUID().uuidString)").resolvingSymlinksInPath()
     try? fm.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? fm.removeItem(at: root) }
-    let web = mapFixture(root)
+    let web = mapFixture(root, manualCategories: true)
     assistant.set(["catalog/bundles": 4, "catalog/categories+cities": 2, "catalog/orders": 0.5])
+    assistant.hold(["catalog/bundles", "catalog/categories+cities"])
+    defer { assistant.releaseGroups() }
     let mapsBefore = studioAssistant.mapRequests.count
     let preparesBefore = studioAssistant.requests.count
     let session = open(root, web: web)
@@ -2033,6 +2043,14 @@ private func environmentMapChecks() async {
     }
     check("REQ-014 the page works while the application is mapped: it is ready and its first request is prepared one by one",
           mappingWhileReady && user == "Dana", "mapping=\(mappingWhileReady) user=\(user) \(session.state) \(session.stateDetail)")
+    let groupStarted = await waitUntil(30) { assistant.calls().contains("catalog/categories+cities") }
+    check("REQ-014 the categories group is in progress before its page request", groupStarted)
+    _ = try? await session.call("loadCategories(); return true;")
+    let requestWaiting = await waitUntil(15) {
+        session.requests.contains { $0.url.contains("/categories") && $0.outcome == "preparing" }
+    }
+    check("REQ-014 the categories request waits for its group", requestWaiting)
+    assistant.releaseGroups()
     _ = await waitUntil(40) {
         if session.mapping.phase == .groups, progress.last != session.mapping.progressText { progress.append(session.mapping.progressText) }
         return done(session)

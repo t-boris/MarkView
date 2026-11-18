@@ -18,7 +18,12 @@ if len(sys.argv) != 2 or sys.argv[1] not in {"0", "1", "2"}:
 fallback = sorted(timings.values())[len(timings) // 2]
 loads = [0.0, 0.0, 0.0]
 shards = [[], [], []]
-for name in sorted(suites, key=lambda item: (-timings.get(item, fallback), item)):
+# Architecture lint's target-membership fixtures require macOS plutil.
+if "architecture-lint-tests" in suites:
+    shards[0].append("architecture-lint-tests")
+    loads[0] += timings.get("architecture-lint-tests", fallback)
+for name in sorted((name for name in suites if name != "architecture-lint-tests"),
+                   key=lambda item: (-timings.get(item, fallback), item)):
     shard = min(range(3), key=lambda item: (loads[item], item))
     shards[shard].append(name)
     loads[shard] += timings.get(name, fallback)

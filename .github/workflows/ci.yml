@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   web-bundle:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -47,18 +47,27 @@ jobs:
           npm run check:editor
           ./build.sh
           git diff --exit-code -- ../../MarkView/Resources/Editor
+      - name: Check research map layout and UI Studio Node behavior
+        run: ./tools/tests/run.sh --jobs 2 research-map-layout-tests ui-studio-node-tests
 
   pure-tests:
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2]
-    runs-on: macos-latest
+    # The architecture-lint fixture uses Apple's plutil; the other pure shards
+    # need only standard shell, Python and Node and need not queue for macOS.
+    runs-on: ${{ matrix.shard == 0 && 'macos-latest' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        if: matrix.shard != 0
+        with:
+          node-version: 22
 
       - name: Architecture lint
         if: matrix.shard == 0
@@ -80,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [qa-web-fault-tests, terminal-host-tests, workflow-editor-layout-tests, research-map-web-tests, theme-web-tests, ui-studio-web-tests, welcome-screen-tests, backdrop-registry-tests, project-ai-choice-tests, studio-session, studio-network, studio-recovery]
+        suite: [qa-web-fault-tests, qa-editor, terminal-host-tests, workflow-editor-layout-tests, research-map-web-tests, theme-web-tests, ui-studio-web-tests, welcome-screen-tests, backdrop-registry-tests, project-ai-choice-tests, studio-session, studio-network, studio-recovery]
     steps:
       - uses: actions/checkout@v4
       - name: Identify Xcode
@@ -103,12 +112,16 @@ jobs:
         run: |
           case "$HOSTED_SUITE" in
             studio-*) MARKVIEW_STUDIO_TEST_PART="${HOSTED_SUITE#studio-}" ./tools/tests/run.sh ui-studio-session-tests ;;
+            qa-editor) MARKVIEW_QA_HOST_PART=editor ./tools/tests/run.sh qa-web-fault-tests ;;
+            qa-web-fault-tests) MARKVIEW_QA_HOST_PART=general ./tools/tests/run.sh qa-web-fault-tests ;;
             *) ./tools/tests/run.sh "$HOSTED_SUITE" ;;
           esac
       - name: Record hosted build input timestamps
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewHostedData/source-mtimes.json"
       - name: Save hosted build cache
-        if: ${{ matrix.suite == 'qa-web-fault-tests' && steps.cache.outputs.cache-hit != 'true' }}
+        # Terminal is one of the shortest hosted suites; save its complete build
+        # before queued hosted jobs start instead of waiting for the long QA suite.
+        if: ${{ matrix.suite == 'terminal-host-tests' && steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/MarkViewHostedData

@@ -1946,8 +1946,13 @@ final class ResearchMapWebHostTests: XCTestCase {
         defer { watchdog.cancel() }
         var errorsSeen = 0
         var errorProbe: (() -> Int)?
+        var checksCompleted = 0
         func check(_ ok: Bool, _ message: String, _ detail: @autoclosure () -> String = "") {
             progress.reached()
+            checksCompleted += 1
+            if checksCompleted.isMultiple(of: 50) {
+                FileHandle.standardError.write(Data("research-map WebKit: \(checksCompleted) checks; latest: \(message)\n".utf8))
+            }
             if !ok { XCTFail("\(message): \(String(detail().prefix(900)))") }
             if let probe = errorProbe {
                 let count = probe()
@@ -1976,8 +1981,12 @@ config.userContentController.addUserScript(try BridgeContract(contentsOf: URL(fi
 // Every uncaught error and rejected promise of the page is recorded from the very start.
 let recorder = WKUserScript(source: """
 window.__errors = [];
-window.addEventListener('error', function (e) { window.__errors.push('error: ' + e.message + ' @' + (e.filename || '') + ':' + e.lineno); });
-window.addEventListener('unhandledrejection', function (e) { window.__errors.push('rejection: ' + (e.reason && e.reason.message || e.reason)); });
+function recordTestError(message) {
+  window.__errors.push(message);
+  window.webkit.messageHandlers.bridge.postMessage({type: 'testPageError', payload: {message: message}});
+}
+window.addEventListener('error', function (e) { recordTestError('error: ' + e.message + ' @' + (e.filename || '') + ':' + e.lineno); });
+window.addEventListener('unhandledrejection', function (e) { recordTestError('rejection: ' + (e.reason && e.reason.message || e.reason)); });
 """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
 config.userContentController.addUserScript(recorder)
 let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 820), configuration: config)
@@ -2059,8 +2068,8 @@ spin(1.5)
 // The shipping page raises one "Script error." of its own while loading; only errors after this point count.
 let baselineErrors = Int(js("return String(window.__errors.length);")) ?? 0
 let baselineReports = bridge.messages.filter { $0.type == "jsError" }.count
-errorsSeen = baselineErrors
-errorProbe = { Int(js("return String((window.__errors || []).length);", [:], timeout: 5)) ?? 0 }
+errorsSeen = bridge.messages.filter { $0.type == "testPageError" }.count
+errorProbe = { bridge.messages.filter { $0.type == "testPageError" }.count }
 print("info page errors before the test: \(baselineErrors) (already present without the research map scripts)")
 
 let probe = json("""

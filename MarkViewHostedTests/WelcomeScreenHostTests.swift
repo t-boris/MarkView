@@ -418,7 +418,21 @@ private struct ProjectContextScreen: View {
 @MainActor private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
 @MainActor private func settle(_ view: NSView, seconds: Double = 0.2) {
-    for _ in 0..<5 { view.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+    var previous: [CGRect] = []
+    var stable = 0
+    // Retain the old maximum wait while returning after consecutive stable layouts.
+    for _ in 0..<20 {
+        view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds / 4))
+        let frames = descendants(view).map { $0.convert($0.bounds, to: view) }
+        if !frames.isEmpty && frames == previous {
+            stable += 1
+            if stable >= 3 { return }
+        } else {
+            stable = 0
+            previous = frames
+        }
+    }
 }
 
 @MainActor private func host(project: String?, git: Bool, theme: AppTheme, accent: ThemeColor? = nil, size: NSSize, still: Bool, backdrop: WelcomeBackdrop = .matrix,
@@ -868,6 +882,18 @@ final class WelcomeScreenHostTests: XCTestCase {
             accessibilityScrollChecks()
             return
         }
+        // Exercise the animated state regardless of the test machine's accessibility settings.
+        // reduceMotionChecks temporarily overrides this again to cover both system settings.
+        let selector = NSSelectorFromString("accessibilityDisplayShouldReduceMotion")
+        guard let method = class_getInstanceMethod(NSWorkspace.self, selector) else {
+            XCTFail("Reduce Motion system getter is unavailable")
+            return
+        }
+        let original = method_getImplementation(method)
+        let replacement: @convention(block) (AnyObject) -> Bool = { _ in false }
+        let replacementIMP = imp_implementationWithBlock(replacement)
+        method_setImplementation(method, replacementIMP)
+        defer { method_setImplementation(method, original); _ = imp_removeBlock(replacementIMP) }
         choiceChecks(); matrixChecks(); auroraChecks(); bugChecks(); networkChecks()
         layerChecks(); hostedChecks(); perWindowChecks(); projectContextChecks(); motionChecks(); resizeChecks()
         tileChecks(); pillChecks(); accessibilityScrollChecks(); animatedFrameChecks(); reduceMotionChecks(); borisThemeSnapshot()

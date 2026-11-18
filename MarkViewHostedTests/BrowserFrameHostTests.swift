@@ -427,9 +427,9 @@ extension BrowserFrameHostTests {
         }
         for attempt in 1...2 {
             _ = first.eval("document.querySelector('#open').click(); true")
-            qaWindowFixtureSpin(0.8)
-            check(first.eval("document.getAnimations().length === 0 && getComputedStyle(document.querySelector('dialog')).opacity === '1'") as? Bool == true,
-                  "dialog entrance finishes on open \(attempt)")
+            let animationFinished = "document.getAnimations().length === 0 && getComputedStyle(document.querySelector('dialog')).opacity === '1'"
+            qaWindowFixtureSpin(5) { first.eval(animationFinished) as? Bool == true }
+            check(first.eval(animationFinished) as? Bool == true, "dialog entrance finishes on open \(attempt)")
             check(first.capture("dialog-\(attempt)") > 500, "screenshot contains the dialog on open \(attempt)")
             check(second.capture("other-player-\(attempt)") == 0, "other player is unaffected")
             // Use the same native event path as BrowserAgentExecutor, not a script click.

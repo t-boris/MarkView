@@ -29,9 +29,19 @@ final class WorkflowEditorLayoutHostTests: XCTestCase {
 @MainActor func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
 @MainActor func settle(_ hosting: NSView) {
-    for _ in 0..<6 {
+    var previous: [CGRect] = []
+    var stable = 0
+    for _ in 0..<18 {
         hosting.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let frames = descendants(hosting).map { $0.convert($0.bounds, to: hosting) }
+        if !frames.isEmpty && frames == previous {
+            stable += 1
+            if stable >= 3 { return }
+        } else {
+            stable = 0
+            previous = frames
+        }
     }
 }
 

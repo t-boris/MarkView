@@ -266,7 +266,11 @@ for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
 
 def command_for(script):
     path = os.path.abspath(script)
-    if os.access(path, os.X_OK):
+    try:
+        executable = bool(os.stat(path).st_mode & 0o111) and os.access(path, os.X_OK)
+    except OSError:
+        executable = False
+    if executable:
         return [path]
     first_line = ""
     try:
@@ -299,7 +303,7 @@ def run_suite(item):
             if not chunk:
                 return
             chunks.append(chunk)
-            if name == "ui-studio-session-tests":
+            if name in {"ui-studio-session-tests", "research-map-web-tests"}:
                 # These static stage labels make a stuck hosted scenario visible in CI
                 # without interleaving the suite's complete buffered output.
                 lines = (pending + chunk).split(b"\n")
@@ -307,6 +311,8 @@ def run_suite(item):
                 for line in lines:
                     if line.startswith(b"--  ") and len(line) <= 256:
                         print(f"▸ [{suite_tier}] {name}: {line[4:].decode('utf-8', errors='replace')}", flush=True)
+                    elif name == "research-map-web-tests" and line.startswith(b"research-map WebKit: ") and len(line) <= 256:
+                        print(f"▸ [{suite_tier}] {name}: {line.decode('utf-8', errors='replace')}", flush=True)
     reader = threading.Thread(target=drain, daemon=True)
     reader.start()
     notes = []

@@ -62,6 +62,7 @@ suite long 'sleep 300 & echo $! > "$FAKE_PIDS/long-1"
 echo started; wait'
 suite gui-only 'echo gui'
 suite ui-studio-session-tests 'printf "%s" "--  fixture"; sleep 0.1; echo " stage"; sleep 3; echo complete'
+suite research-map-web-tests 'printf "%s" "research-map WebKit: 50"; sleep 0.1; echo " checks"; sleep 3; echo complete'
 python3 - "$repo/tools/tests/manifest.json" <<'PY'
 import json, sys
 def s(name, tier="pure", sources=None, **extra):
@@ -72,6 +73,7 @@ suites = [
     s("slow-gui", tier="gui"), s("slow-pure", timeoutSeconds=1), s("long", timeoutSeconds=120),
     s("gui-only", tier="gui", sources=["src/g.txt"]),
     s("ui-studio-session-tests", tier="gui", timeoutSeconds=10),
+    s("research-map-web-tests", tier="gui", timeoutSeconds=10),
     s("live-default", tier="live"), s("live-limit", tier="live", timeoutSeconds=7),
 ]
 json.dump({"schema": 1, "suiteCount": len(suites), "suites": suites}, open(sys.argv[1], "w"), indent=2)
@@ -111,6 +113,21 @@ check $((observed != 1)) "UI Studio stage progress appears while the suite is ru
 wait "$progress_runner"; rc=$?
 check $((rc != 0)) "the progress-reporting suite still passes"
 grep -Fq -- '--  fixture stage' "$work/progress.out"; check $? "the complete buffered output still contains the stage"
+
+(cd "$repo" && exec ./tools/tests/run.sh --tier gui research-map-web-tests > "$work/research-progress.out" 2>&1) &
+progress_runner=$!
+observed=0
+for _ in $(seq 1 100); do
+    if grep -Fq '▸ [gui] research-map-web-tests: research-map WebKit: 50 checks' "$work/research-progress.out" 2>/dev/null && kill -0 "$progress_runner" 2>/dev/null; then
+        observed=1
+        break
+    fi
+    sleep 0.05
+done
+check $((observed != 1)) "research map progress appears while the suite is running"
+wait "$progress_runner"; rc=$?
+check $((rc != 0)) "the research map progress-reporting suite still passes"
+grep -Fq 'research-map WebKit: 50 checks' "$work/research-progress.out"; check $? "the complete buffered output still contains research map progress"
 
 # --- A hanging suite, one that ignores SIGTERM, one that leaks a process, and the limits at work.
 start=$SECONDS

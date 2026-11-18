@@ -11,6 +11,22 @@ unset MARKVIEW_STUDIO_LIFETIME_FILTER TEST_RUNNER_MARKVIEW_STUDIO_LIFETIME_FILTE
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
 socket_dir=$(mktemp -d /tmp/mvhost.XXXXXX)
 trap 'rm -rf "$socket_dir"' EXIT
+extra_skips=()
+case "${MARKVIEW_QA_HOST_PART:-all}" in
+  all) ;;
+  general) extra_skips=(-skip-testing:MarkViewHostedTests/EditorHostTests) ;;
+  editor)
+    MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+      -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
+      -only-testing:MarkViewHostedTests/EditorHostTests test 2>&1 | tee "$socket_dir/editor.log"
+    if ! grep -Eq 'Executed [1-9][0-9]* tests?, with' "$socket_dir/editor.log"; then
+      echo "Editor host selection did not execute any tests" >&2
+      exit 1
+    fi
+    exit
+    ;;
+  *) echo "Unknown QA host part: $MARKVIEW_QA_HOST_PART" >&2; exit 2 ;;
+esac
 MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
   -test-timeouts-enabled YES \
@@ -35,7 +51,12 @@ MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" 
   -skip-testing:MarkViewHostedTests/SavedRemoteConnectionsHostTests \
   -skip-testing:MarkViewHostedTests/CLICompletionTimeoutHostTests \
   -skip-testing:MarkViewHostedTests/AssistantExtensionHostTests \
-  -skip-testing:MarkViewHostedTests/ACPContinuationHostTests test
+  -skip-testing:MarkViewHostedTests/ACPContinuationHostTests \
+  "${extra_skips[@]}" test 2>&1 | tee "$socket_dir/general.log"
+if ! grep -Eq 'Executed [1-9][0-9]* tests?, with' "$socket_dir/general.log"; then
+  echo "General host selection did not execute any tests" >&2
+  exit 1
+fi
 # The workspace test owns a process registry and runs in a fresh host.
 bash tools/tests/remote-workspace-host-tests.sh
 # Write and read the temporary relay credentials in separate isolated hosts.
