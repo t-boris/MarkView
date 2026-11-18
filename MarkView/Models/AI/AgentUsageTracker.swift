@@ -421,8 +421,8 @@ struct OfficialUsageClient: UsageTransport {
         return (data, http)
     }
 
-    func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> UsageCommandResult {
-        let result = await CLIToolLocator.run(executable, arguments, timeout: timeout)
+    func run(_ executable: String, _ arguments: [String], stdin: Data?, timeout: TimeInterval) async -> UsageCommandResult {
+        let result = await CLIToolLocator.run(executable, arguments, stdin: stdin, timeout: timeout)
         return UsageCommandResult(exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr)
     }
 

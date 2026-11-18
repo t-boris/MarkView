@@ -380,13 +380,99 @@ extension EditorHostTests {
         expect(AntigravityUsage.interpret(exitCode: 0, stdout: "{\"status\":\"SUCCESS\"}", stderr: ""), .failed("response not recognised"), "unknown json")
         expect(AntigravityUsage.interpret(exitCode: 2, stdout: "boom", stderr: ""), .failed("response not recognised"), "other failure")
 
+        // Copilot (DEC-021): `copilot --headless --no-auto-update --log-level none --log-dir /dev/null --stdio`
+        // (Content-Length framed JSON-RPC 2.0 responses for `connect`, `account.getQuota`, `account.getCurrentAuth`, seen 2026-11-18)
+        func copilotFramed(_ bodies: [String]) -> String {
+            bodies.map { body in "Content-Length: \(body.utf8.count)\r\n\r\n\(body)" }.joined()
+        }
+        let copilotConnect = #"{"jsonrpc":"2.0","id":1,"result":{"ok":true,"protocolVersion":4,"version":"1.0.114"}}"#
+        let copilotAuth = """
+        {"jsonrpc":"2.0","id":3,"result":{"authInfo":{"type":"gh-cli","host":"https://github.com","login":"t-boris",\
+        "copilotUser":{"login":"t-boris","copilot_plan":"individual","quota_reset_date":"2026-12-01",\
+        "quota_reset_date_utc":"2026-12-01T00:00:00.000Z","token_based_billing":true,\
+        "quota_snapshots":{"chat":{"entitlement":0,"percent_remaining":100,"quota_id":"chat","unlimited":true,"quota_reset_at":0,"token_based_billing":true},\
+        "completions":{"entitlement":0,"percent_remaining":100,"quota_id":"completions","unlimited":true,"quota_reset_at":0,"token_based_billing":true},\
+        "premium_interactions":{"entitlement":1500,"percent_remaining":25.9,"quota_id":"premium_interactions","quota_remaining":389.1,"remaining":389,"unlimited":false,"timestamp_utc":"2026-11-18T20:01:29.205Z","has_quota":true,"quota_reset_at":0,"token_based_billing":true}}}}}}
+        """
+        let copilotQuota = """
+        {"jsonrpc":"2.0","id":2,"result":{"quotaSnapshots":{\
+        "chat":{"isUnlimitedEntitlement":true,"entitlementRequests":0,"usedRequests":0,"remainingPercentage":100,"resetDate":"2026-11-18T20:01:29.205Z","tokenBasedBilling":true},\
+        "completions":{"isUnlimitedEntitlement":true,"entitlementRequests":0,"usedRequests":0,"remainingPercentage":100,"resetDate":"2026-11-18T20:01:29.205Z","tokenBasedBilling":true},\
+        "premium_interactions":{"isUnlimitedEntitlement":false,"entitlementRequests":1500,"usedRequests":1112,"remainingPercentage":25.9,"resetDate":"2026-11-18T20:01:29.205Z","tokenBasedBilling":true}}}}
+        """
+        let copilotStdout = copilotFramed([copilotConnect, copilotAuth, copilotQuota])
+        let copilot = CopilotUsage.parse(Data(copilotStdout.utf8)) ?? []
+        expect(copilot.map(\.id), ["plan"], "copilot monthly plan window id")
+        expect(copilot.map(\.label), ["plan"], "copilot monthly plan label")
+        expect(copilot.map(\.title), ["Plan (1,112 / 1,500 AIC)"], "copilot plan title includes used / limit AI credits")
+        expect(copilot.map { ($0.percentUsed * 10).rounded() / 10 }, [74.1], "copilot percent used is 100 - remainingPercentage")
+        expect(copilot.first?.resetsAt, date("2026-12-01T00:00:00Z"), "copilot monthly reset comes from quota_reset_date_utc")
+        expect(copilot.first?.duration, 30 * day, "copilot November billing cycle is 30 days")
+        expect(copilot.first?.start, date("2026-11-01T00:00:00Z"), "copilot window start is the beginning of the UTC month")
+        expect(copilot.first?.pace(now: date("2026-11-18T12:00:00Z")), .ahead, "74.1% used on Nov 18 (58% elapsed) is ahead of pace")
+
+        // Copilot with 5-hour session and weekly rate limits plus legacy premium-request billing
+        let copilotWithLimitsJSON = """
+        {"authInfo":{"copilotUser":{"quota_reset_date":"2026-12-01","token_based_billing":false,\
+        "quota_snapshots":{"premium_interactions":{"entitlement":300,"percent_remaining":60,"quota_remaining":180,"unlimited":false,"token_based_billing":false},\
+        "5hour-session-ratelimits":{"percent_remaining":85,"quota_reset_at":1795046400,"unlimited":false},\
+        "weekly-session-ratelimits":{"percent_remaining":20,"quota_reset_at":1795564800,"unlimited":false}}}}}
+        """
+        let copilotWithLimits = CopilotUsage.parse(Data(copilotWithLimitsJSON.utf8)) ?? []
+        expect(copilotWithLimits.map(\.id), ["plan", "session", "weekly"], "copilot plan + session + weekly windows")
+        expect(copilotWithLimits.map(\.label), ["plan", "5h", "week"], "copilot labels")
+        expect(copilotWithLimits.map(\.title), ["Plan (120 / 300 premium requests)", "5-hour session", "Weekly"], "copilot legacy billing and rate-limit titles")
+        expect(copilotWithLimits.map(\.percentUsed), [40, 15, 80], "copilot percents")
+        expect(copilotWithLimits.map(\.resetsAt), [date("2026-12-01T00:00:00Z"), Date(timeIntervalSince1970: 1_795_046_400), Date(timeIntervalSince1970: 1_795_564_800)],
+               "copilot date-only plan reset and epoch rate-limit resets")
+        expect(copilotWithLimits.map(\.duration), [30 * day, 5 * hour, 7 * day], "copilot window durations")
+        expect(QuotaWindow.headline(of: copilotWithLimits)?.id, "weekly", "copilot headline is the most constrained window")
+
+        // Copilot Free tier (only finite chat quota, limited_user_reset_date) and clamping
+        let copilotFree = CopilotUsage.parse(Data("""
+        {"copilotUser":{"limited_user_reset_date":"2026-12-15T00:00:00Z",\
+        "quota_snapshots":{"chat":{"entitlement":50,"percent_remaining":60,"remaining":30,"unlimited":false}}}}
+        """.utf8)) ?? []
+        expect(copilotFree.map(\.id), ["plan"], "copilot free chat quota becomes the plan window")
+        expect(copilotFree.map(\.title), ["Plan (20 / 50 chat requests)"], "copilot free title")
+        expect(copilotFree.first?.resetsAt, date("2026-12-15T00:00:00Z"), "copilot free limited_user_reset_date")
+
+        let copilotClamped = CopilotUsage.parse(Data("""
+        {"quotaSnapshots":{"premium_interactions":{"isUnlimitedEntitlement":false,"entitlementRequests":100,"usedRequests":120,"remainingPercentage":-15},\
+        "session":{"isUnlimitedEntitlement":false,"entitlementRequests":0,"usedRequests":0,"remainingPercentage":120}}}
+        """.utf8)) ?? []
+        expect(copilotClamped.map(\.percentUsed), [100, 0], "copilot percentages are clamped to 0...100% used")
+        expect(copilotClamped.last?.resetsAt, nil, "copilot untouched session rate limit without epoch reset has no reset time")
+        expect(CopilotUsage.parse(Data(#"{"quotaSnapshots":{"chat":{"isUnlimitedEntitlement":true,"remainingPercentage":100}}}"#.utf8)) == nil,
+               true, "copilot unlimited-only response produces no finite quota window")
+        expect(CopilotUsage.parse(Data("{}".utf8)) == nil, true, "copilot empty object unrecognised")
+
+        let copilotSignedOut = copilotFramed([
+            copilotConnect,
+            #"{"jsonrpc":"2.0","id":3,"result":{}}"#,
+            #"{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"Request account.getQuota failed with message: Not authenticated. Please authenticate first."}}"#,
+        ])
+        expect(CopilotUsage.interpret(exitCode: 0, stdout: copilotStdout, stderr: ""), .windows(copilot), "copilot good response gives windows")
+        expect(CopilotUsage.interpret(exitCode: 0, stdout: copilotSignedOut, stderr: ""), .signedOut, "copilot unauthenticated response is signed out")
+        expect(CopilotUsage.interpret(exitCode: 0, stdout: copilotFramed([copilotConnect, #"{"jsonrpc":"2.0","id":3,"result":{}}"#]), stderr: ""),
+               .signedOut, "copilot empty authInfo result is signed out")
+        expect(CopilotUsage.interpret(exitCode: -2, stdout: "", stderr: ""), .failed("copilot did not answer in time"), "copilot timeout")
+        expect(CopilotUsage.interpret(exitCode: -1, stdout: "", stderr: "no such file"), .failed("could not start the copilot command"), "copilot could not start")
+        expect(CopilotUsage.interpret(exitCode: 0, stdout: copilotConnect, stderr: ""), .failed("response not recognised"), "copilot connect-only response unrecognised")
+        let payloadText = String(data: CopilotUsage.requestPayload, encoding: .utf8) ?? ""
+        expect(payloadText.contains(#""method":"connect""#) && payloadText.contains(#""method":"account.getQuota""#)
+               && payloadText.contains(#""method":"account.getCurrentAuth""#), true, "copilot request payload frames connect, getQuota and getCurrentAuth")
+
         // The agents and what differs between them
-        expect(CLITool.usageTracked.map(\.rawValue), ["claude", "codex", "antigravity"], "agents in bar order")
-        expect(CLITool.usageTracked.map(\.hasLocalLogs), [true, true, false], "only Claude and Codex have local logs")
+        expect(CLITool.usageTracked.map(\.rawValue), ["claude", "codex", "copilot", "antigravity"], "agents in bar order")
+        expect(CLITool.usageTracked.map(\.hasLocalLogs), [true, true, false, false], "only Claude and Codex have local logs")
+        expect(CLITool.copilot.displayName, "Copilot", "copilot name")
+        expect(CLITool.copilot.dataDirectoryName, ".copilot", "copilot data directory")
+        expect(Setting.usageHidden(CLITool.copilot.rawValue).name, "settings.usage.copilot.hidden", "copilot hide key")
         expect(CLITool.antigravity.displayName, "Antigravity", "antigravity name")
         expect(CLITool.antigravity.dataDirectoryName, ".gemini/antigravity-cli", "antigravity data directory")
         expect(Setting.usageHidden(CLITool.antigravity.rawValue).name, "settings.usage.antigravity.hidden", "antigravity hide key")
-        expect(CLITool.usageTracked.map { $0.signedOutInterval ?? -1 }, [-1, -1, 1800], "only Antigravity waits longer (30 minutes) while signed out")
+        expect(CLITool.usageTracked.map { $0.signedOutInterval ?? -1 }, [-1, -1, -1, 1800], "only Antigravity waits longer (30 minutes) while signed out")
         expect(AgentUsageState.resolve(official: antigravity, limit: nil, limitUsage: nil, today: nil, localError: nil, now: now).headline?.id,
                "gemini-argon-wtu-weekly", "antigravity official state")
 
@@ -787,6 +873,7 @@ extension EditorHostTests {
 private extension CLITool {
     static var claude: CLITool { CLITool(rawValue: "claude")! }
     static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
     static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
 }
 
