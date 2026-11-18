@@ -19,6 +19,7 @@ on:
       - 'tools/tests/remote-workspace-host-tests.sh'
       - 'tools/tests/remote-relay-tests.sh'
       - 'MarkViewHostedTests/RemoteWorkspaceHostTests.swift'
+      - 'MarkViewHostedTests/RemoteRelaySettingsHostTests.swift'
       - 'MarkViewHostedTests/GitHubRemoteProfileHostTests.swift'
       - 'MarkViewHostedTests/RemoteCodexContextHostTests.swift'
       - 'MarkViewHostedTests/RemoteChannelHostTests.swift'

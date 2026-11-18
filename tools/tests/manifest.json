@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 43,
+  "suiteCount": 42,
   "suites": [
     {
       "name": "acp-continuation-tests",
@@ -1114,6 +1114,8 @@
         "MarkView/Models/AgentTools/ProjectAgentTools.swift",
         "MarkViewHostedTests/RemoteChannelHostTests.swift",
         "MarkViewHostedTests/RemoteWorkspaceHostTests.swift",
+        "MarkView/Models/Remote/RemoteRelaySettings.swift",
+        "MarkViewHostedTests/RemoteRelaySettingsHostTests.swift",
         "MarkView/Models/Remote/RemoteFraming.swift",
         "MarkView/Models/Remote/RemoteToolBridge.swift",
         "MarkView/Models/Remote/RemoteWorkspace.swift",
@@ -1190,18 +1192,6 @@
         "MarkView/Models/AI/AgentToolsSetting.swift",
         "MarkView/Models/Remote/RemoteBrowserRelay.swift",
         "MarkView/Models/AI/Providers/AssistantMCP.swift"
-      ]
-    },
-    {
-      "name": "remote-relay-settings-tests",
-      "script": "tools/tests/remote-relay-settings-tests.sh",
-      "tier": "pure",
-      "sources": [
-        "MarkView/Models/Remote/RemoteProtocol.swift",
-        "MarkView/Models/Remote/RemoteRelaySettings.swift",
-        "tools/tests/RemoteRelaySettingsTests.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/Settings.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift"
       ]
     },
     {

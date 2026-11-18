@@ -22,4 +22,7 @@ case "${1:-}" in
   --core-only) bash tools/tests/remote-workspace-host-tests.sh --core-only ;;
   *) bash tools/tests/remote-workspace-host-tests.sh ;;
 esac
+if [ "${MARKVIEW_REMOTE_SKIP_DUPLICATE_PURE:-0}" != 1 ]; then
+    bash tools/tests/remote-relay-settings-tests.sh
+fi
 bash tools/tests/remote-relay-tests.sh
