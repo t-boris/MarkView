@@ -236,4 +236,47 @@ extension EditorHostTests {
     func testWorkspaceRedesign() async throws {
         try await WorkspaceRedesignFixture.run()
     }
+
+    @MainActor func testRealWindowCompositionIsolationAndClose() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("first.json"))
+        let second = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("second.json"))
+        defer { second.composition.close() }
+        let composition = first.composition
+        XCTAssertTrue(composition.project === first.project)
+        XCTAssertTrue(composition.tabs === first.tabs)
+        XCTAssertTrue(composition.terminals === first.terminals)
+        XCTAssertTrue(composition.browser === first.browser)
+        XCTAssertTrue(composition.flow === first.flow)
+        XCTAssertFalse(composition.project === second.project)
+        XCTAssertFalse(composition.tabs === second.tabs)
+        XCTAssertFalse(composition.polling === second.polling)
+        XCTAssertTrue(composition.tabs.polling === composition.polling)
+        XCTAssertTrue(composition.project.fileTree.polling === composition.polling)
+
+        let repo = GitHubRepo(slug: "example/project", remote: "origin", isUpstream: false)
+        composition.flow.gitHub.selectedRepo = repo
+        XCTAssertEqual(composition.codeXRay.architecture.review.gitHubRepo, repo)
+        XCTAssertNil(second.codeXRay.architecture.review.gitHubRepo)
+        composition.flow.gitHub.selectedRepo = nil
+        XCTAssertNil(composition.codeXRay.architecture.review.gitHubRepo)
+
+        let pending = Task { @MainActor in
+            while !Task.isCancelled { try? await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        composition.taskBag.store(pending, for: "composition-test")
+        composition.polling.every(60, key: "composition-test") {}
+        XCTAssertEqual(composition.taskBag.activeCount, 1)
+        XCTAssertTrue(composition.polling.keys.contains("composition-test"))
+        composition.close()
+        XCTAssertTrue(pending.isCancelled)
+        XCTAssertEqual(composition.taskBag.activeCount, 0)
+        XCTAssertTrue(composition.polling.keys.isEmpty)
+        composition.flow.gitHub.selectedRepo = repo
+        XCTAssertNil(composition.codeXRay.architecture.review.gitHubRepo)
+        composition.flow.gitHub.selectedRepo = nil
+        await pending.value
+    }
 }
