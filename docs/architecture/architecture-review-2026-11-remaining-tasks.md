@@ -5,9 +5,19 @@ scattered "not done" paragraphs in `architecture-review-2026-11.md` (AR items), 
 13.4, 14, 15.3 and 16) and the agent memory. When a task is finished, its status line here is changed with the implementation, with the
 count that proves it (project rule: a finding is done when the old thing is gone, and "done" is written by whoever ran the count).
 
-## Current status — 2026-11-17
+## Current status — 2026-11-18
+
+D4: X-Ray ownership checks now run against real architecture, review, filter, explanation and navigation stores, with temporary local Git and SQLite fixtures and an isolated assistant runner. All seven hosted tests passed together, including delayed cancellation, streaming, failed-analysis retry and review persistence. The former standalone driver and application stand-ins were removed; all 48 former shipping-source triggers select the hosted suite. Repository hygiene, architecture lint, SwiftLint and assignment of all 10 pure suites to three CI shards passed. The manifest has 30 suites: 10 pure, 15 GUI and 5 live. Other standalone migrations and final verification remain open.
 
 D4 in progress: X-Ray code-explanation cancellation, cleanup and retry, and navigation-question stop and replacement passed against the real stores with an isolated assistant runner. Both focused tests, repository hygiene, architecture lint and SwiftLint passed. The standalone harness and its replacement assistant and database remain while project-change, review, filtering and the rest of navigation behavior are transferred.
+
+D4 in progress: X-Ray edge replacement, reset cancellation and node-description cancellation passed on real temporary source files and the real architecture store, with automatic analysis and GitHub integration disabled in the isolated test-host settings. Database persistence, review and filter ownership remain to be migrated.
+
+D4 in progress: an X-Ray analysis was cancelled while its isolated assistant call was pending; the old task did not release the next run's lease, and a second temporary project opened with its own snapshot. The focused test passed. A real SQLite persistence check is being added for the same transition.
+
+D4 in progress: the same project switch passed using two real temporary SQLite databases. After cancellation and the new project's scan, the previous database's SQLite change count stayed unchanged; both database actors were released before fixture cleanup. Filter replacement, forgetting a filter, a failed answer and reset cancellation also passed against the real X-Ray filter store. Review and remaining search behavior still need migration.
+
+D4 in progress: change-review cancellation and persistence passed using a temporary local Git repository and real SQLite, with GitHub integration disabled and a scripted assistant boundary. A cancelled review saved no result; a successful review saved one; cancelling a finding explanation saved no additional review. The database closed before fixture removal. Comparison and history replacement remain to be checked.
 
 D4: AITerminalsController's standalone driver and replacement application types were removed after seven real-controller tests and the shared loopback-server test passed together. All 44 former shipping-source triggers select the hosted suite; repository hygiene, architecture lint, SwiftLint and assignment of all 11 pure suites to three CI shards passed. The manifest now has 31 suites: 11 pure, 15 GUI and 5 live. Other standalone migrations and final full-tier and CI verification remain open.
 

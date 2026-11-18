@@ -7,6 +7,5 @@
   "document-files-tests": 0.1,
   "no-process-outside-subprocess-lint": 0.5,
   "qa-native-tests": 70.6,
-  "run-sh-tests": 9.2,
-  "xray-task-ownership-tests": 78.7
+  "run-sh-tests": 9.2
 }
