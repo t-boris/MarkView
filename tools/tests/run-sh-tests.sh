@@ -282,6 +282,32 @@ assert studio.returncode == 0 and 'ran session' in studio.stdout and 'ran recove
 PY
 check $? "hosted pairs retain both results and reject invalid suites"
 
+# Every hosted selection belongs to exactly one lane, and a failure cannot hide later suites.
+python3 - "$PWD/tools/ci/run-hosted-lane.sh" "$work" <<'PY'
+import os, pathlib, subprocess, sys
+script, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]) / 'lane-fixture'
+runner = root / 'tools/tests/run.sh'; runner.parent.mkdir(parents=True)
+runner.write_text('#!/bin/bash\npart=${MARKVIEW_QA_HOST_PART:-${MARKVIEW_STUDIO_TEST_PART:-$1}}\necho "ran $part"\n[[ "$part" != "${FAIL_SUITE:-}" ]]\n')
+runner.chmod(0o755)
+pair = root / 'tools/ci/run-hosted-pair.sh'; pair.parent.mkdir(parents=True)
+pair.write_text('#!/bin/bash\nfor part in "$@"; do echo "ran $part"; done\n[[ "$*" != *"${FAIL_SUITE:-impossible}"* ]]\n')
+pair.chmod(0o755)
+def run(lane, failure=''):
+    return subprocess.run([str(script), str(lane)], cwd=root, env=dict(os.environ, FAIL_SUITE=failure), capture_output=True, text=True)
+results = [run(i) for i in range(5)]
+assert all(r.returncode == 0 for r in results)
+actual = [line[4:] for r in results for line in r.stdout.splitlines() if line.startswith('ran ')]
+expected = ['qa-general-0', 'qa-general-1', 'ui-studio-web-tests', 'project-ai-choice-tests',
+            'studio-session', 'studio-recovery', 'terminal-host-tests', 'workflow-editor-layout-tests',
+            'theme-web-tests', 'research-map-web-tests', 'qa-editor-2', 'qa-editor-3', 'isolated',
+            'qa-editor-0', 'qa-editor-1', 'welcome-screen-tests', 'network']
+assert sorted(actual) == sorted(expected) and len(actual) == len(set(actual))
+bad = run(0, 'qa-general-0')
+assert bad.returncode != 0 and 'ran project-ai-choice-tests' in bad.stdout
+assert run(5).returncode != 0
+PY
+check $? "hosted lanes cover every suite once and continue after a failure"
+
 if [ "$failures" -gt 0 ]; then
     echo "run.sh checks FAILED: $failures"
     exit 1

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 #if canImport(MarkViewCore)
 import MarkViewCore
@@ -7,6 +8,13 @@ import MarkViewCore
 /// belongs here. File tools reject traversal and symlink escapes; shell commands deliberately have
 /// the same user permissions as an ordinary local agent terminal.
 actor RemoteWorkspace {
+    private static func localHostName() -> String {
+        // The kernel hostname does not wait for DNS or network configuration.
+        var bytes = [CChar](repeating: 0, count: Int(MAXHOSTNAMELEN) + 1)
+        guard gethostname(&bytes, bytes.count - 1) == 0 else { return "Unknown Mac" }
+        let name = String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return name.isEmpty ? "Unknown Mac" : name
+    }
     private static let persistentDeviceID: String = {
         let settings = Settings.standard
         if let value = settings.stored(Setting.remoteDeviceID), UUID(uuidString: value) != nil { return value }
@@ -53,7 +61,7 @@ actor RemoteWorkspace {
                 "root_writable": .bool(FileManager.default.isWritableFile(atPath: root.path)),
                 "write_operations": .array([.string("write_file"), .string("edit_file")]),
                 "permissions_source": .string("Work-computer OS permissions; the home CLI sandbox does not apply.")]),
-            "cwd": .string(root.path), "hostname": .string(ProcessInfo.processInfo.hostName),
+            "cwd": .string(root.path), "hostname": .string(Self.localHostName()),
             "deviceID": .string(deviceID),
             "os": .string(ProcessInfo.processInfo.operatingSystemVersionString),
             "shell": .string(ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"),

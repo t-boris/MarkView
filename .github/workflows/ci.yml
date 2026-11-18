@@ -125,7 +125,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [qa-general-pair, qa-isolated, qa-editor-pair-01, qa-editor-pair-23, terminal-host-tests, workflow-editor-layout-tests, web-pair, ui-studio-web-tests, welcome-screen-tests, project-ai-choice-tests, studio-pair, studio-network]
+        lane: [0, 1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - name: Identify Xcode
@@ -144,20 +144,11 @@ jobs:
       - name: Run app-hosted regression suite
         env:
           MARKVIEW_HOSTED_TEST_DERIVED_DATA: ${{ runner.temp }}/MarkViewHostedData
-          HOSTED_SUITE: ${{ matrix.suite }}
+          HOSTED_LANE: ${{ matrix.lane }}
         run: |
           export MARKVIEW_PREBUILT_HOSTED=1
           export PATH="$PWD/tools/ci:$PATH"
-          case "$HOSTED_SUITE" in
-            qa-general-pair) tools/ci/run-hosted-pair.sh qa-general-0 qa-general-1 ;;
-            qa-editor-pair-01) tools/ci/run-hosted-pair.sh qa-editor-0 qa-editor-1 ;;
-            qa-editor-pair-23) tools/ci/run-hosted-pair.sh qa-editor-2 qa-editor-3 ;;
-            web-pair) tools/ci/run-hosted-pair.sh theme-web-tests research-map-web-tests ;;
-            studio-pair) tools/ci/run-hosted-pair.sh studio-session studio-recovery ;;
-            studio-*) MARKVIEW_STUDIO_TEST_PART="${HOSTED_SUITE#studio-}" ./tools/tests/run.sh ui-studio-session-tests ;;
-            qa-editor-*|qa-general-*|qa-isolated) MARKVIEW_QA_HOST_PART="${HOSTED_SUITE#qa-}" ./tools/tests/run.sh qa-web-fault-tests ;;
-            *) ./tools/tests/run.sh "$HOSTED_SUITE" ;;
-          esac
+          tools/ci/run-hosted-lane.sh "$HOSTED_LANE"
   backdrop-tests:
     runs-on: macos-latest
     timeout-minutes: 15

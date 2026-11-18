@@ -367,6 +367,10 @@ final class RemoteWorkspaceHostTests: XCTestCase {
             RemoteUnixRPC.guardResponse(for: $0) == .object([:])
         }, "Allowed tools must use a neutral hook result accepted by both Claude and Codex.")
         let context = await workspace.describe()
+        var hostBytes = [CChar](repeating: 0, count: Int(MAXHOSTNAMELEN) + 1)
+        XCTAssertEqual(gethostname(&hostBytes, hostBytes.count - 1), 0)
+        let expectedHost = String(decoding: hostBytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        XCTAssertEqual(context["hostname"].string, expectedHost)
         Self.check(context["computer"].string == "work" && context["file_tools"]["root_writable"].bool == true,
               "Workspace info must identify the work computer and report its actual writable root.")
         Self.check(context["file_tools"]["write_operations"].array == [.string("write_file"), .string("edit_file")],
