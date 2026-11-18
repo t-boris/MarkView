@@ -38,7 +38,6 @@
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Resources/Editor/book.html",
         "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/BookPDFLiveChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "MarkView/Models/AI/Providers/AgentActivity.swift",
@@ -63,7 +62,8 @@
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
-        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift"
+        "Packages/MarkViewCore/Tests/TestSupport/SemanticDatabaseTestSupport.swift",
+        "MarkViewHostedTests/ManualProviderLiveHostTests.swift"
       ]
     },
     {
