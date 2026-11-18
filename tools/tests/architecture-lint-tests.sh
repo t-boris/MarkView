@@ -141,6 +141,31 @@ try:
     check("assistant-switch: 0 in 0 file(s), 0 allowed" in out,
           "the providers, strings, paths, member names and trailing comments do not count as naming an assistant")
 
+    # --- window-shutdown-order
+    root = fresh()
+    composition = "MarkView/Models/Workspace/WindowComposition.swift"
+    close = ("final class WindowComposition {\n    func close() {\n"
+             "        tabs.shutdown()\n        project.close()\n        polling.stopAll()\n"
+             "        codeXRay.close()\n        flow.close()\n        browser.close()\n"
+             "        toolTabs.close()\n        gitClient.close()\n        taskBag.cancelAll()\n"
+             "        connections.removeAll()\n    }\n}\n")
+    write(root, composition, close)
+    project(root, app_swift(root))
+    code, out = run(root)
+    check(code == 0, "window shutdown in dependency order passes")
+    write(root, composition, close.replace("        tabs.shutdown()\n        project.close()", "        project.close()\n        tabs.shutdown()"))
+    code, out = run(root)
+    check(code == 1 and "[window-shutdown-order]" in out, "reordered window shutdown fails")
+    write(root, composition, close.replace("        taskBag.cancelAll()", "        // taskBag.cancelAll()"))
+    code, out = run(root)
+    check(code == 1 and "[window-shutdown-order]" in out, "a shutdown call in a comment cannot replace the real call")
+    write(root, composition, close.replace("        taskBag.cancelAll()", "        /* taskBag.cancelAll() */"))
+    code, out = run(root)
+    check(code == 1 and "[window-shutdown-order]" in out, "a block comment cannot replace a shutdown call")
+    write(root, composition, close.replace("        taskBag.cancelAll()", "        if condition {\n            taskBag.cancelAll()\n        }"))
+    code, out = run(root)
+    check(code == 1 and "[window-shutdown-order]" in out, "a conditional shutdown call cannot replace an unconditional one")
+
     # --- no-loose-swift
     root = fresh()
     write(root, "MarkView/Models/Loose.swift", "struct Loose {}\n")

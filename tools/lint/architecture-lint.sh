@@ -4,6 +4,7 @@
 #
 # Rules that must hold:
 #   cockpit-tool-classes  every registered project/control/deployment/discussion tool is classified
+#   window-shutdown-order  the window's owned components and tasks stop in their required order
 #   workflow-test-paths  literal test paths named in GitHub workflows exist
 #   no-loose-swift       no *.swift directly in MarkView/Models or MarkView/Views (every file lives in a domain folder)
 #   no-vendor-markview   no reference to `vendor/js/markview-` in the app's Swift code and HTML (the scripts live in Editor/js)
@@ -784,8 +785,20 @@ if policy_path.is_file():
             for name in sorted(classified - declared):
                 violations.append(("cockpit-tool-classes", f"stale classification {name}"))
 
+# The window shuts down its parts in dependency order, and disconnects event handlers last.
+composition = root / "MarkView/Models/Workspace/WindowComposition.swift"
+if composition.is_file():
+    source = re.sub(r"/\*.*?\*/", "", composition.read_text(), flags=re.S)
+    source = "\n".join(line.split("//", 1)[0] for line in source.splitlines())
+    close = re.search(r"(?ms)^    func close\(\)\s*\{\s*\n(.*?)^    \}", source)
+    expected = ["tabs.shutdown()", "project.close()", "polling.stopAll()", "codeXRay.close()", "flow.close()",
+                "browser.close()", "toolTabs.close()", "gitClient.close()", "taskBag.cancelAll()", "connections.removeAll()"]
+    statements = re.findall(r"(?m)^        ((?:tabs|project|polling|codeXRay|flow|browser|toolTabs|gitClient|taskBag|connections)\.[A-Za-z]+\(\))[ \t]*$", close.group(1)) if close else []
+    if statements != expected:
+        violations.append(("window-shutdown-order", f"{rel(composition)}: close() must stop each window part once in the required order"))
+
 # --- report
-rules = ["cockpit-tool-classes", "workflow-test-paths", "no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
+rules = ["cockpit-tool-classes", "window-shutdown-order", "workflow-test-paths", "no-loose-swift", "no-vendor-markview", "target-membership", "semantic-database-actor", "process", "clicompletion", "workspace-manager", "file-size", "assistant-switch", "atomic-write", "project-paths", "app-log", "silent-decode", "domain-cycles", "unowned-task", "bridge-no-bypass", "no-private-escape", "tabs-direct", "js-interpolation", "webview-configuration", "settings-literal", "settings-observer", "window-wiring", "unchecked-sendable", "studio-part-tasks", "nsalert-in-models"]
 if violations:
     print(f"architecture-lint: {len(violations)} violation(s)")
     for rule in rules + sorted({r for r, _ in violations} - set(rules)):

@@ -407,6 +407,8 @@ extension EditorHostTests {
         git.isOperating = true
         let reportCount = reports.count
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        window.project.fileTree.timerBeats.send()
+        XCTAssertFalse(window.taskBag.contains(key: "git-status"), "A file watcher beat does not refresh Git during an operation")
         try await Task.sleep(nanoseconds: 150_000_000)
         XCTAssertEqual(reports.count, reportCount, "Activation does not refresh while Git is busy")
         window.composition.close()
@@ -521,6 +523,11 @@ extension EditorHostTests {
             XCTAssertTrue(actual as AnyObject === expected, "\(type(of: owner)).\(field) must use this window's component", line: line)
         }
         try check(parts.terminals, "projectContext", parts.project)
+        try check(parts.terminals.activity, "tasks", parts.taskBag)
+        try check(parts.terminals.activity, "polling", parts.polling)
+        XCTAssertFalse(window.chrome.agentsVisible)
+        parts.terminals.showAIConsole()
+        XCTAssertTrue(window.chrome.agentsVisible, "The terminal controller calls its own window host")
         try check(parts.research, "project", parts.project)
         try check(parts.research, "tasks", parts.taskBag)
         try check(parts.flow, "project", parts.project)
