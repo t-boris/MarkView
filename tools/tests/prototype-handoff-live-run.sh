@@ -1,12 +1,24 @@
 #!/bin/bash
-# Manual check against the real `claude` CLI (not part of the automatic checks): the hand-off takes the before and after screenshots of one
-# screen of a prototype from code and asks the assistant what the application's code must change. The "before" is versions/v<N> of the
-# prototype, the "after" its site/ folder.
-#   tools/tests/prototype-handoff-live-run.sh <prototype folder> <screen id> <changed files, comma separated> <project root>
+# Manual live Claude check: capture and describe one prototype screen's changes.
+#   bash tools/tests/prototype-handoff-live-run.sh <prototype folder> <screen id> <changed files, comma separated> <project root>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-cp tools/tests/PrototypeHandoffLiveRun.swift "$out/main.swift"
-swiftc -O -o "$out/live" Packages/MarkViewCore/Sources/MarkViewCore/*.swift MarkView/Models/Prototype/PrototypeFiles.swift MarkView/Models/Prototype/PrototypeStyles.swift MarkView/Models/Prototype/PrototypeShellStructure.swift MarkView/Models/Prototype/PrototypeEmbedded.swift MarkView/Models/AI/AIOperation.swift MarkView/Models/Prototype/PrototypeAI.swift MarkView/Models/Prototype/PrototypePrompts.swift MarkView/Models/Prototype/PrototypeSchemas.swift MarkView/Models/Prototype/PrototypePlan.swift MarkView/Models/Prototype/PrototypeProgress.swift MarkView/Models/Prototype/PrototypeExport.swift MarkView/Models/Prototype/PrototypeAI+Handoff.swift MarkView/Models/Prototype/PrototypeRuntime.swift MarkView/Models/Prototype/PrototypeAudit.swift MarkView/Models/Prototype/PrototypeThemes.swift MarkView/Models/Prototype/PrototypeBaseline.swift MarkView/Models/Prototype/PrototypeTailwind.swift MarkView/Models/Prototype/PrototypeHandoff.swift MarkView/Models/Prototype/PrototypeHandoffDraft.swift MarkView/Models/Shared/ImageAttachments.swift MarkView/Models/Prototype/PrototypeImages.swift MarkView/Bridge/PrototypeScreenshots.swift MarkView/Bridge/PrototypeSchemeHandler.swift tools/tests/PrototypeCLIStub.swift "$out/main.swift"
-"$out/live" "$1" "$2" "$3" "$4"
+[ "$#" -eq 4 ] && [ -d "$1" ] && [ -d "$4" ] || { echo "usage: $0 <prototype folder> <screen id> <changed files> <project root>"; exit 2; }
+folder=$(cd "$1" && pwd -P)
+root=$(cd "$4" && pwd -P)
+export TEST_RUNNER_MARKVIEW_MANUAL_PROTOTYPE=handoff
+export TEST_RUNNER_MARKVIEW_MANUAL_PROTOTYPE_FOLDER="$folder"
+export TEST_RUNNER_MARKVIEW_MANUAL_PROTOTYPE_SCREEN="$2"
+export TEST_RUNNER_MARKVIEW_MANUAL_PROTOTYPE_FILES="$3"
+export TEST_RUNNER_MARKVIEW_MANUAL_PROTOTYPE_ROOT="$root"
+unset TEST_RUNNER_MARKVIEW_MANUAL_CLAUDE_BIN
+if [ -n "${CLAUDE_BIN:-}" ]; then export TEST_RUNNER_MARKVIEW_MANUAL_CLAUDE_BIN="$CLAUDE_BIN"; fi
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+socket_dir=$(mktemp -d /tmp/mvprototype.XXXXXX)
+trap 'rm -rf "$socket_dir"' EXIT
+MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled NO \
+  -only-testing:MarkViewHostedTests/ManualPrototypeLiveHostTests/testManualPrototypeHandoff test 2>&1 | tee "$socket_dir/test.log"
+grep -F "Test Case '-[MarkViewHostedTests.ManualPrototypeLiveHostTests testManualPrototypeHandoff]' passed" "$socket_dir/test.log" >/dev/null || {
+  echo "The manual prototype hand-off did not run successfully" >&2; exit 1;
+}

@@ -220,11 +220,10 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/PrototypeCLIStub.swift",
-        "tools/tests/PrototypeHandoffLiveRun.swift",
         "tools/tests/prototype-handoff-live-run.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkViewHostedTests/ManualPrototypeLiveHostTests.swift"
       ]
     },
     {
@@ -251,11 +250,10 @@
         "MarkView/Models/Prototype/PrototypeTailwind.swift",
         "MarkView/Models/Prototype/PrototypeThemes.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/PrototypeCLIStub.swift",
-        "tools/tests/PrototypeLiveRun.swift",
         "tools/tests/prototype-live-run.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkViewHostedTests/ManualPrototypeLiveHostTests.swift"
       ]
     },
     {

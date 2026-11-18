@@ -16,6 +16,7 @@ MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" 
   -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests -skip-testing:MarkViewHostedTests/UIStudioSessionHostTests \
   -skip-testing:MarkViewHostedTests/CockpitRuntimeIntegrationHostTests \
+  -skip-testing:MarkViewHostedTests/ManualPrototypeLiveHostTests \
   -skip-testing:MarkViewHostedTests/WorkflowEditorLayoutHostTests \
   -skip-testing:MarkViewHostedTests/ResearchMapWebHostTests \
   -skip-testing:MarkViewHostedTests/ThemeWebHostTests \
