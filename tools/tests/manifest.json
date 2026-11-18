@@ -290,13 +290,11 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/QA/QATriage.swift",
         "MarkView/Models/AI/AIOperation.swift",
-        "tools/tests/AIOperationStub.swift",
         "tools/tests/IssueChecksSupport.swift",
-        "tools/tests/QANativeChecks.swift",
-        "tools/tests/QANativeKeychainStub.swift",
         "tools/tests/qa-native-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
-        "tools/tests/QANativeBehaviorChecks.swift"
+        "tools/tests/QANativeBehaviorChecks.swift",
+        "MarkViewHostedTests/ManualNativeQAHostTests.swift"
       ]
     },
     {

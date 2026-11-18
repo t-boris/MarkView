@@ -2,8 +2,16 @@ import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
+import XCTest
+@testable import MarkView
 
-runQANativeBehaviorChecks(check: check)
+/// Runs only after the manual wrapper explicitly opts in. Never exercises an existing app automatically.
+@MainActor
+final class ManualNativeQAHostTests: XCTestCase {
+    private func check(_ name: String, _ condition: Bool) {
+        XCTAssertTrue(condition, name)
+    }
+
 
 // MARK: - Live: the fixture application, driven by a real player
 
@@ -437,15 +445,21 @@ func liveDense(fixture: URL, rows: Int) async {
     if !application.isTerminated { application.forceTerminate() }
 }
 
-if CommandLine.arguments.count > 1, !CommandLine.arguments[1].isEmpty {
-    await live(fixture: URL(fileURLWithPath: CommandLine.arguments[1]))
+func testManualNativeQA() async throws {
+    let environment = ProcessInfo.processInfo.environment
+    guard environment["MARKVIEW_MANUAL_NATIVE_QA"] == "1" else { throw XCTSkip("Manual native QA is not enabled.") }
+    runQANativeBehaviorChecks(check: check)
+    let fixturePath = environment["MARKVIEW_NATIVE_FIXTURE"] ?? ""
+    let singlePath = environment["MARKVIEW_NATIVE_SINGLE_FIXTURE"] ?? ""
+if !fixturePath.isEmpty {
+    await live(fixture: URL(fileURLWithPath: fixturePath))
     if QANativePermissions.current == .granted {
         await liveTwoPlayers()
-        await liveDense(fixture: URL(fileURLWithPath: CommandLine.arguments[1]), rows: 16)
-        await liveDense(fixture: URL(fileURLWithPath: CommandLine.arguments[1]), rows: 96)
-        await liveAttached(fixture: URL(fileURLWithPath: CommandLine.arguments[1]), identifier: "com.markview.qa-native-demo", singleInstance: false)
-        if CommandLine.arguments.count > 2, !CommandLine.arguments[2].isEmpty {
-            await liveAttached(fixture: URL(fileURLWithPath: CommandLine.arguments[2]), identifier: "com.markview.qa-native-single", singleInstance: true)
+        await liveDense(fixture: URL(fileURLWithPath: fixturePath), rows: 16)
+        await liveDense(fixture: URL(fileURLWithPath: fixturePath), rows: 96)
+        await liveAttached(fixture: URL(fileURLWithPath: fixturePath), identifier: "com.markview.qa-native-demo", singleInstance: false)
+        if !singlePath.isEmpty {
+            await liveAttached(fixture: URL(fileURLWithPath: singlePath), identifier: "com.markview.qa-native-single", singleInstance: true)
         }
     }
 } else {
@@ -525,4 +539,5 @@ if let identifier = ProcessInfo.processInfo.environment["QA_NATIVE_EXISTING_BUND
     } else { check("existing consumer has exactly one running instance", false) }
 }
 
-finish("QA native")
+}
+}

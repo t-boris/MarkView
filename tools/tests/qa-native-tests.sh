@@ -1,35 +1,30 @@
 #!/bin/bash
-# Feature end-to-end-qa: the native macOS player (Models/QANativeTree.swift: what the assistant is shown for an application's tree, its limits, the
-# keys, the evidence; QANativeAccessibility.swift, QANativeCapture.swift, QANativeActor.swift, QANativeFactory.swift: launching, reading and
-# operating an application, its pictures, its permissions). Compiled on its own with a test main (no XCTest target exists). The first part is pure.
-# The live part (on by default, about 15 s) builds the fixture application (Tests/Fixtures/qa-native-demo), registers it with Launch Services
-# under a folder of the repository's ignored build/ directory (Launch Services does not list applications in temporary folders), drives it with a
-# real QANativeActor without bringing it to the front, and ends it, unregistering it afterwards. It needs the Accessibility and Screen Recording
-# permissions of the process that runs this script and is skipped, with a message, when either is missing. Nothing reads the Keychain.
-# The fixture-app interaction is a manual live suite; the same pure behavior checks run automatically in the app host.
-#   tools/tests/qa-native-tests.sh                   manual pure and live fixture checks
-#   QA_NATIVE_LIVE=0 tools/tests/qa-native-tests.sh  pure checks only
+# Manual native QA fixture checks in the app host. The fixture needs this host's
+# Accessibility and Screen Recording permissions. QA_NATIVE_LIVE=0 runs only
+# the non-interactive behavior checks; these also run in the automatic GUI suite.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out=$(mktemp -d)
-fixtures="${QA_NATIVE_FIXTURE_ROOT:-build}/qa-native-demo-$$"
+fixtures=""
 lsregister=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
+socket_dir=$(mktemp -d /tmp/mvnative.XXXXXX)
 cleanup() {
-    if [ -d "$fixtures/QANativeDemo.app" ]; then "$lsregister" -u "$fixtures/QANativeDemo.app" >/dev/null 2>&1 || true; fi
-    if [ -d "$fixtures/QANativeSingle.app" ]; then "$lsregister" -u "$fixtures/QANativeSingle.app" >/dev/null 2>&1 || true; fi
-    rm -rf "$out" "$fixtures"
+    if [ -n "$fixtures" ]; then
+        if [ -d "$fixtures/QANativeDemo.app" ]; then "$lsregister" -u "$fixtures/QANativeDemo.app" >/dev/null 2>&1 || true; fi
+        if [ -d "$fixtures/QANativeSingle.app" ]; then "$lsregister" -u "$fixtures/QANativeSingle.app" >/dev/null 2>&1 || true; fi
+        rm -rf "$fixtures"
+    fi
+    rm -rf "$socket_dir"
 }
 trap cleanup EXIT
-M=MarkView/Models
-cp tools/tests/QANativeChecks.swift "$out/main.swift"
-swiftc -target "$(uname -m)-apple-macos13.0" -o "$out/qa-native" \
-    tools/tests/QANativeBehaviorChecks.swift "$M/QA/QANativeTree.swift" "$M/QA/QANativeAccessibility.swift" "$M/QA/QANativeCapture.swift" "$M/QA/QANativeActor.swift" "$M/QA/QANativeFactory.swift" tools/tests/QANativeKeychainStub.swift \
-    "$M/QA/QAAPI.swift" "$M/QA/QAScenario.swift" "$M/QA/QARun.swift" "$M/QA/QAStore.swift" MarkView/Models/Shared/SchemaVersionedStore.swift Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift "$M/QA/QAGeneration.swift" "$M/QA/QAGenerator.swift" "$M/AI/AIOperation.swift" tools/tests/AIOperationStub.swift "$M/QA/QAPlan.swift" "$M/QA/QAGate.swift" "$M/QA/QAEffort.swift" \
-    "$M/QA/QATriage.swift" "$M/QA/QAInputMark.swift" "$M/QA/QAActions.swift" "$M/QA/QATestImage.swift" "$M/QA/QARunner.swift" "$M/QA/QALanguage.swift" "$M/QA/QAPageEvidence.swift" "$M/QA/QACredentials.swift" "$M/QA/QAScenarioEdit.swift" "$M/QA/QAAttachments.swift" \
-    "$M/QA/QAGraphLayout.swift" tools/tests/IssueChecksSupport.swift "$out/main.swift"
-app=""
+export TEST_RUNNER_MARKVIEW_MANUAL_NATIVE_QA=1
+unset TEST_RUNNER_MARKVIEW_NATIVE_FIXTURE TEST_RUNNER_MARKVIEW_NATIVE_SINGLE_FIXTURE
+unset TEST_RUNNER_QA_NATIVE_EXISTING_RUN TEST_RUNNER_QA_NATIVE_EXISTING_BUNDLE
+if [ -n "${QA_NATIVE_EXISTING_RUN:-}" ]; then export TEST_RUNNER_QA_NATIVE_EXISTING_RUN="$QA_NATIVE_EXISTING_RUN"; fi
+if [ -n "${QA_NATIVE_EXISTING_BUNDLE:-}" ]; then export TEST_RUNNER_QA_NATIVE_EXISTING_BUNDLE="$QA_NATIVE_EXISTING_BUNDLE"; fi
 if [ "${QA_NATIVE_LIVE:-1}" != "0" ]; then
-    mkdir -p "$fixtures"
+    mkdir -p "${QA_NATIVE_FIXTURE_ROOT:-build}"
+    fixtures=$(mktemp -d "${QA_NATIVE_FIXTURE_ROOT:-build}/qa-native-demo.XXXXXX")
+    fixtures=$(cd "$fixtures" && pwd -P)
     app=$(Tests/Fixtures/qa-native-demo/build.sh "$fixtures" | tail -1)
     "$lsregister" -f "$app"
     single="$fixtures/QANativeSingle.app"
@@ -38,7 +33,13 @@ if [ "${QA_NATIVE_LIVE:-1}" != "0" ]; then
     /usr/libexec/PlistBuddy -c 'Add :LSMultipleInstancesProhibited bool true' "$single/Contents/Info.plist"
     codesign --force --sign - "$single" >/dev/null 2>&1
     "$lsregister" -f "$single"
-else
-    single=""
+    export TEST_RUNNER_MARKVIEW_NATIVE_FIXTURE="$app"
+    export TEST_RUNNER_MARKVIEW_NATIVE_SINGLE_FIXTURE="$single"
 fi
-"$out/qa-native" "$app" "$single"
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled NO \
+  -only-testing:MarkViewHostedTests/ManualNativeQAHostTests/testManualNativeQA test 2>&1 | tee "$socket_dir/test.log"
+grep -F "Test Case '-[MarkViewHostedTests.ManualNativeQAHostTests testManualNativeQA]' passed" "$socket_dir/test.log" >/dev/null || {
+    echo "The manual native QA test did not run successfully" >&2; exit 1;
+}
