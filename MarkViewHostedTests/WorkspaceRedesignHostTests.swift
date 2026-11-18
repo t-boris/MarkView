@@ -256,6 +256,12 @@ extension EditorHostTests {
         XCTAssertFalse(composition.polling === second.polling)
         XCTAssertTrue(composition.tabs.polling === composition.polling)
         XCTAssertTrue(composition.project.fileTree.polling === composition.polling)
+        var changes = 0
+        let changeSubscription = composition.changes.sink { changes += 1 }
+        composition.project.objectWillChange.send()
+        composition.codeXRay.objectWillChange.send()
+        XCTAssertEqual(changes, 2, "Project and code changes both reach the window")
+        changeSubscription.cancel()
 
         let repo = GitHubRepo(slug: "example/project", remote: "origin", isUpstream: false)
         composition.flow.gitHub.selectedRepo = repo
@@ -356,5 +362,57 @@ extension EditorHostTests {
         window.tabs.closeTab(at: 0)
         XCTAssertNil(window.terminals.tabTerminal(terminal.id), "Closing the tab removes its owned terminal")
         XCTAssertTrue(window.tabs.openTabs.isEmpty)
+    }
+
+    @MainActor func testRealWindowCompositionRefreshesGitOnActivation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-git-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let variables = ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM", "GIT_TERMINAL_PROMPT",
+                         "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG_COUNT"]
+        let previous = variables.map { name in (name, getenv(name).map { String(cString: $0) }) }
+        defer {
+            for (name, value) in previous {
+                if let value { setenv(name, value, 1) } else { unsetenv(name) }
+            }
+        }
+        for name in variables { unsetenv(name) }
+        setenv("GIT_CONFIG_GLOBAL", "/dev/null", 1)
+        setenv("GIT_CONFIG_SYSTEM", "/dev/null", 1)
+        setenv("GIT_CONFIG_NOSYSTEM", "1", 1)
+        setenv("GIT_TERMINAL_PROMPT", "0", 1)
+        let initialized = await Subprocess.run(.init(executable: "/usr/bin/git", arguments: ["init", "-q", "-b", "main"], cwd: root))
+        XCTAssertEqual(initialized.exitCode, 0)
+        guard initialized.exitCode == 0 else { return }
+        let committed = await Subprocess.run(.init(executable: "/usr/bin/git", arguments: ["-c", "user.name=Test",
+            "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+            "commit", "--allow-empty", "-qm", "fixture"], cwd: root))
+        XCTAssertEqual(committed.exitCode, 0)
+        guard committed.exitCode == 0 else { return }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        let git = window.gitClient
+        git.workingDirectory = root
+        var reports: [String] = []
+        let subscription = git.branchReports.sink { reports.append($0) }
+        defer { subscription.cancel() }
+
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertTrue(reports.isEmpty, "A window without a detected repository does not refresh")
+        git.isGitRepo = true
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        for _ in 0..<100 where reports.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(reports.first, "main", "Activation refreshes the actual repository")
+        git.isOperating = true
+        let reportCount = reports.count
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(reports.count, reportCount, "Activation does not refresh while Git is busy")
+        window.composition.close()
+        git.isOperating = false
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(reports.count, reportCount, "A closed window no longer responds to activation")
     }
 }
