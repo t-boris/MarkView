@@ -255,6 +255,146 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowGitHubTabs() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-github-tabs-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blank = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("blank.json"))
+        defer { blank.composition.close() }
+        blank.flow.openGitHubTab(.issue(number: 4, repo: "o/r", title: "#4"))
+        XCTAssertTrue(blank.tabs.openTabs.isEmpty)
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        window.chrome.showCenter = false
+        let run = GitHubItem.run(id: 3, repo: "o/r", title: "run")
+        window.flow.openGitHubTab(run)
+        XCTAssertEqual(window.layout.gitSection, .actions)
+        XCTAssertEqual(window.layout.workSection, .git)
+        XCTAssertEqual(window.layout.workspaceArea, .files)
+        XCTAssertTrue(window.chrome.showCenter)
+        guard case .github(let openedRun)? = window.tabs.activeTab?.kind else { return XCTFail("Run tab was not opened") }
+        XCTAssertEqual(openedRun, run)
+        let issue = GitHubItem.issue(number: 4, repo: "o/r", title: "#4")
+        window.flow.openGitHubTab(issue)
+        XCTAssertEqual(window.layout.gitSection, .issues)
+        guard case .github(let openedIssue)? = window.tabs.activeTab?.kind else { return XCTFail("Issue tab was not opened") }
+        XCTAssertEqual(openedIssue, issue)
+        let pull = GitHubItem.pullRequest(number: 5, repo: "o/r", title: "#5")
+        window.flow.openGitHubTab(pull)
+        XCTAssertEqual(window.layout.gitSection, .pullRequests)
+        guard case .github(let openedPull)? = window.tabs.activeTab?.kind else { return XCTFail("Pull request tab was not opened") }
+        XCTAssertEqual(openedPull, pull)
+        let count = window.tabs.openTabs.count
+        window.flow.openGitHubTab(run)
+        XCTAssertEqual(window.tabs.openTabs.count, count)
+        guard case .github(let selected)? = window.tabs.activeTab?.kind else { return XCTFail("Run tab was not selected") }
+        XCTAssertEqual(selected, run)
+    }
+
+    @MainActor func testRealFeatureFlowResumeHandoff() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("feature-resume-host-" + UUID().uuidString)
+        let root = base.appendingPathComponent("project", isDirectory: true).resolvingSymlinksInPath()
+        let outside = base.appendingPathComponent("outside.md")
+        let docs = root.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: docs.appendingPathComponent("folder"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let file = docs.appendingPathComponent("a.md")
+        try "inside".write(to: file, atomically: true, encoding: .utf8)
+        try "outside".write(to: outside, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: docs.appendingPathComponent("link.md"), withDestinationURL: outside)
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: base.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let flow = window.flow
+        flow.resumeHandoff(slug: "f1", title: "No project", linkedFiles: ["docs/a.md"])
+        XCTAssertNil(window.requests.handoffResume)
+        flow.features.setup(root: root)
+        flow.resumeHandoff(slug: "f1", title: "Cancelled", linkedFiles: ["docs/a.md"])
+        flow.cancelWork()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(window.requests.handoffResume)
+        XCTAssertTrue(window.tabs.openTabs.isEmpty)
+        let missing = ["docs/gone.md", "docs/folder", "/etc/hosts", "../escape.md", "docs/link.md", "docs//a.md", ""]
+        flow.resumeHandoff(slug: "f1", title: "Feature one", linkedFiles: ["docs/a.md"] + missing)
+        for _ in 0..<200 where window.requests.handoffResume == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        let resume = try XCTUnwrap(window.requests.handoffResume)
+        XCTAssertEqual(resume.slug, "f1")
+        XCTAssertEqual(resume.title, "Feature one")
+        XCTAssertEqual(resume.missingFiles, missing)
+        for _ in 0..<200 where window.tabs.activeTab?.url != file { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(window.tabs.openTabs.filter(\.isFileBacked).map(\.url), [file])
+        XCTAssertEqual(window.layout.workspaceArea, .files)
+    }
+
+    @MainActor func testRealFeatureFlowIntakeAndPresentation() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("feature-flow-host-" + UUID().uuidString)
+        let root = base.appendingPathComponent("project", isDirectory: true)
+        let docs = root.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let doc = docs.appendingPathComponent("spec.md")
+        let outside = base.appendingPathComponent("outside.md")
+        let created = root.appendingPathComponent("docs/features/new-idea/overview.md")
+        try FileManager.default.createDirectory(at: created.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for url in [doc, outside, created] { try "fixture".write(to: url, atomically: true, encoding: .utf8) }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: base.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let flow = window.flow
+        flow.startIntake(.bug, fromIssue: 7)
+        XCTAssertEqual(window.requests.intake?.kind, .bug)
+        XCTAssertEqual(window.requests.intake?.linkedIssue, 7)
+        XCTAssertEqual(window.requests.intake?.loadIssue, 7)
+        let pull = try JSONDecoder().decode(GHPullRequest.self, from: Data(#"{"number":9,"title":"Fix it","headRefName":"fix","baseRefName":"main","state":"OPEN","url":"https://example.invalid/9"}"#.utf8))
+        flow.startIntake(.feature, fromPullRequest: pull)
+        XCTAssertEqual(window.requests.intake?.loadPullRequest, 9)
+        XCTAssertEqual(window.requests.intake?.text, "Pull request #9: Fix it (fix → main)")
+        flow.startIntake(.feature, fromDocument: doc)
+        XCTAssertEqual(window.requests.intake?.attachments, [doc])
+        XCTAssertEqual(window.requests.intake?.text, "Build a feature from the document docs/spec.md (attached).")
+        flow.startIntake(.research, fromDocument: doc)
+        XCTAssertEqual(window.requests.intake?.targets, [doc])
+        XCTAssertEqual(window.requests.intake?.attachments, [])
+        flow.startIntake(.understand, fromDocument: doc)
+        XCTAssertEqual(window.requests.intake?.attachments, [])
+        XCTAssertNil(window.requests.intake?.targets)
+        XCTAssertTrue(window.requests.intake?.text.contains("docs/spec.md") == true)
+        flow.startResearch(fromFolder: docs)
+        XCTAssertEqual(window.requests.intake?.targets, [docs])
+        XCTAssertTrue(window.requests.intake?.text.hasPrefix("Review the documents in docs and its subfolders") == true)
+        flow.newResearch()
+        XCTAssertEqual(window.requests.intake?.kind, .research)
+        XCTAssertNil(window.requests.intake?.targets)
+        await window.tabs.openTextFile(doc)
+        XCTAssertEqual(flow.researchDefaultTargets, [doc])
+        await window.tabs.openTextFile(outside)
+        XCTAssertTrue(flow.researchDefaultTargets.isEmpty)
+        flow.showCreatedProject(root, specification: "new-idea")
+        XCTAssertEqual(flow.features.activeSlug, "new-idea")
+        XCTAssertEqual(window.layout.leftPanel, "issues")
+        XCTAssertEqual(window.layout.issuesFeature, "new-idea")
+        XCTAssertEqual(window.layout.featureStage, .explore)
+        XCTAssertEqual(window.layout.navigatorTab, .feature)
+        XCTAssertTrue(window.chrome.showTOC)
+        XCTAssertTrue(window.chrome.showFileTree)
+        for _ in 0..<200 where window.tabs.activeTab?.url != created { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(window.tabs.activeTab?.url, created)
+        flow.intakeFinished(.quickFeature, outcome: FeatureAssistant.IntakeOutcome(file: nil, feature: "quick"))
+        XCTAssertEqual(window.layout.featureStage, .build)
+        XCTAssertEqual(flow.features.activeSlug, "quick")
+        flow.intakeFinished(.feature, outcome: FeatureAssistant.IntakeOutcome(file: nil, feature: "full"))
+        XCTAssertEqual(window.layout.featureStage, .explore)
+        XCTAssertEqual(flow.features.activeSlug, "full")
+        flow.showFeatureContext("ctx")
+        XCTAssertEqual(flow.features.activeSlug, "ctx")
+        XCTAssertEqual(window.layout.issuesFeature, "ctx")
+        XCTAssertTrue(window.chrome.showTOC)
+        XCTAssertTrue(window.chrome.terminalVisible)
+        flow.showFeatureContext(nil)
+        XCTAssertEqual(window.layout.issuesFeature, "ctx")
+    }
+
     @MainActor func testRealToolTabsRoutingAndProjectLifecycle() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("tool-routing-" + UUID().uuidString)
         let first = root.appendingPathComponent("first", isDirectory: true)
