@@ -1719,7 +1719,6 @@
         "MarkView/Models/Shared/SchemaVersionedStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/AppLog.swift",
         "MarkView/Models/UIStudio/UIStudioTracking.swift",
-        "tools/tests/StoreTestSupport.swift",
         "tools/tests/UIStudioTests.swift",
         "tools/tests/ui-studio-tests.sh",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",

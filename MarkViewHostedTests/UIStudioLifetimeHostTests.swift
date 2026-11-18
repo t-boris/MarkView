@@ -1794,6 +1794,230 @@ final class UIStudioLifetimeHostTests: XCTestCase {
               && remembered.contains("Not done: A chart nothing serves") && !remembered.contains("· element page"), remembered)
     }
 
+
+    @MainActor func testSimulationAndLegacyStores() throws {
+        func project(_ id: Int, _ name: String, _ status: String = "active") -> StudioJSON {
+            .object(["id": .number(Double(id)), "name": .string(name), "status": .string(status)])
+        }
+        var spec = StudioEnvironmentSpec()
+        spec.entities = [
+            StudioEntity(name: "projects", fields: [StudioField(name: "name", type: "string", required: true),
+                                                     StudioField(name: "status", type: "string", required: true, enumValues: ["active", "archived"])]),
+            StudioEntity(name: "tasks", fields: [StudioField(name: "title", type: "string", required: true),
+                                                  StudioField(name: "projectId", type: "integer", required: true, references: "projects")]),
+        ]
+        spec.seed = [
+            "projects": [project(1, "Apollo"), project(2, "Gemini"), project(3, "Mercury", "archived")],
+            "tasks": [.object(["id": .number(10), "title": .string("Design"), "projectId": .number(1)]),
+                      .object(["id": .number(11), "title": .string("Build"), "projectId": .number(1)])],
+        ]
+        spec.rules = [
+            StudioRule(id: "list-projects", method: "GET", path: "/api/projects", operation: .list, entity: "projects", filters: ["status"]),
+            StudioRule(id: "get-project", method: "GET", path: "/api/projects/:id", operation: .get, entity: "projects",
+                       include: [StudioInclude(field: "tasks", entity: "tasks", foreignKey: "projectId")]),
+            StudioRule(id: "create-project", method: "POST", path: "/api/projects", operation: .create, entity: "projects"),
+            StudioRule(id: "rename-project", method: "PATCH", path: "/api/projects/:id", operation: .update, entity: "projects"),
+            StudioRule(id: "delete-project", method: "DELETE", path: "/api/projects/:id", operation: .delete, entity: "projects"),
+            StudioRule(id: "me", method: "GET", path: "/api/me", operation: .session),
+        ]
+        let app = "http://localhost:5173"
+        var requestCounter = 0
+        func request(_ method: String, _ path: String, body: String? = nil, headers: [String: String] = [:], id: String? = nil) -> StudioHTTPRequest {
+            requestCounter += 1
+            return StudioHTTPRequest(method: method, url: URL(string: app + path)!, headers: headers, body: body, requestId: id ?? "r\(requestCounter)")
+        }
+        func answer(_ outcome: StudioSimOutcome) -> (Int, StudioJSON?) {
+            guard case .respond(let response, _) = outcome else { return (-1, nil) }
+            return (response.status, response.body.flatMap { StudioJSON(text: $0) })
+        }
+
+        var base = StudioScenario(id: "populated", name: "Populated", kind: .populated)
+        var sim = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
+        let list = answer(sim.handle(request("GET", "/api/projects")))
+        // The viewport menu lists presets by name: names are unique, the default desktop stays first, and larger desktops are offered.
+        let presetNames = StudioViewport.presets.map(\.name)
+        check("viewport presets have unique names and the default desktop first",
+              Set(presetNames).count == presetNames.count && StudioViewport.presets.first?.viewport == StudioScenario(id: "x", name: "x").viewport)
+        check("viewport presets offer Full HD and QHD desktops",
+              StudioViewport.presets.contains { $0.viewport == StudioViewport(width: 1920, height: 1080) }
+              && StudioViewport.presets.contains { $0.viewport == StudioViewport(width: 2560, height: 1440) })
+        // BUG-087: the scenario a session ended on is remembered per project, in the session data that stays out of Git.
+        let activeRoot = FileManager.default.temporaryDirectory.appendingPathComponent("markview-active-scenario-\(UUID().uuidString)")
+        check("BUG-087 no scenario is remembered in a new project", StudioStore.loadActiveScenarioID(activeRoot) == nil)
+        StudioStore.saveActiveScenarioID("33-strikes", root: activeRoot)
+        check("BUG-087 the active scenario is remembered with the session data, kept out of Git",
+              StudioStore.loadActiveScenarioID(activeRoot) == "33-strikes"
+              && StudioStore.activeScenarioURL(activeRoot).path.contains("/.dde/studio/")
+              && ((try? String(contentsOf: StudioStore.localFolder(activeRoot).appendingPathComponent(".gitignore"), encoding: .utf8)) ?? "").contains("*"))
+        try? "not json".write(to: StudioStore.activeScenarioURL(activeRoot), atomically: true, encoding: .utf8)
+        check("BUG-087 an unreadable record is no scenario", StudioStore.loadActiveScenarioID(activeRoot) == nil)
+        try? FileManager.default.removeItem(at: activeRoot)
+
+        // The session's own files in `.dde/studio/` are schema-versioned stores (AR-36). The legacy fixtures are the bare documents the
+        // previous version wrote; the history is written with the raw writer that version used (`StudioStore.save`).
+        do {
+            let root = StoreFixture.folder("studio-stores")
+            defer { try? FileManager.default.removeItem(at: root) }
+            StoreFixture.write(#"{ "id" : "33-strikes" }"#, to: StudioStore.activeScenarioURL(root))
+            check("legacy active scenario: it is read", StudioStore.loadActiveScenarioID(root) == "33-strikes")
+            check("legacy active scenario: reading leaves it as written", StoreFixture.envelope(StudioStore.activeScenarioURL(root)) == nil)
+            StudioStore.saveActiveScenarioID("other", root: root)
+            check("legacy active scenario: the next save writes the envelope",
+                  StoreFixture.envelope(StudioStore.activeScenarioURL(root))?.schema == 1 && StudioStore.loadActiveScenarioID(root) == "other"
+                  && StoreFixture.backups(of: StudioStore.activeScenarioURL(root)).isEmpty)
+
+            var earlier = StudioOperation(id: "op-earlier", kind: .edit, request: "Make the consent banner smaller", status: .applied)
+            earlier.selection = "div.consent-banner"
+            earlier.created = Date(timeIntervalSince1970: 1_790_000_000)   // whole seconds: the file keeps ISO 8601 dates
+            try StudioStore.save([earlier], to: StudioStore.historyURL(root))
+            check("legacy history: it loads intact", StudioStore.loadHistory(root) == [earlier])
+            check("legacy history: reading leaves it as written", StoreFixture.envelope(StudioStore.historyURL(root)) == nil)
+            var later = earlier; later.id = "op-later"
+            try StudioStore.saveHistory([earlier, later], root: root)
+            check("legacy history: the next save writes the envelope and it reloads",
+                  StoreFixture.envelope(StudioStore.historyURL(root))?.schema == 1 && StudioStore.loadHistory(root) == [earlier, later]
+                  && StoreFixture.backups(of: StudioStore.historyURL(root)).isEmpty)
+
+            let junk = Data("[ { \"id\": ".utf8)
+            try junk.write(to: StudioStore.historyURL(root))
+            check("damaged history: it reads as empty and is left as it is", StudioStore.loadHistory(root).isEmpty && StoreFixture.bytes(StudioStore.historyURL(root)) == junk)
+            try StudioStore.saveHistory([earlier], root: root)
+            check("damaged history: a save keeps the old bytes in a dated backup",
+                  StoreFixture.backups(of: StudioStore.historyURL(root)).count == 1
+                  && StoreFixture.bytes(StoreFixture.backups(of: StudioStore.historyURL(root))[0]) == junk && StudioStore.loadHistory(root) == [earlier])
+
+            let future = Data(StoreFixture.newerFile(payload: "[]").utf8)
+            try future.write(to: StudioStore.capturesURL(root))
+            var refused = false
+            do { try StudioStore.saveCaptures([], root: root) } catch SchemaStoreError.newerSchemaVersion { refused = true }
+            check("newer captures: a save is refused, the file is untouched, and reading shows none",
+                  refused && StoreFixture.bytes(StudioStore.capturesURL(root)) == future && StudioStore.loadCaptures(root).isEmpty)
+        }
+        check("AC-01 list answers prepared data without a backend", list.0 == 200 && list.1?.arrayValue?.count == 3)
+        let detail = answer(sim.handle(request("GET", "/api/projects/1")))
+        check("AC-02 detail matches the list", detail.1?["name"] == list.1?.arrayValue?.first?["name"])
+        check("AC-02 detail includes related records from the same state", detail.1?["tasks"]?.arrayValue?.count == 2)
+        check("list filters by query", answer(sim.handle(request("GET", "/api/projects?status=archived"))).1?.arrayValue?.count == 1)
+        check("literal route beats parameter", StudioRoute.specificity("/api/projects/archived") > StudioRoute.specificity("/api/projects/:id"))
+
+        // BUG-078: paging parameters named as filters (vivaa's bundles/search had `filters: [category_id, limit, offset]`) page the
+        // list instead of emptying it, and a filter on a field no record has is ignored.
+        do {
+            var paged = spec
+            paged.rules = [StudioRule(id: "search", method: "GET", path: "/api/projects/search", operation: .list, entity: "projects",
+                                      filters: ["status", "limit", "offset", "noSuchField"])]
+            var pagedSim = StudioSimulator(spec: paged, scenario: base, appOrigin: app)
+            let all = answer(pagedSim.handle(request("GET", "/api/projects/search?limit=10&offset=0"))).1?.arrayValue?.count
+            check("BUG-078 limit and offset named as filters do not empty the list", all == 3, "\(all ?? -1)")
+            let active = answer(pagedSim.handle(request("GET", "/api/projects/search?status=active&limit=10&offset=0&noSuchField=x"))).1?.arrayValue
+            check("BUG-078 a real field still filters, a field no record has is ignored", active?.count == 2, "\(active?.count ?? -1)")
+            let second = answer(pagedSim.handle(request("GET", "/api/projects/search?limit=2&offset=1"))).1?.arrayValue
+            check("BUG-078 limit and offset page the list", second?.map { $0["name"]?.stringValue ?? "" } == ["Gemini", "Mercury"],
+                  "\(second ?? [])")
+            let page2 = answer(pagedSim.handle(request("GET", "/api/projects/search?page=2&per_page=2"))).1?.arrayValue
+            check("BUG-078 a 1-based page with per_page pages the list", page2?.map { $0["name"]?.stringValue ?? "" } == ["Mercury"], "\(page2 ?? [])")
+        }
+
+
+        // BUG-097: sort and search are applied to the filtered records before paging.
+        do {
+            var searchSpec = spec
+            searchSpec.rules = [StudioRule(id: "search", method: "GET", path: "/api/projects/search", operation: .list,
+                                           entity: "projects", filters: ["status", "sort", "q", "search"])]
+            var searchSim = StudioSimulator(spec: searchSpec, scenario: base, appOrigin: app)
+            func names(_ query: String) -> [String] {
+                answer(searchSim.handle(request("GET", "/api/projects/search?" + query))).1?.arrayValue?.compactMap { $0["name"]?.stringValue } ?? []
+            }
+            check("BUG-097 descending numeric order precedes paging", names("sort=id&order=desc&limit=2") == ["Mercury", "Gemini"])
+            check("BUG-097 order_by dot direction and sort_by minus", names("order_by=name.desc") == ["Mercury", "Gemini", "Apollo"]
+                  && names("sort_by=-id") == ["Mercury", "Gemini", "Apollo"])
+            check("BUG-097 search is case insensitive and combines with filters before paging", names("q=EMI&status=active&limit=1") == ["Gemini"]
+                  && names("search=UR") == ["Mercury"])
+            check("BUG-097 unknown sort field keeps seed order", names("sort=unknown") == ["Apollo", "Gemini", "Mercury"])
+        }
+
+        let renamed = answer(sim.handle(request("PATCH", "/api/projects/2", body: #"{"name":"Gemini II"}"#)))
+        check("AC-03 rename answers the record", renamed.0 == 200 && renamed.1?["name"]?.stringValue == "Gemini II" && renamed.1?["status"]?.stringValue == "active")
+        check("AC-03 later list reads the rename", answer(sim.handle(request("GET", "/api/projects"))).1?.arrayValue?.contains { $0["name"]?.stringValue == "Gemini II" } == true)
+        check("AC-03 later detail reads the rename", answer(sim.handle(request("GET", "/api/projects/2"))).1?["name"]?.stringValue == "Gemini II")
+        let deleted = answer(sim.handle(request("DELETE", "/api/projects/3")))
+        check("AC-03 delete answers 204", deleted.0 == 204)
+        check("AC-03 deleted record is gone from list and detail", answer(sim.handle(request("GET", "/api/projects"))).1?.arrayValue?.count == 2
+              && answer(sim.handle(request("GET", "/api/projects/3"))).0 == 404)
+        let created = answer(sim.handle(request("POST", "/api/projects", body: #"{"name":"Vostok","status":"active"}"#)))
+        check("create assigns the next integer id", created.0 == 201 && created.1?["id"]?.identityKey == "4")
+        let invalid = answer(sim.handle(request("POST", "/api/projects", body: #"{"name":"Bad","status":"deleted"}"#)))
+        check("create validates enumerations (422) without changing state", invalid.0 == 422 && sim.state["projects"]?.count == 3)
+        let badTask = answer(sim.handle(request("POST", "/api/projects", body: #"{"status":"active"}"#)))
+        check("create validates required fields", badTask.0 == 422)
+
+        // AC-08: the same idempotency key (or request id) applies a write once.
+        let first = answer(sim.handle(request("POST", "/api/projects", body: #"{"name":"Soyuz","status":"active"}"#, headers: ["idempotency-key": "k-1"])))
+        let again = answer(sim.handle(request("POST", "/api/projects", body: #"{"name":"Soyuz","status":"active"}"#, headers: ["idempotency-key": "k-1"])))
+        check("AC-08 a repeated write with the same key does not duplicate", first.1 == again.1 && sim.state["projects"]?.filter { $0["name"]?.stringValue == "Soyuz" }.count == 1)
+        _ = sim.handle(request("POST", "/api/projects", body: #"{"name":"Voskhod","status":"active"}"#, id: "same-call"))
+        _ = sim.handle(request("POST", "/api/projects", body: #"{"name":"Voskhod","status":"active"}"#, id: "same-call"))
+        check("AC-08 a request delivered twice (same request id) applies once", sim.state["projects"]?.filter { $0["name"]?.stringValue == "Voskhod" }.count == 1)
+
+        let generation = sim.generation
+        sim.reset()
+        check("AC-04 Reset restores the baseline data", sim.state["projects"]?.count == 3 && answer(sim.handle(request("GET", "/api/projects/2"))).1?["name"]?.stringValue == "Gemini")
+        check("Reset starts a new generation and clears the journal", sim.generation == generation + 1 && sim.journal.isEmpty)
+        check("session rule answers the test user with test credentials", answer(sim.handle(request("GET", "/api/me"))).1?["token"]?.stringValue == "markview-test-token")
+
+        // Unknown and unsupported requests never reach a real service.
+        if case .unknown(let contract) = sim.handle(request("GET", "/api/projects/7/members")) {
+            check("unknown request reports its contract with ids normalised", contract == "GET /api/projects/:id/members", contract)
+        } else { check("unknown request is unknown", false) }
+        if case .unknown(let contract) = sim.handle(StudioHTTPRequest(method: "GET", url: URL(string: "https://api.example.com/v1/users/42")!, requestId: "x1")) {
+            check("cross-origin unknown request keeps its origin in the contract", contract == "GET https://api.example.com/v1/users/:id", contract)
+        } else { check("cross-origin unknown", false) }
+        if case .unknown(let contract) = sim.handle(request("POST", "/graphql", body: #"{"query":"query { me { id } }"}"#)) {
+            check("REQ-015 GraphQL without an operation is prepared, not refused", contract == "GRAPHQL /graphql query me", contract)
+        } else { check("REQ-015 GraphQL without an operation is prepared", false) }
+        let unresolved = StudioSimResponse.unresolved("GET /api/x", reason: "the agent did not finish in time.")
+        check("AC-06 controlled error names the contract and that nothing reached a real service",
+              unresolved.status == 503 && unresolved.headers["x-markview-simulation"] == "unresolved" && (unresolved.body ?? "").contains("did not reach any real service"))
+        check("contract keys normalise uuids and slugs", StudioRoute.contractKey(method: "get", url: URL(string: app + "/api/t/3f2504e0-4f89-11d3-9a0c-0305e82c3301/c/abc-12")!, appOrigin: app) == "GET /api/t/:id/c/:id")
+        check("allowed request pattern on the app origin", StudioRoute.allows("/locales/*", url: URL(string: app + "/locales/en.json")!, appOrigin: app))
+        check("allowed request pattern for another origin", StudioRoute.allows("https://fonts.googleapis.com/*", url: URL(string: "https://fonts.googleapis.com/css2?family=Inter")!, appOrigin: app)
+              && !StudioRoute.allows("https://fonts.googleapis.com/*", url: URL(string: "https://evil.example/fonts.googleapis.com/")!, appOrigin: app))
+
+        // AC-16: empty, loading and error states without touching production code.
+        var emptyScenario = base; emptyScenario.overrides = [StudioOverride(ruleId: "list-projects", empty: true)]
+        sim.activate(emptyScenario)
+        check("AC-16 empty state answers an empty list", answer(sim.handle(request("GET", "/api/projects"))).1?.arrayValue?.isEmpty == true)
+        var errorScenario = base; errorScenario.overrides = [StudioOverride(ruleId: "list-projects", status: 500)]
+        sim.activate(errorScenario)
+        check("AC-16 error state answers 500", answer(sim.handle(request("GET", "/api/projects"))).0 == 500)
+        var loadingScenario = base; loadingScenario.overrides = [StudioOverride(ruleId: "list-projects", hang: true)]
+        sim.activate(loadingScenario)
+        if case .respond(let response, _) = sim.handle(request("GET", "/api/projects")) { check("AC-16 loading state keeps the request pending", response.hang) }
+        var slowScenario = base; slowScenario.overrides = [StudioOverride(ruleId: "get-project", delayMs: 1500)]
+        sim.activate(slowScenario)
+        if case .respond(let response, _) = sim.handle(request("GET", "/api/projects/1")) { check("SIM-11 delay is configured, independent of a model", response.delayMs == 1500 && response.status == 200) }
+        sim.activate(base)
+
+        // Registration (SIM-06): atomic, validated.
+        var proposal = StudioProposal()
+        proposal.entities = [StudioEntity(name: "members", fields: [StudioField(name: "projectId", type: "integer", required: true, references: "projects"),
+                                                                     StudioField(name: "name", type: "string", required: true)])]
+        proposal.records = ["members": [.object(["id": .string("m-1"), "projectId": .number(1), "name": .string("Ann")]),
+                                        .object(["id": .string("m-2"), "projectId": .number(99), "name": .string("Bob")])]]
+        proposal.rules = [StudioRule(id: "list-members", method: "GET", path: "/api/projects/:projectId/members", operation: .list, entity: "members")]
+        let before = sim.spec
+        let refused = sim.register(proposal)
+        check("invalid proposal (dangling reference) is refused", refused.contains { $0.contains("does not exist") }, refused.joined(separator: "; "))
+        check("refused proposal leaves rules, entities and state unchanged", sim.spec == before && sim.state["members"] == nil)
+        proposal.records["members"] = [proposal.records["members"]![0]]
+        check("valid proposal registers at once", sim.register(proposal).isEmpty && sim.spec.rules.count == before.rules.count + 1)
+        check("registered rule serves the request without a model", answer(sim.handle(request("GET", "/api/projects/1/members"))).1?.arrayValue?.count == 1)
+        var duplicate = StudioProposal(); duplicate.rules = [StudioRule(id: "dup", method: "GET", path: "/api/projects", operation: .list, entity: "projects")]
+        check("a rule for an existing route is refused", !sim.register(duplicate).isEmpty)
+        var codeLike = StudioProposal(); codeLike.rules = [StudioRule(id: "evil", method: "GET", path: "/api/../etc", operation: .respond, response: StudioFixedResponse(status: 200, body: .null))]
+        check("a path with .. is refused", !sim.register(codeLike).isEmpty)
+    }
+
     func testAssistantBoundaryFailsClosed() async {
         AIAssistantRunner.setTestRunner(nil)
         do {
