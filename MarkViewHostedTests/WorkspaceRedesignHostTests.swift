@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Combine
 import CoreText
+import Darwin
 import PDFKit
 import SQLite3
 import MarkViewCore
@@ -356,6 +357,19 @@ extension EditorHostTests {
           'pr checkout 8') echo 'fixture checkout failed' >&2; exit 1 ;;
           'pr view 5') printf '{"number":5,"title":"Fixture 5","headRefName":"pr-5","baseRefName":"main","state":"OPEN","url":"https://example.invalid/5"}\n' ;;
           'pr view 7') printf '{"number":7,"title":"Fixture 7","headRefName":"pr-7","baseRefName":"main","state":"OPEN","url":"https://example.invalid/7"}\n' ;;
+          'run view 1')
+            case " $* " in
+              *' --json jobs '*) printf '{"jobs":[{"databaseId":11,"name":"Build","status":"completed","conclusion":"failure","steps":[{"name":"Build","number":1,"status":"completed","conclusion":"failure"}]}]}\n' ;;
+              *) printf '{"databaseId":1,"number":1,"displayTitle":"CI","workflowName":"CI","status":"completed","conclusion":"failure","headBranch":"other","event":"push","createdAt":"2026-01-01T00:00:00Z","url":"https://example.invalid/1"}\n' ;;
+            esac ;;
+          'api repos/fixture-org/fixture/actions/jobs/11/logs ')
+            if [ -f "$fixture_root/block-log" ]; then
+              /bin/sleep 30 &
+              child=$!
+              printf '%s %s\n' "$$" "$child" >> "$fixture_root/blocked-pids"
+              wait "$child"
+            fi
+            printf '##[group]Run Build\nerror: fixture build failed\n' ;;
           *) printf '[]\n' ;;
         esac
         """#
@@ -415,7 +429,46 @@ extension EditorHostTests {
         XCTAssertEqual(secondBranch, "pr-7")
         let failure = await flow.checkoutPullRequest(8)
         XCTAssertTrue(failure?.contains("fixture checkout failed") == true)
+        let client = try XCTUnwrap(flow.gitHub.client)
+        let model = GitHubRunModel(runId: 1, client: client, store: flow.gitHub)
+        defer { model.close() }
+        for _ in 0..<500 where model.run == nil || model.jobs.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotNil(model.run)
+        XCTAssertEqual(model.jobs.count, 1)
+        let oldCount = assistant.sent.count
+        flow.fixRunWithAI(model)
+        for _ in 0..<500 where assistant.sent.count == oldCount { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(assistant.sent.count, oldCount + 1)
+        let runPrompt = try XCTUnwrap(assistant.sent.last?.prompt)
+        XCTAssertTrue(runPrompt.contains("fixture build failed"))
+        XCTAssertTrue(runPrompt.contains("the run was on branch other; the working copy is on pr-7"))
+        XCTAssertTrue(runPrompt.hasSuffix("Find the cause in this repository and fix it."))
+
+        let block = root.appendingPathComponent("block-log")
+        try Data().write(to: block)
+        let delayed = GitHubRunModel(runId: 1, client: client, store: flow.gitHub)
+        defer { delayed.close() }
+        for _ in 0..<500 where delayed.run == nil || delayed.jobs.isEmpty || !delayed.loadingLog.contains(11) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(delayed.loadingLog.contains(11))
+        let beforeStop = assistant.sent.count
+        flow.fixRunWithAI(delayed)
+        let pidsFile = root.appendingPathComponent("blocked-pids")
+        var pids: [Int32] = []
+        for _ in 0..<500 {
+            let text = (try? String(contentsOf: pidsFile, encoding: .utf8)) ?? ""
+            pids = text.split(whereSeparator: { $0.isWhitespace }).compactMap { Int32($0) }
+            if pids.count >= 4 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(pids.count, 4, "Both log requests must be running before cancellation")
         flow.close()
+        delayed.close()
+        try FileManager.default.removeItem(at: block)
+        for _ in 0..<500 where pids.contains(where: { Darwin.kill($0, 0) == 0 }) { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(pids.allSatisfy { Darwin.kill($0, 0) != 0 }, "Every blocked fixture process must end")
+        XCTAssertEqual(assistant.sent.count, beforeStop, "Closing cancels a log hand-off that has not completed")
     }
 
     @MainActor func testRealFeatureFlowProjectLifecycle() throws {
