@@ -1,0 +1,48 @@
+#!/bin/bash
+# CI-only adapter: run a prebuilt HostedTests product without repeating the build graph.
+set -euo pipefail
+if [ "${MARKVIEW_PREBUILT_HOSTED:-}" != 1 ]; then
+    echo 'The hosted xcodebuild adapter requires MARKVIEW_PREBUILT_HOSTED=1' >&2
+    exit 2
+fi
+derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:?missing hosted DerivedData}"
+project='' scheme='' configuration='' selected_derived='' action='' selection=0
+forward=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -project|-scheme|-configuration|-derivedDataPath)
+        [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }
+        case "$1" in
+          -project) project=$2 ;;
+          -scheme) scheme=$2 ;;
+          -configuration) configuration=$2 ;;
+          -derivedDataPath) selected_derived=$2 ;;
+        esac
+        shift 2 ;;
+      CODE_SIGNING_ALLOWED=NO) shift ;;
+      test) action=test; shift ;;
+      -only-testing:*) selection=1; forward+=("$1"); shift ;;
+      -skip-testing:*|-enumerate-tests) forward+=("$1"); shift ;;
+      -test-timeouts-enabled|-test-enumeration-style|-test-enumeration-format|-test-enumeration-output-path)
+        [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }
+        forward+=("$1" "$2"); shift 2 ;;
+      *) echo "Unsupported hosted xcodebuild argument: $1" >&2; exit 2 ;;
+    esac
+done
+if [ "$project" != MarkView.xcodeproj ] || [ "$scheme" != MarkView ] || [ "$configuration" != HostedTests ] || [ "$action" != test ] || [ "$selection" != 1 ] ||
+   [ "${selected_derived%/}" != "${derived%/}" ]; then
+    echo 'Prebuilt adapter refused a different project, configuration, action or DerivedData' >&2
+    exit 2
+fi
+shopt -s nullglob
+plans=("$derived"/Build/Products/MarkView_macosx*-arm64.xctestrun)
+if [ "${#plans[@]}" -ne 1 ]; then
+    echo "Expected one ARM hosted xctestrun, found ${#plans[@]}" >&2
+    exit 1
+fi
+result_dir=$(mktemp -d "${TMPDIR:-/tmp}/mv-prebuilt-result.XXXXXX")
+trap 'rm -rf "$result_dir"' EXIT
+real_xcodebuild=$(xcrun --find xcodebuild)
+echo 'Using the prebuilt ARM hosted-test product'
+"$real_xcodebuild" test-without-building -xctestrun "${plans[0]}" -destination 'platform=macOS,arch=arm64' \
+    -resultBundlePath "$result_dir/result.xcresult" "${forward[@]}"

@@ -125,7 +125,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [qa-web-fault-tests, qa-editor-0, qa-editor-1, qa-editor-2, qa-editor-3, terminal-host-tests, workflow-editor-layout-tests, research-map-web-tests, theme-web-tests, ui-studio-web-tests, welcome-screen-tests, backdrop-registry-tests, project-ai-choice-tests, studio-session, studio-network, studio-recovery]
+        suite: [qa-general-0, qa-general-1, qa-isolated, qa-editor-0, qa-editor-1, qa-editor-2, qa-editor-3, terminal-host-tests, workflow-editor-layout-tests, research-map-web-tests, theme-web-tests, ui-studio-web-tests, welcome-screen-tests, project-ai-choice-tests, studio-session, studio-network, studio-recovery]
     steps:
       - uses: actions/checkout@v4
       - name: Identify Xcode
@@ -133,45 +133,54 @@ jobs:
         run: echo "version=$(xcodebuild -version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Restore hosted build cache
         id: cache
-        if: ${{ matrix.suite != 'backdrop-registry-tests' }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/MarkViewHostedData
           key: markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkViewHostedTests/**', 'Packages/MarkViewCore/**', 'MarkView.xcodeproj/**', 'tools/tests/*.swift', 'tools/ci/hosted-tests.xcconfig', '!Packages/MarkViewCore/.build/**') }}
           restore-keys: |
             markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-
+      - name: Restore unchanged hosted build input timestamps
+        run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewHostedData/source-mtimes.json"
+      - name: Run app-hosted regression suite
+        env:
+          MARKVIEW_HOSTED_TEST_DERIVED_DATA: ${{ runner.temp }}/MarkViewHostedData
+          HOSTED_SUITE: ${{ matrix.suite }}
+        run: |
+          export MARKVIEW_PREBUILT_HOSTED=1
+          export PATH="$PWD/tools/ci:$PATH"
+          case "$HOSTED_SUITE" in
+            studio-*) MARKVIEW_STUDIO_TEST_PART="${HOSTED_SUITE#studio-}" ./tools/tests/run.sh ui-studio-session-tests ;;
+            qa-editor-*|qa-general-*|qa-isolated) MARKVIEW_QA_HOST_PART="${HOSTED_SUITE#qa-}" ./tools/tests/run.sh qa-web-fault-tests ;;
+            *) ./tools/tests/run.sh "$HOSTED_SUITE" ;;
+          esac
+  backdrop-tests:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      XCODE_XCCONFIG_FILE: ${{ github.workspace }}/tools/ci/hosted-tests.xcconfig
+    steps:
+      - uses: actions/checkout@v4
+      - name: Identify Xcode
+        id: xcode
+        run: echo "version=$(xcodebuild -version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Restore backdrop fixture build cache
         id: backdrop-cache
-        if: ${{ matrix.suite == 'backdrop-registry-tests' }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/MarkViewBackdropData
           key: markview-backdrop-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkViewHostedTests/**', 'Packages/MarkViewCore/**', 'MarkView.xcodeproj/**', 'tools/tests/*.swift', 'tools/tests/backdrop-registry-tests.sh', 'tools/ci/hosted-tests.xcconfig', '!Packages/MarkViewCore/.build/**') }}
           restore-keys: |
             markview-backdrop-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-
-      - name: Restore unchanged hosted build input timestamps
+      - name: Restore unchanged fixture input timestamps
+        run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewBackdropData/source-mtimes.json"
+      - name: Run backdrop runtime-discovery test
         env:
-          HOSTED_SUITE: ${{ matrix.suite }}
-        run: |
-          if [ "$HOSTED_SUITE" = backdrop-registry-tests ]; then data="$RUNNER_TEMP/MarkViewBackdropData"; else data="$RUNNER_TEMP/MarkViewHostedData"; fi
-          python3 tools/ci/build-cache-mtimes.py restore "$data/source-mtimes.json"
-      - name: Run app-hosted regression suite
-        env:
-          MARKVIEW_HOSTED_TEST_DERIVED_DATA: ${{ runner.temp }}/MarkViewHostedData
           MARKVIEW_BACKDROP_HOSTED_DERIVED_DATA: ${{ runner.temp }}/MarkViewBackdropData
-          HOSTED_SUITE: ${{ matrix.suite }}
-        run: |
-          case "$HOSTED_SUITE" in
-            studio-*) MARKVIEW_STUDIO_TEST_PART="${HOSTED_SUITE#studio-}" ./tools/tests/run.sh ui-studio-session-tests ;;
-            qa-editor-*) MARKVIEW_QA_HOST_PART="${HOSTED_SUITE#qa-}" ./tools/tests/run.sh qa-web-fault-tests ;;
-            qa-web-fault-tests) MARKVIEW_QA_HOST_PART=general ./tools/tests/run.sh qa-web-fault-tests ;;
-            *) ./tools/tests/run.sh "$HOSTED_SUITE" ;;
-          esac
+        run: ./tools/tests/run.sh backdrop-registry-tests
       - name: Record backdrop fixture input timestamps
-        if: ${{ matrix.suite == 'backdrop-registry-tests' }}
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewBackdropData/source-mtimes.json"
       - name: Save backdrop fixture build cache
-        if: ${{ matrix.suite == 'backdrop-registry-tests' && steps.backdrop-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.backdrop-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/MarkViewBackdropData

@@ -977,9 +977,7 @@ extension EditorHostTests {
         #!/usr/bin/python3
         import os, signal, sys
         case = sys.argv[-1]
-        if case == "inherited-writer":
-            os.execv("/bin/sh", ["/bin/sh", "-c", "/bin/sleep 4 & printf '[]'"])
-        elif case == "both-pipes":
+        if case == "both-pipes":
             for _ in range(64):
                 os.write(1, b"A" * 16384)
                 os.write(2, b"A" * 16384)
@@ -998,6 +996,9 @@ extension EditorHostTests {
         """#
         try script.write(to: fixture, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.path)
+        let inheritedFixture = root.appendingPathComponent("gh-inherited-writer")
+        try "#!/bin/sh\n/bin/sleep 4 & printf '[]'\n".write(to: inheritedFixture, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: inheritedFixture.path)
         let expected = Date(timeIntervalSince1970: 1_700_000_000)
         let dateErrors = OSAllocatedUnfairLock(initialState: 0)
         DispatchQueue.concurrentPerform(iterations: 200) { index in
@@ -1006,7 +1007,7 @@ extension EditorHostTests {
         }
         XCTAssertEqual(dateErrors.withLock { $0 }, 0)
         let started = Date()
-        let inherited = await GitHubClient.execute(["--fixture", "inherited-writer"], in: root, timeout: 2, ghExecutable: fixture)
+        let inherited = await GitHubClient.execute(["--fixture", "inherited-writer"], in: root, timeout: 2, ghExecutable: inheritedFixture)
         XCTAssertEqual(inherited.status, 0); XCTAssertEqual(inherited.stdout, "[]")
         XCTAssertLessThan(Date().timeIntervalSince(started), 2)
         let large = await GitHubClient.execute(["--fixture", "both-pipes"], in: root, timeout: 5, ghExecutable: fixture)

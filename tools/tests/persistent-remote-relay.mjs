@@ -10,6 +10,14 @@ if (path.dirname(root) !== fs.realpathSync('/tmp') || !path.basename(root).start
 const relay = createRelay({ pollTimeout: 100 });
 let offlineUntil = 0;
 const server = http.createServer((req, res) => {
+    // Record only sanitized fixture routes, never headers, tokens, query strings or bodies.
+    const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
+    const knownRoute = /^\/(?:healthz|test\/outage|v1\/rooms(?:\/[0-9a-f-]{36}(?:\/(?:session\/)?(?:home|work))?)?)$/i;
+    const route = knownRoute.test(pathname) ? pathname.replace(/[0-9a-f-]{36}/gi, ':room') : '<other>';
+    if (req.method !== 'GET' || route.includes('/session/')) {
+        console.error(`[fixture-relay] ${req.method} ${route} started`);
+        res.once('finish', () => console.error(`[fixture-relay] ${req.method} ${route} status ${res.statusCode}`));
+    }
     if (req.url === '/test/outage' && req.method === 'POST') {
         offlineUntil = Date.now() + 12000; res.writeHead(200); res.end('{}'); return;
     }

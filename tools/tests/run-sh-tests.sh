@@ -189,15 +189,15 @@ mkdir "$work/not-a-repo" && mkdir -p "$work/not-a-repo/tools/tests" && cp "$repo
 check $((rc != 3)) "--changed outside a git repository exits 3, not 0"
 
 # Xcode's enumerated editor methods must be distributed once, with no silent partial selection.
-python3 - "$PWD/tools/ci/editor-test-shards.py" "$work" <<'PY'
+python3 - "$PWD/tools/ci/hosted-test-shards.py" "$work" <<'PY'
 import json, pathlib, subprocess, sys
 script, folder = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 path = folder / 'editor-enumeration.json'
 tests = [f'MarkViewHostedTests/EditorHostTests/testCase{i}()' for i in range(17)]
 def write(ids, errors=None):
     path.write_text(json.dumps({'errors': errors or [], 'values': [{'enabledTests': [{'identifier': x} for x in ids]}]}))
-def run(shard):
-    return subprocess.run([sys.executable, str(script), str(path), str(shard), '4'], capture_output=True, text=True)
+def run(shard, group='editor'):
+    return subprocess.run([sys.executable, str(script), str(path), str(shard), '4', group], capture_output=True, text=True)
 write(tests)
 parts = [run(i) for i in range(4)]
 assert all(p.returncode == 0 for p in parts)
@@ -209,8 +209,56 @@ write(tests, errors=['enumeration failed'])
 assert run(0).returncode != 0
 write(['OtherTests/Unexpected/testCase()'] * 4)
 assert run(0).returncode != 0
+general = [f'MarkViewHostedTests/Fixture{i % 3}/testCase{i}()' for i in range(17)]
+write(general)
+parts = [run(i, 'general') for i in range(4)]
+assert all(p.returncode == 0 for p in parts)
+actual = [line for p in parts for line in p.stdout.splitlines()]
+assert sorted(actual) == sorted(general) and len(actual) == len(set(actual))
+timings = json.loads(script.with_name('hosted-test-seconds.json').read_text())
+measured = sorted(timings, key=lambda name: (-timings[name], name))[:4]
+write(measured)
+balanced = [run(i, 'general') for i in range(4)]
+assert all(p.returncode == 0 for p in balanced)
+assert all(len(p.stdout.splitlines()) == 1 for p in balanced)
+assert sorted(line for p in balanced for line in p.stdout.splitlines()) == sorted(measured)
+write(general + [tests[0]])
+assert run(0, 'general').returncode != 0
+write(general + ['MarkViewHostedTests/ManualProviderHostTests/testLive()'])
+assert run(0, 'general').returncode != 0
 PY
-check $? "editor shards cover every enumerated method exactly once and reject invalid enumerations"
+check $? "hosted shards cover every enumerated method exactly once and reject invalid enumerations"
+
+# The prebuilt CI adapter must retain test selectors and reject build-affecting or mismatched inputs.
+python3 - "$PWD/tools/ci/xcodebuild" "$work" <<'PY'
+import json, os, pathlib, subprocess, sys
+adapter, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+bin_dir = root / 'prebuilt-bin'; bin_dir.mkdir()
+derived = root / 'prebuilt-derived'; products = derived / 'Build/Products'; products.mkdir(parents=True)
+plan = products / 'MarkView_macosx26.0-arm64.xctestrun'; plan.touch()
+capture = root / 'prebuilt-arguments.json'
+fake = bin_dir / 'real-xcodebuild'
+fake.write_text('#!/usr/bin/env python3\nimport json, os, sys\nopen(os.environ["MV_CAPTURE"],"w").write(json.dumps(sys.argv[1:]))\n')
+fake.chmod(0o755)
+xcrun = bin_dir / 'xcrun'; xcrun.write_text('#!/bin/bash\nprintf "%s\\n" "$MV_FAKE_XCODEBUILD"\n'); xcrun.chmod(0o755)
+env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ['PATH'], MARKVIEW_PREBUILT_HOSTED='1',
+           MARKVIEW_HOSTED_TEST_DERIVED_DATA=str(derived), MV_CAPTURE=str(capture), MV_FAKE_XCODEBUILD=str(fake))
+base = ['-project', 'MarkView.xcodeproj', '-scheme', 'MarkView', '-configuration', 'HostedTests',
+        '-derivedDataPath', str(derived), 'CODE_SIGNING_ALLOWED=NO']
+selector = '-only-testing:MarkViewHostedTests/EditorHostTests/testOne()'
+def run(extra):
+    return subprocess.run([str(adapter), *base, *extra], env=env, capture_output=True, text=True)
+assert run([selector, '-skip-testing:MarkViewHostedTests/Skipped', '-test-timeouts-enabled', 'YES', 'test']).returncode == 0
+args = json.loads(capture.read_text())
+assert args[0] == 'test-without-building' and args[args.index('-xctestrun') + 1] == str(plan)
+assert selector in args and '-skip-testing:MarkViewHostedTests/Skipped' in args and '-project' not in args
+assert run(['test']).returncode != 0
+assert run([selector, 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=OTHER', 'test']).returncode != 0
+assert subprocess.run([str(adapter), *base[:-2], '/wrong', *base[-1:], selector, 'test'], env=env, capture_output=True).returncode != 0
+plan.unlink()
+assert run([selector, 'test']).returncode != 0
+PY
+check $? "prebuilt adapter preserves selections and rejects unsafe or missing inputs"
 
 if [ "$failures" -gt 0 ]; then
     echo "run.sh checks FAILED: $failures"

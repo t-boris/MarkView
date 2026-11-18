@@ -98,7 +98,10 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
         "MarkViewHostedTests/CockpitRuntimeIntegrationHostTests.swift",
-        "tools/tests/cockpit-runtime-integration-tests.sh"
+        "tools/tests/cockpit-runtime-integration-tests.sh",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ],
       "timeoutSeconds": 900
     },
@@ -157,7 +160,10 @@
         "MarkView/Models/AI/Providers/ClineProvider.swift",
         "MarkView/Models/AI/Providers/CodexProvider.swift",
         "MarkView/Models/AI/Providers/CopilotProvider.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/LoginScript.swift",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -187,7 +193,10 @@
         "MarkViewHostedTests/PrototypeDeadlineFixture.swift",
         "MarkViewHostedTests/PrototypeDeadlineHostTests.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -301,7 +310,8 @@
       "tier": "gui",
       "timeoutSeconds": 900,
       "sources": [
-        "tools/ci/editor-test-shards.py",
+        "tools/ci/hosted-test-shards.py",
+        "tools/ci/hosted-test-seconds.json",
         "tools/ci/hosted-tests.xcconfig",
         "Packages/MarkViewCore/Sources/MarkViewCore/NotificationObservers.swift",
         "MarkView/Models/QA/QAAPI.swift",
@@ -849,7 +859,9 @@
         "MarkView/Models/QA/QANativeCapture.swift",
         "MarkView/Models/QA/QANativeFactory.swift",
         "MarkView/Models/QA/QANativeTree.swift",
-        "MarkView/Models/Lifecycle/LifecycleLog.swift"
+        "MarkView/Models/Lifecycle/LifecycleLog.swift",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -882,7 +894,10 @@
         "MarkView/Models/Browser/BrowserAgentTabs.swift",
         "MarkView/Models/AI/AgentToolsSetting.swift",
         "MarkView/Models/Remote/RemoteBrowserRelay.swift",
-        "MarkView/Models/AI/Providers/AssistantMCP.swift"
+        "MarkView/Models/AI/Providers/AssistantMCP.swift",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1010,7 +1025,10 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "MarkView/Models/Research/ResearchMapDocument.swift"
+        "MarkView/Models/Research/ResearchMapDocument.swift",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1019,7 +1037,9 @@
       "tier": "pure",
       "sources": [
         "tools/tests/run.sh",
-        "tools/ci/editor-test-shards.py"
+        "tools/ci/hosted-test-shards.py",
+        "tools/ci/hosted-test-seconds.json",
+        "tools/ci/xcodebuild"
       ]
     },
     {
@@ -1038,7 +1058,10 @@
         "MarkView/Models/Appearance/WebThemeArguments.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/CoreFiles.swift",
-        "Tests/Fixtures/themes/classic-computed.json"
+        "Tests/Fixtures/themes/classic-computed.json",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1238,7 +1261,10 @@
         "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
-        "MarkView/Resources/Editor/js/markview-ui-studio-api.js"
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1319,7 +1345,10 @@
         "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
-        "MarkView/Resources/Editor/js/markview-ui-studio-api.js"
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1353,7 +1382,10 @@
         "MarkView/Resources/Editor/js/markview-ui-studio-sdk.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-diagnostics.js",
         "MarkView/Resources/Editor/js/markview-ui-studio-select.js",
-        "MarkView/Resources/Editor/js/markview-ui-studio-api.js"
+        "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1388,7 +1420,10 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1438,7 +1473,10 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/SettingsKeys.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/JS.swift",
         "MarkView/Models/Appearance/WebThemeArguments.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift"
+        "Packages/MarkViewCore/Sources/MarkViewCore/StoredJSON.swift",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1465,7 +1503,10 @@
         "MarkView/Views/Appearance/DevBackdropLayers.swift",
         "MarkView/Views/Appearance/ProjectBackdropLayers.swift",
         "MarkViewHostedTests/BackdropRegistryHostTests.swift",
-        "tools/tests/backdrop-registry-tests.sh"
+        "tools/tests/backdrop-registry-tests.sh",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ]
     },
     {
@@ -1487,7 +1528,10 @@
         "MarkViewHostedTests/TerminalLayoutHostTests.swift",
         "MarkViewHostedTests/TerminalLinkHostTests.swift",
         "MarkView/Models/Terminal/TerminalSession.swift",
-        "MarkView/Resources/Editor/terminal.html"
+        "MarkView/Resources/Editor/terminal.html",
+        "tools/ci/hosted-tests.xcconfig",
+        "tools/ci/xcodebuild",
+        "tools/ci/build-cache-mtimes.py"
       ],
       "timeoutSeconds": 600
     }

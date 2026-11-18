@@ -12,6 +12,10 @@ cleanup() {
     local status=$? command pid group
     trap - EXIT INT TERM
     set +e
+    if (( status != 0 )) && [[ -f "$scratch/relay.log" ]]; then
+        echo 'Sanitized loopback relay events (last 80):' >&2
+        tail -n 80 "$scratch/relay.log" >&2
+    fi
     if [[ -f "$scratch/children.pid" ]]; then
         while IFS= read -r pid; do
             [[ "$pid" =~ ^[0-9]+$ ]] || continue

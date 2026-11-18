@@ -11,69 +11,50 @@ unset MARKVIEW_STUDIO_LIFETIME_FILTER TEST_RUNNER_MARKVIEW_STUDIO_LIFETIME_FILTE
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
 socket_dir=$(mktemp -d /tmp/mvhost.XXXXXX)
 trap 'rm -rf "$socket_dir"' EXIT
-extra_skips=()
-part="${MARKVIEW_QA_HOST_PART:-all}"
-case "$part" in
-  all) ;;
-  general) extra_skips=(-skip-testing:MarkViewHostedTests/EditorHostTests) ;;
-  editor|editor-[0-3])
-    editor_options=(-only-testing:MarkViewHostedTests/EditorHostTests)
-    expected=0
-    if [ "$part" != editor ]; then
-      MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
-        -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
-        -only-testing:MarkViewHostedTests/EditorHostTests -enumerate-tests -test-enumeration-style flat \
-        -test-enumeration-format json -test-enumeration-output-path "$socket_dir/tests.json" test
-      python3 tools/ci/editor-test-shards.py "$socket_dir/tests.json" "${part#editor-}" 4 > "$socket_dir/selected.txt"
-      editor_options=()
-      while IFS= read -r test_id; do editor_options+=("-only-testing:$test_id"); done < "$socket_dir/selected.txt"
-      expected=${#editor_options[@]}
-    fi
-    MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
-      -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
-      "${editor_options[@]}" test 2>&1 | tee "$socket_dir/editor.log"
-    python3 - "$socket_dir/editor.log" "$expected" <<'PY'
+check_count() {
+    python3 - "$1" "$2" <<'PY'
 import pathlib, re, sys
 log = pathlib.Path(sys.argv[1]).read_text(errors="replace")
 counts = [int(n) for n in re.findall(r"Executed (\d+) tests?, with", log)]
 expected = int(sys.argv[2])
 if not counts or max(counts) == 0 or (expected and max(counts) != expected):
-    sys.exit(f"Editor host ran {max(counts, default=0)} tests; expected {expected or 'at least one'}")
+    sys.exit(f"Hosted selection ran {max(counts, default=0)} tests; expected {expected or 'at least one'}")
 PY
-    exit
-    ;;
-  *) echo "Unknown QA host part: $MARKVIEW_QA_HOST_PART" >&2; exit 2 ;;
+}
+run_host() {
+  MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+    -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES "$@" test
+}
+shard_host() {
+  local group=$1 index=$2 count=$3
+  shift 3
+  run_host "$@" -enumerate-tests -test-enumeration-style flat -test-enumeration-format json \
+    -test-enumeration-output-path "$socket_dir/tests.json"
+  python3 tools/ci/hosted-test-shards.py "$socket_dir/tests.json" "$index" "$count" "$group" > "$socket_dir/selected.txt"
+  local selected=()
+  while IFS= read -r test_id; do selected+=("-only-testing:$test_id"); done < "$socket_dir/selected.txt"
+  run_host "${selected[@]}" 2>&1 | tee "$socket_dir/shard.log"
+  check_count "$socket_dir/shard.log" "${#selected[@]}"
+}
+general_options=(-only-testing:MarkViewHostedTests)
+for class in UIStudioSessionHostTests CockpitRuntimeIntegrationHostTests ManualPrototypeLiveHostTests \
+  TerminalLayoutHostTests TerminalLinkHostTests ManualRemoteProviderHostTests ManualProviderLiveHostTests \
+  ManualUIStudioLiveHostTests ManualNativeQAHostTests WorkflowEditorLayoutHostTests ResearchMapWebHostTests \
+  ThemeWebHostTests UIStudioWebHostTests WelcomeScreenHostTests ProjectAIChoiceHostTests RemoteWorkspaceHostTests \
+  PersistentRemoteHostTests RemoteRelaySettingsHostTests SavedRemoteConnectionsHostTests CLICompletionTimeoutHostTests \
+  AssistantExtensionHostTests ACPContinuationHostTests; do
+  general_options+=("-skip-testing:MarkViewHostedTests/$class")
+done
+part="${MARKVIEW_QA_HOST_PART:-all}"
+case "$part" in
+  all) run_host "${general_options[@]}" 2>&1 | tee "$socket_dir/general.log"; check_count "$socket_dir/general.log" 0 ;;
+  general) run_host "${general_options[@]}" -skip-testing:MarkViewHostedTests/EditorHostTests 2>&1 | tee "$socket_dir/general.log"; check_count "$socket_dir/general.log" 0 ;;
+  general-[01]) shard_host general "${part#general-}" 2 "${general_options[@]}" -skip-testing:MarkViewHostedTests/EditorHostTests; exit ;;
+  isolated) ;;
+  editor) run_host -only-testing:MarkViewHostedTests/EditorHostTests 2>&1 | tee "$socket_dir/editor.log"; check_count "$socket_dir/editor.log" 0; exit ;;
+  editor-[0-3]) shard_host editor "${part#editor-}" 4 -only-testing:MarkViewHostedTests/EditorHostTests; exit ;;
+  *) echo "Unknown QA host part: $part" >&2; exit 2 ;;
 esac
-MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
-  -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
-  -test-timeouts-enabled YES \
-  -only-testing:MarkViewHostedTests -skip-testing:MarkViewHostedTests/UIStudioSessionHostTests \
-  -skip-testing:MarkViewHostedTests/CockpitRuntimeIntegrationHostTests \
-  -skip-testing:MarkViewHostedTests/ManualPrototypeLiveHostTests \
-  -skip-testing:MarkViewHostedTests/TerminalLayoutHostTests \
-  -skip-testing:MarkViewHostedTests/TerminalLinkHostTests \
-  -skip-testing:MarkViewHostedTests/ManualRemoteProviderHostTests \
-  -skip-testing:MarkViewHostedTests/ManualProviderLiveHostTests \
-  -skip-testing:MarkViewHostedTests/ManualUIStudioLiveHostTests \
-  -skip-testing:MarkViewHostedTests/ManualNativeQAHostTests \
-  -skip-testing:MarkViewHostedTests/WorkflowEditorLayoutHostTests \
-  -skip-testing:MarkViewHostedTests/ResearchMapWebHostTests \
-  -skip-testing:MarkViewHostedTests/ThemeWebHostTests \
-  -skip-testing:MarkViewHostedTests/UIStudioWebHostTests \
-  -skip-testing:MarkViewHostedTests/WelcomeScreenHostTests \
-  -skip-testing:MarkViewHostedTests/ProjectAIChoiceHostTests \
-  -skip-testing:MarkViewHostedTests/RemoteWorkspaceHostTests \
-  -skip-testing:MarkViewHostedTests/PersistentRemoteHostTests \
-  -skip-testing:MarkViewHostedTests/RemoteRelaySettingsHostTests \
-  -skip-testing:MarkViewHostedTests/SavedRemoteConnectionsHostTests \
-  -skip-testing:MarkViewHostedTests/CLICompletionTimeoutHostTests \
-  -skip-testing:MarkViewHostedTests/AssistantExtensionHostTests \
-  -skip-testing:MarkViewHostedTests/ACPContinuationHostTests \
-  "${extra_skips[@]}" test 2>&1 | tee "$socket_dir/general.log"
-if ! grep -Eq 'Executed [1-9][0-9]* tests?, with' "$socket_dir/general.log"; then
-  echo "General host selection did not execute any tests" >&2
-  exit 1
-fi
 # The workspace test owns a process registry and runs in a fresh host.
 bash tools/tests/remote-workspace-host-tests.sh
 # Write and read the temporary relay credentials in separate isolated hosts.
