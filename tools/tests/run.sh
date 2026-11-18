@@ -293,11 +293,20 @@ def run_suite(item):
         live_groups.add(pgid)
     chunks = []
     def drain():
+        pending = b""
         while True:
             chunk = os.read(proc.stdout.fileno(), 65536)
             if not chunk:
                 return
             chunks.append(chunk)
+            if name == "ui-studio-session-tests":
+                # These static stage labels make a stuck hosted scenario visible in CI
+                # without interleaving the suite's complete buffered output.
+                lines = (pending + chunk).split(b"\n")
+                pending = lines.pop()[-4096:]
+                for line in lines:
+                    if line.startswith(b"--  ") and len(line) <= 256:
+                        print(f"▸ [{suite_tier}] {name}: {line[4:].decode('utf-8', errors='replace')}", flush=True)
     reader = threading.Thread(target=drain, daemon=True)
     reader.start()
     notes = []
