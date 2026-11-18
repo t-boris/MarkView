@@ -3,7 +3,52 @@ import MarkViewCore
 import XCTest
 @testable import MarkView
 
+@MainActor private final class CockpitAttemptTestWindow: CockpitQAWindow {
+    let qa = QAModel()
+    private(set) var shown = 0
+    func showQATool() { shown += 1 }
+}
+
 extension EditorHostTests {
+    @MainActor func testCockpitQAAttemptRefusesUnsafeStarts() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cockpit-qa-host-" + UUID().uuidString)
+        let other = root.appendingPathComponent("other", isDirectory: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let review = CockpitQAReview(scenarioID: "missing", targetID: "prod", fingerprint: "fixture", production: true,
+                                     exactPlan: "fixture plan", dataChangingActions: ["fixture change"], productionConfirmationRequired: true)
+        let step = CockpitStep(title: "QA", agent: "Test", assignment: "Prepare", completionCondition: "Done", qaScenarioID: "missing")
+        let verification = CockpitStep(title: "Verify", agent: "Test", assignment: "Review", completionCondition: "Done")
+        var plan = CockpitPlan(goal: "Test", controls: CockpitControls(), scenarios: ["missing"], steps: [step, verification],
+                               successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [],
+                               productionQA: CockpitProductionQA(exactPlan: review.exactPlan, dataChangingActions: review.dataChangingActions))
+        plan.qaReviews = [review]
+        XCTAssertNotNil(CockpitApproval(plan: plan, productionConfirmed: true))
+        let passed = CockpitHostReply(result: CockpitHostResult(passed: true, detail: "ready", build: "fixture"), error: "")
+        let failed = CockpitHostReply(result: CockpitHostResult(passed: false, detail: "failed", build: "fixture"), error: "failed")
+        let window = CockpitAttemptTestWindow()
+        defer { window.qa.close() }
+        let denied = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: false).run(scenarioID: "missing", previous: passed)
+        XCTAssertFalse(denied.error.isEmpty, "Production QA needs its explicit confirmation")
+        let unsuccessful = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: true).run(scenarioID: "missing", previous: failed)
+        XCTAssertFalse(unsuccessful.error.isEmpty, "A failed agent step cannot start QA")
+        XCTAssertNil(window.qa.root, "Rejected plans do not attach QA to a project")
+        window.qa.attach(root: other)
+        let wrongProject = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: true).run(scenarioID: "missing", previous: passed)
+        XCTAssertTrue(wrongProject.error.contains("another project"))
+        window.qa.attach(root: root)
+        let reservation = try XCTUnwrap(window.qa.reserveForCockpit())
+        let busy = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: true).run(scenarioID: "missing", previous: passed)
+        XCTAssertTrue(busy.error.contains("already active"))
+        window.qa.releaseCockpitReservation(reservation)
+        let missing = await CockpitQAAttempt(workspace: window, root: root, plan: plan, productionConfirmed: true).run(scenarioID: "missing", previous: passed)
+        XCTAssertTrue(missing.error.contains("no longer exists"))
+        let next = try XCTUnwrap(window.qa.reserveForCockpit(), "The failed attempt releases its reservation")
+        window.qa.releaseCockpitReservation(next)
+        XCTAssertFalse(window.qa.run.isRunning)
+        XCTAssertEqual(window.shown, 0, "No refused attempt opens the QA tool")
+    }
+
     @MainActor func testCockpitPolicyAndControls() async {
         func check(_ message: String, _ condition: Bool, line: UInt = #line) {
             XCTAssertTrue(condition, message, line: line)
