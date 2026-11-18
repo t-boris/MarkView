@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4: split migrated feature-flow and tool-routing tests out of the workspace redesign source; all 27 named methods were retained, all three files select the hosted suite, and the 17 moved tests passed together. The first run exposed SQLite warnings: the resume fixture opened a single-file database and the Studio fixture removed its project while its database was still retained. The resume fixture now opens a project folder and restores test-host settings; the Studio fixture releases the database and verifies it is deallocated before cleanup. All 17 tests passed again without SQLite warnings. The FeatureFlowCoordinator standalone suite remains while its final behavior and manifest migration are checked.
+
 D4 in progress: GitHub poll forwarding and branch updates passed through the real FeatureFlowCoordinator and feature store with an isolated evidence log and local CLI fixture. The test verifies the branch report and the lifecycle GraphQL request; it drains the temporary log and writes no lifecycle events to the user's log. Version bumped to 7.0.9; the Debug build and zero-warning ratchet passed, as did architecture lint, SwiftLint and unused-import analysis of the changed source (0 warnings).
 
 D4 in progress: linked-issue bug intake and its optional comment passed through the real assistant and GitHub client with isolated fixtures. The generated report retains the issue number and the local CLI fixture receives the comment; no real provider or GitHub request is made. Test-host recent-project settings are restored.

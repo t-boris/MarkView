@@ -1050,7 +1050,9 @@
         "MarkView/Models/Terminal/AssistantProviding.swift",
         "MarkView/Models/Workspace/UIStudioHost.swift",
         "MarkView/Models/Workspace/ToolOpener.swift",
-        "MarkView/Models/Workspace/ToolTabsRouter.swift"
+        "MarkView/Models/Workspace/ToolTabsRouter.swift",
+        "MarkViewHostedTests/FeatureFlowCoordinatorHostTests.swift",
+        "MarkViewHostedTests/ToolTabsRouterHostTests.swift"
       ]
     },
     {

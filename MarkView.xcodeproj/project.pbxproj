@@ -568,6 +568,8 @@
 		A4DD9A6FAE364D6387E23DE1 /* StoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */; };
 		A4DD9A6FAE364D6387E23DE3 /* AssistantProviderHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE4 /* AssistantProviderHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DE5 /* ProjectIndexHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE6 /* ProjectIndexHostTests.swift */; };
+		831E5CB34ED44B5297FF9DD6 /* FeatureFlowCoordinatorHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E027F46BF74A1F99D5FB92 /* FeatureFlowCoordinatorHostTests.swift */; };
+		1C6819765FA04561985D416E /* ToolTabsRouterHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CC99E1D0F124ACB93CF030D /* ToolTabsRouterHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DE7 /* WorkspaceRedesignHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DE8 /* WorkspaceRedesignHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DE9 /* BugValidityHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DEA /* BugValidityHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DEB /* ProjectOperationsHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DEC /* ProjectOperationsHostTests.swift */; };
@@ -1330,6 +1332,8 @@
 		A4DD9A6FAE364D6387E23DE2 /* StoreTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../tools/tests/StoreTestSupport.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DE4 /* AssistantProviderHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProviderHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DE6 /* ProjectIndexHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectIndexHostTests.swift; sourceTree = "<group>"; };
+		45E027F46BF74A1F99D5FB92 /* FeatureFlowCoordinatorHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlowCoordinatorHostTests.swift; sourceTree = "<group>"; };
+		7CC99E1D0F124ACB93CF030D /* ToolTabsRouterHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolTabsRouterHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DE8 /* WorkspaceRedesignHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRedesignHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DEA /* BugValidityHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugValidityHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DEC /* ProjectOperationsHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsHostTests.swift; sourceTree = "<group>"; };
@@ -2643,6 +2647,8 @@
 				A4DD9A6FAE364D6387E23DEE /* SemanticDatabaseHostTests.swift */,
 				A4DD9A6FAE364D6387E23DEC /* ProjectOperationsHostTests.swift */,
 				A4DD9A6FAE364D6387E23DEA /* BugValidityHostTests.swift */,
+				45E027F46BF74A1F99D5FB92 /* FeatureFlowCoordinatorHostTests.swift */,
+				7CC99E1D0F124ACB93CF030D /* ToolTabsRouterHostTests.swift */,
 				A4DD9A6FAE364D6387E23DE8 /* WorkspaceRedesignHostTests.swift */,
 				A4DD9A6FAE364D6387E23DE6 /* ProjectIndexHostTests.swift */,
 				A4DD9A6FAE364D6387E23DE4 /* AssistantProviderHostTests.swift */,
@@ -3547,6 +3553,8 @@
 				A4DD9A6FAE364D6387E23DED /* SemanticDatabaseHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DEB /* ProjectOperationsHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DE9 /* BugValidityHostTests.swift in Sources */,
+				831E5CB34ED44B5297FF9DD6 /* FeatureFlowCoordinatorHostTests.swift in Sources */,
+				1C6819765FA04561985D416E /* ToolTabsRouterHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DE7 /* WorkspaceRedesignHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DE5 /* ProjectIndexHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DE3 /* AssistantProviderHostTests.swift in Sources */,
