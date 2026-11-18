@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: FeatureFlowCoordinator setup, same-folder reuse, folder change, basket reset and shutdown checks passed against the real stores. GitHub integration stayed disabled in the isolated test host; its prior setting was restored. The standalone suite remains while its other behavior is migrated.
+
 D4 in progress: the selected-text research-comment path passed against the real window and research job with a scripted assistant, verifying the passage and comment in the request and the revised section on disk. The first test reached the job but failed when comparing directory URLs with and without a trailing slash; comparing normalized paths fixed the fixture. The standalone FeatureFlowCoordinator suite remains while its other behavior is migrated.
 
 D4 in progress: selected-text Ask now has a passing app-hosted check against the real FeatureFlowCoordinator, feature store and assistant through the test-host-only runner. It verifies the selected text, question and project-relative document reach the assistant, the result and feature panel update, and an unknown action is ignored. The standalone suite remains while its other behavior is migrated.

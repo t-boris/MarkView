@@ -319,6 +319,46 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowProjectLifecycle() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("feature-lifecycle-host-" + UUID().uuidString)
+        let first = base.appendingPathComponent("first", isDirectory: true)
+        let second = base.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        _ = try ProjectWorkflowStore(projectRoot: first).save(.standard, expectedRevision: 0)
+        _ = try ProjectWorkflowStore(projectRoot: second).save(.standard, expectedRevision: 0)
+        let settings = Settings.standard
+        let previous = settings.stored(Setting.gitHubEnabled)
+        settings.set(false, for: Setting.gitHubEnabled)
+        defer {
+            if let previous { settings.set(previous, for: Setting.gitHubEnabled) } else { settings.remove(Setting.gitHubEnabled) }
+        }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: base.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: first, isDirectory: true)
+        let flow = window.flow
+        flow.setUp(at: first)
+        XCTAssertEqual(flow.features.root, first)
+        XCTAssertTrue(flow.features.assistant.project === window.project)
+        XCTAssertNil(flow.gitHub.root)
+        let bug = try flow.features.createBug(BugReportDraft(title: "First", body: "Fixture", provenance: "Test"))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: bug.url)))
+        XCTAssertEqual(flow.bugBatch.basket.count, 1)
+        flow.setUp(at: first)
+        XCTAssertEqual(flow.bugBatch.basket.count, 1, "Reopening the same folder keeps its basket")
+        window.project.fileTree.rootNode = FileNode(url: second, isDirectory: true)
+        flow.cancelWork()
+        flow.setUp(at: second)
+        XCTAssertEqual(flow.features.root, second)
+        XCTAssertTrue(flow.bugBatch.basket.isEmpty, "A different folder starts with an empty basket")
+        XCTAssertNil(flow.gitHub.root)
+        flow.reset()
+        XCTAssertNil(flow.features.root)
+        XCTAssertNil(flow.gitHub.root)
+        flow.close()
+    }
+
     @MainActor func testRealFeatureFlowResearchComment() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-comment-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
