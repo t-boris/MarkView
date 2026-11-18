@@ -616,6 +616,9 @@
 		F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000123 /* PrototypeDeadlineFixture.swift */; };
 		F00000000000000000000124 /* PrototypeDeadlineHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */; };
 		F00000000000000000000126 /* UIStudioLifetimeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */; };
+		F0000000000000000000013A /* UIStudioRuntimeModelHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000013B /* UIStudioRuntimeModelHostTests.swift */; };
+		F00000000000000000000138 /* UIStudioScenarioHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000139 /* UIStudioScenarioHostTests.swift */; };
+		F00000000000000000000136 /* UIStudioModelHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000137 /* UIStudioModelHostTests.swift */; };
 		F00000000000000000000128 /* UIStudioAssistantFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000129 /* UIStudioAssistantFixture.swift */; };
 		F00000000000000000000130 /* UIStudioFeatureInspection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000131 /* UIStudioFeatureInspection.swift */; };
 		B0E44B5715124C2EBA72585E /* UIStudioWebHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F3ACCF522DF4B05BDB1D33C /* UIStudioWebHostTests.swift */; };
@@ -1371,6 +1374,9 @@
 		F00000000000000000000123 /* PrototypeDeadlineFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeDeadlineFixture.swift; sourceTree = "<group>"; };
 		F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeDeadlineHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioLifetimeHostTests.swift; sourceTree = "<group>"; };
+		F0000000000000000000013B /* UIStudioRuntimeModelHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRuntimeModelHostTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000139 /* UIStudioScenarioHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioScenarioHostTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000137 /* UIStudioModelHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioModelHostTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000129 /* UIStudioAssistantFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioAssistantFixture.swift; sourceTree = "<group>"; };
 		F00000000000000000000131 /* UIStudioFeatureInspection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioFeatureInspection.swift; sourceTree = "<group>"; };
 		6F3ACCF522DF4B05BDB1D33C /* UIStudioWebHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioWebHostTests.swift; sourceTree = "<group>"; };
@@ -2639,6 +2645,9 @@
 				F00000000000000000000123 /* PrototypeDeadlineFixture.swift */,
 				F00000000000000000000125 /* PrototypeDeadlineHostTests.swift */,
 				F00000000000000000000127 /* UIStudioLifetimeHostTests.swift */,
+				F0000000000000000000013B /* UIStudioRuntimeModelHostTests.swift */,
+				F00000000000000000000139 /* UIStudioScenarioHostTests.swift */,
+				F00000000000000000000137 /* UIStudioModelHostTests.swift */,
 				F00000000000000000000129 /* UIStudioAssistantFixture.swift */,
 				F00000000000000000000131 /* UIStudioFeatureInspection.swift */,
 				6F3ACCF522DF4B05BDB1D33C /* UIStudioWebHostTests.swift */,
@@ -3536,6 +3545,9 @@
 				F00000000000000000000122 /* PrototypeDeadlineFixture.swift in Sources */,
 				F00000000000000000000124 /* PrototypeDeadlineHostTests.swift in Sources */,
 				F00000000000000000000126 /* UIStudioLifetimeHostTests.swift in Sources */,
+				F0000000000000000000013A /* UIStudioRuntimeModelHostTests.swift in Sources */,
+				F00000000000000000000138 /* UIStudioScenarioHostTests.swift in Sources */,
+				F00000000000000000000136 /* UIStudioModelHostTests.swift in Sources */,
 				F00000000000000000000128 /* UIStudioAssistantFixture.swift in Sources */,
 				F00000000000000000000130 /* UIStudioFeatureInspection.swift in Sources */,
 				B0E44B5715124C2EBA72585E /* UIStudioWebHostTests.swift in Sources */,
