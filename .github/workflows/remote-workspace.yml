@@ -17,7 +17,6 @@ on:
       - 'tools/tests/persistent-remote*'
       - 'tools/tests/remote-workspace-tests.sh'
       - 'MarkViewHostedTests/GitHubRemoteProfileHostTests.swift'
-      - 'tools/tests/TerminalChildProcessTests.swift'
       - 'MarkViewHostedTests/RemoteCodexContextHostTests.swift'
       - 'MarkViewHostedTests/RemoteChannelHostTests.swift'
       - 'tools/tests/remote-browser-tests.sh'

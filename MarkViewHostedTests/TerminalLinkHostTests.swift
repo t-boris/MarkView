@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import WebKit
 import XCTest
 import MarkViewCore
@@ -485,6 +486,90 @@ import MarkViewCore
 
 }
 final class TerminalLinkHostTests: XCTestCase {
+    func testPTYChildClosesInheritedDescriptors() throws {
+        let pipe = Pipe()
+        let witnessFD = min(512, getdtablesize() - 1)
+        let inheritedFD = fcntl(pipe.fileHandleForWriting.fileDescriptor, F_DUPFD, witnessFD)
+        guard inheritedFD >= witnessFD, inheritedFD > 2 else {
+            XCTFail("Could not reserve a high-numbered descriptor")
+            return
+        }
+        defer { close(inheritedFD) }
+        let limit = getdtablesize()
+        var master: Int32 = -1
+        let child = forkpty(&master, nil, nil, nil)
+        if child == 0 {
+            TerminalChildProcess.closeInheritedDescriptors(upTo: limit)
+            _exit(fcntl(inheritedFD, F_GETFD) == -1 && fcntl(STDOUT_FILENO, F_GETFD) >= 0 ? 0 : 1)
+        }
+        guard child > 0 else { XCTFail("Could not create PTY child"); return }
+        defer { close(master) }
+        var status: Int32 = 0
+        var result: pid_t
+        repeat { result = waitpid(child, &status, 0) } while result < 0 && errno == EINTR
+        XCTAssertEqual(result, child)
+        XCTAssertEqual(status, 0, "PTY child must close inherited descriptors while retaining standard I/O")
+    }
+
+    func testPTYChildTerminationAndReaping() async throws {
+        for script in ["trap '' HUP; printf READY; exec sleep 30", "printf READY; exit 0"] {
+            let argv: [UnsafeMutablePointer<CChar>?] = [strdup("/bin/sh"), strdup("-c"), strdup(script), nil]
+            var master: Int32 = -1
+            let pid = forkpty(&master, nil, nil, nil)
+            if pid == 0 { _ = execv(argv[0]!, argv); _exit(127) }
+            argv.forEach { free($0) }
+            guard pid > 0 else { XCTFail("Could not create PTY child"); return }
+            defer { close(master) }
+            _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
+            var output = ""
+            for _ in 0..<100 {
+                var buffer = [UInt8](repeating: 0, count: 128)
+                let count = read(master, &buffer, buffer.count)
+                if count > 0 { output += String(decoding: buffer[..<count], as: UTF8.self) }
+                if output.contains("READY") { break }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            func terminateOwnedChild() {
+                var status: Int32 = 0
+                if waitpid(pid, &status, WNOHANG) == 0 {
+                    _ = kill(pid, SIGKILL)
+                    while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
+                }
+            }
+            guard output.contains("READY") else {
+                terminateOwnedChild()
+                XCTFail("The PTY child did not start")
+                return
+            }
+            let group = getpgid(pid)
+            let groupError = errno
+            var childInfo = siginfo_t()
+            var waitResult = waitid(P_PID, id_t(pid), &childInfo, WEXITED | WNOHANG | WNOWAIT)
+            var waitError = errno
+            // There can be a short interval between the process group disappearing and the exit being waitable.
+            if group == -1 {
+                for _ in 0..<100 where waitResult == 0 && childInfo.si_pid == 0 {
+                    try? await Task.sleep(nanoseconds: 10_000_000)
+                    childInfo = siginfo_t()
+                    waitResult = waitid(P_PID, id_t(pid), &childInfo, WEXITED | WNOHANG | WNOWAIT)
+                    waitError = errno
+                }
+            }
+            let owned = waitResult == 0
+            // An exited, unreaped child can lose its process group; it still reserves its PID.
+            guard owned && (group == pid || (group == -1 && childInfo.si_pid == pid)) else {
+                terminateOwnedChild()
+                XCTFail("PTY child ownership/group check failed: group=\(group), group errno=\(groupError), wait=\(waitResult), wait errno=\(waitError), reported pid=\(childInfo.si_pid)")
+                return
+            }
+            await TerminalChildProcess.stopAndReap(pid, graceNanoseconds: 100_000_000)?.value
+            var status: Int32 = 0
+            XCTAssertTrue(waitpid(pid, &status, WNOHANG) == -1 && errno == ECHILD,
+                          "Stopped PTY children must be reaped even if they ignore HUP or already exited")
+        }
+        XCTAssertNil(TerminalChildProcess.stopAndReap(0, graceNanoseconds: 0))
+    }
+
     @MainActor func testTerminalLinks() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("markview-terminal-links-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("sub"), withIntermediateDirectories: true)

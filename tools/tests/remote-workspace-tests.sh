@@ -18,5 +18,4 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
 if [ "${MARKVIEW_REMOTE_SKIP_DUPLICATE_PURE:-0}" != 1 ]; then
     bash tools/tests/remote-relay-settings-tests.sh
 fi
-bash tools/tests/terminal-child-tests.sh
 node --test tools/remote-relay/*.test.mjs
