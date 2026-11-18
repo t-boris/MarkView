@@ -60,11 +60,12 @@ struct HandoffStartList: View {
         guard let project = store.root else { ready = []; return }
         var items: [(feature: Feature, state: HandoffState)] = []
         for feature in store.features {
-            if let state = try? await SpecificationHandoffStore.shared.state(project: project, slug: feature.slug),
-               state.revision != nil {
+            guard !Task.isCancelled else { return }
+            if let state = try? await SpecificationHandoffStore.shared.readyState(project: project, slug: feature.slug) {
                 items.append((feature, state))
             }
         }
+        guard !Task.isCancelled else { return }
         ready = items
     }
 }

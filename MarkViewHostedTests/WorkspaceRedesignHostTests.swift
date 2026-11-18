@@ -63,12 +63,28 @@ private struct WorkspaceRedesignFixture {
                                         atomically: true, encoding: .utf8)
 
         let handoff = SpecificationHandoffStore.shared
+        let symlink = feature.appendingPathComponent("unpublished-link")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: project.appendingPathComponent("src"))
+        let unpublished = try await handoff.readyState(project: project, slug: "demo")
+        check(unpublished == nil, "the start list skips unpublished folders without traversing their files")
+        let draftState = try await handoff.state(project: project, slug: "demo")
+        check(draftState.revision == nil && draftState.currentHashes.isEmpty, "the handoff panel does not hash an unpublished folder")
+        try FileManager.default.removeItem(at: symlink)
         try await handoff.setLinkedFiles(["src/main.swift", "src/missing.swift"], project: project, slug: "demo")
         let first = try await handoff.markReady(project: project, slug: "demo", actor: "Boris", commitStatus: Self.writeReady(feature.appendingPathComponent("overview.md")))
         check(first.number == 1 && first.actor == "Boris", "first handoff records revision and actor")
         check(first.linkedFiles == ["src/main.swift", "src/missing.swift"], "explicit links survive missing files")
         let ready = try await handoff.state(project: project, slug: "demo")
         check(ready.isReady && !ready.hasChanged, "published handoff matches current folder")
+        let listState = try await handoff.readyState(project: project, slug: "demo")
+        check(listState?.revision?.number == first.number && listState?.hasChanged == false, "the start list shows a published handoff")
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            do { _ = try await handoff.readyState(project: project, slug: "demo"); return false }
+            catch is CancellationError { return true }
+            catch { return false }
+        }
+        check(await cancelled.value, "an obsolete start-list read stops when cancelled")
         check((try String(contentsOf: feature.appendingPathComponent("overview.md"), encoding: .utf8)).contains("status: ready"),
               "initial handoff marks specification ready")
 
@@ -77,6 +93,8 @@ private struct WorkspaceRedesignFixture {
         try "Added externally.\n".write(to: feature.appendingPathComponent("discussion.md"),
                                           atomically: true, encoding: .utf8)
         let changed = try await handoff.state(project: project, slug: "demo")
+        let changedListState = try await handoff.readyState(project: project, slug: "demo")
+        check(changedListState?.hasChanged == true, "the start list detects changed published files")
         check(changed.changes.contains { $0.path == "questions/Q-001.md" && $0.kind == .modified },
               "external modifications appear")
         check(changed.changes.contains { $0.path == "discussion.md" && $0.kind == .added },
