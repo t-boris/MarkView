@@ -22,13 +22,21 @@ final class LifecycleLog: ObservableObject {
     private struct WeakObserver { weak var store: FeatureStore? }
 
     #if MARKVIEW_HOSTED_TEST_HOST
+    nonisolated private static let hostedURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("markview-host-lifecycle-" + UUID().uuidString + ".jsonl")
     init(testURL: URL) { url = testURL }
     func drainTestWrites() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
+    var testFileURL: URL { url }
     #endif
 
     private init() {
+        #if MARKVIEW_HOSTED_TEST_HOST
+        url = Self.hostedURL
+        atexit { try? FileManager.default.removeItem(at: LifecycleLog.hostedURL) }
+        #else
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         url = support.appendingPathComponent("MarkView", isDirectory: true).appendingPathComponent("lifecycle-events.jsonl")
+        #endif
         let url = url
         // On the write queue, before any write: the file read holds none of the events
         // recorded meanwhile, which stay after the older ones.

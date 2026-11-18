@@ -846,7 +846,8 @@
         "MarkView/Models/QA/QANativeActor.swift",
         "MarkView/Models/QA/QANativeCapture.swift",
         "MarkView/Models/QA/QANativeFactory.swift",
-        "MarkView/Models/QA/QANativeTree.swift"
+        "MarkView/Models/QA/QANativeTree.swift",
+        "MarkView/Models/Lifecycle/LifecycleLog.swift"
       ]
     },
     {

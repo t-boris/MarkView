@@ -4,6 +4,30 @@ import XCTest
 @testable import MarkView
 
 extension EditorHostTests {
+    @MainActor func testSharedLifecycleLogIsIsolated() async throws {
+        let log = LifecycleLog.shared
+        let url = log.testFileURL
+        let temporary = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+        XCTAssertEqual(url.deletingLastPathComponent().resolvingSymlinksInPath(), temporary)
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("markview-host-lifecycle-"))
+        let project = "/isolated-lifecycle-test/" + UUID().uuidString
+        defer { log.deleteProject(project) }
+        XCTAssertNotNil(log.record(.workStarted, project: project, feature: "fixture", actor: "test"))
+        await log.drainTestWrites()
+        let written = try String(contentsOf: url, encoding: .utf8)
+        let records = try written.split(separator: "\n").map { line in
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        }
+        XCTAssertTrue(records.contains { $0["project"] as? String == project })
+        log.deleteProject(project)
+        await log.drainTestWrites()
+        let remaining = try String(contentsOf: url, encoding: .utf8)
+        let remainingRecords = try remaining.split(separator: "\n").map { line in
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        }
+        XCTAssertFalse(remainingRecords.contains { $0["project"] as? String == project })
+    }
+
     @MainActor func testNewProjectDraftRules() throws {
         func check(_ name: String, _ condition: Bool, line: UInt = #line) {
             XCTAssertTrue(condition, name, line: line)
