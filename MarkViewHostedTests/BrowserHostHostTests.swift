@@ -5,7 +5,7 @@ import MarkViewCore
 import XCTest
 @testable import MarkView
 
-private final class BrowserFixtureServer {
+final class BrowserFixtureServer {
     let port: Int
     private let source: DispatchSourceRead
 
