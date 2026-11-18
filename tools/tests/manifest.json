@@ -78,7 +78,7 @@
     {
       "name": "cockpit-runtime-integration-tests",
       "script": "tools/tests/cockpit-runtime-integration-tests.sh",
-      "tier": "pure",
+      "tier": "gui",
       "sources": [
         "Packages/MarkViewCore/Sources/MarkViewCore/AgentProcesses.swift",
         "MarkView/Models/Cockpit/CockpitChild.swift",
@@ -96,10 +96,12 @@
         "MarkView/Models/Deployments/DeploymentExecutor.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/PrivateSocket.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
-        "tools/tests/CockpitRuntimeChecks.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
-        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift"
-      ]
+        "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkViewHostedTests/CockpitRuntimeIntegrationHostTests.swift",
+        "tools/tests/cockpit-runtime-integration-tests.sh"
+      ],
+      "timeoutSeconds": 900
     },
     {
       "name": "document-files-tests",

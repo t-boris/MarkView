@@ -17,7 +17,7 @@ cleanup_done=0
 interrupted=0
 run_phase() {
     local phase=$1
-    TEST_RUNNER_MARKVIEW_RELAY_TEST_PHASE="$phase" MARKVIEW_SOCKET_DIR="$scratch" \
+    TEST_RUNNER_MARKVIEW_RELAY_TEST_PHASE="$phase" MARKVIEW_SOCKET_DIR="$scratch" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch" \
       xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
       -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
       -only-testing:MarkViewHostedTests/RemoteRelaySettingsHostTests/testRelayCredentials test 2>&1 | tee "$scratch/$phase.log" || return 1

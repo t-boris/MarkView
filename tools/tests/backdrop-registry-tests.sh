@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 derived="${MARKVIEW_BACKDROP_HOSTED_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewBackdropHosted}"
 tmp=$(mktemp -d /tmp/mvbackdrophost.XXXXXX)
 trap 'rm -rf "$tmp"' EXIT
-MARKVIEW_SOCKET_DIR="$tmp" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+MARKVIEW_SOCKET_DIR="$tmp" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$tmp" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
   'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) MARKVIEW_HOSTED_TEST_HOST MARKVIEW_BACKDROP_FIXTURE' \
   -test-timeouts-enabled YES -only-testing:MarkViewHostedTests/BackdropRegistryHostTests/testRuntimeDiscovery test | tee "$tmp/test.log"

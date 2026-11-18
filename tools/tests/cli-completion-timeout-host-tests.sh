@@ -54,7 +54,7 @@ export TEST_RUNNER_MARKVIEW_CLI_TEST_HOME="$scratch/home"
 export TEST_RUNNER_MARKVIEW_CLI_TEST_SCRATCH="$scratch/scratch"
 export TEST_RUNNER_MARKVIEW_CLI_TEST_FIXTURE="$scratch/$fixture_name"
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
-MARKVIEW_SOCKET_DIR="$scratch" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+MARKVIEW_SOCKET_DIR="$scratch" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests/"$test_class"/"$test_method" test 2>&1 | tee "$scratch/test.log"
 grep -F "Test Case '-[MarkViewHostedTests.$test_class $test_method]' passed" "$scratch/test.log" >/dev/null || {

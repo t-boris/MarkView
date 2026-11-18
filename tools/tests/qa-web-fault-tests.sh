@@ -5,14 +5,17 @@ cd "$(dirname "$0")/../.."
 # UI Studio's hosted lifetime scenarios start local Python servers; avoid slow loopback reverse DNS.
 export PYTHONPATH="$PWD/tools/tests/studio-python${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
-unset MARKVIEW_STUDIO_LIFETIME_FILTER
+export TEST_RUNNER_PYTHONPATH="$PYTHONPATH"
+export TEST_RUNNER_PYTHONDONTWRITEBYTECODE=1
+unset MARKVIEW_STUDIO_LIFETIME_FILTER TEST_RUNNER_MARKVIEW_STUDIO_LIFETIME_FILTER
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
 socket_dir=$(mktemp -d /tmp/mvhost.XXXXXX)
 trap 'rm -rf "$socket_dir"' EXIT
-MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO \
   -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests -skip-testing:MarkViewHostedTests/UIStudioSessionHostTests \
+  -skip-testing:MarkViewHostedTests/CockpitRuntimeIntegrationHostTests \
   -skip-testing:MarkViewHostedTests/WorkflowEditorLayoutHostTests \
   -skip-testing:MarkViewHostedTests/ResearchMapWebHostTests \
   -skip-testing:MarkViewHostedTests/ThemeWebHostTests \

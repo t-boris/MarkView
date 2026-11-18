@@ -3,7 +3,6 @@
   "bridge-contract-tests": 15.0,
   "build-warnings-tests": 1.2,
   "cockpit-build-phase-tests": 0.0,
-  "cockpit-runtime-integration-tests": 0.0,
   "document-files-tests": 0.1,
   "no-process-outside-subprocess-lint": 0.5,
   "run-sh-tests": 9.2

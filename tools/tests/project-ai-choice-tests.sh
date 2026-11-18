@@ -10,7 +10,7 @@ export TEST_RUNNER_MARKVIEW_AI_TEST_HOME="$tmp/home"
 unset TEST_RUNNER_MARKVIEW_LIVE_ANTIGRAVITY
 if [[ "${MARKVIEW_LIVE_ANTIGRAVITY:-}" == "1" ]]; then export TEST_RUNNER_MARKVIEW_LIVE_ANTIGRAVITY=1; fi
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
-MARKVIEW_SOCKET_DIR="$tmp" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+MARKVIEW_SOCKET_DIR="$tmp" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$tmp" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests/ProjectAIChoiceHostTests/testProjectAssistantChoices test | tee "$tmp/test.log"
 python3 - "$tmp/test.log" <<'PY'

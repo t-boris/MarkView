@@ -63,7 +63,7 @@ export TEST_RUNNER_MARKVIEW_SAVED_TEST_SUITE="$test_suite"
 export TEST_RUNNER_MARKVIEW_SAVED_TEST_RELAY="$relay"
 for phase in write read cleanup; do
     kill -0 "$relay_pid" 2>/dev/null || { echo 'Offline relay fixture stopped unexpectedly' >&2; exit 1; }
-    TEST_RUNNER_MARKVIEW_SAVED_TEST_PHASE="$phase" MARKVIEW_SOCKET_DIR="$scratch" \
+    TEST_RUNNER_MARKVIEW_SAVED_TEST_PHASE="$phase" MARKVIEW_SOCKET_DIR="$scratch" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch" \
       xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
       -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
       -only-testing:MarkViewHostedTests/SavedRemoteConnectionsHostTests/testSavedConnections test 2>&1 | tee "$scratch/$phase.log"

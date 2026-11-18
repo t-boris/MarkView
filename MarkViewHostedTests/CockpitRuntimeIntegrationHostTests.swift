@@ -1,4 +1,13 @@
 import Foundation
+import MarkViewCore
+import XCTest
+@testable import MarkView
+
+private struct CockpitFixtureFailure: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
 
 private struct TemporalEntry: Decodable { let stepID: String }
 private struct TemporalState: Decodable { let status: String; let results: [TemporalEntry] }
@@ -18,13 +27,22 @@ private actor Latch {
     func release() { open = true; continuation?.resume(); continuation = nil }
 }
 
-@main struct Checks {
-    @MainActor static func main() async throws {
-        guard let path = ProcessInfo.processInfo.environment["MARKVIEW_TEST_RUNTIME"] else { fatalError("MARKVIEW_TEST_RUNTIME is required") }
+final class CockpitRuntimeIntegrationHostTests: XCTestCase {
+    @MainActor func testPackagedCockpitRuntime() async throws {
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "amd64"
+        #endif
+        let suppliedRuntime = ProcessInfo.processInfo.environment["MARKVIEW_TEST_RUNTIME"]
+        let path = suppliedRuntime
+            ?? Bundle.main.resourceURL?.appendingPathComponent("Cockpit/" + architecture).path
+        let runtime = try XCTUnwrap(path, "The packaged runtime path is unavailable")
+        print("Cockpit runtime uses supplied override: \(suppliedRuntime != nil)")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cockpit-test-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { if AgentProcesses.count == 0 { try? FileManager.default.removeItem(at: root) } }
-        let service = CockpitService(root: root, bundled: URL(fileURLWithPath: path))
+        let service = CockpitService(root: root, bundled: URL(fileURLWithPath: runtime))
         let events = Events()
         let bridge = try CockpitHostBridge { task in
             await events.add(task)
@@ -51,16 +69,16 @@ private actor Latch {
         }
         _ = try await service.request(request("start"))
         try await Task.sleep(nanoseconds: 1_000_000_000)
-        guard await events.tasks.isEmpty else { fatalError("agent was called before approval") }
+        guard await events.tasks.isEmpty else { throw CockpitFixtureFailure("agent was called before approval") }
         _ = try await service.request(request("approve", approval: CockpitTemporalApproval(fingerprint: plan.fingerprint, step: 0)))
         var final: TemporalState?
         for _ in 0..<60 {
             if let data = try? await service.request(request("state")), let value = try? JSONDecoder().decode(TemporalState.self, from: data), value.status == "finished" { final = value; break }
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
-        guard final?.results.first?.stepID == step.id.uuidString, await events.tasks.count == 1 else { fatalError("workflow did not execute one host task") }
+        guard final?.results.first?.stepID == step.id.uuidString, await events.tasks.count == 1 else { throw CockpitFixtureFailure("workflow did not execute one host task") }
         let received = await events.tasks[0]
-        guard received.planFingerprint == plan.fingerprint, received.goal == "Review", received.controls == plan.controls else { fatalError("host did not receive approved context") }
+        guard received.planFingerprint == plan.fingerprint, received.goal == "Review", received.controls == plan.controls else { throw CockpitFixtureFailure("host did not receive approved context") }
         let interruptedStep = CockpitStep(title: "Interrupt", agent: "Codex", assignment: "Wait", completionCondition: "Done", qaScenarioID: "scenario-1")
         let interruptedPlan = try CockpitTemporalPlan(CockpitPlan(goal: "Interrupt", controls: CockpitControls(), scenarios: [], steps: [interruptedStep], successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil))
         let interruptedID = "test-" + UUID().uuidString
@@ -73,11 +91,11 @@ private actor Latch {
         _ = try await service.request(interruptedRequest("start"))
         _ = try await service.request(interruptedRequest("approve"))
         for _ in 0..<60 where await events.tasks.count < 2 { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard await events.tasks.count == 2 else { fatalError("interruptible step did not start") }
-        guard await events.tasks[1].step.qaScenarioID == "scenario-1" else { fatalError("the selected QA scenario did not reach the host") }
+        guard await events.tasks.count == 2 else { throw CockpitFixtureFailure("interruptible step did not start") }
+        guard await events.tasks[1].step.qaScenarioID == "scenario-1" else { throw CockpitFixtureFailure("the selected QA scenario did not reach the host") }
         _ = try await service.request(interruptedRequest("control", command: "pause"))
         for _ in 0..<150 where await events.cancellations == 0 { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard await events.cancellations == 1 else { fatalError("pausing did not cancel the active host task") }
+        guard await events.cancellations == 1 else { throw CockpitFixtureFailure("pausing did not cancel the active host task") }
         _ = try await service.request(interruptedRequest("control", command: "stop"))
         let executionEvents = Events()
         let execution = CockpitExecution(root: root, service: service) { task in
@@ -85,14 +103,14 @@ private actor Latch {
             let progress = CockpitProgress(passNumber: 2, activity: "Checking", scenarioCoverage: ["s"], bugs: ["BUG-1"], fixes: [], latestChange: "Updated", blockers: [], buildLogPath: "build/log.txt", criteriaResults: [CockpitCriterionResult(criterion: "Done", met: true, evidence: "Verified")])
             return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Done", build: "build-2", progress: progress), error: "")
         }
-        guard let approval = CockpitApproval(plan: original, productionConfirmed: false) else { fatalError("valid approval rejected") }
+        guard let approval = CockpitApproval(plan: original, productionConfirmed: false) else { throw CockpitFixtureFailure("valid approval rejected") }
         try await execution.start(plan: original, approval: approval, step: 0)
         for _ in 0..<150 where execution.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard execution.state?.status == "finished", await executionEvents.tasks.count == 1 else { fatalError("execution coordinator did not complete the approved step") }
+        guard execution.state?.status == "finished", await executionEvents.tasks.count == 1 else { throw CockpitFixtureFailure("execution coordinator did not complete the approved step") }
         let saved = try CockpitRunStore.loadAll(root: root)
         guard saved.count == 1, saved[0].status == .finished, saved[0].results.first?.build == "build-2",
               saved[0].results.first?.progress?.passNumber == 2, saved[0].results.first?.progress?.bugs == ["BUG-1"],
-              CockpitOutcome.evaluate(criteria: ["Done"], progress: saved[0].results.first?.progress) == .success else { fatalError("execution history or progress was not persisted") }
+              CockpitOutcome.evaluate(criteria: ["Done"], progress: saved[0].results.first?.progress) == .success else { throw CockpitFixtureFailure("execution history or progress was not persisted") }
         let closingEvents = Events()
         let closingExit = Latch()
         let closing = CockpitExecution(root: root, service: service) { task in
@@ -103,7 +121,7 @@ private actor Latch {
         }
         try await closing.start(plan: original, approval: approval, step: 0)
         for _ in 0..<100 where await closingEvents.tasks.isEmpty { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard await !closingEvents.tasks.isEmpty else { fatalError("project-close step did not start") }
+        guard await !closingEvents.tasks.isEmpty else { throw CockpitFixtureFailure("project-close step did not start") }
         let partial = CockpitProgress(passNumber: 1, activity: "Partial work", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "Changed file", blockers: [], buildLogPath: nil)
         try await closing.saveProgress(partial, stepID: step.id, planFingerprint: plan.fingerprint)
         // A refusal the gate reports, a lever and a note are saved by tasks the execution keeps (none makes its caller wait).
@@ -120,11 +138,11 @@ private actor Latch {
         }
         let saving = try CockpitRunStore.loadAll(root: root)
         guard refusals(saving) == 1, saving.contains(where: { $0.switches == cutDeployment && $0.notes?.first?.text == "check the build log first" }) else {
-            fatalError("a refusal, a lever and a note of a running step were not saved on the run")
+            throw CockpitFixtureFailure("a refusal, a lever and a note of a running step were not saved on the run")
         }
         closing.shutdown()
         for _ in 0..<100 where await closingEvents.cancellations == 0 { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard await closingEvents.cancellations == 1 else { fatalError("closing the project left its host task running") }
+        guard await closingEvents.cancellations == 1 else { throw CockpitFixtureFailure("closing the project left its host task running") }
         // Cancellation reaches the host before its step-end accounting finishes. Let the host
         // return and wait for that already-started accounting before comparing the late call.
         await closingExit.release()
@@ -136,14 +154,14 @@ private actor Latch {
             }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        guard accounted else { fatalError("closing execution did not persist step usage") }
+        guard accounted else { throw CockpitFixtureFailure("closing execution did not persist step usage") }
         // Nothing is written for a closed execution: a gate call that arrives late saves no refusal.
         let beforeLate = try CockpitRunStore.loadAll(root: root)
         closing.noteGate(tool: "markview_deployments_run", refusal: "arrived after the project closed")
         try await Task.sleep(nanoseconds: 800_000_000)
-        guard try CockpitRunStore.loadAll(root: root) == beforeLate else { fatalError("a closed execution wrote to the run it had") }
+        guard try CockpitRunStore.loadAll(root: root) == beforeLate else { throw CockpitFixtureFailure("a closed execution wrote to the run it had") }
         let afterClose = try CockpitRunStore.loadAll(root: root)
-        guard let recovered = afterClose.first(where: { $0.status == .paused && $0.steps.contains(where: { $0.status == .interrupted && $0.progress == partial }) }) else { fatalError("closed execution did not retain interrupted evidence") }
+        guard let recovered = afterClose.first(where: { $0.status == .paused && $0.steps.contains(where: { $0.status == .interrupted && $0.progress == partial }) }) else { throw CockpitFixtureFailure("closed execution did not retain interrupted evidence") }
         let recoveryEvents = Events()
         let recovery = CockpitExecution(root: root, service: service) { task in
             await recoveryEvents.add(task)
@@ -153,11 +171,11 @@ private actor Latch {
         for _ in 0..<150 where recovery.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
         guard recovery.state?.status == "finished", let resumedTask = await recoveryEvents.tasks.first,
               resumedTask.priorResults.last?.result.interrupted == true, resumedTask.priorResults.last?.result.progress == partial else {
-            fatalError("user-selected continuation lost interrupted evidence")
+            throw CockpitFixtureFailure("user-selected continuation lost interrupted evidence")
         }
         let continued = try CockpitRunStore.load(recovered.id, root: root)
         guard continued.results.count == 2, continued.results[0].interrupted == true, continued.results[1].passed else {
-            fatalError("continued run did not preserve its history")
+            throw CockpitFixtureFailure("continued run did not preserve its history")
         }
         let latch = Latch(), revisionEvents = Events()
         let oldStep = CockpitStep(title: "Old", agent: "Codex", assignment: "Work", completionCondition: "Done")
@@ -174,21 +192,21 @@ private actor Latch {
             }
             return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Done", build: "b4"), error: "")
         }
-        try await revised.start(plan: oldPlan, approval: CockpitApproval(plan: oldPlan, productionConfirmed: false)!, step: 0)
+        try await revised.start(plan: oldPlan, approval: try XCTUnwrap(CockpitApproval(plan: oldPlan, productionConfirmed: false)), step: 0)
         for _ in 0..<100 {
             if revised.state?.status == "running", await !revisionEvents.tasks.isEmpty { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        guard revised.state?.status == "running", await revisionEvents.tasks.count == 1 else { fatalError("revision test did not start") }
-        try await revised.replan(newPlan, approval: CockpitApproval(plan: newPlan, productionConfirmed: false)!, step: 0)
+        guard revised.state?.status == "running", await revisionEvents.tasks.count == 1 else { throw CockpitFixtureFailure("revision test did not start") }
+        try await revised.replan(newPlan, approval: try XCTUnwrap(CockpitApproval(plan: newPlan, productionConfirmed: false)), step: 0)
         try await Task.sleep(nanoseconds: 500_000_000)
-        guard await revisionEvents.tasks.count == 1 else { fatalError("revision ran before the current step finished") }
+        guard await revisionEvents.tasks.count == 1 else { throw CockpitFixtureFailure("revision ran before the current step finished") }
         await latch.release()
         for _ in 0..<150 where revised.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard revised.state?.status == "finished", await revisionEvents.tasks.count == 2 else { fatalError("approved revision did not finish") }
+        guard revised.state?.status == "finished", await revisionEvents.tasks.count == 2 else { throw CockpitFixtureFailure("approved revision did not finish") }
         let revisions = try CockpitRunStore.loadAll(root: root)
         guard let history = revisions.first(where: { $0.plan.id == newPlan.id }), history.results.count == 2,
-              history.results[0].plan.id == oldPlan.id, history.results[1].plan.id == newPlan.id else { fatalError("revision lost plan history") }
+              history.results[0].plan.id == oldPlan.id, history.results[1].plan.id == newPlan.id else { throw CockpitFixtureFailure("revision lost plan history") }
         let waitingID = "test-" + UUID().uuidString
         func waitingRequest(_ action: String, endpoint: CockpitEndpoint, approval: CockpitTemporalApproval? = nil) -> CockpitTemporalRequest {
             CockpitTemporalRequest(address: endpoint.address, queue: queue, workflowID: waitingID, action: action,
@@ -203,18 +221,20 @@ private actor Latch {
             }
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
-        guard readyToRestart else { fatalError("workflow did not reach approval before restart") }
+        guard readyToRestart else { throw CockpitFixtureFailure("workflow did not reach approval before restart") }
         worker.stop(); bridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard AgentProcesses.count == 0 else { fatalError("local helper processes did not stop") }
-        guard !FileManager.default.fileExists(atPath: runtimeDirectory.path) else { fatalError("per-launch runtime directory remained after shutdown") }
+        guard AgentProcesses.count == 0 else { throw CockpitFixtureFailure("local helper processes did not stop") }
+        guard !FileManager.default.fileExists(atPath: runtimeDirectory.path) else { throw CockpitFixtureFailure("per-launch runtime directory remained after shutdown") }
         let restarted = try await service.start()
         let afterRestart = Events()
         let newBridge = try CockpitHostBridge { task in
             await afterRestart.add(task)
             return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Done", build: "b3"), error: "")
         }
+        defer { newBridge.stop() }
         let newWorker = try await service.worker(socket: newBridge.path, queue: queue)
+        defer { newWorker.stop() }
         var restored: TemporalState?
         var lastRestoreStatus = "no response"
         var lastRestoreError = "none"
@@ -231,9 +251,9 @@ private actor Latch {
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         guard restored?.status == "awaiting-approval" else {
-            fatalError("persisted workflow was not restored: last status \(lastRestoreStatus), last error \(lastRestoreError)")
+            throw CockpitFixtureFailure("persisted workflow was not restored: last status \(lastRestoreStatus), last error \(lastRestoreError)")
         }
-        guard await afterRestart.tasks.isEmpty else { fatalError("restart resumed work without approval") }
+        guard await afterRestart.tasks.isEmpty else { throw CockpitFixtureFailure("restart resumed work without approval") }
         _ = try await service.request(waitingRequest("approve", endpoint: restarted, approval: CockpitTemporalApproval(fingerprint: plan.fingerprint, step: 0)))
         var resumed: TemporalState?
         let resumeDeadline = Date().addingTimeInterval(90)
@@ -242,10 +262,10 @@ private actor Latch {
                let value = try? JSONDecoder().decode(TemporalState.self, from: data), value.status == "finished" { resumed = value; break }
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
-        guard resumed?.results.first?.stepID == step.id.uuidString, await afterRestart.tasks.count == 1 else { fatalError("persisted workflow did not continue after approval") }
+        guard resumed?.results.first?.stepID == step.id.uuidString, await afterRestart.tasks.count == 1 else { throw CockpitFixtureFailure("persisted workflow did not continue after approval") }
         newWorker.stop(); newBridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
-        guard AgentProcesses.count == 0 else { fatalError("restarted helper processes did not stop") }
+        guard AgentProcesses.count == 0 else { throw CockpitFixtureFailure("restarted helper processes did not stop") }
         print("Cockpit packaged runtime integration checks passed")
     }
 }

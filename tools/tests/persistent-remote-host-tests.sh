@@ -55,7 +55,7 @@ export TEST_RUNNER_MARKVIEW_PERSISTENT_TEST_RELAY="http://127.0.0.1:$port"
 export TEST_RUNNER_MARKVIEW_PERSISTENT_TEST_ID="$(uuidgen)"
 export TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch"
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
-MARKVIEW_SOCKET_DIR="$scratch" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
+MARKVIEW_SOCKET_DIR="$scratch" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests/PersistentRemoteHostTests/testPersistentRemoteSessions test 2>&1 | tee "$scratch/test.log"
 grep -F "Test Case '-[MarkViewHostedTests.PersistentRemoteHostTests testPersistentRemoteSessions]' passed" "$scratch/test.log" >/dev/null || {

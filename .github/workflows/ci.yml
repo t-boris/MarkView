@@ -91,7 +91,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/MarkViewHostedData
-          key: markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkViewHostedTests/**', 'Packages/MarkViewCore/**', 'MarkView.xcodeproj/**') }}
+          key: markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkViewHostedTests/**', 'Packages/MarkViewCore/**', 'MarkView.xcodeproj/**', 'tools/tests/*.swift') }}
           restore-keys: |
             markview-hosted-${{ runner.os }}-arm64-${{ steps.xcode.outputs.version }}-
       - name: Restore unchanged hosted build input timestamps
