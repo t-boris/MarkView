@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: the mixed-eligibility bug-basket hand-off passed with real per-item workflow rules. The test verifies that two startable bugs are sent and marked, a third restricted bug stays open and is named in the notice, and the restricted bug is absent from the prompt.
+
 D4 in progress: feature display, closed-bug and explicit-terminal hand-off cases passed in the app host, along with the single-file definition-of-done path and cancellation of external issue opening. The display fixture now opens a project folder and restores its test-host recent-project settings, avoiding single-file database creation. Three focused tests passed together; the standalone suite remains while its other behavior is migrated.
 
 D4 in progress: the issue-opening and non-repository guards passed against the real FeatureFlowCoordinator. The test opens a GitHub issue tab through the isolated local fixture and confirms starting an issue outside a Git repository fails without sending a prompt; no real GitHub request is made.

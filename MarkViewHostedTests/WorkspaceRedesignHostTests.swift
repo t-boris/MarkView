@@ -598,7 +598,13 @@ extension EditorHostTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-basket-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        _ = try ProjectWorkflowStore(projectRoot: root).save(.standard, expectedRevision: 0)
+        var workflow = ProjectWorkflow.standard
+        var restricted = workflow.bug.rules
+        let start = try XCTUnwrap(restricted.firstIndex { $0.kind == .start })
+        restricted[start].needs.removeValue(forKey: .human)
+        workflow.variants.append(RuleVariant(id: "restricted-bug", name: "Restricted bug", kind: .bug,
+                                             integration: .directToMain, checks: false, rules: restricted))
+        _ = try ProjectWorkflowStore(projectRoot: root).save(workflow, expectedRevision: 0)
         let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
         defer { window.composition.close() }
         window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
@@ -645,15 +651,22 @@ extension EditorHostTests {
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, first.id), "open")
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, second.id), "open")
         XCTAssertNotNil(flow.bugBatch.notice)
+        let third = try flow.features.createBug(BugReportDraft(title: "Restricted bug", body: "Third", provenance: "Test"))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: third.url)))
+        XCTAssertTrue(flow.features.lifecycle.assignVariant(.bug, third.id, to: "restricted-bug", by: .human("Tester")))
+        XCTAssertFalse(flow.features.lifecycle.canStartByHandoff(.bug, third.id))
         assistant.sends = true
         flow.fixBasketWithAI()
         XCTAssertEqual(assistant.sent.count, 2)
         let sent = try XCTUnwrap(assistant.sent.last)
         XCTAssertTrue(sent.prompt.contains(first.id))
         XCTAssertTrue(sent.prompt.contains(second.id))
+        XCTAssertFalse(sent.prompt.contains(third.id))
         XCTAssertTrue(sent.submit)
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, first.id), "fixing")
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, second.id), "fixing")
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, third.id), "open")
+        XCTAssertTrue(flow.bugBatch.notice?.contains(third.id) == true)
         XCTAssertTrue(flow.bugBatch.basket.isEmpty)
     }
 
