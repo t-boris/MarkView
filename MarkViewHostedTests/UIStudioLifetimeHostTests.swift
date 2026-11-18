@@ -2018,6 +2018,395 @@ final class UIStudioLifetimeHostTests: XCTestCase {
         check("a path with .. is refused", !sim.register(codeLike).isEmpty)
     }
 
+
+    @MainActor func testRedactionAndBridgeValidation() {
+        let app = "http://localhost:5173"
+        let redactor = StudioRedactor()
+        let secretBody = StudioJSON(text: #"{"user":"ann","password":"hunter2","profile":{"apiKey":"abc123","bio":"token=ghp_abcdefghijklmnopqrstuvwxyz123456"}}"#)!
+        let redacted = redactor.redact(secretBody)
+        check("confidential fields are redacted at any depth", redacted["password"]?.stringValue == "[redacted]" && redacted["profile"]?["apiKey"]?.stringValue == "[redacted]")
+        check("credential shapes in text are redacted", !(redacted["profile"]?["bio"]?.stringValue ?? "").contains("ghp_"))
+        check("ordinary fields stay", redacted["user"]?.stringValue == "ann")
+        check("confidential headers are redacted", redactor.redact(headers: ["Authorization": "Bearer x", "Accept": "json"])["Authorization"] == "[redacted]")
+        check("JWTs and keys in free text", !redactor.redact(text: "header eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U and sk-ant-REDACTEDREDACTED123456").contains("eyJhbGci"))
+        check("name=value pairs of confidential names", redactor.redact(text: "?access_token=s3cr3tvalue&x=1").contains("[redacted]"))
+        let env = StudioRedactor.sanitizedEnvironment(["PATH": "/usr/bin", "HOME": "/Users/x", "GITHUB_TOKEN": "t", "OPENAI_API_KEY": "k",
+                                                       "DATABASE_URL": "postgres://", "STRIPE_SECRET": "s", "NODE_ENV": "development", "AWS_PROFILE": "prod"])
+        check("production secrets are not inherited by the app process", env.environment["GITHUB_TOKEN"] == nil && env.environment["OPENAI_API_KEY"] == nil
+              && env.environment["DATABASE_URL"] == nil && env.environment["AWS_PROFILE"] == nil && env.environment["PATH"] == "/usr/bin" && env.environment["NODE_ENV"] == "development")
+        check("removed variables are named, never their values", env.removed.contains("GITHUB_TOKEN") && !env.removed.contains("t"))
+
+        // MARK: - Bridge validation (REQ-006)
+
+        let origin = StudioBridge.Origin(url: URL(string: app)!)!
+        let expectation = StudioBridge.Expectation(session: "s-1", generation: 3, origin: origin)
+        let good: [String: Any] = ["kind": "request", "session": "s-1", "generation": 3, "requestId": "r-1", "method": "get",
+                                   "url": app + "/api/projects", "headers": ["Accept": "application/json"], "body": NSNull(), "transport": "fetch"]
+        if case .success(.request(let parsed)) = StudioBridge.validate(good, isMainFrame: true, origin: origin, expecting: expectation) {
+            check("a valid request message is accepted", parsed.method == "GET" && parsed.headers["accept"] == "application/json")
+        } else { check("valid request accepted", false) }
+        check("localhost and 127.0.0.1 are the same server", StudioBridge.Origin(scheme: "http", host: "127.0.0.1", port: 5173).sameServer(origin))
+        check("a subframe is rejected", StudioBridge.validate(good, isMainFrame: false, origin: origin, expecting: expectation) == .failure(.notMainFrame))
+        let foreign = StudioBridge.Origin(url: URL(string: "https://evil.example")!)!
+        if case .failure(.wrongOrigin) = StudioBridge.validate(good, isMainFrame: true, origin: foreign, expecting: expectation) { check("another origin is rejected", true) } else { check("another origin is rejected", false) }
+        var otherSession = good; otherSession["session"] = "s-2"
+        check("another session is rejected", StudioBridge.validate(otherSession, isMainFrame: true, origin: origin, expecting: expectation) == .failure(.wrongSession))
+        var stale = good; stale["generation"] = 2
+        check("a stale generation (after Reset) is rejected", StudioBridge.validate(stale, isMainFrame: true, origin: origin, expecting: expectation) == .failure(.stale(2)))
+        var badURL = good; badURL["url"] = "file:///etc/passwd"
+        if case .failure(.malformed) = StudioBridge.validate(badURL, isMainFrame: true, origin: origin, expecting: expectation) { check("a non-http url is malformed", true) } else { check("non-http url", false) }
+        var hugeBody = good; hugeBody["body"] = String(repeating: "x", count: StudioBridge.maxBody + 1)
+        if case .failure(.malformed) = StudioBridge.validate(hugeBody, isMainFrame: true, origin: origin, expecting: expectation) { check("an oversized body is malformed", true) } else { check("oversized body", false) }
+        let event: [String: Any] = ["kind": "event", "session": "s-1", "generation": 3, "type": "electron", "detail": "window.api.load()"]
+        if case .success(.event(let parsed)) = StudioBridge.validate(event, isMainFrame: true, origin: origin, expecting: expectation) { check("an event is accepted", parsed.kind == .electron) } else { check("event accepted", false) }
+        let standIn: [String: Any] = ["kind": "event", "session": "s-1", "generation": 3, "type": "standIn", "detail": "stripe: Stripe.js \u{2014} payments are simulated, no card is charged"]
+        if case .success(.event(let parsed)) = StudioBridge.validate(standIn, isMainFrame: true, origin: origin, expecting: expectation) {
+            check("BUG-103 a stand-in event is accepted", parsed.kind == .standIn && parsed.detail.hasPrefix("stripe: "))
+        } else { check("BUG-103 a stand-in event is accepted", false) }
+        var forgedStandIn = standIn; forgedStandIn["detail"] = "not-an-sdk: anything"
+        if case .failure(.malformed) = StudioBridge.validate(forgedStandIn, isMainFrame: true, origin: origin, expecting: expectation) {
+            check("BUG-103 a stand-in event naming no registered SDK is malformed, so it cannot add dependency rows", true)
+        } else { check("BUG-103 a stand-in event naming no registered SDK is malformed", false) }
+        // The page runtime registers the stand-ins; the bridge accepts exactly those ids.
+        if let runtime = StudioRuntime.source(in: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("MarkView/Resources/Editor/js")) {
+            var registered = Set<String>()
+            var rest = Substring(runtime)
+            while let found = rest.range(of: "sdkRegister('") {
+                rest = rest[found.upperBound...]
+                if let end = rest.firstIndex(of: "'") { registered.insert(String(rest[..<end])) }
+            }
+            check("BUG-103 the SDKs the runtime registers are exactly the ones the bridge accepts", registered == StudioBridge.standInIDs,
+                  "\(registered.sorted()) vs \(StudioBridge.standInIDs.sorted())")
+        } else { check("BUG-103 the runtime source is readable for the registry check", false) }
+    }
+
+
+    final class StubPreparer: StudioRulePreparing, @unchecked Sendable {
+        let lock = NSLock()
+        var calls = 0
+        let delay: UInt64
+        let make: @Sendable (StudioPreparationContext) -> StudioProposal
+        init(delay: UInt64 = 50_000_000, make: @escaping @Sendable (StudioPreparationContext) -> StudioProposal) { self.delay = delay; self.make = make }
+        func prepare(_ context: StudioPreparationContext) async throws -> StudioProposal {
+            lock.withLock { calls += 1 }
+            try await Task.sleep(nanoseconds: delay)
+            return make(context)
+        }
+    }
+
+    @MainActor func testPreparationQueue() async {
+    func project(_ id: Int, _ name: String, _ status: String = "active") -> StudioJSON {
+        .object(["id": .number(Double(id)), "name": .string(name), "status": .string(status)])
+    }
+    var spec = StudioEnvironmentSpec()
+    spec.entities = [
+        StudioEntity(name: "projects", fields: [StudioField(name: "name", type: "string", required: true),
+                                                 StudioField(name: "status", type: "string", required: true, enumValues: ["active", "archived"])]),
+        StudioEntity(name: "tasks", fields: [StudioField(name: "title", type: "string", required: true),
+                                              StudioField(name: "projectId", type: "integer", required: true, references: "projects")]),
+    ]
+    spec.seed = [
+        "projects": [project(1, "Apollo"), project(2, "Gemini"), project(3, "Mercury", "archived")],
+        "tasks": [.object(["id": .number(10), "title": .string("Design"), "projectId": .number(1)]),
+                  .object(["id": .number(11), "title": .string("Build"), "projectId": .number(1)])],
+    ]
+    spec.rules = [
+        StudioRule(id: "list-projects", method: "GET", path: "/api/projects", operation: .list, entity: "projects", filters: ["status"]),
+        StudioRule(id: "get-project", method: "GET", path: "/api/projects/:id", operation: .get, entity: "projects",
+                   include: [StudioInclude(field: "tasks", entity: "tasks", foreignKey: "projectId")]),
+        StudioRule(id: "create-project", method: "POST", path: "/api/projects", operation: .create, entity: "projects"),
+        StudioRule(id: "rename-project", method: "PATCH", path: "/api/projects/:id", operation: .update, entity: "projects"),
+        StudioRule(id: "delete-project", method: "DELETE", path: "/api/projects/:id", operation: .delete, entity: "projects"),
+        StudioRule(id: "me", method: "GET", path: "/api/me", operation: .session),
+    ]
+    let app = "http://localhost:5173"
+    var requestCounter = 0
+    func request(_ method: String, _ path: String, body: String? = nil, headers: [String: String] = [:], id: String? = nil) -> StudioHTTPRequest {
+        requestCounter += 1
+        return StudioHTTPRequest(method: method, url: URL(string: app + path)!, headers: headers, body: body, requestId: id ?? "r\(requestCounter)")
+    }
+    func answer(_ outcome: StudioSimOutcome) -> (Int, StudioJSON?) {
+        guard case .respond(let response, _) = outcome else { return (-1, nil) }
+        return (response.status, response.body.flatMap { StudioJSON(text: $0) })
+    }
+
+    var base = StudioScenario(id: "populated", name: "Populated", kind: .populated)
+    func context(_ contract: String) -> StudioPreparationContext {
+        StudioPreparationContext(contract: contract, method: "GET", url: app + "/api/labels", headers: [:], body: nil, attempt: 1, problems: [])
+    }
+    let labels: @Sendable (StudioPreparationContext) -> StudioProposal = { _ in
+        var p = StudioProposal()
+        p.entities = [StudioEntity(name: "labels", fields: [StudioField(name: "name", type: "string", required: true)])]
+        p.records = ["labels": [.object(["id": .number(1), "name": .string("urgent")])]]
+        p.rules = [StudioRule(id: "list-labels", method: "GET", path: "/api/labels", operation: .list, entity: "labels")]
+        return p
+    }
+        var emptyScenario = base
+        emptyScenario.overrides = [StudioOverride(ruleId: "list-projects", empty: true)]
+        // BUG-077: the agent CLI's own limit follows the attempt's deadline, so a page's preparation ahead gets its 240 s and a
+        // timeout ends the attempt in the queue (no retry), instead of a fixed 95 s that failed it twice.
+        let limits = StudioPreparationLimits()
+        var cliAhead = context("Page /: server requests")
+        cliAhead.ahead = StudioRouteAhead(route: "/", connections: ["API_URL"])
+        check("BUG-077 a request's CLI limit is a little after its 90 s deadline", limits.cliTimeout(for: context("GET /api/labels")) == 95)
+        check("BUG-077 a page's preparation ahead gets 240 s, and the CLI a little longer",
+              limits.deadline(for: cliAhead) == 240 && limits.cliTimeout(for: cliAhead) == 245)
+        var simulator = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
+        // AC-05: concurrent identical unknown requests share one preparation; the rule is registered; a repeat calls no model.
+        let queue = StudioPreparationQueue()
+        let preparer = StubPreparer(make: labels)
+        let generation = simulator.generation
+        async let one = queue.resolve(context("GET /api/labels"), generation: generation, preparer: preparer,
+                                      currentGeneration: { generation }, commit: { simulator.register($0) })
+        async let two = queue.resolve(context("GET /api/labels"), generation: generation, preparer: preparer,
+                                      currentGeneration: { generation }, commit: { simulator.register($0) })
+        let (a, b) = await (one, two)
+        check("AC-05 concurrent identical requests prepare once", preparer.calls == 1 && a == b, "calls \(preparer.calls)")
+        check("AC-05 the prepared rule is registered", a == .registered(rules: ["list-labels"]))
+        let calls = queue.modelCalls
+        check("AC-05 a repeated request is served without a model call",
+              answer(simulator.handle(request("GET", "/api/labels"))).1?.arrayValue?.count == 1 && queue.modelCalls == calls)
+
+        // AC-06: an invalid answer is retried once, then a controlled failure without partial state.
+        let badQueue = StudioPreparationQueue()
+        let bad = StubPreparer { _ in var p = StudioProposal(); p.rules = [StudioRule(id: "x", method: "GET", path: "/api/x", operation: .list, entity: "nothing")]; return p }
+        let snapshot = simulator.spec
+        let badOutcome = await badQueue.resolve(context("GET /api/x"), generation: generation, preparer: bad,
+                                                currentGeneration: { generation }, commit: { simulator.register($0) })
+        if case .failed = badOutcome { check("AC-06 invalid format fails after two attempts", bad.calls == 2, "calls \(bad.calls)") }
+        else { check("AC-06 invalid format fails", false, "\(badOutcome)") }
+        check("AC-06 nothing was registered", simulator.spec == snapshot)
+        let again = await badQueue.resolve(context("GET /api/x"), generation: generation, preparer: bad,
+                                           currentGeneration: { generation }, commit: { simulator.register($0) })
+        check("a failed contract is not prepared again until Retry", bad.calls == 2 && again != .registered(rules: []))
+
+        // AC-06: the agent does not finish in time.
+        let slowQueue = StudioPreparationQueue(limits: StudioPreparationLimits(deadline: 0.3, maxAttempts: 2, maxConcurrent: 2, maxContracts: 40))
+        let slow = StubPreparer(delay: 2_000_000_000, make: labels)
+        let started = Date()
+        let timedOut = await slowQueue.resolve(context("GET /api/slow"), generation: generation, preparer: slow,
+                                               currentGeneration: { generation }, commit: { simulator.register($0) })
+        check("AC-06 a late agent ends in a timeout", timedOut == .timedOut && Date().timeIntervalSince(started) < 1.5, "\(timedOut)")
+        check("AC-06 the timeout changed nothing", simulator.spec == snapshot)
+
+        // AC-07: cancel the preparation and switch the scenario; the late answer does not change the new scenario.
+        var current = generation
+        let cancelQueue = StudioPreparationQueue()
+        let late = StubPreparer(delay: 400_000_000, make: labels)
+        var fresh = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
+        let pending = Task { @MainActor in
+            await cancelQueue.resolve(context("GET /api/labels"), generation: current, preparer: late,
+                                      currentGeneration: { current }, commit: { fresh.register($0) })
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        fresh.activate(emptyScenario)
+        current = fresh.generation
+        cancelQueue.cancelAll()
+        let cancelled = await pending.value
+        check("AC-07 cancelled preparation reports cancelled or stale", cancelled == .cancelled || cancelled == .stale, "\(cancelled)")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        check("AC-07 the late answer did not register a rule", fresh.spec.rules.count == spec.rules.count)
+
+        // A generation change without cancel (Reset while the agent works) also drops the answer.
+        var gen2 = 1
+        let staleQueue = StudioPreparationQueue()
+        var other = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
+        let pending2 = Task { @MainActor in
+            await staleQueue.resolve(context("GET /api/labels"), generation: 1, preparer: StubPreparer(delay: 200_000_000, make: labels),
+                                     currentGeneration: { gen2 }, commit: { other.register($0) })
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        gen2 = 2
+        let staleOutcome = await pending2.value
+        check("SIM-10 a result of an old generation is dropped", staleOutcome == .stale && other.spec.rules.count == spec.rules.count, "\(staleOutcome)")
+
+        // Concurrency and budget bounds.
+        let bounded = StudioPreparationQueue(limits: StudioPreparationLimits(deadline: 5, maxAttempts: 1, maxConcurrent: 1, maxContracts: 2))
+        let counter = StubPreparer(delay: 100_000_000) { context in
+            var p = StudioProposal(); p.unsupported = true; p.reason = "needs a WebSocket (\(context.contract))"; return p
+        }
+        let t0 = Date()
+        async let x = bounded.resolve(context("GET /a"), generation: 1, preparer: counter, currentGeneration: { 1 }, commit: { _ in [] })
+        async let y = bounded.resolve(context("GET /b"), generation: 1, preparer: counter, currentGeneration: { 1 }, commit: { _ in [] })
+        let (rx, ry) = await (x, y)
+        check("one preparation at a time when the limit is 1", Date().timeIntervalSince(t0) >= 0.19, "\(Date().timeIntervalSince(t0))")
+        if case .unsupported = rx, case .unsupported = ry { check("an unsupported dependency is reported, not registered", true) } else { check("unsupported reported", false) }
+        let over = await bounded.resolve(context("GET /c"), generation: 1, preparer: counter, currentGeneration: { 1 }, commit: { _ in [] })
+        check("the preparation budget is bounded", over == .limitReached)
+
+        // BUG-074: the deadline is per attempt and starts when the attempt gets a slot, so queued preparations still finish.
+        let queued = StudioPreparationQueue(limits: StudioPreparationLimits(deadline: 0.5, queueWait: 5, maxAttempts: 1, maxConcurrent: 1, maxContracts: 40))
+        let steady = StubPreparer(delay: 300_000_000) { _ in StudioProposal() }
+        async let q1 = queued.resolve(context("GET /q1"), generation: 1, preparer: steady, currentGeneration: { 1 }, commit: { _ in [] })
+        async let q2 = queued.resolve(context("GET /q2"), generation: 1, preparer: steady, currentGeneration: { 1 }, commit: { _ in [] })
+        async let q3 = queued.resolve(context("GET /q3"), generation: 1, preparer: steady, currentGeneration: { 1 }, commit: { _ in [] })
+        let (o1, o2, o3) = await (q1, q2, q3)
+        check("BUG-074 waiting for a slot does not use up a preparation's deadline",
+              [o1, o2, o3].allSatisfy { $0 == .registered(rules: []) }, "\(o1) \(o2) \(o3)")
+
+        // BUG-074: a preparation ahead of a page belongs to the environment: Reset (cancelAll) does not drop it; closing does.
+        let aheadQueue = StudioPreparationQueue()
+        var aheadSimulator = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
+        var aheadContext = context("Page /: server requests")
+        aheadContext.ahead = StudioRouteAhead(route: "/", connections: ["API_URL → http://api.example.test"])
+        let aheadTask = Task { @MainActor in
+            await aheadQueue.prepareAhead(aheadContext, services: ["http://api.example.test"], preparer: StubPreparer(delay: 300_000_000, make: labels),
+                                          commit: { aheadSimulator.register($0) })
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        aheadSimulator.activate(emptyScenario)
+        aheadQueue.cancelAll()
+        // A request to the same service waits for the preparation ahead instead of asking the model a second time.
+        let waitStarted = Date()
+        await aheadQueue.waitForGroup("http://api.example.test")
+        let aheadOutcome = await aheadTask.value
+        check("BUG-074 a request to a service that is being prepared waits for it", Date().timeIntervalSince(waitStarted) >= 0.2,
+              "\(Date().timeIntervalSince(waitStarted))")
+        check("BUG-074 a preparation ahead survives Reset and registers its rules", aheadOutcome == .registered(rules: ["list-labels"])
+              && aheadSimulator.spec.rules.contains { $0.id == "list-labels" }, "\(aheadOutcome)")
+        let closingQueue = StudioPreparationQueue()
+        let closing = Task { @MainActor in
+            await closingQueue.prepareAhead(aheadContext, services: [], preparer: StubPreparer(delay: 400_000_000, make: labels), commit: { _ in [] })
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        closingQueue.cancelEverything()
+        let closedOutcome = await closing.value
+        check("BUG-074 closing the session cancels a preparation ahead", closedOutcome == .cancelled, "\(closedOutcome)")
+    }
+
+    @MainActor func testSessionLog() async throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("mv-studio-log-" + UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let app = "http://localhost:5173"
+    func context(_ contract: String) -> StudioPreparationContext {
+        StudioPreparationContext(contract: contract, method: "GET", url: app + "/api/labels", headers: [:], body: nil, attempt: 1, problems: [])
+    }
+    let labels: @Sendable (StudioPreparationContext) -> StudioProposal = { _ in
+        var p = StudioProposal()
+        p.entities = [StudioEntity(name: "labels", fields: [StudioField(name: "name", type: "string", required: true)])]
+        p.records = ["labels": [.object(["id": .number(1), "name": .string("urgent")])]]
+        p.rules = [StudioRule(id: "list-labels", method: "GET", path: "/api/labels", operation: .list, entity: "labels")]
+        return p
+    }
+        let ioQueue = DispatchQueue(label: "markview.ui-studio.log-tests")
+
+        // The ring keeps the newest 2,000 entries and counts the problems among them.
+        check("REQ-011 the log keeps 2,000 entries", StudioLogRing.capacity == 2_000)
+        let memory = StudioLog(root: nil, redactor: StudioRedactor(), queue: ioQueue)
+        for index in 1...2_500 { memory.add(index % 10 == 0 ? .server : .request, problem: index % 10 == 0, "entry \(index)") }
+        check("REQ-011 the ring drops the oldest entries beyond 2,000", memory.entries.count == 2_000
+              && memory.entries.first?.text == "entry 501" && memory.entries.last?.text == "entry 2500",
+              "\(memory.entries.count) \(memory.entries.first?.text ?? "") … \(memory.entries.last?.text ?? "")")
+        check("REQ-011 the problem count follows the entries kept", memory.problems == 200, "\(memory.problems)")
+        memory.clear()
+        check("REQ-011 Clear empties the view", memory.entries.isEmpty && memory.problems == 0)
+        memory.add(.notice, "after clear")
+        check("REQ-011 entry numbers go on after Clear", memory.entries.first?.id == 2_501, "\(memory.entries.first?.id ?? 0)")
+
+        // Secrets never reach a line: a known secret (by hash, alone or glued to its name), a bearer value and a JWT.
+        let secret = "s3cret-" + "value-" + "4711-known"
+        let opaque = "opaqueToken" + "9f8e7d6c5b4a"
+        let jwt = "eyJ" + "hbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0" + "." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        let logRoot = tmp.appendingPathComponent("log-project")
+        let fileLog = StudioLog(root: logRoot, redactor: StudioRedactor(), queue: ioQueue)
+        fileLog.secretHashes = [StudioConnections.hash(secret): "API_SECRET"]
+        fileLog.add(.server, "loaded the key \(secret) from .env.local")
+        fileLog.add(.server, "calling http://rates.example.test/v2/rates?key=\(secret)&page=2")
+        fileLog.add(.request, "Authorization: Bearer \(opaque)")
+        fileLog.add(.server, "retrying rates.example.test with bearer \(opaque)")
+        fileLog.add(.page, problem: true, "runtimeError: token \(jwt) was rejected\n    at verify (auth.ts:12)")
+        ioQueue.sync {}
+        let logText = (try? String(contentsOf: StudioStore.logURL(logRoot), encoding: .utf8)) ?? ""
+        let kept = fileLog.entries.map(\.text).joined(separator: "\n")
+        for (name, value) in [("a known secret", secret), ("a Bearer value", opaque), ("a JWT", jwt), ("a JWT's header", "eyJhbGci")] {
+            check("REQ-011 \(name) never reaches the log file or the view", !logText.contains(value) && !kept.contains(value))
+        }
+        check("REQ-011 a known secret is named, not shown", logText.contains("[redacted:API_SECRET] from .env.local")
+              && logText.contains("?key=[redacted:API_SECRET]&page=2"), logText)
+        check("REQ-011 the bearer scheme stays readable", fileLog.entries[3].text.hasSuffix("with bearer [redacted]")
+              && fileLog.entries[2].text.hasPrefix("Authorization: [redacted]"), "\(fileLog.entries[2].text) | \(fileLog.entries[3].text)")
+        let lines = logText.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
+        check("REQ-011 one line per entry, line breaks written as \\n", lines.count == 5 && lines[4].contains("rejected\\n    at verify"),
+              "\(lines.count): \(lines.last ?? "")")
+        check("REQ-011 a line has its time, kind and problem mark", lines[4].contains(StudioLogFormat.tag(.page, problem: true) + "runtimeError:")
+              && lines[0].contains(StudioLogFormat.tag(.server, problem: false) + "loaded")
+              && lines[0].range(of: #"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}(Z|[+-]\d{4}) "#, options: .regularExpression) != nil,
+              "\(lines[0]) | \(lines[4])")
+        check("REQ-011 the kind column always ends before the mark", StudioLogFormat.tag(.preparation, problem: true) == "preparation ! "
+              && StudioLogFormat.tag(.page, problem: false) == "page        - ")
+        check("REQ-011 the log file stays out of Git", fm.fileExists(atPath: StudioStore.localFolder(logRoot).appendingPathComponent(".gitignore").path))
+        let attributes = try? fm.attributesOfItem(atPath: StudioStore.logURL(logRoot).path)
+        check("REQ-011 the log file is readable by its owner only", (attributes?[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+
+        // The file rotates at 2 MB into one `.1` file.
+        check("REQ-011 the file rotates at 2 MB", StudioLogFile.rotationSize == 2 * 1024 * 1024)
+        check("REQ-011 rotation: a line that fits is appended", !StudioLogFile.shouldRotate(size: 2 * 1024 * 1024 - 10, adding: 10, limit: 2 * 1024 * 1024))
+        check("REQ-011 rotation: a line that does not fit rotates first", StudioLogFile.shouldRotate(size: 2 * 1024 * 1024 - 10, adding: 11, limit: 2 * 1024 * 1024))
+        check("REQ-011 rotation: an empty file takes any line", !StudioLogFile.shouldRotate(size: 0, adding: 3 * 1024 * 1024, limit: 2 * 1024 * 1024))
+        let rotationRoot = tmp.appendingPathComponent("log-rotation")
+        let file = StudioLogFile(root: rotationRoot)
+        let filler = String(repeating: "x", count: 1_000)
+        var written = 0
+        var index = 0
+        while written <= 2 * 1024 * 1024 + 4_000 {
+            let line = String(format: "%06d ", index) + filler + "\n"
+            file.append(line)
+            written += line.utf8.count
+            index += 1
+        }
+        func size(_ url: URL) -> Int { (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? -1 }
+        let rotated = size(file.rotatedURL), current = size(file.url)
+        check("REQ-011 the full file becomes session.log.1, at most 2 MB", rotated > 2 * 1024 * 1024 - 1_008 && rotated <= 2 * 1024 * 1024
+              && file.rotatedURL.lastPathComponent == "session.log.1", "\(rotated)")
+        check("REQ-011 writing goes on in a new session.log", current > 0 && current < 8_100 && rotated + current == written, "\(current)")
+        let firstRotated = (try? String(contentsOf: file.rotatedURL, encoding: .utf8))?.prefix(6) ?? ""
+        while written <= 4 * 1024 * 1024 + 8_000 {
+            let line = String(format: "%06d ", index) + filler + "\n"
+            file.append(line)
+            written += line.utf8.count
+            index += 1
+        }
+        let secondRotated = (try? String(contentsOf: file.rotatedURL, encoding: .utf8))?.prefix(6) ?? ""
+        let names = ((try? fm.contentsOfDirectory(atPath: StudioStore.localFolder(rotationRoot).path)) ?? []).filter { $0.hasPrefix("session.log") }.sorted()
+        check("REQ-011 a second rotation replaces the one .1 file", firstRotated == "000000" && secondRotated != firstRotated
+              && names == ["session.log", "session.log.1"], "\(firstRotated) \(secondRotated) \(names)")
+
+        // Server output arrives in pieces; lines that read like errors are problems.
+        var splitter = StudioLogLines()
+        let first = splitter.feed("ready - started\nerr")
+        let second = splitter.feed("or: boom\r\n\n\u{1B}[31mred\u{1B}[0m\n")
+        check("REQ-011 server output is split into whole lines", first == ["ready - started"] && second == ["error: boom", "red"],
+              "\(first) \(second)")
+        _ = splitter.feed("no newline at the end")
+        check("REQ-011 the last piece is kept until the server ends", splitter.flush() == ["no newline at the end"] && splitter.flush().isEmpty)
+        let errorLines = ["Error: Cannot find module 'x'", " ⨯ unhandledRejection: boom", "npm ERR! code ELIFECYCLE", " GET /dashboard 500 in 31ms",
+                          #"127.0.0.1 - - [04/Nov/2026 10:00:00] "GET / HTTP/1.1" 502 -"#, "connect ECONNREFUSED 127.0.0.1:5432"]
+        let calmLines = ["✓ Ready in 1.2s", "Found 0 errors. Watching for file changes.", " GET /dashboard 307 in 12ms", "  ➜  Local:   http://localhost:5173/"]
+        check("REQ-011 error lines are problems", errorLines.allSatisfy(StudioLogFormat.looksLikeError), "\(errorLines.filter { !StudioLogFormat.looksLikeError($0) })")
+        check("REQ-011 ordinary lines are not", !calmLines.contains(where: StudioLogFormat.looksLikeError), "\(calmLines.filter(StudioLogFormat.looksLikeError))")
+        check("REQ-011 a redirect to a sign-in page is recognised", ["/auth/login", "/login", "/sign-in", "/api/auth/signin?x=1"].allSatisfy(StudioLogFormat.isSignInPath)
+              && !["/authors", "/dashboard", "/"].contains(where: StudioLogFormat.isSignInPath))
+
+        // The preparation queue reports the start and the end of each preparation, without being polled.
+        let reported = StudioPreparationQueue(limits: StudioPreparationLimits(deadline: 0.2, maxAttempts: 1, maxConcurrent: 2, maxContracts: 40))
+        var records: [StudioPreparationQueue.Record] = []
+        let recordSubscription = reported.recordEvents.sink { records.append($0) }
+        let outcome = await reported.resolve(context("GET /api/slow-log"), generation: 1, preparer: StubPreparer(delay: 1_000_000_000, make: labels),
+                                             currentGeneration: { 1 }, commit: { _ in [] })
+        check("REQ-011 a preparation reports its start and its end", outcome == .timedOut && records.count == 2
+              && records[0].finished == nil && records[1].status == .timedOut && records[1].finished != nil
+              && records[1].message.contains("did not finish"), "\(records.map { "\($0.status) \($0.finished != nil)" })")
+        records = []
+        var aheadLogContext = context("Page /log: server requests")
+        aheadLogContext.ahead = StudioRouteAhead(route: "/log", connections: [])
+        _ = await reported.prepareAhead(aheadLogContext, services: [], preparer: StubPreparer(make: labels), commit: { _ in [] })
+        check("REQ-011 a preparation ahead of a page is reported too", records.map(\.contract) == ["Page /log: server requests", "Page /log: server requests"]
+              && records.last?.status == .registered, "\(records.map { "\($0.contract) \($0.status)" })")
+        withExtendedLifetime(recordSubscription) {}
+    }
+
     func testAssistantBoundaryFailsClosed() async {
         AIAssistantRunner.setTestRunner(nil)
         do {
