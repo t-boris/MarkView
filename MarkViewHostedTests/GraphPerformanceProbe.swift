@@ -142,7 +142,7 @@ final class GraphPerformanceProbe: XCTestCase {
             let file = root.appendingPathComponent(String(format: "fixture-%03d.md", index))
             try "# Fixture\n".write(to: file, atomically: true, encoding: .utf8)
         }
-        let manager = WorkspaceManager(prompts: GraphProbePrompts())
+        let manager = WorkspaceManager(prompts: GraphProbePrompts(), recentFilesURL: root.appendingPathComponent("recent-files.json"))
         manager.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
         let view = GraphCreatorSheet(workspaceManager: manager, isPresented: .constant(true)).environmentObject(manager.tabs)
         let hosting = NSHostingView(rootView: view)
@@ -202,7 +202,9 @@ final class GraphPerformanceProbe: XCTestCase {
         let files = await Task.detached { BackgroundFileScans.markdownPaths(in: root) }.value
         XCTAssertGreaterThan(files.count, 100)
         let lastFile = try XCTUnwrap(files.last)
-        let manager = WorkspaceManager(prompts: GraphProbePrompts())
+        let recentFiles = FileManager.default.temporaryDirectory.appendingPathComponent("graph-profile-recents-" + UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: recentFiles) }
+        let manager = WorkspaceManager(prompts: GraphProbePrompts(), recentFilesURL: recentFiles)
         manager.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
         var maxInterval = 0.0
         var lastTick = ProcessInfo.processInfo.systemUptime
