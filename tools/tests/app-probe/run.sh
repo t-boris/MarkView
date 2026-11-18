@@ -13,8 +13,16 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOME="$HOME"
 WORK="${PROBE_WORK:-/tmp/markview-probe}"
 APP="${PROBE_APP:-$WORK/MarkViewProbe.app}"
+[ "$#" -eq 2 ] || { echo "usage: $0 <name> <script-file>" >&2; exit 2; }
 NAME=$1; SCRIPT=$2
-[ -n "$NAME" ] && [ -f "$SCRIPT" ] || { echo "usage: $0 <name> <script-file>"; exit 2; }
+case "$NAME" in
+    ''|*[!a-zA-Z0-9._-]*|.|..) echo "Probe name must be a single file-safe name" >&2; exit 2 ;;
+esac
+case "$WORK" in
+    /*) ;;
+    *) echo "PROBE_WORK must be an absolute scratch path" >&2; exit 2 ;;
+esac
+[ -f "$SCRIPT" ] || { echo "Probe script not found: $SCRIPT" >&2; exit 2; }
 mkdir -p "$WORK"
 [ -f "$WORK/mvprobe.dylib" ] && [ "$WORK/mvprobe.dylib" -nt "$HERE/mvprobe.m" ] || \
     clang -dynamiclib -fobjc-arc -arch arm64 -framework AppKit -framework QuartzCore -o "$WORK/mvprobe.dylib" "$HERE/mvprobe.m"

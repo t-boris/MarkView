@@ -19,6 +19,7 @@ The own bundle id keeps the probe's preferences apart from the installed app's. 
 ## Script
 
 One step per line, run on the main queue (`#` starts a comment). Output goes to `$PROBE_WORK/out-<name>/` (`log.txt`, PNGs).
+Use an absolute scratch path for `PROBE_WORK` and a single name containing only letters, numbers, `.`, `_` or `-`.
 
 | Step | Does |
 |---|---|
