@@ -255,6 +255,58 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowLocalBranches() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-git-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func git(_ args: [String]) async throws -> String {
+            let result = await GitHubClient.execute(["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"] + args,
+                                                    in: root, git: true)
+            guard result.status == 0 else { throw NSError(domain: "LocalGitFixture", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: result.stderr]) }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        _ = try await git(["init", "-q", "-b", "main"])
+        _ = try await git(["config", "core.hooksPath", "/dev/null"])
+        let file = root.appendingPathComponent("tracked.md")
+        try "main\n".write(to: file, atomically: true, encoding: .utf8)
+        _ = try await git(["add", "tracked.md"])
+        _ = try await git(["commit", "-q", "-m", "initial"])
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        window.composition.gitClient.workingDirectory = root
+        await window.tabs.openTextFile(file)
+        let createError = await window.flow.createBranch("topic", from: "main")
+        XCTAssertNil(createError)
+        let topic = try await git(["branch", "--show-current"])
+        XCTAssertEqual(topic, "topic")
+        try "topic\n".write(to: file, atomically: true, encoding: .utf8)
+        _ = try await git(["add", "tracked.md"])
+        _ = try await git(["commit", "-q", "-m", "topic"])
+        let switchError = await window.flow.switchBranch("main")
+        XCTAssertNil(switchError)
+        for _ in 0..<300 where window.tabs.activeTab?.content != "main\n" { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(window.tabs.activeTab?.content, "main\n")
+        let main = try await git(["branch", "--show-current"])
+        XCTAssertEqual(main, "main")
+        let againError = await window.flow.switchBranch("topic")
+        XCTAssertNil(againError)
+        for _ in 0..<300 where window.tabs.activeTab?.content != "topic\n" { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(window.tabs.activeTab?.content, "topic\n")
+        let duplicateError = await window.flow.createBranch("topic", from: "main")
+        XCTAssertNotNil(duplicateError)
+        try "modified\n".write(to: file, atomically: true, encoding: .utf8)
+        let checkoutError = await window.flow.checkoutPullRequest(6)
+        XCTAssertTrue(checkoutError?.contains("uncommitted changes") == true)
+        XCTAssertTrue(checkoutError?.contains("#6") == true)
+        let current = try await git(["branch", "--show-current"])
+        XCTAssertEqual(current, "topic")
+        let blank = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("blank.json"))
+        defer { blank.composition.close() }
+        let noFolder = await blank.flow.checkoutPullRequest(1)
+        XCTAssertEqual(noFolder, "No folder open.")
+    }
+
     @MainActor func testRealFeatureFlowGitHubTabs() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-github-tabs-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

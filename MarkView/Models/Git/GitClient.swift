@@ -262,7 +262,8 @@ class GitClient: ObservableObject {
     func refreshStatus() async {
         guard let dir = workingDirectory, isGitRepo else { return }
         // Status — porcelain v2 with every untracked file and the ignored paths.
-        let statusArgs = ["git", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--ignored=matching"]
+        // A background status must not contend with a branch switch for the index lock.
+        let statusArgs = ["git", "--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--ignored=matching"]
         let parsed = GitRepoStatus.parse(await run(statusArgs, in: dir) ?? "")
         guard !Task.isCancelled else { return }
         let changed = parsed != repoStatus
@@ -488,7 +489,7 @@ class GitClient: ObservableObject {
         guard !Task.isCancelled else { return }
         guard list.count > 1 else { worktrees = []; return }
         for index in list.indices where !list[index].isBare {
-            let status = await run("git", "status", "--porcelain", "--untracked-files=normal", in: URL(fileURLWithPath: list[index].path))
+            let status = await run("git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=normal", in: URL(fileURLWithPath: list[index].path))
             list[index].changes = status?.split(separator: "\n").count
         }
         guard !Task.isCancelled else { return }
