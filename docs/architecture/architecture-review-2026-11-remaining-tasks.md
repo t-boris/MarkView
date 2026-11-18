@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: the successful feature implementation hand-off passed with a real feature store and a test-host-only isolated evidence log, avoiding writes to the user's process-wide log. The test checks the transition to implementing and the serialized work-started event, including its project and assistant, and drains the fixture's writes before cleanup. Version bumped to 7.0.8; the Debug build and zero-warning ratchet passed, as did architecture lint, SwiftLint and unused-import analysis of both changed sources (0 warnings). Symbol inspection found the test log hooks in the hosted binary and not the normal Debug binary.
+
 D4 in progress: failed-run log hand-off and cancellation checks passed against the real GitHub run model and the isolated local CLI fixture. The test checks failure text and the differing branch note, waits until both local log requests are running, closes the flow and model, and verifies every recorded fixture process has exited without another hand-off. The standalone FeatureFlowCoordinator suite remains while its other behavior is migrated.
 
 D4 in progress: the isolated local GitHub fixture passed integration activation and pull-request assistant hand-off checks. It verifies case-insensitive repository matching, reuse of an already checked-out branch and switching to another branch before hand-off. No real GitHub request is made; the prior test-host integration setting is restored.

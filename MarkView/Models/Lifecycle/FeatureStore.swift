@@ -730,6 +730,9 @@ final class FeatureStore: ObservableObject {
     /// Evidence lines are keyed by the project root's absolute path.
     /// False for a new-project draft: it is not a project yet, so no evidence.
     var recordsLifecycle = true
+    #if MARKVIEW_HOSTED_TEST_HOST
+    var testLifecycleLog: LifecycleLog?
+    #endif
 
     var lifecycleProject: String? { recordsLifecycle ? root?.standardizedFileURL.path : nil }
 
@@ -754,14 +757,19 @@ final class FeatureStore: ObservableObject {
     func recordImplementationStarted(_ slug: String, tool: CLITool, directory: URL, runningSince: Date?) {
         guard let project = lifecycleProject else { return }
         let actor = lifecycleActor, started = Date()
+        #if MARKVIEW_HOSTED_TEST_HOST
+        let log = testLifecycleLog ?? LifecycleLog.shared
+        #else
+        let log = LifecycleLog.shared
+        #endif
         let fallback = AIAssistantPreferences.model(for: tool, project: root) ?? AIAssistantPreferences.configuredModel(for: tool)
         // The start is recorded once, from values copied above, even when the folder or the window closes right after the click (BUG-008).
         // task: writes one journal record from copied values and touches no store; it must not be dropped by closing the folder
         Task.detached(priority: .userInitiated) {
             let model = Self.answeredModel(tool, directory: directory, since: runningSince) ?? fallback ?? tool.displayName
             await MainActor.run {
-                _ = LifecycleLog.shared.record(.workStarted, project: project, feature: slug, actor: actor,
-                                               model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
+                _ = log.record(.workStarted, project: project, feature: slug, actor: actor,
+                               model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
             }
         }
     }

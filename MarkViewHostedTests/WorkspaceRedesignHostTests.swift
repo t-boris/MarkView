@@ -809,6 +809,33 @@ extension EditorHostTests {
         XCTAssertTrue(assistant.sent[0].submit)
         XCTAssertTrue(assistant.sent[0].prompt.contains("notes.md"))
         XCTAssertEqual(flow.features.feature(slug)?.status, before)
+        let evidenceURL = root.appendingPathComponent("test-lifecycle-events.jsonl")
+        let evidence = LifecycleLog(testURL: evidenceURL)
+        flow.features.testLifecycleLog = evidence
+        flow.features.updateFeature(slug) { front, _ in front.set("status", "ready") }
+        XCTAssertEqual(flow.features.feature(slug)?.status, "ready")
+        flow.startImplementation(folder, done: .standard)
+        XCTAssertEqual(assistant.sent.count, 2)
+        let sentFeature = try XCTUnwrap(assistant.sent.last)
+        XCTAssertTrue(sentFeature.submit)
+        XCTAssertTrue(sentFeature.prompt.contains("docs/features/\(slug)"))
+        XCTAssertEqual(flow.features.feature(slug)?.status, "implementing")
+        for _ in 0..<500 where evidence.events(project: root.standardizedFileURL.path, feature: slug).isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let events = evidence.events(project: root.standardizedFileURL.path, feature: slug)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.stage, .workStarted)
+        await evidence.drainTestWrites()
+        let persisted = try String(contentsOf: evidenceURL, encoding: .utf8)
+        let line = try XCTUnwrap(persisted.split(separator: "\n").first)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let recorded = try decoder.decode(LifecycleEvent.self, from: Data(line.utf8))
+        XCTAssertEqual(recorded.feature, slug)
+        XCTAssertEqual(recorded.project, root.standardizedFileURL.path)
+        XCTAssertEqual(recorded.stage, .workStarted)
+        XCTAssertTrue(recorded.note?.contains("Claude") == true)
 
         let bug = try flow.features.createBug(BugReportDraft(title: "Broken", body: "A fixture", provenance: "Test"))
         let bugStatus = try XCTUnwrap(flow.features.bug(at: bug.url)?.status)
@@ -820,7 +847,7 @@ extension EditorHostTests {
         XCTAssertEqual(flow.features.bug(at: bug.url)?.status, bugStatus)
         assistant.sends = true
         flow.fixBugWithAI(bug.url)
-        XCTAssertEqual(assistant.sent.count, 2)
+        XCTAssertEqual(assistant.sent.count, 3)
         let sentBug = try XCTUnwrap(assistant.sent.last)
         XCTAssertTrue(sentBug.prompt.contains(bug.url.lastPathComponent))
         XCTAssertTrue(sentBug.submit)

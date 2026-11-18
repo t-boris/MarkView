@@ -21,6 +21,11 @@ final class LifecycleLog: ObservableObject {
 
     private struct WeakObserver { weak var store: FeatureStore? }
 
+    #if MARKVIEW_HOSTED_TEST_HOST
+    init(testURL: URL) { url = testURL }
+    func drainTestWrites() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
+    #endif
+
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         url = support.appendingPathComponent("MarkView", isDirectory: true).appendingPathComponent("lifecycle-events.jsonl")
