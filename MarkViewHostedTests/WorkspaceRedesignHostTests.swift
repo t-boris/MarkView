@@ -319,6 +319,34 @@ private struct WorkspaceRedesignFixture {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealFeatureFlowResearchComment() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-comment-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("research.md")
+        try "# Research\n\n## Findings\n\nThe selected passage.\n".write(to: file, atomically: true, encoding: .utf8)
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        await window.tabs.openTextFile(file)
+        let fixture = FeatureIntakeFixture()
+        await fixture.setMode(.text)
+        AIAssistantRunner.setTestRunner { request, delta, activity in try await fixture.run(request, delta, activity) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        window.flow.runFeatureAction("comment", text: "The selected passage.", question: "Tighten this")
+        XCTAssertTrue(window.research.jobs.isRunning(on: file))
+        for _ in 0..<500 where window.research.jobs.isRunning(on: file) { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(window.research.jobs.isRunning(on: file))
+        let request = await fixture.lastRequest()
+        let sent = try XCTUnwrap(request)
+        XCTAssertTrue(sent.prompt.contains("The selected passage."))
+        XCTAssertTrue(sent.prompt.contains("Tighten this"))
+        XCTAssertEqual(sent.project?.standardizedFileURL.path, root.standardizedFileURL.path)
+        let revised = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(revised.contains("Fixture answer"))
+        XCTAssertTrue(revised.contains("## Findings"))
+    }
+
     @MainActor func testRealFeatureFlowSelectedTextAction() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-selection-host-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
