@@ -45,7 +45,8 @@ struct EditorView: NSViewRepresentable {
 
         let config = WebHost.makeConfiguration(
             handlers: [.message("bridge", context.coordinator.bridge.messages)],
-            urlSchemeHandlers: [(DataFileSchemeHandler.scheme, dataFiles), (DocumentFileSchemeHandler.scheme, documentFiles)])
+            urlSchemeHandlers: [(DataFileSchemeHandler.scheme, dataFiles), (DocumentFileSchemeHandler.scheme, documentFiles),
+                                (PrototypeSchemeHandler.scheme, EditorPage.resourceHandler(root: context.coordinator.editorResourceBaseURL))])
         let webView = WebHost.makeWebView(configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = context.coordinator
@@ -95,7 +96,7 @@ struct EditorView: NSViewRepresentable {
         weak var webView: WKWebView?
 
         var editorHTML: String?
-        private let editorResourceBaseURL: URL
+        fileprivate let editorResourceBaseURL: URL
         private var currentDocumentBaseURL: URL?
         private var lastLoadedContent: String = ""
         private var lastLoadedDocumentURL: URL?
@@ -271,7 +272,7 @@ struct EditorView: NSViewRepresentable {
                     forMainFrameOnly: true
                 ))
             }
-            webView.loadHTMLString(page, baseURL: editorResourceBaseURL)
+            webView.loadHTMLString(page, baseURL: EditorPage.resourceBaseURL)
         }
 
         // MARK: - WKNavigationDelegate

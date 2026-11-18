@@ -1647,31 +1647,6 @@ extension EditorHostTests {
             func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { done = true }
         }
 
-        /// Serves the editor folder to the page under a custom scheme. The app loads the page text with `loadHTMLString` and the bundle
-        /// folder as its base, and the web content process may read the bundle but not an arbitrary folder, so a test (which runs from a
-        /// work folder) gives the page the same shape through a scheme handler instead: the page text still arrives as a string, every
-        /// other file is read from the editor folder.
-        final class EditorFolder: NSObject, WKURLSchemeHandler {
-            let root: String
-            init(root: String) { self.root = root }
-            static let scheme = "mvtest"
-            static let base = URL(string: "mvtest://editor/")!
-            func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
-                guard let url = task.request.url, url.host == "editor",
-                      let data = FileManager.default.contents(atPath: root + url.path), !url.path.contains("..") else {
-                    task.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
-                    return
-                }
-                let types = ["js": "text/javascript", "mjs": "text/javascript", "css": "text/css", "html": "text/html", "json": "application/json",
-                             "wasm": "application/wasm", "woff2": "font/woff2", "svg": "image/svg+xml", "png": "image/png"]
-                let mime = types[url.pathExtension] ?? "application/octet-stream"
-                task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": mime, "Content-Length": "\(data.count)"])!)
-                task.didReceive(data)
-                task.didFinish()
-            }
-            func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
-        }
-
         /// The editor page loaded the way EditorView.loadEditorPage loads it: page text with a base URL, then the preferences script and
         /// (when the page took one) the nonce script at document start.
         @MainActor final class Page {
@@ -1679,14 +1654,14 @@ extension EditorHostTests {
             let window: NSWindow
             let bridge = Bridge()
             let loaded = Loaded()
-            let folder: EditorFolder
+            let folder: PrototypeSchemeHandler
             let context: CSPTestContext
             init(context: CSPTestContext, html: String, nonce: String?, own: [String: String] = [:]) {
                 self.context = context
-                self.folder = EditorFolder(root: context.root)
+                self.folder = EditorPage.resourceHandler(root: URL(fileURLWithPath: context.root, isDirectory: true))
                 let config = WKWebViewConfiguration()
                 config.websiteDataStore = context.storage
-                config.setURLSchemeHandler(folder, forURLScheme: EditorFolder.scheme)
+                config.setURLSchemeHandler(folder, forURLScheme: PrototypeSchemeHandler.scheme)
                 config.userContentController.add(bridge, name: "bridge")
                 config.userContentController.addUserScript(try! BridgeContract(contentsOf: URL(fileURLWithPath: context.root + "/js/bridge-contract.json")).userScript)  // the page gets the bridge contract from the app (AR-28)
                 config.userContentController.addUserScript(WKUserScript(source: EditorWindowPrefs.script(values: own), injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -1699,7 +1674,7 @@ extension EditorHostTests {
                 window.alphaValue = 0
                 window.contentView = web
                 web.navigationDelegate = loaded
-                web.loadHTMLString(html, baseURL: EditorFolder.base)
+                web.loadHTMLString(html, baseURL: EditorPage.resourceBaseURL)
                 context.spin(30) { loaded.done }
                 context.spin(1.5)
             }
@@ -1732,6 +1707,8 @@ extension EditorHostTests {
         defer { page.close() }
         check(page.js("return String(typeof window.setContent === 'function' && typeof window.buildInsightSrcdoc === 'function');") == "true",
               "the page's own scripts run under the prepared policy")
+        check(page.js("return getComputedStyle(document.getElementById('find-bar')).display;") == "none",
+              "the bundled editor stylesheet hides the find bar until it is opened")
         let policy = page.js("return document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]').content;")
         let scriptSrc = policy.components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces) }.first { $0.hasPrefix("script-src") } ?? ""
         check(scriptSrc == "script-src 'self' 'wasm-unsafe-eval' 'nonce-\(nonce)'", "WebKit reads script-src with 'self', 'wasm-unsafe-eval' and the nonce", scriptSrc)

@@ -8,6 +8,14 @@ import MarkViewCore
 /// view builds a `srcdoc` frame, and such a frame inherits the policy of the page that holds it, so the frame's inline scripts
 /// can only run when the page's `script-src` carries the same per-load nonce the frame uses (FU-10, FU-26).
 enum EditorPage {
+    // A custom origin lets WebKit load the bundled styles and scripts for an HTML string.
+    // File URLs have an opaque origin here and cannot load those sibling resources.
+    static let resourceBaseURL = URL(string: "mvproto://site/")!
+
+    static func resourceHandler(root: URL) -> PrototypeSchemeHandler {
+        PrototypeSchemeHandler(root: root)
+    }
+
     /// A random token for one load of the page.
     static func makeNonce() -> String {
         var bytes = [UInt8](repeating: 0, count: 16)
