@@ -27,6 +27,51 @@ private final class DiscussionRunnerSpy: @unchecked Sendable {
 }
 
 extension EditorHostTests {
+    @MainActor func testRealBrowserHostTabLifecycle() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("browser-routing-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        window.chrome.showCenter = false
+        window.layout.workspaceArea = .work
+        let browser = window.browser
+        let first = browser.open(nil)
+        XCTAssertEqual(first.agentName, "T1")
+        XCTAssertEqual(window.tabs.openTabs.count, 1)
+        XCTAssertEqual(window.tabs.activeTabIndex, 0)
+        XCTAssertTrue(window.chrome.showCenter)
+        XCTAssertEqual(window.layout.workspaceArea, .files)
+        XCTAssertEqual(window.tabs.openTabs[0].url.deletingLastPathComponent().path, root.path)
+        if case .browser(let session) = window.tabs.openTabs[0].kind {
+            XCTAssertTrue(session === first)
+        } else {
+            XCTFail("The new tab must contain the browser session")
+        }
+        first.agentName = "Jira"
+        let second = browser.open(nil)
+        let third = browser.open(nil)
+        XCTAssertEqual(second.agentName, "T1")
+        XCTAssertEqual(third.agentName, "T2")
+        XCTAssertEqual(browser.sessions.map(\.id), [first.id, second.id, third.id])
+        window.chrome.showCenter = false
+        window.layout.workspaceArea = .work
+        browser.show(first)
+        XCTAssertEqual(window.tabs.activeTabIndex, 0)
+        XCTAssertEqual(window.layout.workspaceArea, .files)
+        XCTAssertTrue(window.chrome.showCenter)
+        browser.show(BrowserSession(url: nil, prompts: NoPrompts()))
+        XCTAssertEqual(window.tabs.activeTabIndex, 0)
+        let fourth = browser.open(nil, activate: false)
+        XCTAssertEqual(fourth.agentName, "T3")
+        XCTAssertEqual(window.tabs.activeTabIndex, 0)
+        browser.browserSession(first, openInNewTab: try XCTUnwrap(URL(string: "http://127.0.0.1:1/new")))
+        XCTAssertEqual(browser.sessions.count, 5)
+        XCTAssertEqual(browser.sessions.last?.url?.path, "/new")
+        XCTAssertEqual(window.tabs.activeTabIndex, 4)
+    }
+
     @MainActor func testRealToolTabsRoutingAndProjectLifecycle() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("tool-routing-" + UUID().uuidString)
         let first = root.appendingPathComponent("first", isDirectory: true)
