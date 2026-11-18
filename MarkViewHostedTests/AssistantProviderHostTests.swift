@@ -465,6 +465,15 @@ extension EditorHostTests {
 
         // The agents and what differs between them
         expect(CLITool.usageTracked.map(\.rawValue), ["claude", "codex", "copilot", "antigravity"], "agents in bar order")
+        expect(AgentUsageBar.columns(for: []).map { $0.map(\.rawValue) }, [], "empty usage bar has no columns")
+        expect(AgentUsageBar.columns(for: [.claude]).map { $0.map(\.rawValue) }, [["claude"]], "single agent takes one column")
+        expect(AgentUsageBar.columns(for: [.claude, .codex]).map { $0.map(\.rawValue) }, [["claude", "codex"]],
+               "two agents stack in one two-row column")
+        expect(AgentUsageBar.columns(for: [.claude, .codex, .copilot]).map { $0.map(\.rawValue) }, [["claude", "codex"], ["copilot"]],
+               "three agents take two columns of at most two rows")
+        expect(AgentUsageBar.columns(for: CLITool.usageTracked).map { $0.map(\.rawValue) },
+               [["claude", "codex"], ["copilot", "antigravity"]],
+               "four agents form a two-by-two grid of two-row columns")
         expect(CLITool.usageTracked.map(\.hasLocalLogs), [true, true, false, false], "only Claude and Codex have local logs")
         expect(CLITool.copilot.displayName, "Copilot", "copilot name")
         expect(CLITool.copilot.dataDirectoryName, ".copilot", "copilot data directory")

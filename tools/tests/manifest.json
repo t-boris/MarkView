@@ -563,6 +563,7 @@
         "MarkView/Models/Appearance/ProjectColor.swift",
         "MarkView/Models/Architecture/CodeExplainer.swift",
         "MarkView/Models/AI/AIPrompts.swift",
+        "MarkView/Views/AI/AgentUsageViews.swift",
         "MarkViewHostedTests/AssistantProviderHostTests.swift",
         "MarkView/Info.plist",
         "MarkView/Models/AgentTools/BrowserAgentTools.swift",

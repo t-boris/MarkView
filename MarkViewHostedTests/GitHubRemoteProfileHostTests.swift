@@ -972,27 +972,32 @@ extension EditorHostTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("github-command-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        let megabyte = root.appendingPathComponent("megabyte.bin")
+        try Data(repeating: 0x41, count: 1_048_576).write(to: megabyte)
         let fixture = root.appendingPathComponent("gh-fixture")
         let script = #"""
-        #!/usr/bin/python3
-        import os, signal, sys
-        case = sys.argv[-1]
-        if case == "both-pipes":
-            for _ in range(64):
-                os.write(1, b"A" * 16384)
-                os.write(2, b"A" * 16384)
-            sys.exit(7)
-        elif case == "mark":
-            open("started", "wb").close()
-            os.write(1, b"marked\n")
-        elif case == "ignore-term":
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            with open("hung.pid", "w") as f:
-                f.write(str(os.getpid()))
-            while True:
-                signal.pause()
-        else:
-            os.write(1, "ready é\n".encode())
+        #!/bin/sh
+        for last; do :; done
+        case "$last" in
+        both-pipes)
+            /bin/cat megabyte.bin &
+            /bin/cat megabyte.bin >&2
+            wait
+            exit 7
+            ;;
+        mark)
+            : > started
+            printf 'marked\n'
+            ;;
+        ignore-term)
+            trap '' TERM
+            printf '%s' "$$" > hung.pid
+            while :; do /bin/sleep 60; done
+            ;;
+        *)
+            printf 'ready é\n'
+            ;;
+        esac
         """#
         try script.write(to: fixture, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.path)
