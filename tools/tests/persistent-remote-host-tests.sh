@@ -8,13 +8,19 @@ mkdir -p "$scratch/home" "$scratch/fixture"
 cp Tests/Fixtures/assistant-persistent-echo.sh "$scratch/fixture/echo.sh"
 chmod 755 "$scratch/fixture/echo.sh"
 relay_pid=''
+sampler_pid=''
 cleanup() {
     local status=$? command pid group
     trap - EXIT INT TERM
     set +e
+    if [[ -n "$sampler_pid" ]]; then kill "$sampler_pid" 2>/dev/null; wait "$sampler_pid" 2>/dev/null; fi
     if (( status != 0 )) && [[ -f "$scratch/relay.log" ]]; then
         echo 'Sanitized loopback relay events (last 80):' >&2
         tail -n 80 "$scratch/relay.log" >&2
+    fi
+    if (( status != 0 )) && [[ -f "$scratch/sample.txt" ]]; then
+        echo 'Selected test-host stack frames:' >&2
+        grep -E '^[[:space:]+!0-9]+.*(Remote|hostName|getaddrinfo|CFHost|DNS|__psynch|semaphore)' "$scratch/sample.txt" | tail -n 100 >&2
     fi
     if [[ -f "$scratch/children.pid" ]]; then
         while IFS= read -r pid; do
@@ -59,6 +65,20 @@ export TEST_RUNNER_MARKVIEW_PERSISTENT_TEST_RELAY="http://127.0.0.1:$port"
 export TEST_RUNNER_MARKVIEW_PERSISTENT_TEST_ID="$(uuidgen)"
 export TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch"
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
+if [[ "${CI:-}" == true ]]; then
+    # CI runners own this isolated host. Sample only its exact executable, never an installed app.
+    (
+        sleep 18
+        while IFS= read -r pid; do
+            command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+            case "$command" in
+                "$derived"/Build/Products/*/MarkView.app/Contents/MacOS/MarkView*)
+                    sample "$pid" 2 -file "$scratch/sample.txt" >/dev/null 2>&1 || true ;;
+            esac
+        done < <(pgrep -x MarkView || true)
+    ) &
+    sampler_pid=$!
+fi
 MARKVIEW_SOCKET_DIR="$scratch" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
   -only-testing:MarkViewHostedTests/PersistentRemoteHostTests/testPersistentRemoteSessions test 2>&1 | tee "$scratch/test.log"

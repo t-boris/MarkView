@@ -861,7 +861,8 @@
         "MarkView/Models/QA/QANativeTree.swift",
         "MarkView/Models/Lifecycle/LifecycleLog.swift",
         "tools/ci/xcodebuild",
-        "tools/ci/build-cache-mtimes.py"
+        "tools/ci/build-cache-mtimes.py",
+        "tools/ci/run-hosted-pair.sh"
       ]
     },
     {
@@ -1028,7 +1029,8 @@
         "MarkView/Models/Research/ResearchMapDocument.swift",
         "tools/ci/hosted-tests.xcconfig",
         "tools/ci/xcodebuild",
-        "tools/ci/build-cache-mtimes.py"
+        "tools/ci/build-cache-mtimes.py",
+        "tools/ci/run-hosted-pair.sh"
       ]
     },
     {
@@ -1039,7 +1041,8 @@
         "tools/tests/run.sh",
         "tools/ci/hosted-test-shards.py",
         "tools/ci/hosted-test-seconds.json",
-        "tools/ci/xcodebuild"
+        "tools/ci/xcodebuild",
+        "tools/ci/run-hosted-pair.sh"
       ]
     },
     {
@@ -1061,7 +1064,8 @@
         "Tests/Fixtures/themes/classic-computed.json",
         "tools/ci/hosted-tests.xcconfig",
         "tools/ci/xcodebuild",
-        "tools/ci/build-cache-mtimes.py"
+        "tools/ci/build-cache-mtimes.py",
+        "tools/ci/run-hosted-pair.sh"
       ]
     },
     {
@@ -1264,7 +1268,8 @@
         "MarkView/Resources/Editor/js/markview-ui-studio-api.js",
         "tools/ci/hosted-tests.xcconfig",
         "tools/ci/xcodebuild",
-        "tools/ci/build-cache-mtimes.py"
+        "tools/ci/build-cache-mtimes.py",
+        "tools/ci/run-hosted-pair.sh"
       ]
     },
     {

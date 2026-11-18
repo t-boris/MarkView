@@ -260,6 +260,28 @@ assert run([selector, 'test']).returncode != 0
 PY
 check $? "prebuilt adapter preserves selections and rejects unsafe or missing inputs"
 
+# Both concurrent suites must run and failures from either must fail the pair.
+python3 - "$PWD/tools/ci/run-hosted-pair.sh" "$work" <<'PY'
+import os, pathlib, subprocess, sys
+script, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]) / 'pair-fixture'
+runner = root / 'tools/tests/run.sh'; runner.parent.mkdir(parents=True)
+runner.write_text('#!/bin/bash\npart=${MARKVIEW_QA_HOST_PART:-${MARKVIEW_STUDIO_TEST_PART:-$1}}\necho "ran $part"\n[[ "$part" != "${FAIL_SUITE:-}" ]]\n')
+runner.chmod(0o755)
+def run(args, failure=''):
+    return subprocess.run([str(script), *args], cwd=root, env=dict(os.environ, FAIL_SUITE=failure), capture_output=True, text=True)
+args = ['qa-editor-0', 'qa-editor-1']
+good = run(args)
+assert good.returncode == 0 and 'ran editor-0' in good.stdout and 'ran editor-1' in good.stdout
+for bad in ('editor-0', 'editor-1'):
+    result = run(args, bad)
+    assert result.returncode != 0 and 'ran editor-0' in result.stdout and 'ran editor-1' in result.stdout
+assert run(['qa-editor-0', 'qa-editor-0']).returncode != 0
+assert run(['qa-editor-0', 'unknown']).returncode != 0
+studio = run(['studio-session', 'studio-recovery'])
+assert studio.returncode == 0 and 'ran session' in studio.stdout and 'ran recovery' in studio.stdout
+PY
+check $? "hosted pairs retain both results and reject invalid suites"
+
 if [ "$failures" -gt 0 ]; then
     echo "run.sh checks FAILED: $failures"
     exit 1
