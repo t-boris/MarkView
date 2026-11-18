@@ -176,8 +176,12 @@ struct HandoffPanelView: View {
     @MainActor private func refresh() async {
         guard let project else { return }
         do {
-            state = try await SpecificationHandoffStore.shared.state(project: project, slug: feature.slug)
+            let next = try await SpecificationHandoffStore.shared.state(project: project, slug: feature.slug)
+            guard !Task.isCancelled else { return }
+            state = next
             error = nil
+        } catch is CancellationError {
+            return
         } catch {
             self.error = error.localizedDescription
         }
