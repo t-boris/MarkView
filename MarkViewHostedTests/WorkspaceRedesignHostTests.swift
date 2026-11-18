@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Combine
 import CoreText
 import PDFKit
 import SQLite3
@@ -302,5 +303,58 @@ extension EditorHostTests {
         }
         XCTAssertTrue(window.project.fileTree.rootNode?.children?.contains(where: { $0.url == added }) == true,
                       "Reloading an externally changed tab refreshes the real project tree")
+    }
+
+    @MainActor func testRealWindowCompositionClosesInsightTab() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("composition-insight-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        let cache = try InsightCache(workspaceURL: root, sessionId: UUID(), pagePolicy: "")
+        let session = InsightSession(folderURL: root, mdFiles: [], graphRAG: nil, cache: cache)
+        window.showInsightTab(session, placeholder: root.appendingPathComponent(".insight-test"))
+        var releasedWhileTabPresent = false
+        let subscription = window.insight.blobReleases.sink {
+            releasedWhileTabPresent = window.tabs.openTabs.contains { tab in
+                if case .insight(let current) = tab.kind { return current.id == session.id }
+                return false
+            }
+        }
+        window.tabs.closeTab(at: 0)
+        for _ in 0..<100 where !window.tabs.openTabs.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(releasedWhileTabPresent, "The window releases blob URLs before removing the Insight tab")
+        XCTAssertTrue(window.tabs.openTabs.isEmpty, "The window removes the tab after session cancellation")
+        subscription.cancel()
+    }
+
+    @MainActor func testRealWindowCompositionClosesTerminalTab() throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mvct-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let previousSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
+        setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
+        defer {
+            if let previousSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", previousSocketDirectory, 1) }
+            else { unsetenv("MARKVIEW_SOCKET_DIR") }
+            try? FileManager.default.removeItem(at: root)
+        }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        let terminal = window.openTerminal(in: root, startupCommand: nil)
+        let socketPath = AgentToolServer.socketPath
+        let createdListener = socketPath?.hasPrefix(root.path + "/") == true
+        defer {
+            window.composition.close()
+            AgentToolServer.unregister(window.browser.controlID)
+            if createdListener { AgentToolServer.shutdown() }
+        }
+        XCTAssertTrue(window.terminals.tabTerminal(terminal.id) === terminal)
+        XCTAssertNotNil(socketPath, "The test host can register the terminal's control socket")
+        XCTAssertEqual(window.tabs.openTabs.count, 1)
+        XCTAssertFalse(terminal.isRunning, "Creating the fixture does not start a shell")
+        window.tabs.closeTab(at: 0)
+        XCTAssertNil(window.terminals.tabTerminal(terminal.id), "Closing the tab removes its owned terminal")
+        XCTAssertTrue(window.tabs.openTabs.isEmpty)
     }
 }
