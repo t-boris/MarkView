@@ -171,7 +171,7 @@ extension EditorHostTests {
     }
 
     @MainActor func testRealBrowserHostAgentRegistration() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("browser-agent-" + UUID().uuidString, isDirectory: true)
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-agent-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let settings = Settings.standard
@@ -301,7 +301,7 @@ extension EditorHostTests {
     }
 
     @MainActor func testRealBrowserHostStartsAndCancelsPreviewTerminal() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("browser-server-" + UUID().uuidString, isDirectory: true)
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-server-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let server = try BrowserFixtureServer()
@@ -418,7 +418,7 @@ extension EditorHostTests {
     }
 
     @MainActor func testRealBrowserHostReusesRememberedPreviewTerminal() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("browser-reuse-" + UUID().uuidString, isDirectory: true)
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-reuse-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
@@ -456,7 +456,7 @@ extension EditorHostTests {
     }
 
     @MainActor func testRealBrowserHostUsesServerAddressPrintedByTerminal() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("browser-output-" + UUID().uuidString, isDirectory: true)
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-output-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let server = try BrowserFixtureServer()

@@ -28,6 +28,110 @@ private final class DiscussionRunnerSpy: @unchecked Sendable {
 
 
 extension EditorHostTests {
+    @MainActor func testRealAITerminalsLifecycleAndPersistence() throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-ai-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = Settings.standard
+        let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+        let oldSaved = settings.stored(savedKey)
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
+        let oldClaudeTools = settings.stored(claude.agentToolsKey)
+        let oldCodexTools = settings.stored(codex.agentToolsKey)
+        let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
+        settings.set(nil, for: savedKey)
+        settings.set(true, for: claude.agentToolsKey)
+        settings.set(true, for: codex.agentToolsKey)
+        setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
+        defer {
+            settings.set(oldSaved, for: savedKey)
+            settings.set(oldClaudeTools, for: claude.agentToolsKey)
+            settings.set(oldCodexTools, for: codex.agentToolsKey)
+            if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
+            else { unsetenv("MARKVIEW_SOCKET_DIR") }
+        }
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        let other = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("other.json"))
+        defer {
+            AgentToolServer.unregister(window.browser.controlID)
+            AgentToolServer.unregister(other.browser.controlID)
+            window.composition.close()
+            other.composition.close()
+            if AgentToolServer.socketPath?.hasPrefix(root.path + "/") == true { AgentToolServer.shutdown() }
+        }
+        let terminals = window.terminals
+        XCTAssertTrue(terminals.activity.provider === terminals)
+        XCTAssertNil(terminals.root)
+        XCTAssertTrue(terminals.sessions.isEmpty)
+        XCTAssertNil(terminals.openAITerminal(TerminalProfile(claude)))
+        XCTAssertNil(terminals.ensureAITerminal())
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        XCTAssertEqual(terminals.root?.standardizedFileURL, root.standardizedFileURL)
+        XCTAssertNil(terminals.workspaceRoot)
+        let first = try XCTUnwrap(terminals.openAITerminal(TerminalProfile(claude)))
+        let second = try XCTUnwrap(terminals.openAITerminal(TerminalProfile(claude)))
+        let shell = try XCTUnwrap(terminals.openAITerminal(.shell))
+        XCTAssertEqual(first.directory.standardizedFileURL, root.standardizedFileURL)
+        XCTAssertEqual(first.title, "Claude Code")
+        XCTAssertEqual(second.title, "Claude Code 2")
+        XCTAssertEqual(shell.title, "Shell")
+        XCTAssertNil(shell.startupCommand)
+        XCTAssertTrue(first.startupCommand?.contains(" update && ") == true)
+        XCTAssertTrue(first.startupCommand?.contains("--mcp-config") == true)
+        XCTAssertEqual(first.browserWindowID, window.browser.controlID)
+        XCTAssertTrue(terminals.shown === shell)
+        XCTAssertTrue(terminals.assistantTerminal === first)
+        XCTAssertTrue(terminals.sessions.allSatisfy { !$0.isRunning })
+        let model = try XCTUnwrap(terminals.openAITerminal(TerminalProfile(codex), model: "gpt-fixture"))
+        XCTAssertEqual(model.model, "gpt-fixture")
+        XCTAssertTrue(model.startupCommand?.contains("gpt-fixture") == true)
+        let resumed = try XCTUnwrap(terminals.openAITerminal(TerminalProfile(codex), resuming: true))
+        XCTAssertEqual(resumed.profile, TerminalProfile(codex))
+        terminals.closeAITerminal(model.id)
+        terminals.closeAITerminal(resumed.id)
+        terminals.workspaceRoot = root
+        terminals.shownID = second.id
+        let saved = try XCTUnwrap(settings.stored(savedKey))
+        XCTAssertEqual(saved["profiles"] as? [String], ["claude", "claude", "shell"])
+        XCTAssertEqual(saved["shown"] as? Int, 1)
+        terminals.stopAll()
+        XCTAssertTrue(terminals.sessions.isEmpty)
+        XCTAssertNil(terminals.shownID)
+        XCTAssertEqual(settings.stored(savedKey)?["profiles"] as? [String], ["claude", "claude", "shell"])
+        other.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        other.terminals.workspaceRoot = root
+        XCTAssertEqual(other.terminals.sessions.map(\.profile.rawValue), ["claude", "claude", "shell"])
+        guard other.terminals.sessions.count == 3 else { XCTFail("The saved terminals must be restored"); return }
+        XCTAssertEqual(other.terminals.shown?.profile, TerminalProfile(claude))
+        XCTAssertTrue(other.terminals.shown === other.terminals.sessions[1])
+        XCTAssertTrue(other.terminals.sessions.allSatisfy { !$0.isRunning })
+        let restoredIDs = other.terminals.sessions.map(\.id)
+        other.terminals.closeAITerminal(restoredIDs[1])
+        XCTAssertEqual(other.terminals.shownID, restoredIDs[2])
+        XCTAssertEqual(settings.stored(savedKey)?["profiles"] as? [String], ["claude", "shell"])
+        other.terminals.closeAITerminal(UUID())
+        XCTAssertEqual(other.terminals.sessions.count, 2)
+        let restoredAssistant = try XCTUnwrap(other.terminals.sessions.first)
+        let restoredShell = try XCTUnwrap(other.terminals.sessions.last)
+        XCTAssertTrue(other.terminals.assistantTerminal === restoredAssistant)
+        XCTAssertEqual(other.terminals.currentAssistant?.tool, claude)
+        XCTAssertFalse(other.terminals.assistantIsBusy)
+        let receiver = other.terminals.sendToAssistant("isolated prompt", submit: true)
+        XCTAssertTrue(receiver === restoredAssistant)
+        XCTAssertEqual(other.terminals.shownID, restoredAssistant.id)
+        XCTAssertTrue(restoredAssistant.hasPendingPaste)
+        var requestedProfile: TerminalProfile?
+        let direct = other.terminals.sendToAssistant(submit: false, to: restoredShell) { session in
+            requestedProfile = session.profile
+            return "shell prompt"
+        }
+        XCTAssertTrue(direct === restoredShell)
+        XCTAssertEqual(requestedProfile, .shell)
+        XCTAssertTrue(restoredShell.hasPendingPaste)
+        XCTAssertNil(other.terminals.sendToAssistant(submit: true, to: restoredShell) { _ in nil })
+    }
+
     @MainActor func testRealToolTabsRoutingAndProjectLifecycle() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("tool-routing-" + UUID().uuidString)
         let first = root.appendingPathComponent("first", isDirectory: true)
