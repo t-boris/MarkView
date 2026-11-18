@@ -482,7 +482,7 @@ extension EditorHostTests {
         XCTAssertEqual(assistant.sent.count, beforeStop, "Closing cancels a log hand-off that has not completed")
     }
 
-    @MainActor func testRealFeatureFlowProjectLifecycle() throws {
+    @MainActor func testRealFeatureFlowProjectLifecycle() async throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("feature-lifecycle-host-" + UUID().uuidString)
         let first = base.appendingPathComponent("first", isDirectory: true)
         let second = base.appendingPathComponent("second", isDirectory: true)
@@ -516,10 +516,19 @@ extension EditorHostTests {
         XCTAssertEqual(flow.features.root, second)
         XCTAssertTrue(flow.bugBatch.basket.isEmpty, "A different folder starts with an empty basket")
         XCTAssertNil(flow.gitHub.root)
+        settings.set(true, for: Setting.gitHubEnabled)
+        for _ in 0..<200 where flow.gitHub.root != second { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(flow.gitHub.root, second)
+        settings.set(false, for: Setting.gitHubEnabled)
+        for _ in 0..<200 where flow.gitHub.root != nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(flow.gitHub.root)
         flow.reset()
         XCTAssertNil(flow.features.root)
         XCTAssertNil(flow.gitHub.root)
         flow.close()
+        settings.set(true, for: Setting.gitHubEnabled)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(flow.gitHub.root, "A closed window no longer follows the integration setting")
     }
 
     @MainActor func testRealFeatureFlowResearchComment() async throws {
@@ -1040,6 +1049,13 @@ extension EditorHostTests {
         for _ in 0..<200 where window.tabs.activeTab?.url != file { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(window.tabs.openTabs.filter(\.isFileBacked).map(\.url), [file])
         XCTAssertEqual(window.layout.workspaceArea, .files)
+        window.requests.handoffResume = nil
+        flow.resumeHandoff(slug: "f2", title: "Old project", linkedFiles: ["docs/a.md"])
+        let other = base.appendingPathComponent("other", isDirectory: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        flow.features.setup(root: other)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(window.requests.handoffResume, "A result from the previous folder is dropped")
     }
 
     @MainActor func testRealFeatureFlowIntakeAndPresentation() async throws {

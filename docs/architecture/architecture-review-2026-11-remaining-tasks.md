@@ -7,6 +7,8 @@ count that proves it (project rule: a finding is done when the old thing is gone
 
 ## Current status — 2026-11-17
 
+D4 in progress: project-switch cancellation and GitHub settings observer checks passed for FeatureFlowCoordinator. A hand-off result from the previous project is dropped; turning integration on and off updates the store, and a closed flow no longer follows the setting. The test host cannot discover the user's GitHub CLI, and its previous setting is restored.
+
 D4 in progress: the mixed-eligibility bug-basket hand-off passed with real per-item workflow rules. The test verifies that two startable bugs are sent and marked, a third restricted bug stays open and is named in the notice, and the restricted bug is absent from the prompt.
 
 D4 in progress: feature display, closed-bug and explicit-terminal hand-off cases passed in the app host, along with the single-file definition-of-done path and cancellation of external issue opening. The display fixture now opens a project folder and restores its test-host recent-project settings, avoiding single-file database creation. Three focused tests passed together; the standalone suite remains while its other behavior is migrated.
