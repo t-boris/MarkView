@@ -647,10 +647,12 @@ private struct WorkspaceWindow: View {
             Divider()
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
-            Menu("Browser Tools for Agents") {
-                ForEach(CLITool.allCases.filter { $0.provider.mcp != nil }) { BrowserToolsToggle(tool: $0) }
-                Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
-            }
+            MCPServicesMenuContent(
+                isAgentRunning: { workspaceManager.terminals.hasRunningSession(for: $0) },
+                onRestartAgent: { workspaceManager.terminals.restartRunningSessions(for: $0) },
+                onOpenSettings: { DDESettingsWindow.show(workspace: workspaceManager) },
+                prompts: workspaceManager.prompts
+            )
             Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively(prompts: workspaceManager.prompts) }
                 .help("Let Claude Code, Codex, Copilot, Cline and Antigravity drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
@@ -1179,17 +1181,4 @@ private struct MinimizedAgentStatus: View {
         .padding(.leading, 6)
         .accessibilityElement(children: .combine)
     }
-}
-
-/// One row of "Browser Tools for Agents": whether an assistant started from the AI panel gets MarkView's MCP servers.
-private struct BrowserToolsToggle: View {
-    let tool: CLITool
-    @AppStorage private var enabled: Bool
-
-    init(tool: CLITool) {
-        self.tool = tool
-        _enabled = AppStorage(tool.agentToolsKey)
-    }
-
-    var body: some View { Toggle(tool.displayName, isOn: $enabled) }
 }

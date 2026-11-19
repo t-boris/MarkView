@@ -102,41 +102,60 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         return ([quoted] + tool.provider.updateArgs).joined(separator: " ") + " && " + run
     }
 
-    /// Shell-quoted arguments that give an assistant the MCP servers for this window's
-    /// browser tab (Task 80); none when terminal links do not open in MarkView.
+    /// Shell-quoted arguments that give an assistant only the enabled MarkView MCP servers for this window.
     private func browserToolArgs(for tool: CLITool) -> [String] {
         guard let host else { return [] }
         host.registerBrowserControl()
-        guard tool.agentToolsEnabled else { return [] }
+        AgentMCPServices.migrateIfNeeded(for: tool)
         let windowID = host.browserControlID
         // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
-        // prototypes), each a server of this same binary, both bound to this window.
-        let servers = AgentToolServer.mcpServers(window: windowID, includingBrowser: TerminalBrowserBridge.isEnabled)
+        // prototypes), each a server of this same binary, both bound to this window — filtered by per-agent selections.
+        let candidates = AgentToolServer.mcpServers(window: windowID, includingBrowser: TerminalBrowserBridge.isEnabled)
+        let servers = AgentMCPServices.enabledServers(from: candidates, for: tool)
         guard !servers.isEmpty else { return [] }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         if let arguments = tool.provider.mcpLaunchArguments(for: servers, quote: shellQuote) { return arguments }
-        // No per-session option: the assistant's own settings must list the servers (BUG-026).
-        AgentBrowserRegistration.ensureRegistered(tool, executable: servers[0].command)
+        // No per-session option: the assistant's own settings must list only the enabled servers (BUG-026, DEC-005).
+        AgentBrowserRegistration.ensureRegistered(tool, executable: servers[0].command, servers: servers)
         return []
     }
 
-    /// BUG-025: an organisation's policy may allow only listed MCP servers; the assistant then (Copilot)
-    /// prints `MCP server was blocked by policy: "markview-browser"` at every start. On that message
-    /// the server is turned off for it on this Mac, and the terminal can restart without it.
+    /// True when at least one local terminal session for `tool` is currently running in this window.
+    func hasRunningSession(for tool: CLITool) -> Bool {
+        sessions.contains { !$0.isRemote && $0.profile.tool == tool && $0.isRunning }
+    }
+
+    /// Restart every running local session for `tool`, continuing its conversation where supported.
+    func restartRunningSessions(for tool: CLITool) {
+        for session in sessions where !session.isRemote && session.profile.tool == tool && session.isRunning {
+            relaunch(session, as: session.profile, continuing: !tool.continueArgs.isEmpty)
+        }
+        AgentMCPServicesStore.shared.clearRestartNotice(for: tool)
+    }
+
+    /// BUG-025 / mcp: an organisation's policy may allow only listed MCP servers; the assistant then (Copilot)
+    /// prints `MCP server was blocked by policy: "markview-browser"` at every start. On that message only the
+    /// blocked service is turned off for it on this Mac (preserving other enabled services and never bypassing policy),
+    /// and the terminal can restart without it.
     private func watchForMCPPolicyBlock(_ session: TerminalSession, tool: CLITool) {
         let name = tool.displayName
         var recent = ""
         policyObservations[session.id] = session.outputEvents.sink { [weak self, weak session] data in
             recent = String((recent + String(decoding: data, as: UTF8.self)).suffix(4_000))
-            guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
+            guard let blockedServer = BrowserAgentTools.blockedPolicyServer(in: recent) else { return }
             recent = ""
             DispatchQueue.main.async {
-                guard let self, let session, tool.agentToolsEnabled else { return }
-                Settings.standard.set(false, for: tool.agentToolsKey)
+                guard let self, let session, tool.isMCPServiceEnabled(blockedServer) else { return }
+                do {
+                    try AgentMCPServices.setEnabled(false, service: blockedServer, for: tool)
+                } catch {
+                    AppLog.browser.error("Could not disable blocked MCP service \(blockedServer) for \(name): \(error.localizedDescription)")
+                }
+                AgentMCPServicesStore.shared.reloadFromFiles()
                 let blocked = UserPrompt(
-                    title: "\(name)'s policy blocks MarkView's browser tools",
-                    detail: "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives \(name) these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). \(name) itself keeps working.",
-                    buttons: ["Restart \(name) Without Them", "Later"])
+                    title: "\(name)'s policy blocks \"\(blockedServer)\"",
+                    detail: "Your organisation allows \(name) only the MCP servers it lists, so it refused \"\(blockedServer)\". MarkView disabled \"\(blockedServer)\" for \(name) on this Mac while keeping your other enabled MCP services unchanged (globe menu → MCP Services for Agents or DDE Settings). \(name) itself keeps working.",
+                    buttons: ["Restart \(name) Without It", "Later"])
                 guard self.prompts.confirm(blocked, proceedingWith: 0) else { return }
                 self.relaunch(session, as: session.profile, continuing: true)
             }

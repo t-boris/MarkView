@@ -124,7 +124,110 @@ struct CodexProvider: AssistantProvider {
             list: nil, location: "~/.codex/config.toml", reportsStdoutOnFailure: false))
     }
 
+    var mcpConfig: (any AssistantMCPConfigAdapter)? { CodexMCPConfigAdapter() }
+
     let skillPath: String? = ".codex/skills/markview/SKILL.md"
+}
+
+/// Codex stores MCP servers in `~/.codex/config.toml` under `[mcp_servers.<name>]` and honors `enabled = false`.
+private struct CodexMCPConfigAdapter: AssistantMCPConfigAdapter {
+    private static func configURL(home: URL) -> URL {
+        home.appendingPathComponent(".codex/config.toml")
+    }
+
+    func canonicalName(for rawName: String) -> String {
+        rawName == AgentMCPServer.markviewBrowserTomlName ? AgentMCPServer.markviewBrowserName : rawName
+    }
+
+    private func configKeys(for canonicalName: String) -> Set<String> {
+        if canonicalName == AgentMCPServer.markviewBrowserName {
+            return [AgentMCPServer.markviewBrowserTomlName, AgentMCPServer.markviewBrowserName]
+        }
+        return [canonicalName]
+    }
+
+    func discoverFromFiles(home: URL, stash: MCPDisabledServerStash) -> [DiscoveredAgentMCPServer] {
+        let file = Self.configURL(home: home)
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        let parsed = CodexTOMLMCPHelper.parseServers(in: text)
+        var byCanonical: [String: DiscoveredAgentMCPServer] = [:]
+        for item in parsed {
+            let name = canonicalName(for: item.rawName)
+            if let existing = byCanonical[name] {
+                byCanonical[name] = DiscoveredAgentMCPServer(
+                    name: name,
+                    rawName: existing.rawName,
+                    isEnabled: existing.isEnabled && item.isEnabled,
+                    detail: "~/.codex/config.toml"
+                )
+            } else {
+                byCanonical[name] = DiscoveredAgentMCPServer(
+                    name: name,
+                    rawName: item.rawName,
+                    isEnabled: item.isEnabled,
+                    detail: "~/.codex/config.toml"
+                )
+            }
+        }
+        return byCanonical.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func discoverFromCLI(executable: String, home: URL) async -> [DiscoveredAgentMCPServer] {
+        #if canImport(MarkViewCore)
+        let codexHome = home.appendingPathComponent(".codex").path
+        let spec = SubprocessSpec(
+            executable: executable,
+            arguments: ["mcp", "list", "--json"],
+            cwd: home,
+            environment: ["CODEX_HOME": codexHome],
+            timeout: 10
+        )
+        let result = await Subprocess.run(spec)
+        guard result.succeeded,
+              let data = result.stdout.data(using: .utf8),
+              let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+        let configured = Set(discoverFromFiles(home: home, stash: MCPDisabledServerStash()).map(\.name))
+        return entries.compactMap { entry in
+            guard let raw = entry["name"] as? String, !raw.isEmpty else { return nil }
+            let name = canonicalName(for: raw)
+            let enabled = (entry["enabled"] as? Bool) ?? true
+            let inConfig = configured.contains(name)
+            return DiscoveredAgentMCPServer(
+                name: name,
+                rawName: raw,
+                isEnabled: enabled,
+                isBuiltin: !inConfig,
+                detail: inConfig ? "~/.codex/config.toml" : "Codex plugin",
+                canToggle: inConfig,
+                note: inConfig ? nil : "Managed by a Codex plugin outside ~/.codex/config.toml."
+            )
+        }
+        #else
+        return []
+        #endif
+    }
+
+    func setEnabled(_ enabled: Bool, serverName: String, home: URL, stash: MCPDisabledServerStash) throws {
+        let file = Self.configURL(home: home)
+        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        let text: String
+        do {
+            text = try String(contentsOf: file, encoding: .utf8)
+        } catch {
+            throw MCPConfigError.unreadableFile(path: file.path, reason: error.localizedDescription)
+        }
+        let result = CodexTOMLMCPHelper.updatingEnabled(enabled, forKeys: configKeys(for: serverName), in: text)
+        guard result.changed else { return }
+        #if canImport(MarkViewCore)
+        do {
+            try AtomicFile.write(result.updated, to: file)
+        } catch {
+            throw MCPConfigError.writeFailed(path: file.path, reason: error.localizedDescription)
+        }
+        #endif
+    }
 }
 
 // MARK: - One-shot run

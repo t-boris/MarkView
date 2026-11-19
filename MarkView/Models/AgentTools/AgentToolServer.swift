@@ -153,8 +153,8 @@ enum AgentToolServer {
     /// A browser call of a relay session (`RemoteBrowserRelay`): it addresses only its work-computer window, never a folder or process on
     /// the home Mac, and only while that window still shows the project the relay connected to.
     static func performForRelay(_ tool: String, _ args: [String: Any], window id: UUID, root: URL, agent: CLITool) async -> BrowserAgentTools.Reply {
-        guard agent.agentToolsEnabled else {
-            return .error("Browser tools for this assistant are turned off in the globe menu.")
+        guard agent.isMCPServiceEnabled(BrowserAgentTools.serverName) else {
+            return .error("Browser tools for this assistant are turned off in MCP Services.")
         }
         guard let window = windows[id], let workspace = window.workspace(),
               workspace.controlTerminalRoot?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else {

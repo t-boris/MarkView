@@ -100,6 +100,10 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("applicationDidFinishLaunching")
+        // Migrate legacy agent-wide MCP switches into per-service selections and agent configs once at startup (DEC-004).
+        DispatchQueue.global(qos: .utility).async {
+            AgentMCPServices.migrateAllIfNeeded()
+        }
         // Listen for agents from the start, not when the first folder opens: an agent that drives the app opens it.
         _ = AgentToolServer.socketPath
         // One app-wide poll for Finder Quick Action requests (`AR-19`): started with the app, so a request is taken with or without a

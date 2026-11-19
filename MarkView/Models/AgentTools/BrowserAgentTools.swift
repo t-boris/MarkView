@@ -457,11 +457,26 @@ enum BrowserAgentTools {
         return root
     }
 
-    /// Whether an MCP client's output says it refused the server by policy (a Copilot organisation
+    /// Whether an MCP client's output says it refused a MarkView server by policy (a Copilot organisation
     /// that allows only listed MCP servers): `MCP server was blocked by policy: "markview-browser"`.
     static func reportsPolicyBlock(_ output: String) -> Bool {
+        blockedPolicyServer(in: output) != nil
+    }
+
+    /// The MarkView MCP server name refused by an organisation's policy in `output`, or nil.
+    /// Recognizes both quoted styles (`"markview-browser"`, `'markview-browser'`), checking longer names first.
+    static func blockedPolicyServer(in output: String) -> String? {
         let text = output.lowercased()
-        return text.contains("blocked by policy") && text.contains(serverName)
+        guard text.contains("blocked by policy") else { return nil }
+        for candidate in [AgentMCPServer.markviewBrowserName, AgentMCPServer.markviewControlName, AgentMCPServer.markviewName] {
+            if text.contains("\"\(candidate)\"") || text.contains("'\(candidate)'") {
+                return candidate
+            }
+        }
+        // Fallback when quotes were stripped or wrapped across lines, still avoiding matching `markview` inside `markview-browser`.
+        if text.contains(AgentMCPServer.markviewBrowserName) { return AgentMCPServer.markviewBrowserName }
+        if text.contains(AgentMCPServer.markviewControlName) { return AgentMCPServer.markviewControlName }
+        return nil
     }
 
     /// The next free default name: T1, T2…

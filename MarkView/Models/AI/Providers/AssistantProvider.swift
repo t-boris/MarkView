@@ -84,6 +84,8 @@ protocol AssistantProvider: Sendable {
     func mcpLaunchArguments(for servers: [AgentMCPServer], quote: (String) -> String) -> [String]?
     /// How the servers are registered in the CLI's own settings (Connect Agents…); nil when it cannot use MCP servers.
     var mcp: AssistantMCPRegistration? { get }
+    /// How this assistant's own MCP configuration is discovered and updated (per-service enable/disable).
+    var mcpConfig: (any AssistantMCPConfigAdapter)? { get }
     /// The skill file (relative to the home folder) that teaches the CLI MarkView's tools, for CLIs that may not use MCP.
     var skillPath: String? { get }
 
@@ -138,6 +140,7 @@ extension AssistantProvider {
     var liveModelSwitch: (any AssistantLiveModelSwitch)? { nil }
     func mcpLaunchArguments(for servers: [AgentMCPServer], quote: (String) -> String) -> [String]? { nil }
     var mcp: AssistantMCPRegistration? { nil }
+    var mcpConfig: (any AssistantMCPConfigAdapter)? { nil }
     var skillPath: String? { nil }
     var canSearchWeb: Bool { false }
     var fixesBugsAsGoal: Bool { false }

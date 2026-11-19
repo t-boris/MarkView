@@ -178,13 +178,22 @@ extension EditorHostTests {
         let agent = try XCTUnwrap(CLITool(rawValue: "codex"))
         let oldBrowserSetting = settings.stored(Setting.openTerminalLinksInApp)
         let oldAgentSetting = settings.stored(agent.agentToolsKey)
+        let oldAgentSel = settings.stored(Setting.mcpServiceSelections(agent.rawValue))
+        let oldAgentMig = settings.stored(Setting.mcpServiceMigrated(agent.rawValue))
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
         settings.set(true, for: Setting.openTerminalLinksInApp)
         settings.set(true, for: agent.agentToolsKey)
+        settings.set(true, for: Setting.mcpServiceMigrated(agent.rawValue))
+        AgentMCPServices.saveSelections(AgentMCPSelectionRecord(selections: [
+            AgentMCPServer.markviewName: true,
+            AgentMCPServer.markviewBrowserName: true,
+        ]), for: agent)
         setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
         defer {
             settings.set(oldBrowserSetting, for: Setting.openTerminalLinksInApp)
             settings.set(oldAgentSetting, for: agent.agentToolsKey)
+            settings.set(oldAgentSel, for: Setting.mcpServiceSelections(agent.rawValue))
+            settings.set(oldAgentMig, for: Setting.mcpServiceMigrated(agent.rawValue))
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
             else { unsetenv("MARKVIEW_SOCKET_DIR") }
         }
