@@ -166,6 +166,12 @@ struct DDESettingsView: View {
                 }.padding(8)
             }
 
+            // Per-agent MCP service management (MarkView services, markview-control, and third-party/built-in servers).
+            MCPServicesSettingsSection(
+                isAgentRunning: { terminals.hasRunningSession(for: $0) },
+                onRestartAgent: { terminals.restartRunningSessions(for: $0) }
+            )
+
             // Usage chips in the workspace top bar: which detected agents are shown (DEC-012).
             GroupBox("Agent usage (Terminal tab)") {
                 VStack(alignment: .leading, spacing: 6) {

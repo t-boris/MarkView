@@ -87,14 +87,29 @@ final class RemoteBrowserHostTests: XCTestCase {
         let browserSetting = settings.stored(Setting.openTerminalLinksInApp)
         let claudeSetting = settings.stored(claude.agentToolsKey)
         let codexSetting = settings.stored(codex.agentToolsKey)
+        let claudeSel = settings.stored(Setting.mcpServiceSelections(claude.rawValue))
+        let codexSel = settings.stored(Setting.mcpServiceSelections(codex.rawValue))
+        let claudeMig = settings.stored(Setting.mcpServiceMigrated(claude.rawValue))
+        let codexMig = settings.stored(Setting.mcpServiceMigrated(codex.rawValue))
         defer {
             settings.set(browserSetting, for: Setting.openTerminalLinksInApp)
             settings.set(claudeSetting, for: claude.agentToolsKey)
             settings.set(codexSetting, for: codex.agentToolsKey)
+            settings.set(claudeSel, for: Setting.mcpServiceSelections(claude.rawValue))
+            settings.set(codexSel, for: Setting.mcpServiceSelections(codex.rawValue))
+            settings.set(claudeMig, for: Setting.mcpServiceMigrated(claude.rawValue))
+            settings.set(codexMig, for: Setting.mcpServiceMigrated(codex.rawValue))
         }
         settings.set(true, for: Setting.openTerminalLinksInApp)
         settings.set(true, for: claude.agentToolsKey)
         settings.set(true, for: codex.agentToolsKey)
+        for tool in [claude, codex] {
+            settings.set(true, for: Setting.mcpServiceMigrated(tool.rawValue))
+            AgentMCPServices.saveSelections(AgentMCPSelectionRecord(selections: [
+                AgentMCPServer.markviewName: true,
+                AgentMCPServer.markviewBrowserName: true,
+            ]), for: tool)
+        }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-browser-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -207,10 +222,16 @@ final class RemoteBrowserHostTests: XCTestCase {
         let stopped = await call("browser_click", ["ref": .string("e1")])
         check(stopped["isError"].bool == true && text(stopped).contains("stopped"), "The user's stopped tab is respected")
         session.agentStopped = false
-        Settings.standard.set(false, for: codex.agentToolsKey)
+        let codexSelKey = Setting.mcpServiceSelections(codex.rawValue)
+        let codexMigKey = Setting.mcpServiceMigrated(codex.rawValue)
+        let oldCodexSel = Settings.standard.stored(codexSelKey)
+        let oldCodexMig = Settings.standard.stored(codexMigKey)
+        Settings.standard.set(true, for: codexMigKey)
+        AgentMCPServices.saveSelections(AgentMCPSelectionRecord(selections: [BrowserAgentTools.serverName: false]), for: codex)
         let disabled = await call("browser_tabs")
         check(disabled["isError"].bool == true, "Per-agent browser opt-out is respected")
-        Settings.standard.remove(codex.agentToolsKey)
+        Settings.standard.set(oldCodexSel, for: codexSelKey)
+        Settings.standard.set(oldCodexMig, for: codexMigKey)
         settings.set(false, for: Setting.openTerminalLinksInApp)
         let globalDisabled = await call("browser_tabs")
         check(globalDisabled["isError"].bool == true, "Terminal browser opt-out is respected")

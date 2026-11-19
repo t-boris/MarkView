@@ -56,18 +56,33 @@ final class PersistentRemoteHostTests: XCTestCase {
         let oldLinks = settings.stored(Setting.openTerminalLinksInApp)
         let oldClaudeTools = settings.stored(claude.agentToolsKey)
         let oldCodexTools = settings.stored(codex.agentToolsKey)
+        let oldClaudeSel = settings.stored(Setting.mcpServiceSelections(claude.rawValue))
+        let oldCodexSel = settings.stored(Setting.mcpServiceSelections(codex.rawValue))
+        let oldClaudeMig = settings.stored(Setting.mcpServiceMigrated(claude.rawValue))
+        let oldCodexMig = settings.stored(Setting.mcpServiceMigrated(codex.rawValue))
         defer {
             settings.set(oldClaude, for: Setting.cliPath(claude.rawValue))
             settings.set(oldCodex, for: Setting.cliPath(codex.rawValue))
             settings.set(oldLinks, for: Setting.openTerminalLinksInApp)
             settings.set(oldClaudeTools, for: claude.agentToolsKey)
             settings.set(oldCodexTools, for: codex.agentToolsKey)
+            settings.set(oldClaudeSel, for: Setting.mcpServiceSelections(claude.rawValue))
+            settings.set(oldCodexSel, for: Setting.mcpServiceSelections(codex.rawValue))
+            settings.set(oldClaudeMig, for: Setting.mcpServiceMigrated(claude.rawValue))
+            settings.set(oldCodexMig, for: Setting.mcpServiceMigrated(codex.rawValue))
         }
         CLIToolLocator.setOverride(fixturePath, for: claude)
         CLIToolLocator.setOverride(fixturePath, for: codex)
         settings.set(true, for: Setting.openTerminalLinksInApp)
         settings.set(true, for: claude.agentToolsKey)
         settings.set(true, for: codex.agentToolsKey)
+        for tool in [claude, codex] {
+            settings.set(true, for: Setting.mcpServiceMigrated(tool.rawValue))
+            AgentMCPServices.saveSelections(AgentMCPSelectionRecord(selections: [
+                AgentMCPServer.markviewName: true,
+                AgentMCPServer.markviewBrowserName: true,
+            ]), for: tool)
+        }
         let resolvedClaude = await CLIToolLocator.resolveThorough(claude)
         let resolvedCodex = await CLIToolLocator.resolveThorough(codex)
         guard resolvedClaude == fixturePath, resolvedCodex == fixturePath else {

@@ -18,6 +18,31 @@ private final class TerminalPolicyPrompts: UserPrompts {
 
 
 extension EditorHostTests {
+    private func overrideMCPTools(_ enabled: Bool, for tools: [CLITool]) -> () -> Void {
+        let settings = Settings.standard
+        let saved: [(CLITool, Bool?, Data?, Bool?)] = tools.map { tool in
+            (tool,
+             settings.stored(tool.agentToolsKey),
+             settings.stored(Setting.mcpServiceSelections(tool.rawValue)),
+             settings.stored(Setting.mcpServiceMigrated(tool.rawValue)))
+        }
+        for tool in tools {
+            settings.set(enabled, for: tool.agentToolsKey)
+            settings.set(true, for: Setting.mcpServiceMigrated(tool.rawValue))
+            AgentMCPServices.saveSelections(AgentMCPSelectionRecord(selections: [
+                AgentMCPServer.markviewName: enabled,
+                AgentMCPServer.markviewBrowserName: enabled,
+            ]), for: tool)
+        }
+        return {
+            for (tool, oldLegacy, oldSel, oldMig) in saved {
+                settings.set(oldLegacy, for: tool.agentToolsKey)
+                settings.set(oldSel, for: Setting.mcpServiceSelections(tool.rawValue))
+                settings.set(oldMig, for: Setting.mcpServiceMigrated(tool.rawValue))
+            }
+        }
+    }
+
     @MainActor func testRealAITerminalsLifecycleAndPersistence() throws {
         let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-ai-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -27,18 +52,14 @@ extension EditorHostTests {
         let oldSaved = settings.stored(savedKey)
         let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
         let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
-        let oldClaudeTools = settings.stored(claude.agentToolsKey)
-        let oldCodexTools = settings.stored(codex.agentToolsKey)
+        let restoreTools = overrideMCPTools(true, for: [claude, codex])
         let oldBackend = settings.stored(Setting.aiBackend)
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
         settings.set(nil, for: savedKey)
-        settings.set(true, for: claude.agentToolsKey)
-        settings.set(true, for: codex.agentToolsKey)
         setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
         defer {
             settings.set(oldSaved, for: savedKey)
-            settings.set(oldClaudeTools, for: claude.agentToolsKey)
-            settings.set(oldCodexTools, for: codex.agentToolsKey)
+            restoreTools()
             settings.set(oldBackend, for: Setting.aiBackend)
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
             else { unsetenv("MARKVIEW_SOCKET_DIR") }
@@ -152,13 +173,12 @@ extension EditorHostTests {
         let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
         let oldSaved = settings.stored(savedKey)
         let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
-        let oldTools = settings.stored(codex.agentToolsKey)
-        settings.set(false, for: codex.agentToolsKey)
+        let restoreTools = overrideMCPTools(false, for: [codex])
         setenv("SHELL", shell.path, 1)
         setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
         defer {
             settings.set(oldSaved, for: savedKey)
-            settings.set(oldTools, for: codex.agentToolsKey)
+            restoreTools()
             if let oldShell { setenv("SHELL", oldShell, 1) } else { unsetenv("SHELL") }
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
             else { unsetenv("MARKVIEW_SOCKET_DIR") }
@@ -216,15 +236,14 @@ extension EditorHostTests {
         let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
         let oldSaved = settings.stored(savedKey)
         let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
-        let oldTools = settings.stored(codex.agentToolsKey)
+        let restoreTools = overrideMCPTools(false, for: [codex])
         let oldShell = getenv("SHELL").map { String(cString: $0) }
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
-        settings.set(false, for: codex.agentToolsKey)
         setenv("SHELL", shell.path, 1)
         setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
         defer {
             settings.set(oldSaved, for: savedKey)
-            settings.set(oldTools, for: codex.agentToolsKey)
+            restoreTools()
             if let oldShell { setenv("SHELL", oldShell, 1) } else { unsetenv("SHELL") }
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
             else { unsetenv("MARKVIEW_SOCKET_DIR") }
@@ -281,13 +300,12 @@ extension EditorHostTests {
         let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
         let oldSaved = settings.stored(savedKey)
         let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
-        let oldTools = settings.stored(claude.agentToolsKey)
+        let restoreTools = overrideMCPTools(false, for: [claude])
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
-        settings.set(false, for: claude.agentToolsKey)
         setenv("MARKVIEW_SOCKET_DIR", base.path, 1)
         defer {
             settings.set(oldSaved, for: savedKey)
-            settings.set(oldTools, for: claude.agentToolsKey)
+            restoreTools()
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
             else { unsetenv("MARKVIEW_SOCKET_DIR") }
         }
@@ -324,15 +342,14 @@ extension EditorHostTests {
         let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
         let oldSaved = settings.stored(savedKey)
         let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
-        let oldTools = settings.stored(codex.agentToolsKey)
+        let restoreTools = overrideMCPTools(false, for: [codex])
         let oldDeviceID = settings.stored(Setting.remoteDeviceID)
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
         settings.set(nil, for: savedKey)
-        settings.set(false, for: codex.agentToolsKey)
         setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
         defer {
             settings.set(oldSaved, for: savedKey)
-            settings.set(oldTools, for: codex.agentToolsKey)
+            restoreTools()
             settings.set(oldDeviceID, for: Setting.remoteDeviceID)
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
             else { unsetenv("MARKVIEW_SOCKET_DIR") }
@@ -414,15 +431,21 @@ extension EditorHostTests {
         let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
         let oldSaved = settings.stored(savedKey)
         let copilot = try XCTUnwrap(CLITool(rawValue: "copilot"))
-        let oldTools = settings.stored(copilot.agentToolsKey)
+        let restoreTools = overrideMCPTools(true, for: [copilot])
+        let copilotSettingsURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".copilot/settings.json")
+        let oldCopilotSettingsData = try? Data(contentsOf: copilotSettingsURL)
         let oldShell = getenv("SHELL").map { String(cString: $0) }
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
-        settings.set(true, for: copilot.agentToolsKey)
         setenv("SHELL", shell.path, 1)
         setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
         defer {
             settings.set(oldSaved, for: savedKey)
-            settings.set(oldTools, for: copilot.agentToolsKey)
+            restoreTools()
+            if let oldCopilotSettingsData {
+                try? AtomicFile.write(oldCopilotSettingsData, to: copilotSettingsURL)
+            } else {
+                try? FileManager.default.removeItem(at: copilotSettingsURL)
+            }
             if let oldShell { setenv("SHELL", oldShell, 1) } else { unsetenv("SHELL") }
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
             else { unsetenv("MARKVIEW_SOCKET_DIR") }
@@ -442,22 +465,25 @@ extension EditorHostTests {
         XCTAssertGreaterThan(originalPID, 0)
         for _ in 0..<500 where prompts.asked.count < 1 { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(prompts.asked.count, 1)
-        XCTAssertEqual(prompts.asked.first?.buttons, ["Restart Copilot Without Them", "Later"])
+        XCTAssertEqual(prompts.asked.first?.buttons, ["Restart Copilot Without It", "Later"])
         XCTAssertTrue(prompts.asked.first?.detail.contains("markview-browser") == true)
-        XCTAssertFalse(settings.value(copilot.agentToolsKey))
+        XCTAssertFalse(copilot.isMCPServiceEnabled(BrowserAgentTools.serverName))
+        XCTAssertTrue(copilot.isMCPServiceEnabled(ProjectAgentTools.serverName), "Policy block on markview-browser must keep markview enabled")
         XCTAssertEqual(terminal.shellPID, originalPID, "Later must leave the terminal running")
-        settings.set(true, for: copilot.agentToolsKey)
+        try AgentMCPServices.setEnabled(true, service: BrowserAgentTools.serverName, for: copilot)
         terminal.write("again\r")
         for _ in 0..<500 where prompts.asked.count < 2 { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(prompts.asked.count, 2)
         XCTAssertEqual(terminal.shellPID, originalPID, "No answer must leave the terminal running")
-        settings.set(true, for: copilot.agentToolsKey)
+        try AgentMCPServices.setEnabled(true, service: BrowserAgentTools.serverName, for: copilot)
         terminal.write("again\r")
         for _ in 0..<500 where prompts.asked.count < 3 { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertEqual(prompts.asked.count, 3)
         XCTAssertNotEqual(terminal.shellPID, originalPID)
         XCTAssertTrue(terminal.startupCommand?.contains("--continue") == true)
-        XCTAssertFalse(terminal.startupCommand?.contains("--additional-mcp-config") == true)
+        XCTAssertTrue(terminal.startupCommand?.contains("--additional-mcp-config") == true)
+        XCTAssertTrue(terminal.startupCommand?.contains("--mcp-project") == true)
+        XCTAssertFalse(terminal.startupCommand?.contains("markview-browser") == true)
         let restartedPID = terminal.shellPID
         XCTAssertGreaterThan(restartedPID, 0)
         if let reap = terminal.terminate() { await reap.value }
@@ -486,18 +512,17 @@ extension EditorHostTests {
         let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
         let oldSaved = settings.stored(savedKey)
         let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
-        let oldTools = settings.stored(claude.agentToolsKey)
+        let restoreTools = overrideMCPTools(false, for: [claude])
         let modelKey = Setting.cliModel(claude.rawValue)
         let oldModel = settings.stored(modelKey)
         let oldShell = getenv("SHELL").map { String(cString: $0) }
         let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
-        settings.set(false, for: claude.agentToolsKey)
         settings.set("", for: modelKey)
         setenv("SHELL", shell.path, 1)
         setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
         defer {
             settings.set(oldSaved, for: savedKey)
-            settings.set(oldTools, for: claude.agentToolsKey)
+            restoreTools()
             settings.set(oldModel, for: modelKey)
             if let oldShell { setenv("SHELL", oldShell, 1) } else { unsetenv("SHELL") }
             if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
