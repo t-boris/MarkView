@@ -2,7 +2,7 @@
 type: feature
 id: mcp
 title: Управление MCP-сервисами агентов
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-18
 provenance: Created from the feature intake
