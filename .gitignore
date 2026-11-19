@@ -52,3 +52,4 @@ Package.resolved
 
 # Dependencies of the vendored browser bundles (rebuilt with tools/web-vendor/build.sh)
 tools/web-vendor/node_modules/
+/tasks/
