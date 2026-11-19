@@ -104,7 +104,65 @@ struct ClaudeProvider: AssistantProvider {
             list: nil, location: "user scope", reportsStdoutOnFailure: false))
     }
 
+    var mcpConfig: (any AssistantMCPConfigAdapter)? { ClaudeMCPConfigAdapter() }
+
     let skillPath: String? = ".claude/skills/markview/SKILL.md"
+}
+
+/// Claude Code stores user-scope MCP servers in `~/.claude.json` under `mcpServers` and has no global
+/// `disabled` flag (it connects to every entry in `mcpServers`). Disabling removes the server from
+/// `~/.claude.json` and preserves its exact JSON definition in `MCPDisabledServerStash` so re-enabling
+/// restores it verbatim without modifying unrelated settings.
+private struct ClaudeMCPConfigAdapter: AssistantMCPConfigAdapter {
+    private static let agentID = "claude"
+
+    private static func configURL(home: URL) -> URL {
+        home.appendingPathComponent(".claude.json")
+    }
+
+    func discoverFromFiles(home: URL, stash: MCPDisabledServerStash) -> [DiscoveredAgentMCPServer] {
+        let file = Self.configURL(home: home)
+        let activeNames: Set<String>
+        if let root = try? JSONMCPConfigHelper.readRoot(from: file),
+           let servers = root["mcpServers"] as? [String: Any] {
+            activeNames = Set(servers.compactMap { ($0.value is [String: Any]) ? $0.key : nil })
+        } else {
+            activeNames = []
+        }
+        let stashed = stash.stashedServers(for: Self.agentID)
+        var discovered: [DiscoveredAgentMCPServer] = activeNames.sorted().map { name in
+            DiscoveredAgentMCPServer(name: name, isEnabled: true, detail: "~/.claude.json")
+        }
+        for name in stashed.keys.sorted() where !activeNames.contains(name) {
+            discovered.append(DiscoveredAgentMCPServer(name: name, isEnabled: false, detail: "~/.claude.json (disabled)"))
+        }
+        return discovered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func setEnabled(_ enabled: Bool, serverName: String, home: URL, stash: MCPDisabledServerStash) throws {
+        let file = Self.configURL(home: home)
+        if !enabled {
+            guard FileManager.default.fileExists(atPath: file.path) else { return }
+            var root = try JSONMCPConfigHelper.readRoot(from: file)
+            guard var servers = root["mcpServers"] as? [String: Any],
+                  let entry = servers[serverName] as? [String: Any] else { return }
+            // Save the original entry first so a write failure never loses the user's configuration.
+            try stash.stash(serverName: serverName, definition: entry, for: Self.agentID)
+            servers.removeValue(forKey: serverName)
+            root["mcpServers"] = servers
+            try JSONMCPConfigHelper.writeRoot(root, to: file)
+        } else {
+            guard let restored = stash.entry(serverName: serverName, for: Self.agentID) else { return }
+            var root = try JSONMCPConfigHelper.readRoot(from: file)
+            var servers = root["mcpServers"] as? [String: Any] ?? [:]
+            if servers[serverName] == nil {
+                servers[serverName] = restored
+                root["mcpServers"] = servers
+                try JSONMCPConfigHelper.writeRoot(root, to: file)
+            }
+            try stash.remove(serverName: serverName, for: Self.agentID)
+        }
+    }
 }
 
 // MARK: - One-shot run

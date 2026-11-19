@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// GitHub Copilot CLI 1.x (`copilot`), driven over the Agent Client Protocol (`ACPAssistant`).
 struct CopilotProvider: AssistantProvider, AssistantACPSupport {
@@ -49,13 +52,125 @@ struct CopilotProvider: AssistantProvider, AssistantACPSupport {
     /// An entry in `~/.copilot/mcp-config.json`, written by Connect Agents (a terminal gets its servers per session).
     var mcp: AssistantMCPRegistration? {
         .jsonFile(.init(
-            file: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".copilot/mcp-config.json"),
+            relativePath: ".copilot/mcp-config.json",
             entry: { executable, server in ["type": "local", "command": executable, "args": [server.flag], "tools": ["*"]] },
             isCurrent: { _, _ in true },
             checkedAtStart: false))
     }
 
+    var mcpConfig: (any AssistantMCPConfigAdapter)? { CopilotMCPConfigAdapter() }
+
     let skillPath: String? = ".copilot/skills/markview/SKILL.md"
+}
+
+/// Copilot CLI stores user MCP servers in `~/.copilot/mcp-config.json` and disabled server names
+/// (for both user and built-in servers) in `~/.copilot/settings.json` under `disabledMcpServers`.
+private struct CopilotMCPConfigAdapter: AssistantMCPConfigAdapter {
+    private static func mcpConfigURL(home: URL) -> URL {
+        home.appendingPathComponent(".copilot/mcp-config.json")
+    }
+
+    private static func settingsURL(home: URL) -> URL {
+        home.appendingPathComponent(".copilot/settings.json")
+    }
+
+    func discoverFromFiles(home: URL, stash: MCPDisabledServerStash) -> [DiscoveredAgentMCPServer] {
+        let settingsRoot = (try? JSONMCPConfigHelper.readRoot(from: Self.settingsURL(home: home))) ?? [:]
+        let disabled = Set(settingsRoot["disabledMcpServers"] as? [String] ?? [])
+
+        var discovered: [String: DiscoveredAgentMCPServer] = [:]
+        if let mcpRoot = try? JSONMCPConfigHelper.readRoot(from: Self.mcpConfigURL(home: home)),
+           let servers = mcpRoot["mcpServers"] as? [String: Any] {
+            for name in servers.keys.sorted() where servers[name] is [String: Any] {
+                discovered[name] = DiscoveredAgentMCPServer(
+                    name: name,
+                    isEnabled: !disabled.contains(name),
+                    isBuiltin: false,
+                    detail: "~/.copilot/mcp-config.json"
+                )
+            }
+        }
+        // Surface any server listed in `disabledMcpServers` that isn't in mcp-config.json (e.g. a disabled built-in server).
+        for name in disabled.sorted() where discovered[name] == nil {
+            let isLaunchMarkView = AgentMCPServer.launchServiceNames.contains(name)
+            discovered[name] = DiscoveredAgentMCPServer(
+                name: name,
+                isEnabled: false,
+                isBuiltin: !isLaunchMarkView,
+                detail: "~/.copilot/settings.json"
+            )
+        }
+        return discovered.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func discoverFromCLI(executable: String, home: URL) async -> [DiscoveredAgentMCPServer] {
+        #if canImport(MarkViewCore)
+        let copilotHome = home.appendingPathComponent(".copilot").path
+        let spec = SubprocessSpec(
+            executable: executable,
+            arguments: ["mcp", "list", "--json"],
+            cwd: home,
+            environment: ["COPILOT_HOME": copilotHome],
+            timeout: 10
+        )
+        let result = await Subprocess.run(spec)
+        guard result.succeeded,
+              let data = result.stdout.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let servers = root["mcpServers"] as? [String: Any] else {
+            return []
+        }
+        var found: [DiscoveredAgentMCPServer] = []
+        for name in servers.keys.sorted() {
+            guard let entry = servers[name] as? [String: Any] else { continue }
+            let source = (entry["source"] as? String) ?? "user"
+            // Skip workspace-scoped servers so the per-Mac configuration stays independent of CWD.
+            if source == "workspace" { continue }
+            let enabled = (entry["enabled"] as? Bool) ?? true
+            let isBuiltin = source != "user"
+            let detail: String
+            switch source {
+            case "user": detail = "~/.copilot/mcp-config.json"
+            case "builtin": detail = "Copilot built-in"
+            case "plugin": detail = "Copilot plugin"
+            default: detail = "Copilot (\(source))"
+            }
+            found.append(DiscoveredAgentMCPServer(
+                name: name,
+                isEnabled: enabled,
+                isBuiltin: isBuiltin,
+                detail: detail,
+                canToggle: true
+            ))
+        }
+        return found
+        #else
+        return []
+        #endif
+    }
+
+    func setEnabled(_ enabled: Bool, serverName: String, home: URL, stash: MCPDisabledServerStash) throws {
+        let file = Self.settingsURL(home: home)
+        if enabled && !FileManager.default.fileExists(atPath: file.path) {
+            return
+        }
+        var root = try JSONMCPConfigHelper.readRoot(from: file)
+        var disabled = root["disabledMcpServers"] as? [String] ?? []
+        if enabled {
+            let before = disabled.count
+            disabled.removeAll { $0 == serverName }
+            guard disabled.count != before else { return }
+        } else {
+            guard !disabled.contains(serverName) else { return }
+            disabled.append(serverName)
+        }
+        if disabled.isEmpty {
+            root.removeValue(forKey: "disabledMcpServers")
+        } else {
+            root["disabledMcpServers"] = disabled
+        }
+        try JSONMCPConfigHelper.writeRoot(root, to: file)
+    }
 }
 
 // MARK: - Usage

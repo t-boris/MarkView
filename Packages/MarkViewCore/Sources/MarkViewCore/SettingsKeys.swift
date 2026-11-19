@@ -78,7 +78,12 @@ public enum Setting {
     // MARK: Browser
 
     /// Whether an assistant is told about the browser tools (`browser.agentTools.<assistant>`).
+    /// Retained for one-time migration into per-service MCP selections (`mcp.services.<assistant>`).
     public static func browserAgentTools(_ tool: String) -> SettingsKey<Bool> { SettingsKey("browser.agentTools.\(tool)", default: true) }
+    /// Per-service MCP selections for an assistant on this Mac (JSON `AgentMCPSelectionRecord`).
+    public static func mcpServiceSelections(_ tool: String) -> SettingsKey<Data> { SettingsKey("mcp.services.\(tool)", default: Data()) }
+    /// Whether the legacy agent-wide `browser.agentTools.<assistant>` switch has been migrated for this assistant.
+    public static func mcpServiceMigrated(_ tool: String) -> SettingsKey<Bool> { SettingsKey("mcp.services.migrated.\(tool)", default: false) }
     public static let openTerminalLinksInApp = SettingsKey<Bool>("browser.openTerminalLinksInApp", default: true)
     /// Hosts the person said never to save a password for.
     public static let neverSavePasswordHosts = SettingsKey<[String]>("browserNeverSavePasswordHosts", default: [])

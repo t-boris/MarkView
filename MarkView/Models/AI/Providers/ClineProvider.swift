@@ -46,7 +46,7 @@ struct ClineProvider: AssistantProvider, AssistantACPSupport {
     /// Cline has no per-session option: its own settings must list the servers (BUG-026), whenever a terminal starts.
     var mcp: AssistantMCPRegistration? {
         .jsonFile(.init(
-            file: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cline/data/settings/cline_mcp_settings.json"),
+            relativePath: ".cline/data/settings/cline_mcp_settings.json",
             entry: { executable, server in
                 ["transport": ["type": "stdio", "command": executable, "args": [server.flag]] as [String: Any],
                  "disabled": false, "autoApprove": [String](), "timeout": 120]
@@ -55,6 +55,26 @@ struct ClineProvider: AssistantProvider, AssistantACPSupport {
                 (entry["transport"] as? [String: Any])?["command"] as? String == executable && entry["disabled"] as? Bool != true
             },
             checkedAtStart: true))
+    }
+
+    var mcpConfig: (any AssistantMCPConfigAdapter)? { ClineMCPConfigAdapter() }
+}
+
+/// Cline stores MCP servers in `~/.cline/data/settings/cline_mcp_settings.json` with a per-server `"disabled"` boolean.
+private struct ClineMCPConfigAdapter: AssistantMCPConfigAdapter {
+    private static func configURL(home: URL) -> URL {
+        home.appendingPathComponent(".cline/data/settings/cline_mcp_settings.json")
+    }
+
+    func discoverFromFiles(home: URL, stash: MCPDisabledServerStash) -> [DiscoveredAgentMCPServer] {
+        JSONMCPConfigHelper.discoverDisabledFlagServers(
+            from: Self.configURL(home: home),
+            detail: "~/.cline/data/settings/cline_mcp_settings.json"
+        )
+    }
+
+    func setEnabled(_ enabled: Bool, serverName: String, home: URL, stash: MCPDisabledServerStash) throws {
+        try JSONMCPConfigHelper.setDisabledFlag(!enabled, serverName: serverName, in: Self.configURL(home: home))
     }
 }
 

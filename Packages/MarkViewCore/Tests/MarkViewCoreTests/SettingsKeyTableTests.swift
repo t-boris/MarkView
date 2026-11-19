@@ -117,6 +117,8 @@ row("settings.github.notifyRuns", Setting.gitHubNotifyRuns, .app, "Bool", defaul
 row("settings.github.autoReview", Setting.gitHubAutoReview, .app, "Bool", default: "true", sample: false)
 row("settings.github.configDirectory", Setting.gitHubConfigDirectory, .app, "String", default: "", sample: "/Users/x/.config/gh-work")
 row("browser.agentTools.codex", Setting.browserAgentTools("codex"), .app, "Bool", default: "true", sample: false, pattern: "browser.agentTools.*")
+row("mcp.services.codex", Setting.mcpServiceSelections("codex"), .app, "Data", default: "0 bytes", sample: Data([1, 2]), pattern: "mcp.services.*")
+row("mcp.services.migrated.codex", Setting.mcpServiceMigrated("codex"), .app, "Bool", default: "false", sample: true, pattern: "mcp.services.migrated.*")
 row("browser.openTerminalLinksInApp", Setting.openTerminalLinksInApp, .app, "Bool", default: "true", sample: false)
 row("browserNeverSavePasswordHosts", Setting.neverSavePasswordHosts, .app, "Array<String>", default: "[]", sample: ["example.com"])
 

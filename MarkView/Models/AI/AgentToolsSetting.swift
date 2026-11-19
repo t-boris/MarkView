@@ -4,9 +4,18 @@ import MarkViewCore
 #endif
 
 extension CLITool {
-    /// Per assistant and per Mac: give it MarkView's tool servers when it starts from the AI panel (default on). Off for an
-    /// assistant whose organisation blocks MCP servers it does not list (BUG-025).
+    /// Legacy agent-wide MarkView tools switch (`browser.agentTools.<assistant>`), retained for one-time migration
+    /// into per-service MCP selections (`AgentMCPServices`).
     var agentToolsKey: SettingsKey<Bool> { Setting.browserAgentTools(rawValue) }
 
-    var agentToolsEnabled: Bool { Settings.standard.value(agentToolsKey) }
+    /// True when at least one MarkView launch MCP service (`markview` or `markview-browser`) is enabled for this assistant.
+    var agentToolsEnabled: Bool {
+        AgentMCPServices.isEnabled(AgentMCPServer.markviewName, for: self)
+            || AgentMCPServices.isEnabled(AgentMCPServer.markviewBrowserName, for: self)
+    }
+
+    /// True when a specific MCP service (`markview`, `markview-browser`, `markview-control`, or third-party) is enabled for this assistant.
+    func isMCPServiceEnabled(_ serviceName: String) -> Bool {
+        AgentMCPServices.isEnabled(serviceName, for: self)
+    }
 }

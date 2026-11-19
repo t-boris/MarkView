@@ -32,6 +32,26 @@ struct AntigravityProvider: AssistantProvider {
             add: { server, executable in ["mcp", "add", server.name, "--", executable, server.flag] },
             list: ["mcp", "list"], location: "agy mcp", reportsStdoutOnFailure: true))
     }
+
+    var mcpConfig: (any AssistantMCPConfigAdapter)? { AntigravityMCPConfigAdapter() }
+}
+
+/// Antigravity CLI (`agy`) stores MCP servers in `~/.gemini/config/mcp_config.json` with a per-server `"disabled"` boolean.
+private struct AntigravityMCPConfigAdapter: AssistantMCPConfigAdapter {
+    private static func configURL(home: URL) -> URL {
+        home.appendingPathComponent(".gemini/config/mcp_config.json")
+    }
+
+    func discoverFromFiles(home: URL, stash: MCPDisabledServerStash) -> [DiscoveredAgentMCPServer] {
+        JSONMCPConfigHelper.discoverDisabledFlagServers(
+            from: Self.configURL(home: home),
+            detail: "~/.gemini/config/mcp_config.json"
+        )
+    }
+
+    func setEnabled(_ enabled: Bool, serverName: String, home: URL, stash: MCPDisabledServerStash) throws {
+        try JSONMCPConfigHelper.setDisabledFlag(!enabled, serverName: serverName, in: Self.configURL(home: home))
+    }
 }
 
 // MARK: - One-shot run
