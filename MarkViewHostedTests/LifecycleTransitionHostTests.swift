@@ -5,6 +5,61 @@ import XCTest
 
 
 extension EditorHostTests {
+    func testWorkflowReplacementKeepsWrappedFrontMatter() throws {
+        let root = StoreFixture.folder("workflow-wrapped-front-matter")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let statuses = MarkdownIssueStatusStore(root: root)
+        let url = statuses.bugsFolder.appendingPathComponent("BUG-001-wrapped.md")
+        let fixture = """
+        ---
+        type: bug
+        id: BUG-001
+        provenance: Imported from a report with context
+          that continues on the next line.
+        status: closed  # Preserve this comment.
+        questions:
+        - id: BQ-1
+          status: closed
+          answer: 'The first line
+            and its continuation.'
+        ---
+
+        A Markdown body.
+        """
+        let original = (fixture + "\n\n").replacingOccurrences(of: "\n", with: "\r\n")
+        StoreFixture.write(original, to: url)
+        XCTAssertFalse(FrontMatter.split(original).0.isLossless)
+        let service = IssueTransitionService(storage: MemoryTransitionStorage(), statuses: statuses)
+        let result = service.applyReplacement(.bug, "BUG-001", from: "closed", to: "fixed", actor: .human("Test"),
+                                              reason: "Status removed from the workflow", workflowRevision: 2, variant: nil)
+        XCTAssertTrue(result.isApplied, result.explanation)
+        XCTAssertEqual(statuses.status(kind: .bug, issue: "BUG-001"), "fixed")
+        XCTAssertEqual(service.history(.bug, "BUG-001").lastChange?.transitionKind, .replacement)
+        let expected = original.replacingOccurrences(of: "status: closed  #", with: "status: fixed  #")
+        XCTAssertEqual(try Data(contentsOf: url), Data(expected.utf8))
+        XCTAssertFalse(try statuses.compareAndSet(kind: .bug, issue: "BUG-001", expected: "closed", to: "open"))
+        XCTAssertEqual(try Data(contentsOf: url), Data(expected.utf8))
+    }
+
+    func testWorkflowReplacementRefusesAmbiguousFrontMatter() throws {
+        let root = StoreFixture.folder("workflow-ambiguous-front-matter")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let statuses = MarkdownIssueStatusStore(root: root)
+        let url = statuses.bugsFolder.appendingPathComponent("BUG-001-ambiguous.md")
+        let cases = [
+            "status: closed\nstatus: closed",
+            "status: >\n  closed",
+            "description: \"A line\nstatus: closed\nending: in a quoted value\"",
+            "schema: \(FrontMatter.currentSchema + 1)\nstatus: closed"
+        ]
+        for fields in cases {
+            let fixture = "---\nid: BUG-001\n# Preserve the user's comment.\n\(fields)\n---\n\nA Markdown body.\n"
+            StoreFixture.write(fixture, to: url)
+            XCTAssertThrowsError(try statuses.compareAndSet(kind: .bug, issue: "BUG-001", expected: "closed", to: "fixed"))
+            XCTAssertEqual(try Data(contentsOf: url), Data(fixture.utf8))
+        }
+    }
+
     func testIssueTransitionLog() {
         func check(_ message: String, _ condition: Bool, line: UInt = #line) {
             XCTAssertTrue(condition, message, line: line)

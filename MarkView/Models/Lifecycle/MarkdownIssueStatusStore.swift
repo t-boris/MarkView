@@ -96,13 +96,78 @@ final class MarkdownIssueStatusStore: LifecycleStatusStore, @unchecked Sendable 
         guard let text = try? String(contentsOf: url, encoding: .utf8) else {
             throw Failure(message: "\(url.lastPathComponent) of \(issue) could not be read.")
         }
-        let (parsed, body) = FrontMatter.split(text)
-        var front = parsed
-        guard front.isLossless else { throw Failure(message: "\(url.lastPathComponent) has YAML the app cannot rewrite safely — change it in the editor.") }
-        let current = front.string("status").isEmpty ? (kind == .feature ? "idea" : "open") : front.string("status")
+        let (front, body) = FrontMatter.split(text)
+        let stored = front.string("status")
+        let current = stored.isEmpty ? (kind == .feature ? "idea" : "open") : stored
         guard LifecycleVocabulary.normalize(current) == LifecycleVocabulary.normalize(expected) else { return false }
-        front.set("status", to)
-        try front.writeFile(body: body, to: url)
+        if front.isLossless {
+            var updated = front
+            updated.set("status", to)
+            try updated.writeFile(body: body, to: url)
+        } else {
+            guard front.schemaVersion <= FrontMatter.currentSchema else {
+                throw NewerSchemaFile(url: url, found: front.schemaVersion)
+            }
+            guard let updated = Self.replacingStatus(in: text, stored: stored, with: to) else {
+                throw Failure(message: "\(url.lastPathComponent) has YAML the app cannot rewrite safely — change it in the editor.")
+            }
+            guard try String(contentsOf: url, encoding: .utf8).utf8.elementsEqual(text.utf8) else { return false }
+            try AtomicFile.write(updated, to: url)
+        }
         return true
+    }
+
+    private static let statusLine = try? NSRegularExpression(
+        pattern: #"\Astatus[ \t]*:[ \t]+(['"]?)([A-Za-z0-9_ -]+?)\1(?:[ \t]+#[^\r]*)?[ \t]*\r?\z"#)
+    private static let complexValue = try? NSRegularExpression(
+        pattern: #"\A(?:-[ \t]+)?(?:[^:]+:[ \t]+)?(['"\[{&!].*)\z"#)
+    private static let singleLineValue = #"\A(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|\[[^\[\]{}'"]*\]|\{[^\[\]{}'"]*\})(?:[ \t]+#.*)?\z"#
+
+    /// Edit a single existing block-map field when the rest of the front matter cannot round-trip.
+    /// A field under an unclosed quoted or flow value can look unindented, so require those values
+    /// before the status to fit on one line. Keep ambiguous or multiline status fields untouched.
+    private static func replacingStatus(in text: String, stored: String, with replacement: String) -> String? {
+        guard let statusLine, let complexValue, !stored.isEmpty,
+              replacement.range(of: #"\A[A-Za-z0-9_-]+\z"#, options: .regularExpression) != nil else { return nil }
+        var lines = text.components(separatedBy: "\n")
+        func isDelimiter(_ line: String) -> Bool {
+            line.hasPrefix("---") && line.trimmingCharacters(in: .whitespacesAndNewlines) == "---"
+        }
+        guard lines.first.map(isDelimiter) == true,
+              let end = lines.dropFirst().firstIndex(where: isDelimiter) else { return nil }
+        var statusIndex: Int?
+        for index in 1..<end {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+            let listItem = trimmed == "-" || trimmed.hasPrefix("- ")
+            if line.first?.isWhitespace == false, !listItem {
+                guard let key = trimmed.range(of: #"\A[A-Za-z0-9_.-]+(?=[ \t]*:(?:[ \t]|\z))"#,
+                                              options: .regularExpression) else { return nil }
+                if trimmed[key] == "status" {
+                    guard statusIndex == nil else { return nil }
+                    statusIndex = index
+                    continue
+                }
+            }
+            if statusIndex == nil,
+               let match = complexValue.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+               let value = Range(match.range(at: 1), in: trimmed),
+               trimmed[value].range(of: singleLineValue, options: .regularExpression) == nil {
+                return nil
+            }
+        }
+        guard let index = statusIndex else { return nil }
+        if let next = lines[(index + 1)..<end].first(where: {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+        }), next.first?.isWhitespace == true || next == "-" || next.hasPrefix("- ") {
+            return nil
+        }
+        let line = lines[index]
+        guard let match = statusLine.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              let value = Range(match.range(at: 2), in: line), line[value] == stored else { return nil }
+        lines[index].replaceSubrange(value, with: replacement)
+        return lines.joined(separator: "\n")
     }
 }
