@@ -951,12 +951,14 @@ extension EditorHostTests {
         check("a step on a file of a newer schema is not written and the file is untouched",
               !futureStep.isApplied && read("docs/features/future/overview.md") == futureText)
 
-        // MARK: What the files cannot take
+        // MARK: A status can change without rewriting the rest of the YAML
 
         write("---\ntitle: Commented\nstatus: draft\n# keep this comment\nowner: Boris\n---\n\nText.\n", "docs/features/commented/overview.md")
         let commented = read("docs/features/commented/overview.md")
-        let lossy = service.apply(TransitionRequest(kind: .feature, issue: "commented", from: "draft", to: "review", actor: person))
-        check("front matter the app cannot rewrite without loss is refused, not damaged", !lossy.isApplied && read("docs/features/commented/overview.md") == commented)
+        let commentedStep = service.apply(TransitionRequest(kind: .feature, issue: "commented", from: "draft", to: "review", actor: person))
+        check("the status changes and the comment is preserved", commentedStep.isApplied
+              && read("docs/features/commented/overview.md") == commented.replacingOccurrences(of: "status: draft", with: "status: review"))
+
         let missing = service.apply(TransitionRequest(kind: .feature, issue: "nothing-here", from: "draft", to: "review", actor: person))
         check("an issue that has no file is a failure", { if case .failed = missing { return true } else { return false } }())
 
