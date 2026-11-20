@@ -1266,6 +1266,207 @@ extension EditorHostTests {
                   "AR-33/FU-08: PanelLayout initializes directly to clean defaults without presets")
         }
     }
+
+    @MainActor func testToolbarMenusPlacement() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("toolbar-menu-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspace = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { workspace.composition.close() }
+
+        // 1. AIToolbarMenu help text describes only assistant, model, and X-Ray model (BUG-126).
+        let projectHelp = AIToolbarMenu.helpText(unavailable: false, hasProject: true, xrayName: "fast-model")
+        XCTAssertTrue(projectHelp.contains("Assistant and model for this project"))
+        XCTAssertTrue(projectHelp.contains("X-Ray model: fast-model."))
+        XCTAssertFalse(projectHelp.localizedCaseInsensitiveContains("AI tools"),
+                       "AI toolbar menu help should not claim to hold AI tools: \(projectHelp)")
+        let defaultHelp = AIToolbarMenu.helpText(unavailable: false, hasProject: false, xrayName: "assistant's model")
+        XCTAssertTrue(defaultHelp.contains("Default assistant and model"))
+        XCTAssertFalse(defaultHelp.localizedCaseInsensitiveContains("AI tools"))
+        XCTAssertEqual(AIToolbarMenu.helpText(unavailable: true, hasProject: true, xrayName: "fast-model"),
+                       "Assistant unavailable. Set its CLI path in Settings.")
+
+        // 2. Host both AIToolbarMenu and ProjectToolsMenu in an offscreen window to verify view construction.
+        var cycleTimeOpened = 0
+        var settingsOpened = 0
+        let toolbarHost = NSHostingView(rootView: HStack {
+            ProjectToolsMenu(
+                workspaceManager: workspace,
+                fileTree: workspace.project.fileTree,
+                tint: .primary,
+                onShowCycleTime: { cycleTimeOpened += 1 },
+                onOpenSettings: { settingsOpened += 1 }
+            ) {
+                Image(systemName: "ellipsis")
+            }
+            AIToolbarMenu(workspaceManager: workspace, compact: false)
+            AIToolbarMenu(workspaceManager: workspace, compact: true)
+        })
+        let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 420, height: 60),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = toolbarHost
+        toolbarHost.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 60))
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        toolbarHost.layoutSubtreeIfNeeded()
+        themeWebSpin(0.1)
+
+        func buildMenu() -> ProjectToolsMenuContent.Sections {
+            ProjectToolsMenuContent.build(
+                workspaceManager: workspace,
+                fileTree: workspace.project.fileTree,
+                onShowCycleTime: { cycleTimeOpened += 1 },
+                onOpenSettings: { settingsOpened += 1 }
+            )
+        }
+
+        func submenu(_ id: String, in sections: ProjectToolsMenuContent.Sections) throws -> ProjectToolsMenuContent.Submenu {
+            try XCTUnwrap(sections.submenus.first(where: { $0.id == id }), "Missing submenu \(id)")
+        }
+
+        func action(_ id: String, in entries: [ProjectToolsMenuContent.Submenu.Entry]) throws -> ProjectToolsMenuContent.ActionItem {
+            for entry in entries {
+                if case .action(let item) = entry, item.id == id { return item }
+            }
+            XCTFail("Missing action \(id)")
+            throw NSError(domain: "ToolbarMenuTest", code: 1)
+        }
+
+        func nestedSubmenu(_ id: String, in entries: [ProjectToolsMenuContent.Submenu.Entry]) throws -> ProjectToolsMenuContent.Submenu {
+            for entry in entries {
+                if case .submenu(let menu) = entry, menu.id == id { return menu }
+            }
+            XCTFail("Missing nested submenu \(id)")
+            throw NSError(domain: "ToolbarMenuTest", code: 2)
+        }
+
+        // 3. No folder open: verify structure, titles, and disabled states.
+        let withoutFolder = buildMenu()
+        XCTAssertEqual(withoutFolder.submenus.map(\.title), ["Diagrams", "Prototype", "Analysis"])
+        XCTAssertEqual(withoutFolder.utilities.map(\.title), ["Project Cycle Time…", "DDE Settings…"])
+        XCTAssertEqual(withoutFolder.utilities.map(\.disabled), [true, false])
+
+        let diagramsNoFolder = try submenu("diagrams", in: withoutFolder)
+        XCTAssertEqual(diagramsNoFolder.entries.compactMap { if case .action(let item) = $0 { return item.title } else { return nil } },
+                       ["System Architecture", "Data Flow", "Pipeline", "Deployment", "Sequence", "Entity-Relationship"])
+        XCTAssertTrue(diagramsNoFolder.entries.allSatisfy { if case .action(let item) = $0 { return !item.disabled } else { return false } })
+
+        let prototypeNoFolder = try submenu("prototype", in: withoutFolder)
+        XCTAssertTrue(try action("prototype.new", in: prototypeNoFolder.entries).disabled)
+        XCTAssertTrue(try action("prototype.uiStudio", in: prototypeNoFolder.entries).disabled)
+        let openProtoNoFolder = try nestedSubmenu("prototype.open", in: prototypeNoFolder.entries)
+        XCTAssertEqual(openProtoNoFolder.title, "Open Prototype (0)")
+        XCTAssertTrue(openProtoNoFolder.disabled)
+        if case .message(_, let text)? = openProtoNoFolder.entries.first {
+            XCTAssertEqual(text, "No prototypes in this project yet")
+        } else {
+            XCTFail("Expected empty-prototypes placeholder text")
+        }
+
+        let analysisNoFolder = try submenu("analysis", in: withoutFolder)
+        XCTAssertEqual(analysisNoFolder.entries.compactMap { if case .action(let item) = $0 { return item.title } else { return nil } },
+                       ["Constructive Critic", "Deep Research…", "Codebase Audit", "Code Structure Map", "Recursive Insight"])
+        XCTAssertFalse(try action("analysis.critic", in: analysisNoFolder.entries).disabled)
+        XCTAssertFalse(try action("analysis.research", in: analysisNoFolder.entries).disabled)
+        XCTAssertFalse(try action("analysis.audit", in: analysisNoFolder.entries).disabled)
+        XCTAssertFalse(try action("analysis.codemap", in: analysisNoFolder.entries).disabled)
+        XCTAssertTrue(try action("analysis.insight", in: analysisNoFolder.entries).disabled)
+
+        // 4. Folder open without Markdown files or prototypes.
+        let projectDir = root.appendingPathComponent("sample-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        let emptyRoot = FileNode(url: projectDir, isDirectory: true)
+        emptyRoot.children = []
+        workspace.project.fileTree.rootNode = emptyRoot
+
+        let withEmptyFolder = buildMenu()
+        XCTAssertEqual(withEmptyFolder.utilities.map(\.disabled), [false, false])
+        let protoEmptyFolder = try submenu("prototype", in: withEmptyFolder)
+        XCTAssertFalse(try action("prototype.new", in: protoEmptyFolder.entries).disabled)
+        XCTAssertFalse(try action("prototype.uiStudio", in: protoEmptyFolder.entries).disabled)
+        XCTAssertTrue(try nestedSubmenu("prototype.open", in: protoEmptyFolder.entries).disabled)
+        let analysisEmptyFolder = try submenu("analysis", in: withEmptyFolder)
+        XCTAssertTrue(try action("analysis.insight", in: analysisEmptyFolder.entries).disabled)
+
+        // 5. Folder open with a Markdown file and a saved prototype.
+        let readme = projectDir.appendingPathComponent("README.md")
+        try "# Sample\n".write(to: readme, atomically: true, encoding: .utf8)
+        let protoFolder = PrototypeFiles.folder(root: projectDir, slug: "billing-portal")
+        try FileManager.default.createDirectory(at: PrototypeFiles.site(of: protoFolder), withIntermediateDirectories: true)
+        try "<html><body>Billing</body></html>".write(
+            to: PrototypeFiles.site(of: protoFolder).appendingPathComponent("index.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifest = PrototypeFiles.Manifest(
+            title: "Billing Portal",
+            slug: "billing-portal",
+            brief: "Billing views",
+            sources: ["README.md"],
+            version: 2,
+            approved: true,
+            history: [PrototypeFiles.Entry(version: 2, instruction: "Initial", summary: "Built", date: Date())]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: PrototypeFiles.manifestURL(of: protoFolder))
+
+        let populatedRoot = FileNode(url: projectDir, isDirectory: true)
+        populatedRoot.children = [FileNode(url: readme, isDirectory: false)]
+        workspace.project.fileTree.setRootNode(populatedRoot)
+        for _ in 0..<100 where !workspace.project.fileTree.hasMarkdownFiles {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(workspace.project.fileTree.hasMarkdownFiles, "Real file tree probe should detect README.md")
+
+        let withContent = buildMenu()
+        let protoWithSaved = try submenu("prototype", in: withContent)
+        let openProtoSaved = try nestedSubmenu("prototype.open", in: protoWithSaved.entries)
+        XCTAssertEqual(openProtoSaved.title, "Open Prototype (1)")
+        XCTAssertFalse(openProtoSaved.disabled)
+        let savedAction = try action("prototype.open.billing-portal", in: openProtoSaved.entries)
+        XCTAssertEqual(savedAction.title, "Billing Portal · v2 · approved")
+
+        let analysisWithMarkdown = try submenu("analysis", in: withContent)
+        XCTAssertFalse(try action("analysis.insight", in: analysisWithMarkdown.entries).disabled)
+
+        // 6. Verify actions route to the expected workspace behaviors.
+        let diagramsWithContent = try submenu("diagrams", in: withContent)
+        for (id, expectedType) in [
+            ("diagrams.architecture", "architecture"),
+            ("diagrams.dataflow", "dataflow"),
+            ("diagrams.pipeline", "pipeline"),
+            ("diagrams.deployment", "deployment"),
+            ("diagrams.sequence", "sequence"),
+            ("diagrams.er", "er")
+        ] {
+            try action(id, in: diagramsWithContent.entries).perform()
+            XCTAssertEqual(workspace.requests.pendingGraphCreatorType, expectedType, "Diagram action \(id) sets graph creator type")
+        }
+
+        try action("prototype.new", in: protoWithSaved.entries).perform()
+        XCTAssertTrue(workspace.requests.showPrototypeCreator)
+        XCTAssertEqual(workspace.requests.prototypeCreatorMode, .requirements)
+
+        try action("prototype.uiStudio", in: protoWithSaved.entries).perform()
+        XCTAssertTrue(workspace.tabs.openTabs.contains { $0.kind.toolID == .uiStudio })
+
+        savedAction.perform()
+        XCTAssertTrue(workspace.tabs.openTabs.contains {
+            if case .prototype(let session) = $0.kind { return session.manifest.slug == "billing-portal" }
+            return false
+        })
+
+        try action("analysis.research", in: analysisWithMarkdown.entries).perform()
+        XCTAssertEqual(workspace.requests.intake?.kind, .research)
+
+        try XCTUnwrap(withContent.utilities.first(where: { $0.id == "project.cycleTime" })).perform()
+        try XCTUnwrap(withContent.utilities.first(where: { $0.id == "project.settings" })).perform()
+        XCTAssertEqual(cycleTimeOpened, 1)
+        XCTAssertEqual(settingsOpened, 1)
+    }
 }
 
 @MainActor private func themeWebSpin(_ seconds: TimeInterval, until done: () -> Bool = { false }) {

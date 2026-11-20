@@ -3,13 +3,11 @@ import SwiftUI
 import MarkViewCore
 #endif
 
-/// The one toolbar menu of the AI: the assistant CLI and its model for this window's project (BUG-021; other projects keep theirs), the model
-/// that X-Ray and the other large structured answers use, and the AI tools (diagrams, prototypes, analyses). A window showing a single file
-/// edits the defaults, as DDE Settings does. The bar shows the assistant and its model; the X-Ray model is named in the menu.
+/// The one toolbar menu of the AI: the assistant CLI and its model for this window's project (BUG-021; other projects keep theirs), and the model
+/// that X-Ray and the other large structured answers use. A window showing a single file edits the defaults, as DDE Settings does. The bar shows
+/// the assistant and its model; the X-Ray model is named in the menu.
 struct AIToolbarMenu: View {
     let workspaceManager: WorkspaceManager
-    /// Passed in: toolbar content does not get the window's environment objects.
-    let fileTree: WorkspaceFileTreeStore
     var compact = false
     /// The models each tool offers, as loaded (Codex's list is read from disk, so off the main thread).
     @State private var catalog: [CLITool: [AIModelOption]] = [:]
@@ -85,7 +83,6 @@ struct AIToolbarMenu: View {
                 .pickerStyle(.inline)
                 Text("Used by X-Ray, operations discovery, filters and explanations.")
             }
-            AIToolsMenuItems(workspaceManager: workspaceManager, fileTree: fileTree)
         } label: {
             if compact {
                 Image(systemName: unavailable ? "exclamationmark.triangle" : "cpu")
@@ -96,9 +93,7 @@ struct AIToolbarMenu: View {
         }
         // An icon-only menu has no room for the chevron: it would reach into the button beside it.
         .menuIndicator(compact ? .hidden : .automatic)
-        .help(unavailable ? "Assistant unavailable. Set its CLI path in Settings." :
-              (workspaceManager.aiProject == nil ? "Default assistant and model" : "Assistant and model for this project")
-              + " — the AI terminal, features and research. X-Ray model: \(xrayName). The menu also holds the AI tools.")
+        .help(Self.helpText(unavailable: unavailable, hasProject: workspaceManager.aiProject != nil, xrayName: xrayName))
         .onAppear { seenSnapshot = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject) }
         .onReceive(SettingsObserver.changes(of: AIAssistantPreferences.observedKeys)) { _ in
             let next = AIAssistantPreferences.snapshot(project: workspaceManager.aiProject)
@@ -117,6 +112,14 @@ struct AIToolbarMenu: View {
 }
 
 extension AIToolbarMenu {
+    static func helpText(unavailable: Bool, hasProject: Bool, xrayName: String) -> String {
+        if unavailable {
+            return "Assistant unavailable. Set its CLI path in Settings."
+        }
+        let scope = hasProject ? "Assistant and model for this project" : "Default assistant and model"
+        return "\(scope) — the AI terminal, features and research. X-Ray model: \(xrayName)."
+    }
+
     /// The models `tool` offers. ACP assistants list the account's models only over ACP:
     /// they are fetched the first time.
     static func loadOptions(for tool: CLITool) async -> [AIModelOption] {
@@ -126,50 +129,5 @@ extension AIToolbarMenu {
             loaded = [loaded.first].compactMap { $0 } + models
         }
         return loaded
-    }
-}
-
-/// The AI tools, as submenus of the AI menu: diagrams (Graph Creator), prototypes and the analyses that work.
-private struct AIToolsMenuItems: View {
-    // Passed in: toolbar content does not get the window's environment objects.
-    @ObservedObject var workspaceManager: WorkspaceManager
-    @ObservedObject var fileTree: WorkspaceFileTreeStore
-
-    var body: some View {
-        Menu("Diagrams") {
-            Button("System Architecture") { workspaceManager.runAITool(named: "architecture") }
-            Button("Data Flow") { workspaceManager.runAITool(named: "dataflow") }
-            Button("Pipeline") { workspaceManager.runAITool(named: "pipeline") }
-            Button("Deployment") { workspaceManager.runAITool(named: "deployment") }
-            Button("Sequence") { workspaceManager.runAITool(named: "sequence") }
-            Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
-        }
-        Menu("Prototype") {
-            Button("New Prototype…") { workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements) }
-                .disabled(fileTree.rootNode == nil)
-            // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
-            Button("UI Studio (Existing Code)") { workspaceManager.openTool(.uiStudio) }
-                .disabled(fileTree.rootNode == nil)
-            let saved = workspaceManager.toolTabs.prototypes.saved()
-            Menu("Open Prototype (\(saved.count))") {
-                if saved.isEmpty {
-                    Text("No prototypes in this project yet")
-                } else {
-                    ForEach(saved) { prototype in
-                        Button(prototype.label) { workspaceManager.toolTabs.prototypes.openSaved(prototype.slug) }
-                    }
-                }
-            }
-            .disabled(fileTree.rootNode == nil || saved.isEmpty)
-        }
-        Menu("Analysis") {
-            Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
-            // Superseded by New Research, which saves a report (DEC-010).
-            Button("Deep Research…") { workspaceManager.flow.newResearch() }
-            Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
-            Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
-            Button("Recursive Insight") { workspaceManager.insight.start() }
-                .disabled(fileTree.rootNode == nil || !fileTree.hasMarkdownFiles)
-        }
     }
 }
