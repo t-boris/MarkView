@@ -37,7 +37,6 @@
 1 MarkView/Models/Lifecycle/FeatureIntake.swift
 1 MarkView/Models/Lifecycle/HandoffPrompt.swift
 1 MarkView/Models/Lifecycle/IssueReconciler.swift
-1 MarkView/Models/Lifecycle/MarkdownIssueStatusStore.swift
 1 MarkView/Models/Lifecycle/WorkflowDescription.swift
 1 MarkView/Models/Lifecycle/WorkflowEvents.swift
 1 MarkView/Models/Lifecycle/WorkflowFlow.swift
