@@ -14,6 +14,7 @@ struct WorkflowTabView: View {
     @Environment(\.palette) private var palette
     @ObservedObject var store: FeatureStore
     @ObservedObject var editor: WorkflowEditorModel
+    @State private var processToRemove: RuleVariant?
 
     private var load: WorkflowLoad { store.lifecycle.workflowLoad }
     private var editable: Bool { load.isEditable && store.root != nil }
@@ -155,6 +156,18 @@ struct WorkflowTabView: View {
                 defaultPicker(.bug, $editor.draft.defaultBugVariant)
             }
         }
+        .confirmationDialog("Choose a new default process", isPresented: Binding(
+            get: { processToRemove != nil }, set: { if !$0 { processToRemove = nil } }
+        ), titleVisibility: .visible, presenting: processToRemove) { process in
+            ForEach(editor.draft.variants(for: process.kind).filter { $0.id != process.id }) { candidate in
+                Button("\(candidate.name) (\(candidate.id))") {
+                    editor.removeProcess(process.id, replacementDefault: candidate.id)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { process in
+            Text("“\(process.name)” is the default for new \(process.kind.rawValue)s. Choose which process they will use after you remove it.")
+        }
     }
 
     private var addProcessMenu: some View {
@@ -187,13 +200,19 @@ struct WorkflowTabView: View {
 
     private func processRow(_ id: String) -> some View {
         let variant = editor.variantBinding(id)
-        let own = variant.wrappedValue.rules != nil
+        let process = variant.wrappedValue
+        let own = process.rules != nil
+        let canRemove = editor.draft.variants(for: process.kind).count > 1
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 TextField("Name", text: variant.name).textFieldStyle(.roundedBorder)
                 Text(id).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim).lineLimit(1)
-                Button { removeProcess(id) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.plain).help("Remove this process. Items that use it follow a process you choose when you save.")
+                Button { removeProcess(process) } label: { Image(systemName: "trash") }
+                    .buttonStyle(.plain)
+                    .disabled(!canRemove)
+                    .accessibilityLabel("Remove process \(process.name)")
+                    .help(canRemove ? "Remove this process. Items that use it follow a process you choose when you save."
+                          : "Keep at least one process for \(process.kind.rawValue)s.")
             }
             flowStrip(id)
             WorkflowProcessControls(variant: variant, parts: .all)
@@ -270,9 +289,13 @@ struct WorkflowTabView: View {
         editor.draft.variants.append(template.variant(kind: kind, id: id))
     }
 
-    private func removeProcess(_ id: String) {
-        editor.draft.variants.removeAll { $0.id == id }
-        editor.expanded.remove(id)
+    private func removeProcess(_ process: RuleVariant) {
+        if editor.draft.defaultVariantID(process.kind) == process.id,
+           editor.draft.variants(for: process.kind).count > 2 {
+            processToRemove = process
+        } else {
+            editor.removeProcess(process.id)
+        }
     }
 
     private func giveOwnTransitions(_ id: String) {
