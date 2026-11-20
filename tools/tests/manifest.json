@@ -354,6 +354,7 @@
         "MarkView/Views/Workspace/TOCView.swift",
         "MarkView/Views/Workspace/EditorView.swift",
         "MarkView/Views/Workspace/ContentView.swift",
+        "MarkView/Views/AI/AIToolbarMenu.swift",
         "MarkView/Models/Workspace/WorkspaceManager.swift",
         "MarkView/Models/Workspace/WindowComposition.swift",
         "MarkView.xcodeproj/project.pbxproj",

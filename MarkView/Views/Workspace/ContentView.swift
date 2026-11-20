@@ -519,7 +519,7 @@ private struct WorkspaceWindow: View {
                     chrome.showGlobalSearch = true
                 }
                 newMenu.frame(width: controlWidth, height: controlWidth)
-                AIToolbarMenu(workspaceManager: workspaceManager, fileTree: fileTree, compact: compact)
+                AIToolbarMenu(workspaceManager: workspaceManager, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 200)
                 headerButton("paintpalette", help: "Theme (⇧⌘T)", width: controlWidth) {
                     workspaceManager.theme.showsPicker.toggle()
@@ -624,18 +624,15 @@ private struct WorkspaceWindow: View {
 
     /// Less frequent window tools, kept alongside the direct project buttons.
     private var projectMenu: some View {
-        Menu {
-            Button("Project Cycle Time…") { showCycleTime = true }
-                .disabled(fileTree.rootNode == nil)
-            Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
-        } label: {
+        ProjectToolsMenu(
+            workspaceManager: workspaceManager,
+            fileTree: fileTree,
+            tint: palette.text,
+            onShowCycleTime: { showCycleTime = true },
+            onOpenSettings: { DDESettingsWindow.show(workspace: workspaceManager) }
+        ) {
             toolbarIcon("ellipsis", width: toolbarIconWidth)
         }
-        .menuStyle(.borderlessButton)
-        .tint(palette.text)
-        .menuIndicator(.hidden)
-        .help("More project tools")
-        .accessibilityLabel("More project tools")
     }
 
     private var browserMenu: some View {
@@ -999,6 +996,190 @@ private struct WorkspaceWindow: View {
 
 /// Captures the NSWindow hosting a SwiftUI view, so open-URL notifications can
 /// be filtered to the active window instead of racing across all instances.
+/// Menu entries shown under the workspace toolbar's "More project tools" ellipsis menu:
+/// Diagrams (Graph Creator), Prototype, Analysis, Project Cycle Time, and DDE Settings.
+@MainActor
+enum ProjectToolsMenuContent {
+    struct ActionItem: Identifiable {
+        let id: String
+        let title: String
+        let disabled: Bool
+        let perform: () -> Void
+    }
+
+    struct Submenu: Identifiable {
+        enum Entry: Identifiable {
+            case action(ActionItem)
+            case submenu(Submenu)
+            case message(id: String, text: String)
+
+            var id: String {
+                switch self {
+                case .action(let item): return item.id
+                case .submenu(let menu): return menu.id
+                case .message(let id, _): return id
+                }
+            }
+        }
+
+        let id: String
+        let title: String
+        let disabled: Bool
+        let entries: [Entry]
+    }
+
+    struct Sections {
+        let submenus: [Submenu]
+        let utilities: [ActionItem]
+    }
+
+    static func build(
+        workspaceManager: WorkspaceManager,
+        fileTree: WorkspaceFileTreeStore,
+        onShowCycleTime: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void
+    ) -> Sections {
+        let hasFolder = fileTree.rootNode != nil
+        let savedPrototypes = workspaceManager.toolTabs.prototypes.saved()
+        let openPrototypeEntries: [Submenu.Entry] = savedPrototypes.isEmpty
+            ? [.message(id: "prototype.empty", text: "No prototypes in this project yet")]
+            : savedPrototypes.map { prototype in
+                .action(ActionItem(id: "prototype.open.\(prototype.slug)", title: prototype.label, disabled: false) {
+                    workspaceManager.toolTabs.prototypes.openSaved(prototype.slug)
+                })
+            }
+
+        let submenus: [Submenu] = [
+            Submenu(id: "diagrams", title: "Diagrams", disabled: false, entries: [
+                .action(ActionItem(id: "diagrams.architecture", title: "System Architecture", disabled: false) {
+                    workspaceManager.runAITool(named: "architecture")
+                }),
+                .action(ActionItem(id: "diagrams.dataflow", title: "Data Flow", disabled: false) {
+                    workspaceManager.runAITool(named: "dataflow")
+                }),
+                .action(ActionItem(id: "diagrams.pipeline", title: "Pipeline", disabled: false) {
+                    workspaceManager.runAITool(named: "pipeline")
+                }),
+                .action(ActionItem(id: "diagrams.deployment", title: "Deployment", disabled: false) {
+                    workspaceManager.runAITool(named: "deployment")
+                }),
+                .action(ActionItem(id: "diagrams.sequence", title: "Sequence", disabled: false) {
+                    workspaceManager.runAITool(named: "sequence")
+                }),
+                .action(ActionItem(id: "diagrams.er", title: "Entity-Relationship", disabled: false) {
+                    workspaceManager.runAITool(named: "er")
+                })
+            ]),
+            Submenu(id: "prototype", title: "Prototype", disabled: false, entries: [
+                .action(ActionItem(id: "prototype.new", title: "New Prototype…", disabled: !hasFolder) {
+                    workspaceManager.toolTabs.prototypes.openCreator(mode: .requirements)
+                }),
+                // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
+                .action(ActionItem(id: "prototype.uiStudio", title: "UI Studio (Existing Code)", disabled: !hasFolder) {
+                    workspaceManager.openTool(.uiStudio)
+                }),
+                .submenu(Submenu(
+                    id: "prototype.open",
+                    title: "Open Prototype (\(savedPrototypes.count))",
+                    disabled: !hasFolder || savedPrototypes.isEmpty,
+                    entries: openPrototypeEntries
+                ))
+            ]),
+            Submenu(id: "analysis", title: "Analysis", disabled: false, entries: [
+                .action(ActionItem(id: "analysis.critic", title: "Constructive Critic", disabled: false) {
+                    workspaceManager.runAITool(named: "critic")
+                }),
+                // Superseded by New Research, which saves a report (DEC-010).
+                .action(ActionItem(id: "analysis.research", title: "Deep Research…", disabled: false) {
+                    workspaceManager.flow.newResearch()
+                }),
+                .action(ActionItem(id: "analysis.audit", title: "Codebase Audit", disabled: false) {
+                    workspaceManager.runAITool(named: "audit")
+                }),
+                .action(ActionItem(id: "analysis.codemap", title: "Code Structure Map", disabled: false) {
+                    workspaceManager.runAITool(named: "codemap")
+                }),
+                .action(ActionItem(id: "analysis.insight", title: "Recursive Insight", disabled: !hasFolder || !fileTree.hasMarkdownFiles) {
+                    workspaceManager.insight.start()
+                })
+            ])
+        ]
+
+        let utilities: [ActionItem] = [
+            ActionItem(id: "project.cycleTime", title: "Project Cycle Time…", disabled: !hasFolder, perform: onShowCycleTime),
+            ActionItem(id: "project.settings", title: "DDE Settings…", disabled: false, perform: onOpenSettings)
+        ]
+
+        return Sections(submenus: submenus, utilities: utilities)
+    }
+}
+
+/// Toolbar ellipsis menu ("More project tools") hosting Diagrams, Prototype, Analysis, Project Cycle Time, and DDE Settings.
+struct ProjectToolsMenu<Label: View>: View {
+    @ObservedObject var workspaceManager: WorkspaceManager
+    @ObservedObject var fileTree: WorkspaceFileTreeStore
+    let tint: Color
+    let onShowCycleTime: () -> Void
+    let onOpenSettings: () -> Void
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        let sections = ProjectToolsMenuContent.build(
+            workspaceManager: workspaceManager,
+            fileTree: fileTree,
+            onShowCycleTime: onShowCycleTime,
+            onOpenSettings: onOpenSettings
+        )
+        Menu {
+            ForEach(sections.submenus) { submenu in
+                renderSubmenu(submenu)
+            }
+            Divider()
+            ForEach(sections.utilities) { item in
+                Button(item.title, action: item.perform)
+                    .disabled(item.disabled)
+            }
+        } label: {
+            label()
+        }
+        .menuStyle(.borderlessButton)
+        .tint(tint)
+        .menuIndicator(.hidden)
+        .help("More project tools")
+        .accessibilityLabel("More project tools")
+    }
+
+    private func renderSubmenu(_ submenu: ProjectToolsMenuContent.Submenu) -> some View {
+        Menu(submenu.title) {
+            ForEach(submenu.entries) { entry in
+                switch entry {
+                case .action(let item):
+                    Button(item.title, action: item.perform)
+                        .disabled(item.disabled)
+                case .submenu(let nested):
+                    Menu(nested.title) {
+                        ForEach(nested.entries) { nestedEntry in
+                            switch nestedEntry {
+                            case .action(let item):
+                                Button(item.title, action: item.perform)
+                                    .disabled(item.disabled)
+                            case .submenu:
+                                EmptyView()
+                            case .message(_, let text):
+                                Text(text)
+                            }
+                        }
+                    }
+                    .disabled(nested.disabled)
+                case .message(_, let text):
+                    Text(text)
+                }
+            }
+        }
+        .disabled(submenu.disabled)
+    }
+}
+
 /// A recent folder on the start screen: click opens it; the hover "×" or the context menu
 /// removes it from the list.
 private struct RecentProjectRow: View {
