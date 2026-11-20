@@ -26,6 +26,47 @@ final class WorkflowEditorLayoutHostTests: XCTestCase {
         XCTAssertTrue(ok, message + (detail.isEmpty ? "" : " — " + detail), file: file, line: line)
     }
 
+    @MainActor func testRemovingDefaultProcessKeepsWorkflowSavable() {
+        let store = makeStore()
+        let editor = WorkflowEditorModel()
+        editor.attach(to: store)
+        let removed = editor.draft.defaultBugVariant
+        let remaining = VariantTemplate.directToMain.variant(kind: .bug, id: "local-bug")
+        editor.draft.variants.append(remaining)
+        editor.expanded.insert(removed)
+
+        XCTAssertFalse(editor.removeProcess(removed, replacementDefault: editor.draft.defaultFeatureVariant))
+        XCTAssertTrue(editor.removeProcess(removed))
+        XCTAssertEqual(editor.draft.defaultBugVariant, remaining.id)
+        XCTAssertTrue(editor.draft.validate().isEmpty)
+        XCTAssertFalse(editor.expanded.contains(removed))
+        XCTAssertFalse(editor.removeProcess(remaining.id))
+
+        editor.save(in: store)
+        XCTAssertFalse(editor.isDirty, editor.message ?? "")
+        XCTAssertEqual(store.lifecycle.workflow.defaultBugVariant, remaining.id)
+        XCTAssertNil(store.lifecycle.workflow.variant(removed))
+    }
+
+    @MainActor func testRemovingDefaultProcessWithSeveralAlternativesRequiresAChoice() {
+        let editor = WorkflowEditorModel()
+        let removed = editor.draft.defaultFeatureVariant
+        let first = VariantTemplate.directToMain.variant(kind: .feature, id: "local-feature")
+        let second = VariantTemplate.directToMain.variant(kind: .feature, id: "other-feature")
+        editor.draft.variants += [first, second]
+        let before = editor.draft
+
+        XCTAssertFalse(editor.removeProcess(removed))
+        XCTAssertFalse(editor.removeProcess(removed, replacementDefault: editor.draft.defaultBugVariant))
+        XCTAssertEqual(editor.draft, before)
+
+        XCTAssertTrue(editor.removeProcess(removed, replacementDefault: second.id))
+        XCTAssertTrue(editor.removeProcess(first.id))
+        XCTAssertEqual(editor.draft.defaultFeatureVariant, second.id)
+        XCTAssertEqual(editor.draft.defaultBugVariant, before.defaultBugVariant)
+        XCTAssertTrue(editor.draft.validate().isEmpty)
+    }
+
 @MainActor func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
 @MainActor func settle(_ hosting: NSView) {

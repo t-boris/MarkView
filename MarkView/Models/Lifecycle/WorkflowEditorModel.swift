@@ -64,6 +64,33 @@ final class WorkflowEditorModel: ObservableObject {
         })
     }
 
+    /// Remove a process without leaving its type without a default. With several alternatives,
+    /// the person chooses the new default before the process is removed from the draft.
+    @discardableResult
+    func removeProcess(_ id: String, replacementDefault: String? = nil) -> Bool {
+        guard let process = draft.variant(id) else { return false }
+        let remaining = draft.variants(for: process.kind).filter { $0.id != id }
+        guard let first = remaining.first else { return false }
+        var updated = draft
+        if draft.defaultVariantID(process.kind) == id {
+            let replacement = if let replacementDefault {
+                remaining.first { $0.id == replacementDefault }
+            } else {
+                remaining.count == 1 ? first : nil
+            }
+            guard let replacement else { return false }
+            if process.kind == .feature {
+                updated.defaultFeatureVariant = replacement.id
+            } else {
+                updated.defaultBugVariant = replacement.id
+            }
+        }
+        updated.variants.removeAll { $0.id == id }
+        draft = updated
+        expanded.remove(id)
+        return true
+    }
+
     // MARK: Reading
 
     /// Called when the tab is shown. A different project starts a new draft; the same project keeps unsaved edits and, when there

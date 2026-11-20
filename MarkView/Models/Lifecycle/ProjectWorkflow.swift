@@ -699,9 +699,12 @@ extension ProjectWorkflow {
             }
         }
         for kind in [IssueKind.feature, .bug] {
-            let chosen = variant(defaultVariantID(kind))
-            if variants(for: kind).isEmpty { add("There must be at least one \(kind.rawValue) rule variant.") }
-            else if chosen == nil || chosen?.kind != kind { add("The default \(kind.rawValue) rule variant must be one of the \(kind.rawValue) rule variants.") }
+            let id = defaultVariantID(kind)
+            if variants(for: kind).isEmpty {
+                add("There must be at least one \(kind.rawValue) process.")
+            } else if variant(id)?.kind != kind {
+                add("“\(id)” is unavailable as the default process for new \(kind.rawValue)s. Choose a replacement in Processes.")
+            }
         }
         return problems
     }
