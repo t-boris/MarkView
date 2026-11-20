@@ -1278,16 +1278,17 @@ private struct FloatingAgentsView: View {
                         .foregroundColor(palette.textDim.opacity(minimized || maximized ? 0.4 : 1))
                         .frame(width: 30, height: headerHeight)
                         .background(palette.bg)
-                        .contentShape(Rectangle())
+                        .overlay {
+                            AgentsDragHandle(
+                                onChanged: { if !minimized && !maximized { resizeTranslation = $0 } },
+                                onEnded: { translation in
+                                    guard !minimized && !maximized else { return }
+                                    state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - translation.width))), for: Setting.agentsWidth)
+                                    state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - translation.height))), for: Setting.agentsHeight)
+                                    resizeTranslation = .zero
+                                })
+                        }
                         .help("Drag to resize Agents")
-                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                            .onChanged { if !minimized && !maximized { resizeTranslation = $0.translation } }
-                            .onEnded { value in
-                                guard !minimized && !maximized else { return }
-                                state.set(Double(min(available.width - baseX, max(min(280, available.width), baseWidth - value.translation.width))), for: Setting.agentsWidth)
-                                state.set(Double(min(available.height - baseY, max(min(180, available.height), baseHeight - value.translation.height))), for: Setting.agentsHeight)
-                                resizeTranslation = .zero
-                            })
                     Group {
                         if minimized {
                             MinimizedAgentStatus(monitor: workspaceManager.terminals.activity)
@@ -1296,26 +1297,21 @@ private struct FloatingAgentsView: View {
                         }
                     }
                         .frame(maxWidth: .infinity, minHeight: headerHeight, maxHeight: headerHeight, alignment: .leading)
-                        .contentShape(Rectangle())
+                        .overlay {
+                            AgentsDragHandle(
+                                onChanged: { if !maximized { moveTranslation = $0 } },
+                                onEnded: { translation in
+                                    guard !maximized else { return }
+                                    state.set(Double(min(max(0, available.width - width), max(0, baseX - translation.width))), for: Setting.agentsOffsetX)
+                                    state.set(Double(min(max(0, available.height - height), max(0, baseY - translation.height))), for: Setting.agentsOffsetY)
+                                    moveTranslation = .zero
+                                },
+                                onDoubleClick: toggleMinimized)
+                        }
                         .help("Drag to move Agents")
-                        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { if !maximized { moveTranslation = $0.translation } }
-                            .onEnded { value in
-                                guard !maximized else { return }
-                                state.set(Double(min(max(0, available.width - width), max(0, baseX - value.translation.width))), for: Setting.agentsOffsetX)
-                                state.set(Double(min(max(0, available.height - height), max(0, baseY - value.translation.height))), for: Setting.agentsOffsetY)
-                                moveTranslation = .zero
-                            })
-                        .simultaneousGesture(TapGesture(count: 2).onEnded {
-                            if maximized { maximized = false }
-                            if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
-                            minimized.toggle()
-                        })
-                    headerControl(minimized ? "arrow.up.left.and.arrow.down.right" : "minus", help: minimized ? "Restore Agents" : "Minimize Agents", height: headerHeight) {
-                        if maximized { maximized = false }
-                        if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
-                        minimized.toggle()
-                    }
+                    headerControl(minimized ? "arrow.up.left.and.arrow.down.right" : "minus",
+                                  help: minimized ? "Restore Agents" : "Minimize Agents",
+                                  height: headerHeight, action: toggleMinimized)
                     headerControl(maximized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right", help: maximized ? "Restore Agents size" : "Maximize Agents", height: headerHeight) {
                         minimized = false
                         maximized.toggle()
@@ -1330,6 +1326,12 @@ private struct FloatingAgentsView: View {
             .offset(x: -x, y: -y)
     }
 
+    private func toggleMinimized() {
+        if maximized { maximized = false }
+        if !minimized { NSApp.keyWindow?.makeFirstResponder(nil) }
+        minimized.toggle()
+    }
+
     private func headerControl(_ symbol: String, help: String, height: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).uiFont(size: 10, weight: .bold)
@@ -1338,6 +1340,60 @@ private struct FloatingAgentsView: View {
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// The workspace allows background window dragging. Claim the panel's handles at AppKit
+/// hit testing so a mouse-down there starts a panel interaction over any workspace content.
+private struct AgentsDragHandle: NSViewRepresentable {
+    let onChanged: (CGSize) -> Void
+    let onEnded: (CGSize) -> Void
+    var onDoubleClick: (() -> Void)? = nil
+
+    func makeNSView(context: Context) -> HandleView { HandleView() }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        view.onChanged = onChanged
+        view.onEnded = onEnded
+        view.onDoubleClick = onDoubleClick
+    }
+
+    final class HandleView: NSView {
+        var onChanged: ((CGSize) -> Void)?
+        var onEnded: ((CGSize) -> Void)?
+        var onDoubleClick: (() -> Void)?
+        private var start: NSPoint?
+        private var didDrag = false
+
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            start = event.locationInWindow
+            didDrag = false
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let start else { return }
+            didDrag = true
+            onChanged?(translation(from: start, to: event.locationInWindow))
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            guard let start else { return }
+            self.start = nil
+            if didDrag {
+                onEnded?(translation(from: start, to: event.locationInWindow))
+            } else if event.clickCount == 2 {
+                onDoubleClick?()
+            }
+        }
+
+        private func translation(from start: NSPoint, to end: NSPoint) -> CGSize {
+            // Window coordinates stay fixed as the handle moves. SwiftUI's y-axis points down.
+            CGSize(width: end.x - start.x, height: start.y - end.y)
+        }
     }
 }
 
