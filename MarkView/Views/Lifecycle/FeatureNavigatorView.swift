@@ -64,27 +64,30 @@ struct IssuesListView: View {
     }
 
     private func featureRow(_ feature: Feature) -> some View {
-        Button(action: { open(feature.slug) }) {
-            HStack(spacing: 5) {
-                Image(systemName: feature.isStructured ? "square.stack.3d.up" : "doc.text")
-                    .uiFont(size: 9).foregroundColor(palette.blue).frame(width: 12)
-                Text(feature.title).uiFont(size: 11).foregroundColor(palette.text).lineLimit(1)
-                Spacer(minLength: 2)
-                IssueLinks(numbers: feature.issueNumbers)
-                // Without a status the feature reads as its default (Idea / Draft), muted.
-                IssueStatusBadge(text: FeatureVocabulary.label(feature.status), tone: IssueStatus.tone(feature.issueFacts(in: store.lifecycle.workflow)),
-                                 muted: feature.front.string("status").isEmpty)
+        HStack(spacing: 5) {
+            Button(action: { open(feature.slug) }) {
+                HStack(spacing: 5) {
+                    Image(systemName: feature.isStructured ? "square.stack.3d.up" : "doc.text")
+                        .uiFont(size: 9).foregroundColor(palette.blue).frame(width: 12)
+                    Text(feature.title).uiFont(size: 11).foregroundColor(palette.text).lineLimit(1)
+                    Spacer(minLength: 2)
+                }
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
             }
-            .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help(feature.title + "\n" + feature.slug)
+            IssueLinks(numbers: feature.issueNumbers)
+            // Without a status the feature reads as its default (Idea / Draft), muted.
+            IssueStatusBadge(text: FeatureVocabulary.label(feature.status), tone: IssueStatus.tone(feature.issueFacts(in: store.lifecycle.workflow)),
+                             muted: feature.front.string("status").isEmpty)
         }
-        .buttonStyle(.plain)
-        .help(feature.title + "\n" + feature.slug)
+        .padding(.leading, 18).padding(.trailing, 8)
     }
 
     private func bugRow(_ bug: BugReport) -> some View {
         HStack(spacing: 0) {
-            bugButton(bug)
+            bugSummary(bug)
             basketToggle(bug)
         }
     }
@@ -106,26 +109,29 @@ struct IssuesListView: View {
         }
     }
 
-    private func bugButton(_ bug: BugReport) -> some View {
-        Button(action: {
-            flow.showFeatureContext(nil)
-            flow.open(bug.url)
-        }) {
-            HStack(spacing: 5) {
-                Image(systemName: "ladybug").uiFont(size: 9)
-                    .foregroundColor(["critical", "high"].contains(bug.severity) ? palette.red : palette.orange).frame(width: 12)
-                Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
-                Text(bug.title).uiFont(size: 11).foregroundColor(!bug.hasStatus || store.lifecycle.workflow.role(.bug, IssueStatus.normalize(bug.status)) == .notStarted ? palette.text : palette.textDim).lineLimit(1)
-                Spacer(minLength: 2)
-                IssueLinks(numbers: bug.issueNumbers)
-                IssueStatusBadge(text: bug.hasStatus ? IssueStatus.normalize(bug.status) : "open",
-                                 tone: IssueStatus.tone(bug.issueFacts(in: store.lifecycle.workflow)), muted: !bug.hasStatus)
+    private func bugSummary(_ bug: BugReport) -> some View {
+        HStack(spacing: 5) {
+            Button(action: {
+                flow.showFeatureContext(nil)
+                flow.open(bug.url)
+            }) {
+                HStack(spacing: 5) {
+                    Image(systemName: "ladybug").uiFont(size: 9)
+                        .foregroundColor(["critical", "high"].contains(bug.severity) ? palette.red : palette.orange).frame(width: 12)
+                    Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(palette.textDim)
+                    Text(bug.title).uiFont(size: 11).foregroundColor(!bug.hasStatus || store.lifecycle.workflow.role(.bug, IssueStatus.normalize(bug.status)) == .notStarted ? palette.text : palette.textDim).lineLimit(1)
+                    Spacer(minLength: 2)
+                }
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
             }
-            .padding(.leading, 18).padding(.trailing, 2).padding(.vertical, 3)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help(bug.title + "\n\(bug.key) · \(bug.status)\(bug.severity.isEmpty ? "" : " · \(bug.severity)")")
+            IssueLinks(numbers: bug.issueNumbers)
+            IssueStatusBadge(text: bug.hasStatus ? IssueStatus.normalize(bug.status) : "open",
+                             tone: IssueStatus.tone(bug.issueFacts(in: store.lifecycle.workflow)), muted: !bug.hasStatus)
         }
-        .buttonStyle(.plain)
-        .help(bug.title + "\n\(bug.key) · \(bug.status)\(bug.severity.isEmpty ? "" : " · \(bug.severity)")")
+        .padding(.leading, 18).padding(.trailing, 2)
     }
 
     /// Status, type and implementation toggles; highlighted while any is on (DEC-001, DEC-006).
@@ -267,25 +273,37 @@ struct IssueStatusBadge: View {
     }
 }
 
-/// "#12 #40": the GitHub issues something refers to, each opening the issue.
+/// Keep linked issues accessible within a sidebar row's width.
 struct IssueLinks: View {
     @Environment(\.palette) private var palette
     let numbers: [Int]
     @EnvironmentObject private var flow: FeatureFlowCoordinator
 
     var body: some View {
-        // Every linked issue, not the first few: the title gives way (it truncates), the numbers do not.
-        HStack(spacing: 3) {
-            ForEach(numbers, id: \.self) { number in
-                Button("#\(number)") { flow.openGitHubIssue(number) }
-                    .buttonStyle(.plain)
+        if numbers.count > 1 {
+            Menu {
+                ForEach(numbers, id: \.self) { number in
+                    Button("#\(number)") { flow.openGitHubIssue(number) }
+                }
+            } label: {
+                Label("\(numbers.count)", systemImage: "link")
                     .uiFont(size: 9, weight: .medium, design: .monospaced)
-                    .foregroundColor(palette.blue)
-                    .help("Open GitHub issue #\(number)")
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .controlSize(.mini)
+            .tint(palette.blue)
+            .fixedSize()
+            .accessibilityLabel("\(numbers.count) linked GitHub issues")
+            .help("Show linked GitHub issues")
+        } else if let number = numbers.first {
+            Button("#\(number)") { flow.openGitHubIssue(number) }
+                .buttonStyle(.plain)
+                .uiFont(size: 9, weight: .medium, design: .monospaced)
+                .foregroundColor(palette.blue)
+                .fixedSize()
+                .help("Open GitHub issue #\(number)")
         }
-        .fixedSize()
-        .layoutPriority(1)
     }
 }
 
