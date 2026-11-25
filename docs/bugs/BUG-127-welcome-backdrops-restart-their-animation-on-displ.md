@@ -2,7 +2,7 @@
 type: bug
 id: BUG-127
 title: Welcome backdrops restart their animation on display changes that alter nothing they are built from
-status: in-progress
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-25

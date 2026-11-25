@@ -1,3 +1,23 @@
+# BUG-127: welcome backdrops restart their animation on unrelated display callbacks (2026-11-25, 7.4.1)
+
+Boris: "почини" after the main run of PR #438 failed twice in `WelcomeScreenHostTests` (aurora 0.0 %, then bugs 0 of 0).
+Branch `fix/bug-127-welcome-backdrop-restarts` (worktree `../MarkView-welcome-frames`), one PR, patch bump, release.
+
+- [x] Evidence: tree of 77ff8e8a = PR head (green there); locally aurora changes 3.6 % in 1.5 s (threshold 0.2 %), frames are
+      deterministic over five rounds; posting `accessibilityDisplayOptionsDidChange` mid-measurement reproduces the CI aurora message.
+- [x] Red test first: another display option and a colour space change at the same scale each rebuilt the backdrop (built 1 more times).
+- [x] Fix: `BackdropHostView` records the scale and motion setting it built with and rebuilds only when one changes.
+- [x] The frames checks name a rebuild during the measurement in their failure detail.
+- [x] Build, lints, suites, PR, CI, merge, release 7.4.1: Debug build, architecture lint, SwiftLint 50/50, pure tier 8/8,
+      welcome-screen-tests and qa-web-fault-tests, swift test 136/136; PR #439 checks 12/12 (hosted-tests (4) passed, 109 s);
+      merged as f32474da; main CI 45543491759 green in all 12 jobs; release v7.4.1 notarized, Latest.
+
+## Review (7.4.1)
+- MarkView marked BUG-127 done at 03:46, before PR #439 merged, from PR #433 (`fix/bug-127-agents-panel-drag`, another
+  agent's branch with no record) and PR #438 (the related feature): PRs #433-#436 used bug ids 127-130 that never got records.
+- Not fixed here (separate findings): the test process keeps ~180 closed windows alive (one notification costs 0.57 s);
+  after the 7.4.0 reinstall 4 of 9 windows were missing because they never entered `windowSessions.json`.
+
 # Agent-aware implementation runs (2026-11-24, goal from Boris: implement docs/features/agent-aware-implementation-runs)
 
 Branch `feat/agent-aware-implementation-runs` (worktree `../MarkView-agent-aware-runs`), one PR, minor version bump, release.
