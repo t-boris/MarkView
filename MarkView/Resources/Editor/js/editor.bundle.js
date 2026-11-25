@@ -4794,6 +4794,7 @@ window.MVPanels = {
     });
     return loading;
   }
+  Object.assign(window, { MVLoadCode: loadBundle });
   function isDark() {
     return document.documentElement.getAttribute("data-theme") === "dark";
   }
@@ -10251,6 +10252,1023 @@ window.MVPanels = {
   }
 })(window.MVArchitecture);
 ;
+(function(P) {
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== void 0) node.textContent = text;
+    return node;
+  }
+  function button(text, action, className) {
+    const node = element("button", className || "arch-btn", text);
+    node.type = "button";
+    node.addEventListener("click", action);
+    return node;
+  }
+  function index(graph) {
+    return new Map((graph.nodes || []).map(function(node) {
+      return [node.id, node];
+    }));
+  }
+  function children(graph, parent) {
+    return graph.nodes.filter(function(node) {
+      return (node.parent || null) === (parent || null);
+    });
+  }
+  function within(byID, id, ancestor) {
+    const seen = /* @__PURE__ */ new Set();
+    for (let node = byID.get(id); node && !seen.has(node.id); node = byID.get(node.parent)) {
+      if (node.id === ancestor) return true;
+      seen.add(node.id);
+    }
+    return false;
+  }
+  function ancestors(graph, id) {
+    const byID = index(graph), result = [], seen = /* @__PURE__ */ new Set();
+    for (let node = byID.get(id); node && !seen.has(node.id); node = byID.get(node.parent)) {
+      result.unshift(node);
+      seen.add(node.id);
+    }
+    return result;
+  }
+  function relations(graph, level, selected) {
+    const byID = index(graph), incoming = [], outgoing = [], seen = /* @__PURE__ */ new Set();
+    function add(edge, boundary) {
+      const from = boundary ? within(byID, edge.from, selected) : edge.from === selected;
+      const to = boundary ? within(byID, edge.to, selected) : edge.to === selected;
+      if (from && !seen.has("out|" + edge.id)) {
+        outgoing.push({ edge, other: edge.to, boundary });
+        seen.add("out|" + edge.id);
+      }
+      if (to && !seen.has("in|" + edge.id)) {
+        incoming.push({ edge, other: edge.from, boundary });
+        seen.add("in|" + edge.id);
+      }
+    }
+    (level.edges || []).forEach(function(edge) {
+      add(edge, false);
+    });
+    (level.boundary || []).forEach(function(edge) {
+      add(edge, true);
+    });
+    return { incoming, outgoing };
+  }
+  function bundle(edges) {
+    const groups = /* @__PURE__ */ new Map();
+    edges.forEach(function(edge) {
+      const key = JSON.stringify([edge.from, edge.to, edge.kind]);
+      let group = groups.get(key);
+      if (!group) {
+        group = Object.assign({}, edge, { members: [], labels: [] });
+        groups.set(key, group);
+      }
+      group.members.push(edge.id);
+      if (group.labels.indexOf(edge.label) < 0) group.labels.push(edge.label);
+    });
+    return Array.from(groups.values()).map(function(group) {
+      group.label = group.labels.length === 1 ? group.labels[0] : group.labels.length + " conditions";
+      group.fullLabel = group.labels.join("; ");
+      return group;
+    });
+  }
+  function isStale(scenario, snapshot) {
+    const modules = (snapshot.views || []).find(function(view) {
+      return view.id === "modules";
+    });
+    if (!modules) return false;
+    const signatures = new Map(modules.nodes.filter(function(node) {
+      return node.path;
+    }).map(function(node) {
+      return [node.path, node.signature];
+    }));
+    return Object.keys(scenario.signatures || {}).some(function(path) {
+      return signatures.get(path) !== scenario.signatures[path];
+    });
+  }
+  function levelKey(scenario, parent) {
+    return scenario.id + "|" + (parent || "");
+  }
+  function sourceKey(scenario, node, source) {
+    return scenario.id + "|" + node.id + "|" + source;
+  }
+  Object.assign(P, {
+    element,
+    button,
+    index,
+    children,
+    ancestors,
+    relations,
+    bundle,
+    isStale,
+    levelKey,
+    sourceKey
+  });
+})(window["MVProcess"] = {});
+;
+(function(P) {
+  function points(section) {
+    return [section.startPoint].concat(section.bendPoints || [], [section.endPoint]);
+  }
+  function path(line) {
+    return line.map(function(point, i) {
+      return (i ? "L" : "M") + Math.round(point.x * 10) / 10 + " " + Math.round(point.y * 10) / 10;
+    }).join(" ");
+  }
+  function wrap(text, size) {
+    const words = String(text || "").split(/\s+/).flatMap(function(word) {
+      const pieces = [];
+      for (let i = 0; i < word.length; i += size) pieces.push(word.slice(i, i + size));
+      return pieces;
+    }), lines = [];
+    let line = "";
+    words.forEach(function(word) {
+      if (line && (line + " " + word).length > size) {
+        lines.push(line);
+        line = "";
+      }
+      line += (line ? " " : "") + word;
+    });
+    if (line) lines.push(line);
+    if (lines.length > 3) return lines.slice(0, 2).concat(lines[2].slice(0, size - 3) + "...");
+    return lines.length ? lines : [""];
+  }
+  async function layout(level, elk, direction) {
+    const down = direction === "DOWN";
+    const grouped = P.bundle(level.edges || []);
+    const forward = grouped.filter(function(edge) {
+      return edge.kind !== "return";
+    });
+    const returns = grouped.filter(function(edge) {
+      return edge.kind === "return";
+    });
+    const ids = new Set(level.nodes.map(function(node) {
+      return node.id;
+    }));
+    const graph = {
+      id: "process",
+      layoutOptions: {
+        "elk.algorithm": "layered",
+        "elk.direction": down ? "DOWN" : "RIGHT",
+        "elk.edgeRouting": "ORTHOGONAL",
+        "elk.padding": "[top=32,left=32,bottom=32,right=32]",
+        "elk.spacing.nodeNode": "38",
+        "elk.layered.spacing.nodeNodeBetweenLayers": "58",
+        "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+        "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+        "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+        "elk.layered.mergeEdges": "false"
+      },
+      children: level.nodes.map(function(node) {
+        return { id: node.id, width: 156, height: 82 };
+      }),
+      edges: forward.filter(function(edge) {
+        return ids.has(edge.from) && ids.has(edge.to);
+      }).map(function(edge) {
+        const show = edge.kind === "branch" || edge.kind === "error" || edge.kind === "parallel";
+        const lines = wrap(edge.label, 18);
+        return {
+          id: edge.id,
+          sources: [edge.from],
+          targets: [edge.to],
+          labels: show ? [{
+            id: edge.id + "-label",
+            text: edge.label,
+            width: Math.min(124, Math.max.apply(null, lines.map(function(line) {
+              return line.length;
+            })) * 6.5 + 8),
+            height: lines.length * 14 + 4
+          }] : []
+        };
+      })
+    };
+    const placed = await elk.layout(graph);
+    const before = Math.ceil(returns.length / 2), after = Math.floor(returns.length / 2);
+    const paddingBefore = before ? before * 34 + 20 : 0;
+    const paddingAfter = after ? after * 34 + 20 : 0;
+    const shiftX = down ? paddingBefore : 0, shiftY = down ? 0 : paddingBefore;
+    const positions = /* @__PURE__ */ new Map();
+    (placed.children || []).forEach(function(node) {
+      if (![node.x, node.y, node.width, node.height].every(Number.isFinite)) throw new Error("Invalid process layout");
+      positions.set(node.id, { x: node.x + shiftX, y: node.y + shiftY, width: node.width, height: node.height });
+    });
+    const edges = [];
+    (placed.edges || []).forEach(function(edge) {
+      const original = grouped.find(function(item) {
+        return item.id === edge.id;
+      });
+      if (!original || !edge.sections || !edge.sections.length) return;
+      const sections = edge.sections.map(function(section) {
+        return points(section).map(function(point) {
+          return { x: point.x + shiftX, y: point.y + shiftY };
+        });
+      });
+      const label = edge.labels && edge.labels[0];
+      edges.push(Object.assign({}, original, {
+        sections,
+        labelBox: label ? {
+          x: label.x + shiftX,
+          y: label.y + shiftY,
+          width: label.width,
+          height: label.height,
+          lines: wrap(original.label, 18)
+        } : null
+      }));
+    });
+    returns.forEach(function(edge, i) {
+      const a = positions.get(edge.from), b = positions.get(edge.to);
+      if (!a || !b) return;
+      const first = i % 2 === 0, slot = Math.floor(i / 2), track = first ? paddingBefore - 18 - slot * 34 : paddingBefore + (down ? placed.width : placed.height) + 18 + slot * 34;
+      let route, labelBox;
+      if (down) {
+        const ax = a.x + a.width / 2, bx = b.x + b.width / 2;
+        const sy = a.y + a.height, ty = b.y;
+        route = [
+          { x: ax, y: sy },
+          { x: ax, y: sy + 16 },
+          { x: track, y: sy + 16 },
+          { x: track, y: ty - 16 },
+          { x: bx, y: ty - 16 },
+          { x: bx, y: ty }
+        ];
+        labelBox = { x: track - 12, y: (sy + ty) / 2 - 9, width: 24, height: 18, lines: ["R" + (i + 1)] };
+      } else {
+        const ay = a.y + a.height / 2, by = b.y + b.height / 2;
+        const sx = a.x + a.width, tx = b.x;
+        route = [
+          { x: sx, y: ay },
+          { x: sx + 16, y: ay },
+          { x: sx + 16, y: track },
+          { x: tx - 16, y: track },
+          { x: tx - 16, y: by },
+          { x: tx, y: by }
+        ];
+        labelBox = { x: (sx + tx) / 2 - 12, y: track - 9, width: 24, height: 18, lines: ["R" + (i + 1)] };
+      }
+      edges.push(Object.assign({}, edge, { sections: [route], labelBox, returnName: "R" + (i + 1) }));
+    });
+    return {
+      nodes: positions,
+      edges,
+      width: placed.width + (down ? paddingBefore + paddingAfter : 0),
+      height: placed.height + (down ? 0 : paddingBefore + paddingAfter),
+      direction: down ? "DOWN" : "RIGHT"
+    };
+  }
+  Object.assign(P, { layout, path });
+})(window["MVProcess"]);
+;
+(function(P) {
+  function makePanel(parent, actions) {
+    const host = P.element("section", "process-inspector");
+    host.setAttribute("aria-label", "Selected block code and explanation");
+    const heading = P.element("div", "process-selection");
+    const title = P.element("h3");
+    const symbol = P.element("code");
+    const locate = P.button("Locate block", actions.locate);
+    heading.append(title, symbol, locate);
+    const columns = P.element("div", "process-columns");
+    const codePanel = P.element("section", "process-code-panel");
+    const codeHead = P.element("div", "process-panel-head");
+    const open = P.button("Open full file", function() {
+      if (selectedSnippet) actions.open(selectedSnippet);
+    });
+    codeHead.append(P.element("h4", "", "Code excerpt"), open);
+    const tabs = P.element("div", "process-sources");
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Source excerpts");
+    const path = P.element("div", "process-source-path");
+    const status = P.element("div", "process-source-status");
+    status.setAttribute("role", "status");
+    const codeHost = P.element("div", "process-code-host");
+    codePanel.append(codeHead, tabs, path, status, codeHost);
+    const explanationPanel = P.element("section", "process-explain-panel");
+    const explainHead = P.element("div", "process-panel-head");
+    explainHead.append(P.element("h4", "", "Explain"), P.element("span", "arch-muted", "For the selected block and excerpt"));
+    const explanation = P.element("div", "process-explanation");
+    explanation.setAttribute("aria-live", "polite");
+    explanationPanel.append(explainHead, explanation);
+    columns.append(codePanel, explanationPanel);
+    const related = P.element("div", "process-related");
+    host.append(heading, columns, related);
+    parent.append(host);
+    let viewer = null, viewerGeneration = 0, codeStamp = "", tabsStamp = "", selectedSnippet = null;
+    function showCode(snippet, key) {
+      const stamp = key + "|" + (snippet ? snippet.path + "|" + snippet.language + "|" + snippet.line + "|" + snippet.code : "");
+      if (stamp === codeStamp) return;
+      codeStamp = stamp;
+      const ticket = ++viewerGeneration;
+      if (!snippet) {
+        if (viewer) viewer.setDoc("", "", 1);
+        else codeHost.textContent = "";
+        return;
+      }
+      const loader = window["MVLoadCode"];
+      if (!loader) {
+        codeHost.textContent = snippet.code;
+        return;
+      }
+      loader().then(function() {
+        if (ticket !== viewerGeneration) return;
+        if (!viewer) {
+          codeHost.textContent = "";
+          viewer = window["MVCode"].create(codeHost, {
+            doc: snippet.code,
+            language: snippet.language,
+            startLine: snippet.line,
+            dark: document.documentElement.getAttribute("data-theme") === "dark"
+          });
+        } else viewer.setDoc(snippet.code, snippet.language, snippet.line);
+      }).catch(function() {
+        if (ticket === viewerGeneration) {
+          codeHost.textContent = "";
+          codeHost.append(P.element("pre", "", snippet.code));
+        }
+      });
+    }
+    function render(context) {
+      const node = context.node;
+      host.hidden = !node;
+      if (!node) {
+        selectedSnippet = null;
+        showCode(null, "empty");
+        return;
+      }
+      const scenario = context.scenario, source = (node.sources || [])[context.source];
+      const key = P.sourceKey(scenario, node, context.source), state2 = context.payload.processState || {};
+      const error = (state2.errors || {})[key];
+      const snippet = error ? null : (state2.snippets || {})[key];
+      selectedSnippet = snippet || null;
+      title.textContent = node.title;
+      symbol.textContent = node.symbol || "";
+      symbol.hidden = !node.symbol;
+      open.disabled = !snippet;
+      const nextTabs = scenario.id + "|" + node.id + "|" + JSON.stringify(node.sources || []);
+      if (tabsStamp !== nextTabs) {
+        tabsStamp = nextTabs;
+        tabs.textContent = "";
+        (node.sources || []).forEach(function(item, i) {
+          const label = item.path.split("/").pop() + ":" + item.line;
+          const tab = P.button(label, function() {
+            actions.source(i);
+          }, "process-source-tab");
+          tab.title = item.path + ":" + item.line + "-" + item.endLine;
+          tabs.append(tab);
+        });
+      }
+      Array.from(tabs.children).forEach(function(tab, i) {
+        tab.setAttribute("aria-pressed", String(i === context.source));
+      });
+      path.textContent = source ? source.path + ":" + source.line + "-" + source.endLine : "External participant";
+      const stale = snippet && snippet.stale || P.isStale(scenario, context.payload.snapshot || {});
+      status.classList.toggle("process-warning", !!stale || !!error);
+      status.textContent = error || (stale ? "Source changed. Refresh the process map to update this explanation." : !source ? "This participant has no source excerpt." : state2.loading === key ? snippet ? "Checking source..." : "Loading source..." : snippet && snippet.truncated ? "Excerpt shortened. Open the full file to read all cited code." : "Read-only source");
+      showCode(snippet, key);
+      explanation.textContent = "";
+      const fields = [
+        ["Purpose", node.explanation],
+        ["This excerpt", source && source.note],
+        ["Input", node.input],
+        ["Output and continuation", node.output]
+      ];
+      fields.forEach(function(pair) {
+        if (!pair[1]) return;
+        const part = P.element("div", "process-explain-item");
+        part.append(P.element("h5", "", pair[0]), P.element("p", "", pair[1]));
+        explanation.append(part);
+      });
+      related.textContent = "";
+      const connections = P.relations(scenario.graph, context.level || { edges: [], boundary: [] }, node.id);
+      const byID = P.index(scenario.graph);
+      [["Incoming", connections.incoming], ["Outgoing", connections.outgoing]].forEach(function(pair) {
+        const section = P.element("div", "process-connection-list");
+        section.append(P.element("h5", "", pair[0] + " connections"));
+        if (!pair[1].length) section.append(P.element("span", "arch-muted", "No connection at this level"));
+        pair[1].forEach(function(item) {
+          const target = byID.get(item.other);
+          const link = P.button(
+            (target ? target.title : item.other) + ": " + item.edge.label,
+            function() {
+              actions.navigate(item.other);
+            },
+            "process-reference"
+          );
+          link.classList.toggle("is-return", item.edge.kind === "return");
+          if (item.boundary) link.title = "Connection outside the current group";
+          section.append(link);
+        });
+        related.append(section);
+      });
+    }
+    return { render, element: host };
+  }
+  Object.assign(P, { makePanel });
+})(window["MVProcess"]);
+;
+(function(P) {
+  let nextID = 0;
+  function svg(tag, attributes) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.keys(attributes || {}).forEach(function(key) {
+      node.setAttribute(key, String(attributes[key]));
+    });
+    return node;
+  }
+  function makeViewport(parent, actions) {
+    const viewport = P.element("div", "process-viewport");
+    viewport.setAttribute("aria-label", "Process graph. Drag the background to pan. Use the zoom controls to magnify.");
+    const scene = P.element("div", "process-scene");
+    const paths = svg("svg", { class: "process-edges", "aria-hidden": "true" });
+    const nodes = P.element("div", "process-nodes");
+    scene.append(paths, nodes);
+    viewport.append(scene);
+    parent.append(viewport);
+    const prefix = "process-arrow-" + ++nextID;
+    let drawing = null, pose = { x: 0, y: 0, zoom: 1 }, drag = null;
+    const nodeElements = /* @__PURE__ */ new Map(), edgeElements = [];
+    function apply() {
+      scene.style.transform = "translate(" + pose.x + "px," + pose.y + "px) scale(" + pose.zoom + ")";
+      actions.changed(pose.zoom);
+    }
+    function zoom(value, point) {
+      const target = Math.max(0.12, Math.min(3, value));
+      const center = point || { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 };
+      const factor = target / pose.zoom;
+      pose.x = center.x - (center.x - pose.x) * factor;
+      pose.y = center.y - (center.y - pose.y) * factor;
+      pose.zoom = target;
+      apply();
+    }
+    function focus(id) {
+      const node = drawing && drawing.nodes.get(id);
+      if (!node) return;
+      pose.x = viewport.clientWidth / 2 - (node.x + node.width / 2) * pose.zoom;
+      pose.y = viewport.clientHeight / 2 - (node.y + node.height / 2) * pose.zoom;
+      apply();
+    }
+    function fit(readable) {
+      if (!drawing || !viewport.clientWidth || !viewport.clientHeight) return;
+      const value = Math.min((viewport.clientWidth - 36) / drawing.width, (viewport.clientHeight - 36) / drawing.height, 1.3);
+      pose.zoom = Math.max(readable ? 0.7 : 0.12, value);
+      pose.x = (viewport.clientWidth - drawing.width * pose.zoom) / 2;
+      pose.y = (viewport.clientHeight - drawing.height * pose.zoom) / 2;
+      apply();
+    }
+    function setDrawing(next, graph, savedPose, selected) {
+      drawing = next;
+      scene.style.width = next.width + "px";
+      scene.style.height = next.height + "px";
+      paths.setAttribute("width", String(next.width));
+      paths.setAttribute("height", String(next.height));
+      paths.setAttribute("viewBox", "0 0 " + next.width + " " + next.height);
+      paths.textContent = "";
+      nodes.textContent = "";
+      nodeElements.clear();
+      edgeElements.length = 0;
+      const definitions = svg("defs");
+      ["normal", "selected", "return"].forEach(function(kind) {
+        const marker = svg("marker", {
+          id: prefix + "-" + kind,
+          viewBox: "0 0 8 8",
+          refX: 7,
+          refY: 4,
+          markerWidth: 7,
+          markerHeight: 7,
+          orient: "auto"
+        });
+        marker.append(svg("path", { d: "M0 0 L8 4 L0 8 Z", class: "process-arrow-" + kind }));
+        definitions.append(marker);
+      });
+      paths.append(definitions);
+      next.edges.forEach(function(edge) {
+        const group = svg("g", { class: "process-edge-group" });
+        const caption = svg("title");
+        caption.textContent = edge.fullLabel || edge.label;
+        group.append(caption);
+        const strokes = [];
+        edge.sections.forEach(function(section, i) {
+          const d = P.path(section);
+          if (edge.kind === "return") group.append(svg("path", { d, class: "process-return-halo" }));
+          const stroke = svg("path", { d, class: "process-edge" + (edge.kind === "return" ? " is-return" : "") });
+          if (i === edge.sections.length - 1) stroke.setAttribute("marker-end", "url(#" + prefix + "-" + (edge.kind === "return" ? "return" : "normal") + ")");
+          group.append(stroke);
+          strokes.push(stroke);
+        });
+        if (edge.labelBox) {
+          const box = edge.labelBox;
+          group.append(svg("rect", { x: box.x, y: box.y, width: box.width, height: box.height, rx: 3, class: "process-edge-label-bg" }));
+          const text = svg("text", {
+            x: box.x + box.width / 2,
+            y: box.y + 12,
+            "text-anchor": "middle",
+            class: "process-edge-label" + (edge.kind === "return" ? " is-return" : "")
+          });
+          box.lines.forEach(function(line, i) {
+            const span = svg("tspan", { x: box.x + box.width / 2, dy: i ? 14 : 0 });
+            span.textContent = line;
+            text.append(span);
+          });
+          group.append(text);
+        }
+        paths.append(group);
+        edgeElements.push({ group, strokes, edge });
+      });
+      const byID = P.index(graph);
+      next.nodes.forEach(function(at, id) {
+        const node = byID.get(id);
+        if (!node) return;
+        const count = P.children(graph, id).length;
+        const button = P.button("", function() {
+          actions.select(id);
+        }, "process-node");
+        const rawKind = node.kind || (count ? "group" : "action");
+        const kind = rawKind.charAt(0).toUpperCase() + rawKind.slice(1);
+        button.append(
+          P.element("span", "process-node-kind", kind + (count ? ", " + count + " steps" : "")),
+          P.element("span", "process-node-title", node.title)
+        );
+        button.dataset.processNode = id;
+        button.title = node.title + (count ? "\nDouble-click to open the group" : "");
+        button.setAttribute("aria-label", node.title + (count ? ", group with " + count + " steps" : ""));
+        Object.assign(button.style, { left: at.x + "px", top: at.y + "px", width: at.width + "px", height: at.height + "px" });
+        button.addEventListener("dblclick", function(event) {
+          if (!count) return;
+          event.preventDefault();
+          event.stopPropagation();
+          actions.openGroup(id);
+        });
+        nodes.append(button);
+        nodeElements.set(id, button);
+      });
+      if (savedPose) {
+        pose = Object.assign({}, savedPose);
+        apply();
+      } else {
+        fit(true);
+        if (pose.zoom <= 0.7 && selected) {
+          focus(selected);
+          const entry = next.nodes.get(selected);
+          if (entry && !next.edges.some(function(edge) {
+            return edge.to === selected && edge.kind !== "return";
+          })) {
+            if (next.direction === "DOWN") pose.y = 24 - entry.y * pose.zoom;
+            else pose.x = 24 - entry.x * pose.zoom;
+            apply();
+          }
+        }
+      }
+    }
+    function highlight(selected, neighborsOnly) {
+      const neighbors = /* @__PURE__ */ new Set([selected]);
+      edgeElements.forEach(function(item) {
+        if (item.edge.from === selected) neighbors.add(item.edge.to);
+        if (item.edge.to === selected) neighbors.add(item.edge.from);
+      });
+      nodeElements.forEach(function(node, id) {
+        node.setAttribute("aria-pressed", String(id === selected));
+        node.classList.toggle("is-muted", !!neighborsOnly && !neighbors.has(id));
+      });
+      edgeElements.forEach(function(item) {
+        const active = item.edge.from === selected || item.edge.to === selected;
+        item.group.style.display = neighborsOnly && !active ? "none" : "";
+        item.strokes.forEach(function(stroke, i) {
+          stroke.classList.toggle("is-selected", active);
+          if (i === item.strokes.length - 1) stroke.setAttribute("marker-end", "url(#" + prefix + "-" + (item.edge.kind === "return" ? "return" : active ? "selected" : "normal") + ")");
+        });
+      });
+    }
+    viewport.addEventListener("wheel", function(event) {
+      if (!drawing) return;
+      event.preventDefault();
+      const bounds = viewport.getBoundingClientRect();
+      if (event.ctrlKey || event.metaKey) zoom(pose.zoom * Math.exp(-event.deltaY * 8e-3), { x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+      else {
+        pose.x -= event.deltaX;
+        pose.y -= event.deltaY;
+        apply();
+      }
+    }, { passive: false });
+    viewport.addEventListener("pointerdown", function(event) {
+      if (event.button !== 0 || event.target.closest("button")) return;
+      drag = { x: event.clientX - pose.x, y: event.clientY - pose.y };
+      viewport.setPointerCapture(event.pointerId);
+      viewport.classList.add("is-dragging");
+    });
+    viewport.addEventListener("pointermove", function(event) {
+      if (!drag) return;
+      pose.x = event.clientX - drag.x;
+      pose.y = event.clientY - drag.y;
+      apply();
+    });
+    function endDrag() {
+      drag = null;
+      viewport.classList.remove("is-dragging");
+    }
+    viewport.addEventListener("pointerup", endDrag);
+    viewport.addEventListener("pointercancel", endDrag);
+    return {
+      element: viewport,
+      setDrawing,
+      highlight,
+      fit: function() {
+        fit(false);
+      },
+      zoom: function(factor) {
+        zoom(pose.zoom * factor);
+      },
+      actualSize: function(id) {
+        zoom(1);
+        focus(id);
+      },
+      focus,
+      pose: function() {
+        return Object.assign({}, pose);
+      },
+      clear: function() {
+        drawing = null;
+        paths.textContent = "";
+        nodes.textContent = "";
+      }
+    };
+  }
+  Object.assign(P, { makeViewport });
+})(window["MVProcess"]);
+;
+(function(P, A) {
+  if (!A.ready) return;
+  const root = document.getElementById("arch-process");
+  const main = root && root.parentElement;
+  if (!root || !main) return;
+  const form = P.element("form", "process-question");
+  const question = P.element("textarea");
+  question.rows = 2;
+  question.maxLength = 4e3;
+  question.setAttribute("aria-label", "Process to trace");
+  question.placeholder = "How is a request handled, including parallel work, refusals and retries?";
+  const submit = P.button("Trace process", function() {
+    requestTrace();
+  });
+  const stop = P.button("Stop", function() {
+    A.post("cancelAnalysis");
+  });
+  stop.hidden = true;
+  const picker = P.element("select");
+  picker.setAttribute("aria-label", "Saved process");
+  const formActions = P.element("div", "process-question-actions");
+  formActions.append(picker, submit, stop);
+  form.append(question, formActions);
+  const scopeInfo = P.element("details", "process-scope-info");
+  const scopeTitle = P.element("summary", "", "Process context");
+  const takeaway = P.element("p"), omitted = P.element("p");
+  scopeInfo.append(scopeTitle, takeaway, omitted);
+  const tools = P.element("div", "process-tools");
+  const breadcrumbs = P.element("nav", "process-breadcrumbs");
+  breadcrumbs.setAttribute("aria-label", "Process hierarchy");
+  const direction = P.element("select");
+  direction.setAttribute("aria-label", "Flow direction");
+  [["RIGHT", "Left to right"], ["DOWN", "Top to bottom"]].forEach(function(item) {
+    const option = P.element("option", "", item[1]);
+    option.value = item[0];
+    direction.append(option);
+  });
+  const zoomText = P.element("span", "process-zoom", "100%");
+  const controls = P.element("div", "process-map-controls");
+  const zoomOut = P.button("-", function() {
+    surface.zoom(1 / 1.2);
+  });
+  zoomOut.setAttribute("aria-label", "Zoom out");
+  const zoomIn = P.button("+", function() {
+    surface.zoom(1.2);
+  });
+  zoomIn.setAttribute("aria-label", "Zoom in");
+  const fit = P.button("Fit", function() {
+    surface.fit();
+  });
+  const actual = P.button("1:1", function() {
+    surface.actualSize(selected);
+  });
+  const expand = P.button("Expand map", function() {
+    const expanded = root.classList.toggle("process-map-expanded");
+    expand.textContent = expanded ? "Compact map" : "Expand map";
+  });
+  controls.append(direction, zoomOut, zoomText, zoomIn, fit, actual, expand);
+  tools.append(breadcrumbs, controls);
+  const context = P.element("div", "process-context");
+  const summary = P.element("span", "arch-muted");
+  const focusLabel = P.element("label", "arch-check");
+  const focus = P.element("input");
+  focus.type = "checkbox";
+  focusLabel.append(focus, document.createTextNode("Only neighboring connections"));
+  const openGroup = P.button("Open group", function() {
+    drill(selected);
+  });
+  context.append(summary, focusLabel, openGroup);
+  const canvas = P.element("div", "process-map");
+  const message = P.element("p", "process-map-message");
+  message.setAttribute("role", "status");
+  const returns = P.element("div", "process-returns");
+  const caption = P.element("div", "process-map-caption");
+  caption.append(
+    P.element("span", "arch-muted", "Drag to pan. Pinch or Ctrl+wheel to zoom. Double-click a group to enter."),
+    P.button("Code + Explain", function() {
+      panel.element.scrollIntoView({ block: "start" });
+    })
+  );
+  root.append(form, scopeInfo, tools, context, message, canvas, returns, caption);
+  let payload = {}, project = null, activeID = null, parent = null, selected = null, source = 0;
+  let requestedSource = "", savedChoices = "", savedVersion = "", awaiting = false, active = false;
+  let renderedKey = "", pendingKey = "", layoutToken = 0;
+  const layouts = /* @__PURE__ */ new Map(), poses = /* @__PURE__ */ new Map(), scopeSelections = /* @__PURE__ */ new Map(), pendingLevels = /* @__PURE__ */ new Set();
+  const surface = P.makeViewport(canvas, {
+    select,
+    openGroup: drill,
+    changed: function(value) {
+      zoomText.textContent = Math.round(value * 100) + "%";
+    }
+  });
+  const panel = P.makePanel(root, {
+    source: function(index) {
+      source = index;
+      requestedSource = "";
+      render(payload);
+    },
+    navigate,
+    locate: function() {
+      surface.focus(selected);
+      canvas.scrollIntoView({ block: "nearest" });
+    },
+    open: function(snippet) {
+      A.post("openFile", { path: snippet.path, line: snippet.line, endLine: snippet.requestedEndLine });
+    }
+  });
+  function scenarios() {
+    return payload.snapshot && payload.snapshot.processGraphs || [];
+  }
+  function canTrace() {
+    const modules = payload.snapshot && (payload.snapshot.views || []).find(function(view) {
+      return view.id === "modules";
+    });
+    return !!modules && modules.nodes.some(function(node) {
+      return node.kind === "file" && node.language !== "markdown";
+    });
+  }
+  function current() {
+    return scenarios().find(function(item) {
+      return item.id === activeID;
+    }) || null;
+  }
+  function remember() {
+    if (renderedKey) poses.set(renderedKey, surface.pose());
+    if (activeID) scopeSelections.set(activeID + "|" + (parent || ""), selected);
+  }
+  function reset() {
+    remember();
+    project = null;
+    activeID = null;
+    parent = null;
+    selected = null;
+    source = 0;
+    requestedSource = "";
+    savedChoices = "";
+    savedVersion = "";
+    awaiting = false;
+    renderedKey = "";
+    pendingKey = "";
+    layoutToken += 1;
+    layouts.clear();
+    poses.clear();
+    scopeSelections.clear();
+    pendingLevels.clear();
+    surface.clear();
+  }
+  function requestTrace() {
+    if (payload.busy || !canTrace() || !question.value.trim()) return;
+    awaiting = true;
+    A.post("traceProcess", { question: question.value.trim() });
+  }
+  function select(id) {
+    selected = id;
+    source = 0;
+    const scenario = current();
+    const key = scenario && P.sourceKey(scenario, { id }, 0);
+    if (key && ((payload.processState || {}).errors || {})[key]) requestedSource = "";
+    render(payload);
+  }
+  function setScope(next, selection) {
+    remember();
+    parent = next || null;
+    source = 0;
+    requestedSource = "";
+    pendingKey = "";
+    layoutToken += 1;
+    selected = selection || scopeSelections.get(activeID + "|" + (parent || "")) || null;
+    render(payload);
+  }
+  function drill(id) {
+    const scenario = current();
+    if (scenario && P.children(scenario.graph, id).length) setScope(id, null);
+  }
+  function navigate(id) {
+    const scenario = current(), node = scenario && P.index(scenario.graph).get(id);
+    if (!node) return;
+    if ((node.parent || null) !== parent) setScope(node.parent || null, id);
+    else {
+      select(id);
+      surface.focus(id);
+    }
+  }
+  function draw(scenario, level) {
+    const key = scenario.id + "|" + scenario.createdAt + "|" + (parent || "") + "|" + direction.value;
+    const known = layouts.get(key);
+    if (known) {
+      if (renderedKey !== key) {
+        remember();
+        surface.setDrawing(known, scenario.graph, poses.get(key), selected);
+        renderedKey = key;
+        returns.textContent = "";
+        known.edges.filter(function(edge) {
+          return edge.returnName;
+        }).forEach(function(edge) {
+          returns.append(P.button(edge.returnName + ": " + edge.fullLabel, function() {
+            navigate(edge.from);
+          }, "process-return-link"));
+        });
+      }
+      message.hidden = true;
+      surface.highlight(selected, focus.checked);
+      return;
+    }
+    if (pendingKey === key) return;
+    pendingKey = key;
+    const ticket = ++layoutToken;
+    message.hidden = false;
+    message.textContent = "Laying out the process...";
+    remember();
+    surface.clear();
+    renderedKey = "";
+    returns.textContent = "";
+    A.loadLibraries().then(function() {
+      return P.layout(level, new window["ELK"](), direction.value);
+    }).then(function(drawing) {
+      if (ticket !== layoutToken) return;
+      layouts.set(key, drawing);
+      while (layouts.size > 32) layouts.delete(layouts.keys().next().value);
+      pendingKey = "";
+      if (active && current() && current().id === scenario.id) draw(scenario, level);
+    }).catch(function(error) {
+      if (ticket !== layoutToken) return;
+      pendingKey = "";
+      message.hidden = false;
+      message.textContent = "The process layout could not be drawn: " + error.message;
+    });
+  }
+  function render(next) {
+    payload = next || {};
+    active = true;
+    root.hidden = false;
+    main.classList.add("process-mode");
+    if (project !== payload.root) {
+      reset();
+      project = payload.root;
+      question.value = "";
+    }
+    const saved = scenarios();
+    const version = saved.map(function(item) {
+      return item.id + "|" + item.createdAt;
+    }).join(";");
+    if (!saved.some(function(item) {
+      return item.id === activeID;
+    }) || awaiting && version !== savedVersion) {
+      remember();
+      const latest = saved[saved.length - 1];
+      activeID = latest ? latest.id : null;
+      parent = null;
+      selected = null;
+      source = 0;
+      requestedSource = "";
+      awaiting = false;
+    }
+    savedVersion = version;
+    const scenario = current();
+    scopeInfo.hidden = !scenario;
+    takeaway.textContent = scenario ? scenario.graph.takeaway : "";
+    omitted.textContent = scenario && scenario.graph.omitted ? "Not mapped: " + scenario.graph.omitted : "";
+    omitted.hidden = !omitted.textContent;
+    if (savedChoices !== version) {
+      picker.textContent = "";
+      savedChoices = version;
+      saved.forEach(function(item) {
+        const option = P.element("option", "", item.graph.title);
+        option.value = item.id;
+        picker.append(option);
+      });
+    }
+    picker.hidden = saved.length < 2;
+    picker.value = activeID || "";
+    if (!question.value && scenario) question.value = scenario.graph.question;
+    submit.disabled = !!payload.busy || !canTrace() || !question.value.trim();
+    submit.title = canTrace() ? "Read the source again and trace this process" : "Scan a project with source files first";
+    submit.textContent = (payload.processState || {}).tracing ? "Tracing..." : "Trace process";
+    stop.hidden = !(payload.processState || {}).tracing;
+    breadcrumbs.textContent = "";
+    breadcrumbs.append(P.button(scenario ? scenario.graph.title : "Process", function() {
+      const first = scenario && P.ancestors(scenario.graph, parent)[0];
+      setScope(null, first ? first.id : null);
+    }, "arch-crumb"));
+    if (!scenario) {
+      canvas.hidden = true;
+      returns.textContent = "";
+      panel.render({ node: null });
+      message.hidden = false;
+      message.textContent = canTrace() ? "Describe a process to map its branches, joins and returns from source code." : "Scan a project with source files to build a process map.";
+      summary.textContent = "Source interpretation";
+      openGroup.hidden = true;
+      return;
+    }
+    canvas.hidden = false;
+    P.ancestors(scenario.graph, parent).forEach(function(node2) {
+      breadcrumbs.append(P.element("span", "arch-muted", "/"), P.button(node2.title, function() {
+        setScope(node2.id, null);
+      }, "arch-crumb"));
+    });
+    const state2 = payload.processState || {}, key = P.levelKey(scenario, parent);
+    const level = (state2.levels || {})[key];
+    if (level) pendingLevels.delete(key);
+    else if (!pendingLevels.has(key)) {
+      pendingLevels.add(key);
+      A.post("processLevel", { scenario: scenario.id, parent });
+    }
+    const byID = P.index(scenario.graph);
+    if (level && !level.nodes.some(function(node2) {
+      return node2.id === selected;
+    })) {
+      const first = level.nodes.find(function(node2) {
+        return node2.kind === "entry";
+      }) || level.nodes[0];
+      selected = first ? first.id : null;
+    }
+    const node = byID.get(selected);
+    openGroup.hidden = !node || !P.children(scenario.graph, node.id).length;
+    openGroup.textContent = node ? "Open group (" + P.children(scenario.graph, node.id).length + ")" : "Open group";
+    summary.textContent = (P.isStale(scenario, payload.snapshot) ? "Source changed. " : "") + (level ? level.nodes.length + " blocks on this level, " + level.edges.length + " transitions. " : "") + "Source interpretation";
+    if (level && level.nodes.length) draw(scenario, level);
+    else {
+      remember();
+      surface.clear();
+      renderedKey = "";
+      message.hidden = false;
+      message.textContent = level ? "This group has no internal steps." : "Opening the group...";
+    }
+    surface.highlight(selected, focus.checked);
+    panel.render({ node, scenario, payload, level, source });
+    if (node && (node.sources || [])[source]) {
+      const stamp = P.sourceKey(scenario, node, source) + "|" + scenario.createdAt + "|" + payload.snapshot.scannedAt;
+      if (requestedSource !== stamp) {
+        requestedSource = stamp;
+        A.post("processSource", { scenario: scenario.id, node: node.id, index: source });
+      }
+    }
+  }
+  question.addEventListener("input", function() {
+    submit.disabled = !!payload.busy || !canTrace() || !question.value.trim();
+  });
+  form.addEventListener("submit", function(event) {
+    event.preventDefault();
+    requestTrace();
+  });
+  picker.addEventListener("change", function() {
+    remember();
+    activeID = picker.value;
+    parent = null;
+    selected = null;
+    source = 0;
+    requestedSource = "";
+    const scenario = current();
+    question.value = scenario ? scenario.graph.question : "";
+    render(payload);
+  });
+  direction.addEventListener("change", function() {
+    remember();
+    render(payload);
+  });
+  focus.addEventListener("change", function() {
+    surface.highlight(selected, focus.checked);
+  });
+  Object.assign(A, { process: {
+    render,
+    fit: surface.fit,
+    reset,
+    hide: function() {
+      active = false;
+      remember();
+      root.hidden = true;
+      main.classList.remove("process-mode");
+    },
+    ask: function() {
+      question.focus();
+    }
+  } });
+})(window["MVProcess"], window["MVArchitecture"]);
+;
 (function(A) {
   if (!A.ready) return;
   const {
@@ -10361,13 +11379,13 @@ window.MVPanels = {
     const prTab = p.mode === "pr";
     const prMode = prTab || overlayApplies() && ui.overlay === "pr";
     el.views[0].parentElement.hidden = prTab;
-    el.overlay.hidden = false;
-    el.tempFilter.hidden = prTab;
+    el.overlay.hidden = ui.view === "process";
+    el.tempFilter.hidden = prTab || ui.view === "process";
     el.prMap.hidden = !prTab;
     Array.prototype.forEach.call(el.prMap.querySelectorAll("[data-arch-pr-map]"), function(b) {
       b.classList.toggle("on", b.getAttribute("data-arch-pr-map") === ui.prMap);
     });
-    el.prDate.hidden = p.mode === "folder";
+    el.prDate.hidden = p.mode === "folder" || ui.view === "process";
     el.hide.hidden = el.hide.hidden || prTab;
     el.flagged.parentElement.hidden = el.flagged.parentElement.hidden || prTab;
     el.prOpen.hidden = prTab;
@@ -10381,6 +11399,8 @@ window.MVPanels = {
     el.review.textContent = p.pr && p.pr.reviewed ? "Review again" : "Review with AI";
     el.review.title = p.pr && p.pr.reviewed ? "Reload the change as it is now and review it again (no cached answers)" : "AI review of every changed file";
     el.codeTrace.hidden = ui.view !== "code" || p.mode === "pr";
+    el.analyze.hidden = ui.view === "process";
+    el.detailsToggle.hidden = ui.view === "process";
     renderHistory();
     el.analyze.disabled = !!p.busy || !p.snapshot;
     el.analyze.textContent = ui.view === "code" ? "Refresh" : "Analyze";
@@ -10510,6 +11530,7 @@ window.MVPanels = {
     document.getElementById("wysiwyg-toolbar").style.display = "";
   };
   function resetForRoot(root) {
+    if (A.process) A.process.reset();
     ui.root = root;
     ui.codeFilterInitialized = false;
     ui.codeHidden.clear();
@@ -10575,6 +11596,13 @@ window.MVPanels = {
       ui.overlay = "none";
     }
     renderToolbar();
+    el.crumbs.hidden = ui.view === "process";
+    el.legend.hidden = ui.view === "process";
+    if (ui.view === "process" && A.process) {
+      A.process.render(ui.payload);
+      return;
+    }
+    if (A.process) A.process.hide();
     renderDetails();
     const snap = ui.payload.snapshot;
     const traces = snap && snap.codeSequences || [];
@@ -10625,6 +11653,7 @@ window.MVPanels = {
       }
     }
     loadLibraries().then(function() {
+      if (ui.view === "process") return;
       ensureCy();
       const shape = (snap.components || []).map(function(c) {
         return c.id + "<" + c.parent;
@@ -10888,6 +11917,10 @@ window.MVPanels = {
     post("rescan");
   });
   el.fit.addEventListener("click", function() {
+    if (ui.view === "process" && A.process) {
+      A.process.fit();
+      return;
+    }
     if (!A.cy) return;
     if (ui.view === "code") A.cy.fit(A.cy.elements(), 28);
     else A.cy.animate({ fit: { eles: A.cy.elements(), padding: 28 }, duration: 240 });

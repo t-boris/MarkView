@@ -112,7 +112,7 @@ function themeExtensions(dark) {
 }
 
 /** Create a viewer inside `parent`; it is read-only until `setEditable(true)`. Returns a small controller. */
-function create(parent, { doc = "", language = "", dark = false } = {}) {
+function create(parent, { doc = "", language = "", dark = false, startLine = 1 } = {}) {
   let currentLanguage = language;
   let isDark = dark;
   let editable = false;
@@ -123,7 +123,7 @@ function create(parent, { doc = "", language = "", dark = false } = {}) {
   const layoutListeners = [];
   const notifyLayout = () => layoutListeners.forEach((fn) => fn());
   const build = () => [
-    lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), drawSelection(),
+    lineNumbers({ formatNumber: number => String(number + startLine - 1) }), highlightActiveLineGutter(), highlightSpecialChars(), drawSelection(),
     highlightActiveLine(), codeFolding(), foldGutter(), bracketMatching(),
     highlightSelectionMatches(), search({ top: true }), indentUnit.of("    "),
     editing.of(editExtensions()), history(),
@@ -142,8 +142,9 @@ function create(parent, { doc = "", language = "", dark = false } = {}) {
   return {
     view,
     /** Replace the document (and optionally its language); resets scroll and folds. */
-    setDoc(text, nextLanguage) {
+    setDoc(text, nextLanguage, nextStartLine) {
       if (nextLanguage !== undefined) currentLanguage = nextLanguage;
+      if (nextStartLine !== undefined) startLine = nextStartLine;
       editable = false;
       view.setState(EditorState.create({ doc: text, extensions: build() }));
     },

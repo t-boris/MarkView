@@ -606,6 +606,12 @@ final class CodeAndXRayCoordinator: ObservableObject {
             architecture.refreshCode(root: root, db: db)
         case .traceCode(let traceScope, let question):
             architecture.traceCode(scope: traceScope, question: question, root: root, db: db)
+        case .traceProcess(let question):
+            architecture.processes.trace(question: question, root: root, db: db)
+        case .processLevel(let scenario, let parent):
+            architecture.processes.loadLevel(scenario: scenario, parent: parent)
+        case .processSource(let scenario, let node, let index):
+            architecture.processes.loadSource(scenario: scenario, node: node, index: index, root: root)
         case .describe(let view, let id):
             architecture.describe(viewId: view, nodeId: id, root: root, db: db)
         }

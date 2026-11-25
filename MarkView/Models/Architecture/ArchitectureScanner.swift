@@ -223,8 +223,16 @@ struct ArchitectureScanner {
     }
 
     fileprivate func fileSignature(_ path: String) -> String {
+        Self.fileSignature(path, root: root)
+    }
+
+    private static func fileSignature(_ path: String, root: URL) -> String {
         let values = try? root.appendingPathComponent(path).resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         return "\(path):\(values?.fileSize ?? 0):\(Int(values?.contentModificationDate?.timeIntervalSince1970 ?? 0))"
+    }
+
+    static func sourceSignature(_ path: String, root: URL) -> String {
+        signature(of: [fileSignature(path, root: root)])
     }
 
     static func signature(of parts: [String]) -> String {
@@ -332,7 +340,7 @@ struct ArchitectureScanner {
                 var node = ArchNode(id: "m:" + file, parent: id, kind: "file",
                                     name: (file as NSString).lastPathComponent, path: file,
                                     language: language[file], loc: lines, files: 1)
-                node.signature = Self.signature(of: [fileSignature(file)])
+                node.signature = Self.sourceSignature(file, root: root)
                 nodes.append(node)
                 fileNode[file] = "m:" + file
                 totalFiles += 1; totalLoc += lines

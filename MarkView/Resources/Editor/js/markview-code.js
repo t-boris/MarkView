@@ -193,6 +193,7 @@
                 });
                 return loading;
             }
+            Object.assign(window, { MVLoadCode: loadBundle });
 
             function isDark() {
                 return document.documentElement.getAttribute('data-theme') === 'dark';
