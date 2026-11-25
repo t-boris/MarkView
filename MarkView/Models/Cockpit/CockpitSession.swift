@@ -417,8 +417,8 @@ final class CockpitSession: ObservableObject {
             if let early = await managedGate(step: step, feature: feature) { return early }
             attempt.delegation = step.delegate == true && reviewed.plan.controls.allowDelegation
                 ? CLITool.allCases.first { $0.displayName == step.agent }?.provider.cockpitDelegation : nil
-            attempt.managedBrief = Self.managedBrief(step, branch: feature.branch)
-            attempt.changesAllowed = !(step.kind ?? .work).isVerification
+            attempt.managedBrief = Self.managedBrief(step, branch: feature.branch, repairing: task.recoveryAttempt != nil)
+            attempt.changesAllowed = CockpitManagedRun.changesAllowed(for: step.kind ?? .work, recoveryAttempt: task.recoveryAttempt)
             markImplementationStarted(feature: feature, agent: step.agent)
         }
         var result = await attempt.run(task)
@@ -992,12 +992,17 @@ extension CockpitSession {
     }
 
     /// What a managed step's agent is told on top of the step prompt.
-    fileprivate static func managedBrief(_ step: CockpitStep, branch: String) -> String {
+    fileprivate static func managedBrief(_ step: CockpitStep, branch: String, repairing: Bool = false) -> String {
         var lines = ["This step belongs to a managed implementation run. If the prior results show an interrupted attempt of this step, its changes are still in this checkout: continue from them and do not discard, reset or stash them."]
-        // DEC-036: the steps that write or deliver the change may change source and commit; the verifiers may not.
-        lines.append((step.kind ?? .work).isVerification
-            ? "This step checks the change: do not change source files and do not commit. MarkView compares the project before and after this step and fails it if you do; report what needs changing instead."
-            : "This step writes or delivers the change: you may change source files and commit on \(branch), never on the default branch. The Fix bugs control does not restrict this step's own changes; it only governs moving a bug into fixing.")
+        // DEC-036: the steps that write or deliver the change may change source and commit; the verifiers may not. DEC-037: the repair
+        // attempt of a verification may, because the verification then checks again.
+        if repairing {
+            lines.append("This is a repair attempt for a step that failed: you may change source files and commit on \(branch), never on the default branch, and push so the checks run on the new head. The Fix bugs control does not restrict this repair. After your report Cockpit checks again; that check may not change anything.")
+        } else {
+            lines.append((step.kind ?? .work).isVerification
+                ? "This step checks the change: do not change source files and do not commit. MarkView compares the project before and after this step and fails it if you do; report what needs changing instead."
+                : "This step writes or delivers the change: you may change source files and commit on \(branch), never on the default branch. The Fix bugs control does not restrict this step's own changes; it only governs moving a bug into fixing.")
+        }
         switch step.kind ?? .work {
         case .review: lines.append("Report each confirmed violation in findings (title, detail, basis \"criterion\" or \"rule\", reference).")
         case .fix, .reverify: lines.append("Report findingChecks for the findings you checked: their ids are R1, R2, … as the prior results list them.")

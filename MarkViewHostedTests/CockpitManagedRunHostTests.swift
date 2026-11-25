@@ -140,6 +140,21 @@ final class CockpitManagedRunHostTests: XCTestCase {
         XCTAssertTrue(kinds.contains(.review) && kinds.contains(.work) && kinds.contains(.merge))
     }
 
+    // BUG-129: the CI step of a managed run repairs a failing check through a bounded recovery that may write; the step itself only checks.
+    func testCIStepRepairsFailedChecksThroughABoundedRecoveryThatMayWrite() {
+        let plan = managedPlan(done())
+        guard let ci = plan.steps.first(where: { $0.kind == .checks }) else { return XCTFail("the checklist asks for CI") }
+        XCTAssertEqual(ci.recovery?.boundedAttempts, 2, "a failed CI step is repaired and re-checked before the run pauses")
+        XCTAssertTrue(ci.recovery?.assignment.contains("feat/sample") == true, "the repair is on the feature branch")
+        XCTAssertTrue(ci.assignment.contains("do not change files in this step"), "the step's instruction no longer says to fix inside a verification")
+        XCTAssertTrue(plan.structuralBlockers.isEmpty, "the composed plan is valid with the recovery")
+        XCTAssertFalse(CockpitManagedRun.changesAllowed(for: .checks, recoveryAttempt: nil), "the check itself stays independent (DEC-036)")
+        XCTAssertTrue(CockpitManagedRun.changesAllowed(for: .checks, recoveryAttempt: 1), "its recovery attempt is the repair")
+        XCTAssertTrue(CockpitManagedRun.changesAllowed(for: .work, recoveryAttempt: nil))
+        XCTAssertFalse(CockpitManagedRun.changesAllowed(for: .review, recoveryAttempt: nil))
+        XCTAssertEqual(plan.steps.filter { $0.recovery != nil }.count, 1, "no other managed step gets a recovery")
+    }
+
     func testMergeDoneOutsideCockpitIsEvidenceAndIsNotRepeated() {
         let plan = managedPlan(done())
         let merge = plan.steps.first { $0.kind == .merge }!

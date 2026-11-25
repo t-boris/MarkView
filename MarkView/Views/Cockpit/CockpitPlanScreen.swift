@@ -324,6 +324,13 @@ struct CockpitPlanScreen: View {
     @ViewBuilder private func planBody(_ plan: CockpitPlan) -> some View {
         let state = readiness(plan)
         if session.planNeedsRecheck { recheckBanner }
+        ForEach(plan.advisories, id: \.self) { advisory in
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.orange)
+                Text(advisory).uiFont(size: 12).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Spacer(minLength: 0)
+            }.cockpitCard(outline: palette.orange)
+        }
         VStack(alignment: .leading, spacing: 0) {
             CockpitSectionTitle(title: "Steps", detail: "Open a step to edit it. Changing a step, its agent or its model changes what you approve.").padding(.bottom, 10)
             ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in

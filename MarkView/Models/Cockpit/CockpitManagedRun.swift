@@ -218,6 +218,10 @@ enum CockpitStepSupport: Equatable {
 }
 
 enum CockpitManagedRun {
+    /// Whether a step's agent may change source and commit: the steps that write or deliver the change (DEC-036), and the bounded
+    /// recovery attempt of any step, which is the repair its verification then checks again (DEC-037).
+    static func changesAllowed(for kind: CockpitStepKind, recoveryAttempt: Int?) -> Bool { !kind.isVerification || recoveryAttempt != nil }
+
     // MARK: Composing the plan
 
     /// The plan of a managed run: the branch, the planner's implementation steps, then tests, an independent review, fixes and their
@@ -232,10 +236,11 @@ enum CockpitManagedRun {
         let standing = ["records", "issues", "commit"].compactMap(item).filter { $0.mode == .require }
         let standingText = standing.isEmpty ? "" : "\n\nThroughout this step: " + standing.map(\.instruction).joined(separator: " ")
         var steps: [CockpitStep] = []
-        func add(_ kind: CockpitStepKind, _ itemID: String?, title: String, agent: String, assignment: String, condition: String) {
+        func add(_ kind: CockpitStepKind, _ itemID: String?, title: String, agent: String, assignment: String, condition: String,
+                 recovery: CockpitStepRecovery? = nil) {
             let asks = itemID.map { mode($0) == .ask } ?? false
             steps.append(CockpitStep(title: title, agent: agent, assignment: assignment + standingText, completionCondition: condition,
-                                     isPrerequisite: true, kind: kind, doneItem: itemID, asksFirst: asks ? true : nil))
+                                     isPrerequisite: true, kind: kind, doneItem: itemID, asksFirst: asks ? true : nil, recovery: recovery))
         }
         let branch = feature.branch
         if mode("branch") != .skip {
@@ -279,8 +284,11 @@ enum CockpitManagedRun {
                 condition: "A pull request from \(branch) exists, with a description and a test plan.")
         }
         if mode("ci") != .skip {
-            add(.checks, "ci", title: "CI is green", agent: implementer, assignment: item("ci")?.instruction ?? "",
-                condition: "Every check of the pull request's head commit has passed.")
+            // The step only checks (DEC-036); a failed check is repaired by its bounded recovery, which may write (DEC-037).
+            add(.checks, "ci", title: "CI is green", agent: implementer,
+                assignment: (item("ci")?.instruction ?? "") + " This step only checks: if a check fails, do not change files in this step; "
+                    + "report each failing check (name, link, log excerpt) as the blocker. Cockpit then runs a bounded repair on \(branch) and checks again.",
+                condition: "Every check of the pull request's head commit has passed.", recovery: .ciRepair(branch: branch))
         }
         if mode("merge") != .skip {
             add(.merge, "merge", title: "Merge the pull request", agent: implementer, assignment: item("merge")?.instruction ?? "",
