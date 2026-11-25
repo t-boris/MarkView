@@ -11,11 +11,13 @@ struct ProcessSourceSnippet: Encodable, Sendable {
     var code: String
     var language: String
     var stale: Bool
+    var truncated: Bool
 }
 
 enum ProcessGraphSource {
     struct Inspection: Sendable {
         var hashes: [String: String]
+        var signatures: [String: String]
     }
 
     struct Failure: LocalizedError {
@@ -27,6 +29,17 @@ enum ProcessGraphSource {
         var lines: [String]
         var hash: String
         var language: String
+        var signature: String
+    }
+
+    static func offMain<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
+        let worker = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            return try operation()
+        }
+        return try await withTaskCancellationHandler(operation: {
+            try await worker.value
+        }, onCancel: { worker.cancel() })
     }
 
     static func inspect(_ graph: ProcessGraph, root: URL, allowedPaths: Set<String>) throws -> Inspection {
@@ -38,14 +51,16 @@ enum ProcessGraphSource {
         }
         var counts: [String: Int] = [:]
         var hashes: [String: String] = [:]
+        var signatures: [String: String] = [:]
         for source in sources where counts[source.path] == nil {
             try Task.checkCancellation()
             let file = try read(source, root: root, allowedPaths: allowedPaths)
             counts[source.path] = file.lines.count
             hashes[source.path] = file.hash
+            signatures[source.path] = file.signature
         }
         try graph.validate(lineCounts: counts)
-        return Inspection(hashes: hashes)
+        return Inspection(hashes: hashes, signatures: signatures)
     }
 
     static func snippet(key: String, source: ProcessGraph.Source, root: URL,
@@ -58,10 +73,12 @@ enum ProcessGraphSource {
         let code = file.lines[(source.line - 1)..<end].map { String($0.prefix(600)) }.joined(separator: "\n")
         return ProcessSourceSnippet(key: key, path: source.path, line: source.line, endLine: end,
                                     requestedEndLine: source.endLine, code: code, language: file.language,
-                                    stale: expectedHash.map { $0 != file.hash } ?? true)
+                                    stale: expectedHash.map { $0 != file.hash } ?? true,
+                                    truncated: end < source.endLine || file.lines[(source.line - 1)..<end].contains { $0.count > 600 })
     }
 
     private static func read(_ source: ProcessGraph.Source, root: URL, allowedPaths: Set<String>) throws -> SourceFile {
+        try Task.checkCancellation()
         let base = root.resolvingSymlinksInPath().standardizedFileURL
         guard source.isProjectRelative, allowedPaths.contains(source.path) else {
             throw Failure(message: "The process cites a file outside the scanned source code.")
@@ -79,7 +96,7 @@ enum ProcessGraphSource {
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
         return SourceFile(lines: lines, hash: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
-                          language: FileType.sourceLanguage(for: url))
+                          language: FileType.sourceLanguage(for: url), signature: ArchitectureScanner.sourceSignature(source.path, root: root))
     }
 }
 

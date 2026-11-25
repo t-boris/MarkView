@@ -60,10 +60,6 @@ final class ProcessGraphStore {
                 try Task.checkCancellation()
                 guard self.generation == ticket, host.rootPath == root.standardizedFileURL.path,
                       var next = host.snapshot else { return }
-                let signatures = Dictionary(modules.nodes.compactMap { node -> (String, String)? in
-                    guard let path = node.path, inspection.hashes[path] != nil, let signature = node.signature else { return nil }
-                    return (path, signature)
-                }, uniquingKeysWith: { first, _ in first })
                 var saved = next.processGraphs ?? []
                 let previous = saved.first { $0.graph.question == question }
                 if let id = previous?.id {
@@ -75,7 +71,7 @@ final class ProcessGraphStore {
                 }
                 saved.removeAll { $0.graph.question == question }
                 saved.append(ProcessScenario(id: previous?.id ?? UUID().uuidString, graph: graph,
-                                             signatures: signatures, sourceHashes: inspection.hashes))
+                                             signatures: inspection.signatures, sourceHashes: inspection.hashes))
                 next.processGraphs = Array(saved.suffix(20))
                 host.commit(next, db: db)
             } catch is CancellationError {
@@ -130,10 +126,10 @@ final class ProcessGraphStore {
             do {
                 try Task.checkCancellation()
                 guard self.sourceGeneration == ticket, host.rootPath == root.standardizedFileURL.path else { return }
-                let snippet = try await Task.detached(priority: .utility) {
+                let snippet = try await ProcessGraphSource.offMain {
                     try ProcessGraphSource.snippet(key: key, source: source, root: root,
                                                    allowedPaths: paths, expectedHash: expected)
-                }.value
+                }
                 try Task.checkCancellation()
                 guard self.sourceGeneration == ticket, host.rootPath == root.standardizedFileURL.path else { return }
                 self.state.snippets[key] = snippet
@@ -160,16 +156,16 @@ final class ProcessGraphStore {
                 jsonSchema: ProcessGraphPrompt.schema, readableFolder: root)
             request.label = "process-graph"
             request.timeout = 900
-            let object = try await host.assistantCall(request, root: root, db: db, call: 0, fresh: attempt > 0)
+            let object = try await host.assistantCall(request, root: root, db: db, call: 0, fresh: true)
             try Task.checkCancellation()
             do {
                 let data = try JSONSerialization.data(withJSONObject: object)
                 var graph = try JSONDecoder().decode(ProcessGraph.self, from: data)
                 graph.question = question
                 let candidate = graph
-                let inspection = try await Task.detached(priority: .utility) {
+                let inspection = try await ProcessGraphSource.offMain {
                     try ProcessGraphSource.inspect(candidate, root: root, allowedPaths: paths)
-                }.value
+                }
                 return (graph, inspection)
             } catch is CancellationError {
                 throw CancellationError()
