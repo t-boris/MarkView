@@ -78,10 +78,9 @@ final class BrowserHost: BrowserSessionHost {
                       case .browser(let session) = self.tabs.openTabs[self.tabs.activeTabIndex].kind else { return nil }
                 return session
             },
-            show: { [weak self] session in self?.show(session) },
             open: { [weak self] url, name in
                 guard let self else { return BrowserSession(url: url, prompts: NoPrompts()) }
-                let session = self.open(url)
+                let session = self.open(url, activate: false)
                 if let name { session.agentName = name }
                 return session
             })
@@ -188,8 +187,8 @@ final class BrowserHost: BrowserSessionHost {
         }
     }
 
-    func browserSession(_ session: BrowserSession, openInNewTab url: URL) {
-        open(url)
+    func browserSession(_ session: BrowserSession, openInNewTab url: URL, activate: Bool) {
+        open(url, activate: activate)
     }
 
     // MARK: - Preview Web App

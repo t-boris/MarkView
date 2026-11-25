@@ -34,6 +34,8 @@ struct BrowserTabView: View {
                 Divider().background(palette.border)
             }
             BrowserAgentBar(session: session)
+            if !session.pendingPopups.isEmpty { pendingPopupsBar }
+            if let notice = session.unavailablePopupNotice { unavailablePopupBar(notice) }
             if let prompt = session.passwordPrompt { passwordPromptBar(prompt) }
             if let offer = session.fillOffer, session.passwordPrompt == nil { fillOfferBar(offer) }
             if let download = session.download { downloadBanner(download) }
@@ -198,7 +200,52 @@ struct BrowserTabView: View {
         .accessibilityLabel(help)
     }
 
-    // MARK: - Password and download bars
+    // MARK: - Pending sign-in popups and password/download bars
+
+    private var pendingPopupsBar: some View {
+        VStack(spacing: 0) {
+            ForEach(session.pendingPopups) { popup in
+                HStack(spacing: 8) {
+                    Image(systemName: popup.isAvailable ? "lock.shield.fill" : "exclamationmark.triangle.fill")
+                        .foregroundColor(palette.orange)
+                    if popup.isAvailable {
+                        Text(pendingPopupLabel(popup))
+                            .uiFont(size: 11).foregroundColor(palette.text).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Button("Open Sign-In Window") { session.openPendingPopup(popup.id) }
+                            .buttonStyle(.borderedProminent)
+                        Button("Dismiss") { session.dismissPendingPopup(popup.id) }
+                    } else {
+                        Text("The pending sign-in window is no longer available. Start sign-in again manually on this page.")
+                            .uiFont(size: 11).foregroundColor(palette.text).lineLimit(2)
+                        Spacer()
+                        Button("Dismiss") { session.dismissPendingPopup(popup.id) }
+                    }
+                }
+                .controlSize(.small)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(palette.orange.opacity(0.14))
+            }
+        }
+    }
+
+    private func pendingPopupLabel(_ popup: BrowserSession.PendingPopupInfo) -> String {
+        let target = !popup.title.isEmpty ? popup.title : (popup.url?.host ?? "")
+        if target.isEmpty { return "A sign-in window is waiting to be opened for tab \(session.agentName)." }
+        return "A sign-in window (\(target)) is waiting to be opened for tab \(session.agentName)."
+    }
+
+    private func unavailablePopupBar(_ notice: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.orange)
+            Text(notice).uiFont(size: 11).foregroundColor(palette.text).lineLimit(2)
+            Spacer()
+            Button("Dismiss") { session.clearUnavailablePopupNotice() }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(palette.orange.opacity(0.14))
+    }
 
     private func passwordPromptBar(_ prompt: PasswordPrompt) -> some View {
         HStack(spacing: 8) {
@@ -447,6 +494,12 @@ struct BrowserTabTitle: View {
                 .padding(.horizontal, 3)
                 .background(session.agentStopped ? palette.orange.opacity(0.25) : palette.bgActive)
                 .cornerRadius(3)
+            if session.hasPendingPopup {
+                Image(systemName: "lock.shield.fill")
+                    .uiFont(size: 9)
+                    .foregroundColor(palette.orange)
+                    .help("Pending sign-in window in tab \(session.agentName)")
+            }
             Text(session.displayTitle)
         }
     }

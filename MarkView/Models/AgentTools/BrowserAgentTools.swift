@@ -17,15 +17,18 @@ enum BrowserAgentTools {
 
     /// Shown to the agent by the MCP client: use these tabs, not another browser.
     static let instructions = """
-    MarkView browser: these tools drive the browser tabs inside the MarkView window the user is \
-    working in, where they watch what happens. For any web page work — opening the app under \
-    development (localhost), clicking through it, filling forms, following instructions on a platform \
-    the user is signed in to, reading the page, its console or a screenshot — use these tools instead \
-    of Chrome, Playwright or other browser automation. The tabs share the user's sign-ins, so never ask \
-    for credentials. Tabs have names (T1, T2… or names the user gave, like "Jira"): when the user says \
-    which tab to use, pass it as `tab`; browser_tabs lists them, browser_open_tab opens a new one. \
-    Start with browser_snapshot (or browser_navigate) to see the page and the element refs that \
-    browser_click and browser_type take. If a tool says the user stopped a tab, do not retry it. \
+    MarkView browser: these tools drive browser tabs inside the MarkView window in the background \
+    without switching the user's active tab or stealing keyboard focus. For any web page work — \
+    opening the app under development (localhost), clicking through it, filling forms, following \
+    instructions on a platform the user is signed in to, reading the page, its console or a \
+    screenshot — use these tools instead of Chrome, Playwright or other browser automation. The tabs \
+    share the user's sign-ins, so never ask for credentials. Tabs have names (T1, T2… or names the \
+    user gave, like "Jira"): browser_open_tab opens a new background tab and returns its name — pass \
+    that name as `tab` on follow-up calls to keep targeting stable; browser_tabs lists all tabs and \
+    which one is currently active for the user. Start with browser_snapshot (or browser_navigate) to \
+    see the page and the element refs that browser_click and browser_type take. If a tool reports a \
+    pending sign-in popup or an operation that requires the tab in front (such as browser_screenshot), \
+    tell the user which tab to select. If a tool says the user stopped a tab, do not retry it. \
     The app determines the project window from the verified process and its working folder.
     """
 
@@ -99,27 +102,27 @@ enum BrowserAgentTools {
     }
 
     static var tools: [Tool] { [
-        Tool(name: "browser_tabs", description: "The browser tabs of the MarkView window: name, title, address, which is active, and which the user stopped.",
+        Tool(name: "browser_tabs", description: "The browser tabs of the MarkView window: name, title, address, which is active for the user, which the user stopped, and any pending sign-in window.",
              properties: [:], required: []),
-        Tool(name: "browser_open_tab", description: "Open a new browser tab (optionally at a URL) with a name to refer to it later.",
+        Tool(name: "browser_open_tab", description: "Open a new browser tab in the background (optionally at a URL) with a name to refer to it later without changing the user's active tab or focus.",
              properties: ["url": ["type": "string"], "name": ["type": "string", "description": "A short name, e.g. Billing"]], required: []),
-        Tool(name: "browser_navigate", description: "Open a URL (http, https, localhost or file) in a MarkView browser tab and wait until it has loaded.",
+        Tool(name: "browser_navigate", description: "Open a URL (http, https, localhost or file) in a MarkView browser tab without bringing it to the front, and wait until it has loaded.",
              properties: with(["url": ["type": "string"]]), required: ["url"]),
         Tool(name: "browser_snapshot", description: "The page's URL, title, visible text and its interactive elements, each with a ref for browser_click and browser_type.",
              properties: tab, required: []),
-        Tool(name: "browser_click", description: "Click an element (by ref, CSS selector or visible text) with a real mouse click and wait for any navigation it starts.",
+        Tool(name: "browser_click", description: "Click an element (by ref, CSS selector or visible text) in the target tab without stealing focus, and wait for any navigation it starts.",
              properties: target, required: []),
-        Tool(name: "browser_type", description: "Type into an input, textarea or editable element as real keystrokes; optionally submit with Enter.",
+        Tool(name: "browser_type", description: "Type into an input, textarea or editable element without stealing focus; optionally submit with Enter.",
              properties: target.merging([
                 "value": ["type": "string", "description": "The text to enter"],
                 "submit": ["type": "boolean", "description": "Press Enter afterwards"],
                 "append": ["type": "boolean", "description": "Keep the current value and add to it"],
              ]) { $1 }, required: ["value"]),
-        Tool(name: "browser_press_key", description: "Press a key on the focused element: Enter, Escape, Tab, ArrowDown, a letter…",
+        Tool(name: "browser_press_key", description: "Press a key on the focused element in the target tab without stealing focus: Enter, Escape, Tab, ArrowDown, a letter…",
              properties: with(["key": ["type": "string"]]), required: ["key"]),
         Tool(name: "browser_evaluate", description: "Run JavaScript in the page as the body of an async function and return its result as JSON (use `return`).",
              properties: with(["script": ["type": "string"]]), required: ["script"]),
-        Tool(name: "browser_screenshot", description: "A PNG screenshot of the visible part of the page.",
+        Tool(name: "browser_screenshot", description: "A PNG screenshot of the visible part of the page when the tab is currently shown; returns instructions if the tab is in the background.",
              properties: tab, required: []),
         Tool(name: "browser_console", description: "Console messages, uncaught errors and dialogs of the page since it loaded.",
              properties: with(["clear": ["type": "boolean", "description": "Empty the log after reading"]]), required: []),

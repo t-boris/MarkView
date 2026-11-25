@@ -9,10 +9,16 @@ import MarkViewCore
 /// Without it `window.open` returns null and the page reports a blocked popup.
 @MainActor
 final class BrowserPopup: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+    let id = UUID()
     let window: NSWindow
     let webView: WKWebView
     var onClose: ((BrowserPopup) -> Void)?
-    private var closed = false
+    var onMetadataChange: ((BrowserPopup) -> Void)?
+    private(set) var isClosed = false
+
+    var currentURL: URL? { webView.url }
+    var currentTitle: String { webView.title ?? window.title }
+    var isVisible: Bool { window.isVisible }
 
     /// The popup features that make a `window.open` a real popup instead of a new tab.
     static func isPopup(_ features: WKWindowFeatures) -> Bool {
@@ -35,17 +41,28 @@ final class BrowserPopup: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.observe(\.title, options: [.new]) { [weak self] view, _ in
-            MainActor.assumeIsolated { self?.window.title = view.title ?? "" }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.window.title = view.title ?? ""
+                self.onMetadataChange?(self)
+            }
+        }.store(in: self)
+        webView.observe(\.url, options: [.new]) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.onMetadataChange?(self)
+            }
         }.store(in: self)
     }
 
     func show() {
+        guard !isClosed else { return }
         window.makeKeyAndOrderFront(nil)
     }
 
     func close() {
-        guard !closed else { return }
-        closed = true
+        guard !isClosed else { return }
+        isClosed = true
         window.delegate = nil
         window.close()
         onClose?(self)
@@ -54,13 +71,17 @@ final class BrowserPopup: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
     // MARK: - Delegates
 
     func windowWillClose(_ notification: Notification) {
-        guard !closed else { return }
-        closed = true
+        guard !isClosed else { return }
+        isClosed = true
         onClose?(self)
     }
 
     /// `window.close()` from the page, as the sign-in page does when it is done.
     func webViewDidClose(_ webView: WKWebView) {
+        close()
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         close()
     }
 

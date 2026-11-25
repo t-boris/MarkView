@@ -43,8 +43,38 @@ final class BrowserSession: NSObject, ObservableObject, BrowserSaveDelegate {
     /// A login form is on the page and logins are saved for its site.
     @Published private(set) var fillOffer: PasswordFillOffer?
     private var downloadTargets: [ObjectIdentifier: URL] = [:]
+    /// A sign-in or auth popup opened by background automation and kept hidden until the user opens it (DEC-002).
+    struct PendingPopupInfo: Identifiable, Equatable {
+        let id: UUID
+        var url: URL?
+        var title: String
+        var isAvailable: Bool
+    }
+
+    enum OpenCause {
+        case automated
+        case manual
+    }
+
+    /// Pending hidden popups opened by automated actions in this tab, kept connected to `window.opener` (DEC-002).
+    @Published private(set) var pendingPopups: [PendingPopupInfo] = []
+    /// Explanation shown when the user tries to open a pending sign-in popup that is no longer available (DEC-002).
+    @Published var unavailablePopupNotice: String?
+    /// True while at least one hidden sign-in popup is pending on this tab.
+    var hasPendingPopup: Bool { pendingPopups.contains(where: \.isAvailable) }
+    /// Monotonic counter bumped whenever an automated action opens a hidden popup, so tools can report it.
+    private(set) var deferredPopupSequence = 0
     /// Open `window.open` popups of this tab.
     private var popups: [BrowserPopup] = []
+    /// Active browser-tool calls currently running on this tab.
+    private(set) var activeAutomationCount = 0
+    /// Active interactive background tool calls (`background: true`) on this tab.
+    private(set) var backgroundAutomationCount = 0
+    /// Brief grace window after a background tool call ends so asynchronous WebKit `el.focus()` IPC cannot steal firstResponder.
+    private var suppressFirstResponderUntil: Date?
+    private var blockedOpenPanelDuringAutomation = false
+    private let provenanceToken = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    private var pendingOpenCause: (cause: OpenCause, at: Date)?
     private var promptTask: Task<Void, Never>?
     /// The page work the person started from this tab's toolbar (picking an element, filling a login, saving the page as a PDF): a new run
     /// of a kind replaces the one before it, and closing the tab cancels what is left (`AR-19`).
@@ -74,6 +104,112 @@ final class BrowserSession: NSObject, ObservableObject, BrowserSaveDelegate {
 
     func requestMarkdownSave(_ mode: PageCapture.Mode) { saveRequest = mode }
     func requestPDFSave() { saveFormat = .pdf; saveRequest = .page }
+
+    var suppressesFirstResponder: Bool {
+        if backgroundAutomationCount > 0 { return true }
+        if let until = suppressFirstResponderUntil, Date() < until { return true }
+        return false
+    }
+
+    func noteManualInteraction() {
+        suppressFirstResponderUntil = nil
+        if activeAutomationCount == 0 {
+            agentControlled = false
+            pendingOpenCause = nil
+        }
+    }
+
+    func beginAutomation(background: Bool) {
+        activeAutomationCount += 1
+        if background { backgroundAutomationCount += 1 }
+        agentControlled = true
+        blockedOpenPanelDuringAutomation = false
+    }
+
+    func endAutomation(background: Bool) {
+        activeAutomationCount = max(0, activeAutomationCount - 1)
+        if background {
+            backgroundAutomationCount = max(0, backgroundAutomationCount - 1)
+            suppressFirstResponderUntil = Date().addingTimeInterval(0.35)
+        }
+    }
+
+    func consumeBlockedOpenPanel() -> Bool {
+        let value = blockedOpenPanelDuringAutomation
+        blockedOpenPanelDuringAutomation = false
+        return value
+    }
+
+    /// Ensure an unmounted background web view has a realistic viewport frame so layout and snapshots work.
+    func ensureBackgroundLayoutFrame() {
+        let view = webView
+        if view.window == nil && (view.bounds.width < 1 || view.bounds.height < 1) {
+            view.frame = NSRect(x: 0, y: 0, width: 1280, height: 800)
+        }
+    }
+
+    /// Explicitly displays a pending hidden sign-in popup on user request (DEC-002).
+    /// Returns `false` and sets `unavailablePopupNotice` if the popup is no longer available.
+    @discardableResult
+    func openPendingPopup(_ id: UUID? = nil) -> Bool {
+        let targetID = id ?? pendingPopups.last?.id
+        guard let targetID, let index = pendingPopups.firstIndex(where: { $0.id == targetID }) else {
+            unavailablePopupNotice = "The sign-in window is no longer available. Start sign-in again manually on this page."
+            return false
+        }
+        guard pendingPopups[index].isAvailable,
+              let popup = popups.first(where: { $0.id == targetID }),
+              !popup.isClosed else {
+            pendingPopups.remove(at: index)
+            unavailablePopupNotice = "The sign-in window is no longer available. Start sign-in again manually on this page."
+            return false
+        }
+        pendingPopups.remove(at: index)
+        unavailablePopupNotice = nil
+        popup.show()
+        return true
+    }
+
+    func dismissPendingPopup(_ id: UUID) {
+        pendingPopups.removeAll { $0.id == id }
+        if let popup = popups.first(where: { $0.id == id }) {
+            popup.close()
+        }
+    }
+
+    func clearUnavailablePopupNotice() {
+        unavailablePopupNotice = nil
+    }
+
+    /// Exposes live popups for verification tests without surfacing raw windows to unrelated views.
+    var openPopupCount: Int { popups.count }
+    var visiblePopupCount: Int { popups.filter(\.isVisible).count }
+    func livePopup(id: UUID) -> BrowserPopup? { popups.first { $0.id == id } }
+
+    private func handlePopupClosed(_ closed: BrowserPopup) {
+        popups.removeAll { $0 === closed }
+        if let index = pendingPopups.firstIndex(where: { $0.id == closed.id }) {
+            pendingPopups[index].isAvailable = false
+        }
+    }
+
+    private func updatePendingPopupMetadata(_ popup: BrowserPopup) {
+        guard let index = pendingPopups.firstIndex(where: { $0.id == popup.id }) else { return }
+        pendingPopups[index].url = popup.currentURL ?? pendingPopups[index].url
+        pendingPopups[index].title = popup.currentTitle
+    }
+
+    private func resolveOpenCause(for navigationAction: WKNavigationAction) -> OpenCause {
+        if let pending = pendingOpenCause {
+            pendingOpenCause = nil
+            if Date().timeIntervalSince(pending.at) < 2.0 {
+                return pending.cause
+            }
+        }
+        if activeAutomationCount > 0 { return .automated }
+        if webView.window == nil { return .automated }
+        return .manual
+    }
 
     private(set) lazy var webView: BrowserWebView = makeWebView()
     private var observations: [NSKeyValueObservation] = []
@@ -120,6 +256,9 @@ final class BrowserSession: NSObject, ObservableObject, BrowserSaveDelegate {
         passwordHandler = passwords
         var scripts = [
             agentFrames.webHostScript,
+            // Causal provenance for automated vs manual new-tab and popup requests (DEC-001, DEC-002).
+            WKUserScript(source: BrowserAgentExecutor.Scripts.provenance(token: provenanceToken),
+                         injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page),
             // The page's console and uncaught errors, kept for agents (`browser_console`).
             WKUserScript(source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page),
         ]
@@ -137,7 +276,7 @@ final class BrowserSession: NSObject, ObservableObject, BrowserSaveDelegate {
             allowsElementFullscreen: true,
             // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
             applicationName: "Version/17.0 Safari/605.1.15")
-        let view = BrowserWebView(frame: .zero, configuration: configuration)
+        let view = BrowserWebView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800), configuration: configuration)
         WebHost.markInspectable(view)
         view.navigationDelegate = self
         view.uiDelegate = self
@@ -164,7 +303,15 @@ final class BrowserSession: NSObject, ObservableObject, BrowserSaveDelegate {
                 MainActor.assumeIsolated { self?.progress = view.estimatedProgress }
             },
         ]
-        if let url { view.load(URLRequest(url: url)) }
+        if let url {
+            if url.isFileURL {
+                let folder = url.deletingLastPathComponent()
+                let root = localReadRoot.flatMap { folder.standardizedFileURL.path.hasPrefix($0.standardizedFileURL.path) ? $0 : nil }
+                view.loadFileURL(url, allowingReadAccessTo: root ?? folder)
+            } else {
+                view.load(URLRequest(url: url))
+            }
+        }
         return view
     }
 
@@ -281,6 +428,8 @@ final class BrowserSession: NSObject, ObservableObject, BrowserSaveDelegate {
         tasks.cancelAll()
         promptTask?.cancel()
         passwordPrompt = nil
+        pendingPopups = []
+        unavailablePopupNotice = nil
         for popup in popups { popup.close() }
         webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserPasswordScript.handlerName, contentWorld: .defaultClient)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserAgentExecutor.Frames.handler, contentWorld: .defaultClient)
@@ -402,9 +551,11 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
         if ["http", "https", "about", "data", "blob", "file", "ws", "wss"].contains(scheme) {
             decisionHandler(.allow)
         } else {
-            // mailto:, tel:, app links: their own apps.
+            // mailto:, tel:, app links: their own apps (only for manual browsing, never during background automation).
             decisionHandler(.cancel)
-            if navigationAction.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
+            if navigationAction.navigationType == .linkActivated && activeAutomationCount == 0 && webView.window != nil {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 
@@ -469,18 +620,47 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
             webView.startDownload(using: navigationAction.request) { [weak self] download in download.delegate = self }
             return nil
         }
+        let cause = resolveOpenCause(for: navigationAction)
         // A script's popup (sign-in) stays a window linked to its page; links open as tabs.
         if BrowserPopup.isPopup(windowFeatures) {
             let popup = BrowserPopup(configuration: configuration, features: windowFeatures)
-            popup.onClose = { [weak self] closed in self?.popups.removeAll { $0 === closed } }
+            let popupID = popup.id
+            popup.onClose = { [weak self] closed in self?.handlePopupClosed(closed) }
             popups.append(popup)
-            popup.show()
+            if cause == .automated {
+                deferredPopupSequence += 1
+                unavailablePopupNotice = nil
+                pendingPopups.append(PendingPopupInfo(id: popupID, url: navigationAction.request.url, title: "", isAvailable: true))
+                popup.onMetadataChange = { [weak self] changed in self?.updatePendingPopupMetadata(changed) }
+                // Keep hidden while preserving window.opener until the user explicitly opens it (DEC-002).
+            } else {
+                popup.show()
+            }
             return popup.webView
         }
         if let url = navigationAction.request.url {
-            if let host { host.browserSession(self, openInNewTab: url) } else { load(url) }
+            if let host { host.browserSession(self, openInNewTab: url, activate: cause == .manual) } else { load(url) }
         }
         return nil
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
+                 defaultText: String?, initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping @MainActor (String?) -> Void) {
+        let prefix = "__mv_cause_\(provenanceToken):"
+        if prompt.hasPrefix(prefix) {
+            let value = String(prompt.dropFirst(prefix.count))
+            if value == "auto" { pendingOpenCause = (.automated, Date()) }
+            else if value == "manual" { pendingOpenCause = (.manual, Date()) }
+            completionHandler("")
+            return
+        }
+        if agentControlled {
+            agentDialogs.append("prompt: " + prompt)
+            completionHandler(defaultText)
+            return
+        }
+        completionHandler(nil)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
@@ -507,6 +687,11 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void) {
+        if backgroundAutomationCount > 0 || (activeAutomationCount > 0 && webView.window == nil) {
+            blockedOpenPanelDuringAutomation = true
+            completionHandler(nil)
+            return
+        }
         // The person is asked through the tab's prompter (`AR-22`): the app shows its panel, a QA player gives its built-in picture.
         completionHandler(prompts.chooseFiles(allowsMultiple: parameters.allowsMultipleSelection, allowsDirectories: parameters.allowsDirectories))
     }
@@ -595,13 +780,53 @@ extension BrowserSession {
 
 @MainActor
 protocol BrowserSaveDelegate: AnyObject {
+    var suppressesFirstResponder: Bool { get }
     func requestMarkdownSave(_ mode: PageCapture.Mode)
     func requestPDFSave()
+    func noteManualInteraction()
 }
 
 /// The page's context menu gets "Save Selection / Page as Markdown".
 final class BrowserWebView: WKWebView {
     weak var saveDelegate: (any BrowserSaveDelegate)?
+
+    override var acceptsFirstResponder: Bool {
+        if saveDelegate?.suppressesFirstResponder == true, !isHandlingUserFocusEvent {
+            return false
+        }
+        return super.acceptsFirstResponder
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        if saveDelegate?.suppressesFirstResponder == true, !isHandlingUserFocusEvent {
+            return false
+        }
+        return super.becomeFirstResponder()
+    }
+
+    private var isHandlingUserFocusEvent: Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            guard window != nil else { return false }
+            let point = convert(event.locationInWindow, from: nil)
+            return bounds.contains(point)
+        case .keyDown:
+            return event.keyCode == 48
+        default:
+            return false
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        saveDelegate?.noteManualInteraction()
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        saveDelegate?.noteManualInteraction()
+        super.keyDown(with: event)
+    }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)

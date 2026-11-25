@@ -7,11 +7,9 @@ import Foundation
 struct BrowserAgentTabs {
     /// The window's browser tabs, in tab order.
     var tabs: () -> [BrowserSession]
-    /// The browser tab in front, nil when a document is.
+    /// The browser tab in front, nil when a document or Welcome is selected.
     var active: () -> BrowserSession?
-    /// Bring a browser tab to the front.
-    var show: (BrowserSession) -> Void
-    /// Open a browser tab (an empty one for nil) with an agent name.
+    /// Open a browser tab in the background (an empty one for nil) with an agent name.
     var open: (URL?, String?) -> BrowserSession
 
     func run(_ tool: String, _ args: [String: Any]) async -> BrowserAgentTools.Reply {
@@ -22,8 +20,20 @@ struct BrowserAgentTabs {
             let url = (args["url"] as? String).flatMap { BrowserAddress.url(from: $0) ?? URL(string: $0) }
             let session = open(url, (args["name"] as? String).flatMap { $0.isEmpty ? nil : $0 })
             session.agentLastUsed = Date()
-            if url != nil { await BrowserAgentExecutor.settle(session, started: true) }
-            return BrowserAgentTools.Reply(text: "Opened tab \(session.agentName)." + (url == nil ? "" : " " + BrowserAgentExecutor.status(session).text))
+            let beforePopup = session.deferredPopupSequence
+            session.beginAutomation(background: true)
+            defer { session.endAutomation(background: true) }
+            if url != nil {
+                // Access webView before settling so the background load starts immediately.
+                session.ensureBackgroundLayoutFrame()
+                await BrowserAgentExecutor.settle(session, started: true)
+            }
+            var text = "Opened tab \(session.agentName) in the background."
+            if url != nil { text += " " + BrowserAgentExecutor.status(session).text }
+            if let popupNote = BrowserAgentExecutor.pendingPopupNotice(for: session, since: beforePopup) {
+                text += "\n" + popupNote
+            }
+            return BrowserAgentTools.Reply(text: text)
         default:
             let session: BrowserSession
             if let query = args["tab"] as? String, !query.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -38,9 +48,8 @@ struct BrowserAgentTabs {
             guard !session.agentStopped else {
                 return .error("The user stopped agent control of tab \(session.agentName). Do not retry; ask the user.")
             }
-            show(session)
             session.agentLastUsed = Date()
-            return await BrowserAgentExecutor.run(tool, args, in: session)
+            return await BrowserAgentExecutor.run(tool, args, in: session, background: true)
         }
     }
 
@@ -52,6 +61,7 @@ struct BrowserAgentTabs {
             var line = "\(tab.agentName): \(tab.displayTitle) — \(tab.url?.absoluteString ?? "(empty)")"
             if tab === front { line += " [active]" }
             if tab.agentStopped { line += " [stopped by the user]" }
+            if tab.hasPendingPopup { line += " [pending sign-in window]" }
             return line
         }.joined(separator: "\n")
     }
