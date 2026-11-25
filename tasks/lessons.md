@@ -82,6 +82,9 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   script (SourceKit "cannot find type" is noise until a compile); a stand-in class in a test file needs the members the shipping code now calls. Run
   `./tools/tests/run.sh --changed` without `--tier`, and the gui tier once on the integration tip before a release.
   [A: A model file that gains, 2026-11-03 | a moved or re-wired file, 2026-11-15]
+- A red shard on main after a green PR run: compare the merge commit's tree with the PR head (`git rev-parse A^{tree} B^{tree}`), read the assertion and look up
+  its history in earlier failed runs before acting; never rerun it blindly. `WelcomeScreenHostTests` animated-frame checks stall on runners (matrix 11-18, aurora
+  then bugs 11-25, identical tree green on the PR). Why: a blind rerun failed again on another backdrop ("Failed again!!!"). [A: PR #438 main run, 2026-11-25]
 
 ## 4. Testing: harnesses, real data, evidence
 
