@@ -4,13 +4,18 @@ Branch `feat/xray-process-graph`, based on `93df066b`, submitted through the con
 
 - [x] Add a validated process model with forks, joins, conditional paths, explicit returns and nested groups.
 - [x] Compile the core model and run 10 standalone Swift behavior checks; add 16 package test cases.
-- [ ] Generate and persist source-grounded scenarios through the existing X-Ray assistant boundary.
-- [ ] Read bounded source excerpts off the main thread and keep source explanations paired with the selected block.
-- [ ] Add the Process view with orthogonal routing, separate return corridors, drill-down, zoom and pan.
-- [ ] Verify the shipped editor, run available regression checks, and submit one pull request.
+- [x] Generate and persist source-grounded scenarios through the existing X-Ray assistant boundary.
+- [x] Read bounded source excerpts off the main thread and keep source explanations paired with the selected block.
+- [x] Add the Process view with orthogonal routing, separate return corridors, drill-down, zoom and pan.
+- [x] Verify the shipping web editor with 40 interaction checks over a 74-block, three-level fixture.
+- [x] Run 130 layout checks, the pure suites, changed-source checks, editor type checking and architecture lint.
+- [x] Add a hosted WebKit regression using the same native graph projection and web checks.
+- [ ] Run full application compilation and XCTest on a runner with Xcode; keep the pull request as a draft until verified.
 
 Local verification constraints: Command Line Tools is selected, full Xcode is unavailable, and `swift test` cannot import XCTest.
-The core module itself compiled. Full app compilation and XCTest must run on a macOS CI runner with Xcode.
+The core module itself compiled. Fork CI cannot start because GitHub reports an account billing issue.
+The pure architecture-lint suite required system Python because the Homebrew Python expat extension cannot load.
+Full app compilation and XCTest remain unverified; the installed application has not been replaced.
 The upstream account has read access; a contributor cannot merge or publish an upstream release.
 
 # BUG-127: welcome backdrops restart their animation on unrelated display callbacks (2026-11-25, 7.4.1)

@@ -3,7 +3,7 @@
 Status (2026-11-15): every path and symbol in this doc was looked up mechanically in the code at `ac3001ba`; line citations were removed (they drift). Re-read against the code for this edit: the owners of the moved actions (`CodeAndXRayCoordinator`, `ChangeReviewStore`), the removed `IncrementalCompiler`/`DependencyGraphScheduler`, the split of the page script. The rest keeps its 2.17.0 narrative and was not re-read.
 
 The X-Ray tab (called "Architecture" in older code and "explanations" when people mean its
-details panel) draws a project as a map you can zoom into. There are six views, including Code and the PR X-Ray. Logical
+details panel) draws a project as a map you can zoom into. There are seven views, including Code, Process and the PR X-Ray. Logical
 shows AI-named components and subsystems. Structure (view id `modules`) shows folders, files
 and their imports. Deployment is AI-mapped from build and deploy config files. Docs shows
 markdown files, their sections and the links between them. The PR X-Ray shows one change
@@ -25,6 +25,28 @@ the document-oriented Logical grouping. Duplicate ids, cycles, missing paths, ou
 paths/symlinks and invalid citation lines are rejected. Unassigned source files stay visible.
 Layers contain components, files and available local/AI symbol outlines; source dependencies
 are lifted to visible ancestors as the reader drills down.
+
+The **Process** view maps a question into a nested control-flow graph rather than an import graph
+(`ProcessGraphStore.swift`, `ProcessGraphSource.swift`, `MarkViewCore/ProcessGraph.swift`). It uses the existing
+read-only assistant boundary, checks every cited path and line range against the scanned project, rejects
+invalid hierarchy and unmarked cycles, and saves up to 20 scenarios in optional snapshot and `arch_meta` fields.
+The map is an interpretation of source, not a runtime recording; **Process context** exposes its summary and
+omitted scope. A failed or cancelled trace leaves the previous successful map available.
+
+A single click selects a block. A double-click enters a block with children; **Open group** provides the same
+action with the keyboard. Breadcrumbs return to an ancestor group and restore its selection. Each level shows
+only direct children, with deeper dependencies lifted to visible groups. Connections crossing the current
+scope remain in the selected block's incoming/outgoing lists. ELK routes forward edges orthogonally; explicit
+returns use separate outer corridors and retain their complete conditions below the map. Neighbor-only focus
+hides unrelated edges without moving blocks. The map supports left-to-right or top-to-bottom layout, pan,
+pinch or Ctrl+wheel zoom, Fit, 1:1, and expansion. Scope-specific positions and zoom survive navigation.
+
+The read-only **Code excerpt** and **Explain** panels stay together below the map. Excerpts are read off the
+main thread from the saved node's citations, with real source line numbers, a maximum of 80 lines and 600
+characters per line. Switching a citation changes both its code and its excerpt explanation. **Open full file**
+uses the existing source viewer; returning to X-Ray preserves the selected group and excerpt. File hashes
+mark changed excerpts, and cited-file signatures mark a saved map stale after a rescan. Unknown source paths,
+escaping symlinks and missing line ranges produce an error rather than substitute code.
 
 **Trace a scenario** takes a question and selected Code scope, follows the source with
 `DiagramAI`, and renders a real Mermaid `sequenceDiagram` in the graph area. Messages must
