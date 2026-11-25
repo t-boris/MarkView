@@ -97,6 +97,7 @@
         "Packages/MarkViewCore/Sources/MarkViewCore/TaskBag.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/Subprocess.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/SubprocessChild.swift",
+        "MarkView/Models/Cockpit/CockpitManagedRun.swift",
         "MarkViewHostedTests/CockpitRuntimeIntegrationHostTests.swift",
         "tools/tests/cockpit-runtime-integration-tests.sh",
         "tools/ci/hosted-tests.xcconfig",
@@ -871,7 +872,13 @@
         "tools/ci/xcodebuild",
         "tools/ci/build-cache-mtimes.py",
         "tools/ci/run-hosted-pair.sh",
-        "tools/ci/run-hosted-lane.sh"
+        "tools/ci/run-hosted-lane.sh",
+        "MarkView/Models/Cockpit/CockpitManagedRun.swift",
+        "MarkView/Models/Cockpit/CockpitDeliveryProbe.swift",
+        "MarkView/Models/Cockpit/CockpitDelegateWatch.swift",
+        "MarkView/Models/Cockpit/CockpitDraftStore.swift",
+        "MarkView/Models/Lifecycle/ImplementationLaunch.swift",
+        "MarkViewHostedTests/CockpitManagedRunHostTests.swift"
       ]
     },
     {
