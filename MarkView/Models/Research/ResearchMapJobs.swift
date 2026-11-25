@@ -9,12 +9,17 @@ import MarkViewCore
 /// written; Expand topic ("develop"), Continue and the three single-node actions (Expand description, Correct,
 /// Research; REQ-006) are jobs of the same kind on an existing map.
 extension ResearchJobs {
-    // MARK: - New research
+    /// Bounded concurrency for distinct lines of inquiry in deep new-document research (REQ-008).
+    private static let maxConcurrentInquiries = 3
+
+    // MARK: - New research (Evidence-backed deep workflow, REQ-008, I-5)
 
     /// Creates the map file at `relativePath` (a free name is chosen if it was taken meanwhile),
-    /// opens it in a tab and starts the research.
+    /// opens it in a tab and runs the default evidence-backed deep research workflow across both
+    /// Research and Deep Research entry points (shared intake -> `start`).
     func start(question: String, relativePath: String, targets: [URL], attachments: [URL]) {
-        guard let host, let maps, let root = project.root else { return }
+        guard let host, maps != nil, let root = project.root else { return }
+        guard let profile = resolveProfile(root: root, taskName: "research") else { return }
         let file = Self.freeFile(root.appendingPathComponent(relativePath), root: root)
         let id = ResearchDocument.id(forPath: file.path)
         let map = ResearchMap.new(id: id, question: question, created: FeatureStore.today, targets: [], attachments: [])
@@ -28,7 +33,8 @@ extension ResearchJobs {
         host.refreshFileTree()
         host.openFile(file)
         let label = "Research: " + Self.title(question)
-        launchMapRun(file: file, root: root, kind: .map, title: label, mode: .research) { job, driver in
+        launch(kind: .map, file: file, title: label) { [weak self] job in
+            guard let self, let maps = self.maps else { return nil }
             let targetPaths = await ResearchScope.targetFiles(root: root, targets: targets)
             job.update("Copying attachments")
             let copied = Self.copyAttachments(attachments, root: root, id: id)
@@ -38,11 +44,233 @@ extension ResearchJobs {
             }
             job.update("Listing the repository")
             let scope = await ResearchScope.files(root: root, always: targetPaths + copied)
-            let web = Self.web(root)
-            let limits = ResearchMapRun.limits(for: .research)
-            let prompt = ResearchMapPrompt.research(question: question, targets: targetPaths, attachments: copied,
-                                                    scope: ResearchPrompt.scopeText(scope), limits: limits)
-            return MapTask(prompt: prompt, web: web, noProjectFiles: scope.isEmpty)
+            let scopeText = ResearchPrompt.scopeText(scope)
+            let web = profile.webTuple
+
+            // Stage 1: Decompose into 2–3 distinct, non-overlapping lines of inquiry.
+            job.update("Planning lines of inquiry")
+            let planSystem = ResearchMapPrompt.inquiryPlanSystem(web: web.allowed, languageLine: ResearchPrompt.languageLine)
+            let planPrompt = ResearchMapPrompt.inquiryPlanPrompt(question: question, targets: targetPaths,
+                                                                 attachments: copied, scope: scopeText)
+            let rawPlan: ResearchMapPrompt.InquiryPlan? = Task.isCancelled ? nil : await job.runStructured(
+                prompt: planPrompt,
+                system: planSystem,
+                schema: ResearchMapPrompt.inquiryPlanSchema,
+                root: root,
+                readableFolder: root,
+                toolOverride: profile.tool,
+                effort: "low",
+                label: "research:plan"
+            )
+            let plannedBranches = (rawPlan?.branches ?? []).prefix(Self.maxConcurrentInquiries)
+                .filter { !ResearchMap.clean(title: $0.title).isEmpty }
+
+            var branchGaps: [String] = []
+            var allFetchedURLs: [String] = []
+            var totalAdded = 0
+            var totalLost = 0
+            var failures: [String] = []
+            var webRefusals: [String] = []
+
+            if !Task.isCancelled, let rawPlan, plannedBranches.count >= 2 {
+                // Seed root title and distinct top-level inquiry branches immediately so the map grows live
+                // and preserves planned structure if cancelled mid-run.
+                var branchEntries: [(branchID: String, branch: ResearchMapPrompt.InquiryPlan.Branch)] = []
+                let seedResult = maps.update(file) { map in
+                    let cleanRoot = ResearchMap.clean(title: rawPlan.rootTitle)
+                    if !cleanRoot.isEmpty, !map.nodes.isEmpty { map.nodes[0].title = cleanRoot }
+                    let rootID = map.root?.id ?? "n1"
+                    for branch in plannedBranches {
+                        let draft = ResearchMap.Draft(title: branch.title, description: branch.angle, tags: [])
+                        if let nodeID = try? map.addNode(parent: rootID, draft: draft) {
+                            branchEntries.append((nodeID, branch))
+                            totalAdded += 1
+                        }
+                    }
+                }
+                if case .rejected(let problem) = seedResult {
+                    return "The research map could not be updated: \(problem)"
+                }
+                if case .unreadable(let problem) = seedResult {
+                    return "The research map could not be updated: \(problem)"
+                }
+
+                // Stage 2: Explore each distinct line of inquiry concurrently (bounded to maxConcurrentInquiries).
+                job.update("Investigating \(branchEntries.count) lines of inquiry")
+                struct BranchResult: Sendable {
+                    let branchID: String
+                    let title: String
+                    let outcome: JobOutcome
+                    let added: Int
+                    let lost: Int
+                }
+                let branchLimits = ResearchMapRun.Limits(nodes: 12, depth: 2, children: 5)
+                let results: [BranchResult] = await withTaskGroup(of: BranchResult.self) { group in
+                    for entry in branchEntries {
+                        let branchWeb = web.allowed && entry.branch.needsWeb
+                        let others = branchEntries.filter { $0.branchID != entry.branchID }
+                            .map { "\($0.branch.title): \($0.branch.angle)" }
+                        let branchPrompt = ResearchMapPrompt.inquiryBranch(
+                            question: question,
+                            branchID: entry.branchID,
+                            branch: entry.branch,
+                            otherBranches: others,
+                            targets: targetPaths,
+                            attachments: copied,
+                            scope: scopeText,
+                            limits: branchLimits,
+                            web: branchWeb
+                        )
+                        let branchSystem = ResearchMapPrompt.system(
+                            web: branchWeb,
+                            webRules: ResearchPrompt.webRules,
+                            languageLine: ResearchPrompt.languageLine,
+                            singleNode: false
+                        )
+                        let driver = MapRunDriver(file: file, root: root, mode: .develop(node: entry.branchID),
+                                                  maps: maps, webAllowed: branchWeb)
+                        let stream = driver.stream
+                        let slug = entry.branch.ref.isEmpty ? entry.branchID : entry.branch.ref
+                        group.addTask {
+                            let outcome = await job.run(
+                                prompt: branchPrompt,
+                                root: root,
+                                web: branchWeb,
+                                system: branchSystem,
+                                writing: "Investigating \(entry.branch.title)",
+                                toolOverride: profile.tool,
+                                label: "research:branch:\(slug)",
+                                onText: { stream.feed($0) },
+                                onQuery: { stream.query($0) }
+                            )
+                            let summary = await MainActor.run { driver.finish(outcome: outcome) }
+                            return BranchResult(branchID: entry.branchID, title: entry.branch.title,
+                                                outcome: outcome, added: summary.added, lost: summary.lost)
+                        }
+                    }
+                    var collected: [BranchResult] = []
+                    for await result in group { collected.append(result) }
+                    return collected
+                }
+
+                for result in results {
+                    totalAdded += result.added
+                    totalLost += result.lost
+                    for url in result.outcome.urls where !allFetchedURLs.contains(url) { allFetchedURLs.append(url) }
+                    if let failure = result.outcome.failure {
+                        failures.append("\(result.title): \(failure)")
+                        let gap = "Line of inquiry \"\(result.title)\" did not finish (\(failure)); usable evidence from other lines is preserved."
+                        branchGaps.append(gap)
+                        maps.update(file) { map in
+                            if let idx = map.index(of: result.branchID) {
+                                map.nodes[idx].evidence.append(ResearchMap.Evidence(label: .openAssumption, text: gap, source: ""))
+                            }
+                        }
+                    } else if result.added == 0 {
+                        let gap = "Line of inquiry \"\(result.title)\" produced no sub-nodes."
+                        branchGaps.append(gap)
+                    }
+                    if let refused = result.outcome.webRefused {
+                        webRefusals.append("\(result.title): \(refused)")
+                        branchGaps.append("Web access refused during \"\(result.title)\" (\(refused)).")
+                    }
+                }
+            } else if !Task.isCancelled {
+                // Fallback when planning could not decompose (e.g., narrow prompt or transient plan failure):
+                // run single deep pass and still apply claim-level source verification below.
+                let driver = MapRunDriver(file: file, root: root, mode: .research, maps: maps, webAllowed: web.allowed)
+                let limits = ResearchMapRun.limits(for: .research)
+                let prompt = ResearchMapPrompt.research(question: question, targets: targetPaths, attachments: copied,
+                                                        scope: scopeText, limits: limits)
+                let system = ResearchMapPrompt.system(web: web.allowed, webRules: ResearchPrompt.webRules,
+                                                      languageLine: ResearchPrompt.languageLine, singleNode: false)
+                let stream = driver.stream
+                let outcome = await job.run(prompt: prompt, root: root, web: web.allowed, system: system,
+                                            writing: "Building the map", toolOverride: profile.tool, label: "research:map",
+                                            onText: { stream.feed($0) }, onQuery: { stream.query($0) })
+                let summary = driver.finish(outcome: outcome)
+                totalAdded += summary.added
+                totalLost += summary.lost
+                allFetchedURLs = outcome.urls
+                if let failure = outcome.failure { failures.append(failure) }
+                if let refused = outcome.webRefused { webRefusals.append(refused) }
+            }
+
+            // Stage 3: Cross-inquiry synthesis and claim-level verification against actual cited source content.
+            if let text = maps.text(of: file), case .success(let currentMap) = ResearchMap.parse(text) {
+                let exists = Self.existsIn(root)
+                let checks = currentMap.prepareClaimChecks(
+                    root: root,
+                    pathExists: exists,
+                    webAllowed: web.allowed,
+                    urlsFetched: allFetchedURLs
+                )
+                var synthesis: ResearchMapPrompt.MapSynthesis?
+                if !Task.isCancelled, currentMap.nodes.count > 1 {
+                    job.update("Synthesizing and verifying claims")
+                    let synthPrompt = ResearchMapPrompt.mapSynthesisPrompt(
+                        question: question,
+                        map: currentMap,
+                        checks: checks,
+                        branchGaps: branchGaps + [web.unavailable, web.note].compactMap { $0 }
+                    )
+                    synthesis = await job.runStructured(
+                        prompt: synthPrompt,
+                        system: ResearchPrompt.claimVerificationSystem,
+                        schema: ResearchMapPrompt.mapSynthesisSchema,
+                        root: root,
+                        readableFolder: nil,
+                        toolOverride: profile.tool,
+                        effort: "low",
+                        label: "research:verify"
+                    )
+                }
+                let verdicts = synthesis?.verdicts ?? []
+                maps.update(file) { map in
+                    map.applyClaimVerdicts(checks: checks, verdicts: verdicts)
+                    if let synth = synthesis {
+                        let desc = ResearchMap.clean(description: synth.rootDescription)
+                        if !desc.isEmpty, !map.nodes.isEmpty { map.nodes[0].description = desc }
+                        for conn in synth.connections {
+                            if map.node(conn.from) != nil, map.node(conn.to) != nil, conn.from != conn.to,
+                               !map.hasLink(conn.from, conn.to) {
+                                _ = try? map.link(conn.from, conn.to)
+                            }
+                        }
+                        for gap in synth.gaps {
+                            let cleaned = gap.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !cleaned.isEmpty, !(map.root?.evidence.contains { $0.text == cleaned } ?? true) {
+                                map.nodes[0].evidence.append(ResearchMap.Evidence(label: .openAssumption, text: cleaned, source: ""))
+                            }
+                        }
+                    }
+                }
+            }
+
+            var reasonParts: [String] = []
+            if Task.isCancelled { reasonParts.append("cancelled") }
+            reasonParts += failures + webRefusals
+            if let unavailable = web.unavailable { reasonParts.append(unavailable) }
+            if totalLost > 0 { reasonParts.append("the map file could not be read, so \(totalLost) nodes were not saved") }
+            if totalAdded == 0 && reasonParts.isEmpty { reasonParts.append("the assistant wrote no map nodes") }
+            let reason = reasonParts.isEmpty ? nil : reasonParts.joined(separator: "; ")
+
+            let final = maps.update(file) { map in
+                if let note = web.note ?? web.unavailable.map({ "Web search was unavailable (\($0))." }),
+                   !(map.root?.evidence.contains { $0.text == note } ?? true) {
+                    map.nodes[0].evidence.append(ResearchMap.Evidence(label: .openAssumption, text: note, source: ""))
+                }
+                if scope.isEmpty, map.root?.description.isEmpty == false {
+                    map.nodes[0].evidence.append(ResearchMap.Evidence(label: .openAssumption, text: "The repository had no eligible files; the map rests on external sources and inference.", source: ""))
+                }
+                if let reason { map.markIncomplete(reason) } else { map.markComplete() }
+            }
+            switch final {
+            case .rejected(let problem), .unreadable(let problem):
+                return "The research map could not be updated at the end of the run: \(problem)"
+            case .done:
+                return reason.map { "Research saved as incomplete: \($0)" }
+            }
         }
     }
 
@@ -56,7 +284,9 @@ extension ResearchJobs {
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
         }
-        launchMapRun(file: file, root: root, kind: .mapDevelop, title: "Expand topic: " + Self.title(target.title), mode: .develop(node: node)) { job, _ in
+        guard let profile = resolveProfile(root: root, taskName: "expand research topic") else { return nil }
+        launchMapRun(file: file, root: root, kind: .mapDevelop, title: "Expand topic: " + Self.title(target.title),
+                     mode: .develop(node: node), profile: profile) { job, _ in
             job.update("Listing the repository")
             let scope = await ResearchScope.files(root: root, always: map.targets)
             let limits = ResearchMapRun.limits(for: .develop(node: node))
@@ -67,7 +297,7 @@ extension ResearchJobs {
             } ?? map
             let prompt = ResearchMapPrompt.develop(map: current, node: current.node(node) ?? target, direction: direction,
                                                    scope: ResearchPrompt.scopeText(scope), limits: limits)
-            return MapTask(prompt: prompt, web: Self.web(root), noProjectFiles: scope.isEmpty)
+            return MapTask(prompt: prompt, web: profile.webTuple, noProjectFiles: scope.isEmpty)
         }
         return nil
     }
@@ -172,7 +402,9 @@ extension ResearchJobs {
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
         }
-        launchMapRun(file: file, root: root, kind: kind, title: label + ": " + Self.title(target.title), mode: mode) { job, _ in
+        guard let profile = resolveProfile(root: root, taskName: label.lowercased()) else { return nil }
+        launchMapRun(file: file, root: root, kind: kind, title: label + ": " + Self.title(target.title),
+                     mode: mode, profile: profile) { job, _ in
             job.update("Listing the repository")
             let scope = await ResearchScope.files(root: root, always: map.targets)
             // The map as it is now, not as it was when the action was chosen.
@@ -181,7 +413,7 @@ extension ResearchJobs {
                 return nil
             } ?? map
             let text = prompt(current, current.node(node) ?? target, ResearchPrompt.scopeText(scope))
-            return MapTask(prompt: text, web: Self.web(root), noProjectFiles: scope.isEmpty)
+            return MapTask(prompt: text, web: profile.webTuple, noProjectFiles: scope.isEmpty)
         }
         return nil
     }
@@ -193,8 +425,10 @@ extension ResearchJobs {
         guard case .success(let map)? = maps.text(of: file).map({ ResearchMap.parse($0) }) else {
             return "This file is not a readable research map."
         }
+        guard let profile = resolveProfile(root: root, taskName: "continue research map") else { return nil }
         maps.update(file) { $0.markResearching() }
-        launchMapRun(file: file, root: root, kind: .mapContinue, title: "Continue: " + Self.title(map.title), mode: .continuation) { job, _ in
+        launchMapRun(file: file, root: root, kind: .mapContinue, title: "Continue: " + Self.title(map.title),
+                     mode: .continuation, profile: profile) { job, _ in
             job.update("Listing the repository")
             let scope = await ResearchScope.files(root: root, always: map.targets + map.attachments)
             let limits = ResearchMapRun.limits(for: .continuation)
@@ -203,7 +437,7 @@ extension ResearchJobs {
                 return nil
             } ?? map
             let prompt = ResearchMapPrompt.continuation(map: current, question: current.question, scope: ResearchPrompt.scopeText(scope), limits: limits)
-            return MapTask(prompt: prompt, web: Self.web(root), noProjectFiles: scope.isEmpty)
+            return MapTask(prompt: prompt, web: profile.webTuple, noProjectFiles: scope.isEmpty)
         }
         return nil
     }
@@ -244,15 +478,18 @@ extension ResearchJobs {
     /// Adds a job to the bar; `prepare` builds the prompt (it may take a while for big folders);
     /// the agent's node lines are applied to the map while it works, in batches.
     private func launchMapRun(file: URL, root: URL, kind: Job.Kind, title: String, mode: ResearchMapRun.Mode,
+                              profile: ResolvedResearchProfile,
                               prepare: @escaping (JobHandle, MapRunDriver) async -> MapTask) {
         launch(kind: kind, file: file, title: title) { [weak self] job in
             guard let self, let maps = self.maps else { return nil }
-            let driver = MapRunDriver(file: file, root: root, mode: mode, maps: maps)
+            let driver = MapRunDriver(file: file, root: root, mode: mode, maps: maps, webAllowed: profile.webAllowed)
             let task = await prepare(job, driver)
             let single = mode.singleNode != nil
             let system = ResearchMapPrompt.system(web: task.web.allowed, webRules: ResearchPrompt.webRules, languageLine: ResearchPrompt.languageLine, singleNode: single)
             let stream = driver.stream
-            let outcome = await job.run(prompt: task.prompt, root: root, web: task.web.allowed, system: system, writing: single ? "Updating the node" : "Building the map",
+            let outcome = await job.run(prompt: task.prompt, root: root, web: task.web.allowed, system: system,
+                                        writing: single ? "Updating the node" : "Building the map",
+                                        toolOverride: profile.tool,
                                         onText: { stream.feed($0) }, onQuery: { stream.query($0) })
             let summary = driver.finish(outcome: outcome)
             let reason = Self.incompleteReason(outcome, web: task.web)
@@ -311,6 +548,7 @@ final class MapRunDriver {
     let file: URL
     let stream: ResearchMapStream
     private let root: URL
+    private let webAllowed: Bool
     private var applier: ResearchMapRun
     private weak var maps: ResearchMapController?
     private var scheduled = false
@@ -322,9 +560,10 @@ final class MapRunDriver {
     private(set) var added = 0
     private(set) var updated = 0
 
-    init(file: URL, root: URL, mode: ResearchMapRun.Mode, maps: ResearchMapController) {
+    init(file: URL, root: URL, mode: ResearchMapRun.Mode, maps: ResearchMapController, webAllowed: Bool = true) {
         self.file = file
         self.root = root
+        self.webAllowed = webAllowed
         self.maps = maps
         self.applier = ResearchMapRun(mode: mode)
         self.stream = ResearchMapStream(mode: mode)
@@ -357,7 +596,7 @@ final class MapRunDriver {
         var attempt = applier
         var createdCount = 0
         let result = maps.update(file) { map in
-            createdCount = attempt.apply(events, to: &map, pathExists: exists).count
+            createdCount = attempt.apply(events, to: &map, pathExists: exists, root: root, webAllowed: webAllowed).count
             map.addWebQueries(queries)
         }
         guard case .done = result else { return }

@@ -1048,6 +1048,9 @@ final class InsightSession: ObservableObject, Identifiable {
         // .failed surface in the per-section UI; the user can Retry the full node.
         let readyCount = node.sectionStates.values.filter { $0.status == .ready }.count
         let totalCount = node.sectionStates.count
+        if totalCount > 0 && readyCount == 0 {
+            throw InsightSessionError.pipeline("All \(totalCount) insight sections failed to generate.")
+        }
         node.status = .ready
         node.generatedAt = Date()
         if currentNodeId == nodeId {

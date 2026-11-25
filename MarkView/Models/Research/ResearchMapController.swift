@@ -61,19 +61,21 @@ final class ResearchMapController {
     private(set) weak var host: ResearchHost?
     private let project: any ProjectProviding
     private let tasks: TaskBag
+    private let prompts: any UserPrompts
 
     /// The jobs bar of the window: new research, follow-ups, comments and the map jobs.
-    private(set) lazy var jobs = ResearchJobs(host: host, project: project, maps: self, tasks: tasks)
+    private(set) lazy var jobs = ResearchJobs(host: host, project: project, maps: self, tasks: tasks, prompts: prompts)
 
     /// The id of the node an AI job just added to a map (by map path); the next snapshot of that map carries it to the page.
     var jobCreated: [String: String] = [:]
     /// What an AI job tells the person when it ends (by map path); the next snapshot of that map carries it to the page as a notice.
     var jobNotice: [String: String] = [:]
 
-    init(host: ResearchHost, project: any ProjectProviding, tasks: TaskBag) {
+    init(host: ResearchHost, project: any ProjectProviding, tasks: TaskBag, prompts: any UserPrompts = NoPrompts()) {
         self.host = host
         self.project = project
         self.tasks = tasks
+        self.prompts = prompts
     }
 
     // MARK: - The map file

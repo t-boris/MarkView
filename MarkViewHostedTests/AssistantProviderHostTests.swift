@@ -1034,3 +1034,150 @@ final class AssistantExtensionHostTests: XCTestCase {
         XCTAssertEqual(result.outputTokens, 7)
     }
 }
+
+extension EditorHostTests {
+    @MainActor func testLaunchCapabilitiesResolverAndOperationTelemetry() async throws {
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
+        let cline = try XCTUnwrap(CLITool(rawValue: "cline"))
+        let copilot = try XCTUnwrap(CLITool(rawValue: "copilot"))
+        let antigravity = try XCTUnwrap(CLITool(rawValue: "antigravity"))
+
+        // 1. Launch capability matrix across all 5 registered providers (REQ-006).
+        XCTAssertTrue(claude.launchCapabilities.backgroundWebSearch && claude.launchCapabilities.enforcesWebOptOutAtCLI && claude.launchCapabilities.backgroundReportsCostUSD)
+        XCTAssertTrue(codex.launchCapabilities.backgroundWebSearch && codex.launchCapabilities.enforcesWebOptOutAtCLI && !codex.launchCapabilities.backgroundReportsCostUSD)
+        XCTAssertTrue(antigravity.launchCapabilities.backgroundWebSearch && !antigravity.launchCapabilities.enforcesWebOptOutAtCLI)
+        XCTAssertFalse(copilot.launchCapabilities.backgroundWebSearch)
+        XCTAssertFalse(cline.launchCapabilities.backgroundWebSearch)
+
+        // 2. Codex and Antigravity background launch profiles enforce allowWeb on/off and read-only rules.
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("cap-launch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        func launchReq(allowWeb: Bool, readable: URL?) -> CompletionLaunchRequest {
+            CompletionLaunchRequest(prompt: "Check.", systemPrompt: "System.", jsonSchema: nil,
+                                    readableFolder: readable, extraReadableFolders: [], linkedFolders: { [] },
+                                    allowWeb: allowWeb, images: [], effort: "low", model: nil,
+                                    workDir: scratch, scratchDirectory: { scratch })
+        }
+        let codexWebOn = try CodexProvider().launch(launchReq(allowWeb: true, readable: scratch))
+        XCTAssertTrue(codexWebOn.arguments.contains("--search"))
+        XCTAssertFalse(codexWebOn.arguments.contains("web_search=\"disabled\""))
+        let codexWebOff = try CodexProvider().launch(launchReq(allowWeb: false, readable: scratch))
+        XCTAssertFalse(codexWebOff.arguments.contains("--search"))
+        XCTAssertTrue(codexWebOff.arguments.contains("web_search=\"disabled\""))
+
+        let agyWebOn = try AntigravityProvider().launch(launchReq(allowWeb: true, readable: scratch))
+        XCTAssertTrue(agyWebOn.arguments.contains("--disable-slash-commands"))
+        let agySettingsOnIdx = try XCTUnwrap(agyWebOn.arguments.firstIndex(of: "--settings"))
+        let agySettingsOn = agyWebOn.arguments[agySettingsOnIdx + 1]
+        XCTAssertTrue(agySettingsOn.contains("\"allow\":[\"read_url(*)\"]"))
+        XCTAssertTrue(agySettingsOn.contains("write_file(*)"))
+        XCTAssertFalse(agySettingsOn.contains("read_file(*)"))
+
+        let agyWebOffNoFiles = try AntigravityProvider().launch(launchReq(allowWeb: false, readable: nil))
+        let agySettingsOffIdx = try XCTUnwrap(agyWebOffNoFiles.arguments.firstIndex(of: "--settings"))
+        let agySettingsOff = agyWebOffNoFiles.arguments[agySettingsOffIdx + 1]
+        XCTAssertTrue(agySettingsOff.contains("read_url(*)"))
+        XCTAssertTrue(agySettingsOff.contains("read_file(*)"))
+        XCTAssertTrue(agyWebOffNoFiles.input.contains("Web access is disabled for this run"))
+
+        // 3. Explicit confirmation before substituting a provider lacking a needed capability (DEC-013).
+        @MainActor
+        final class SpyPrompts: UserPrompts {
+            var nextChoice: Int?
+            private(set) var asked: [UserPrompt] = []
+            func ask(_ prompt: UserPrompt) -> Int? { asked.append(prompt); return nextChoice }
+        }
+        let spy = SpyPrompts()
+
+        // Capable provider proceeds immediately without prompting.
+        let direct = AgentCapabilityResolver.resolve(
+            selected: claude, capability: .backgroundWebSearch, taskName: "research",
+            canProceedWithoutCapability: true, fallbackDescription: "stay repo-only",
+            prompts: spy, isAvailable: { _ in true }
+        )
+        XCTAssertEqual(direct, .proceed(tool: claude, capabilityAvailable: true, limitationNote: nil))
+        XCTAssertTrue(spy.asked.isEmpty)
+
+        // Incompatible provider + compatible installed alternative: button 1 explicitly confirms substitution.
+        spy.nextChoice = 1
+        let confirmed = AgentCapabilityResolver.resolve(
+            selected: copilot, capability: .backgroundWebSearch, taskName: "research",
+            canProceedWithoutCapability: true, fallbackDescription: "stay repo-only",
+            prompts: spy, isAvailable: { $0 == claude || $0 == copilot }
+        )
+        XCTAssertEqual(confirmed, .proceed(tool: claude, capabilityAvailable: true, limitationNote: nil))
+        XCTAssertEqual(spy.asked.count, 1)
+        XCTAssertTrue(spy.asked[0].detail.contains("Claude Code"))
+        XCTAssertTrue(spy.asked[0].buttons.first?.contains("Copilot") == true, "Safe default button stays with original provider")
+
+        // Button 0 (decline) or nil (non-interactive) NEVER substitutes; proceeds repo-only with limitation note.
+        spy.nextChoice = 0
+        let declined = AgentCapabilityResolver.resolve(
+            selected: copilot, capability: .backgroundWebSearch, taskName: "research",
+            canProceedWithoutCapability: true, fallbackDescription: "stay repo-only",
+            prompts: spy, isAvailable: { $0 == claude || $0 == copilot }
+        )
+        if case .proceed(let tool, let available, let note) = declined {
+            XCTAssertEqual(tool, copilot)
+            XCTAssertFalse(available)
+            XCTAssertNotNil(note)
+        } else { XCTFail("Declining must fall back to original provider when feasible") }
+
+        let headless = AgentCapabilityResolver.resolve(
+            selected: copilot, capability: .backgroundWebSearch, taskName: "research",
+            canProceedWithoutCapability: true, fallbackDescription: "stay repo-only",
+            prompts: NoPrompts(), isAvailable: { $0 == claude || $0 == copilot }
+        )
+        if case .proceed(let tool, let available, _) = headless {
+            XCTAssertEqual(tool, copilot)
+            XCTAssertFalse(available)
+        } else { XCTFail("Headless prompt must never silently substitute") }
+
+        // Button 2 cancels before sending context anywhere.
+        spy.nextChoice = 2
+        let cancelled = AgentCapabilityResolver.resolve(
+            selected: copilot, capability: .backgroundWebSearch, taskName: "research",
+            canProceedWithoutCapability: true, fallbackDescription: "stay repo-only",
+            prompts: spy, isAvailable: { $0 == claude || $0 == copilot }
+        )
+        XCTAssertEqual(cancelled, .cancelled)
+
+        // When task cannot proceed without capability and declined or no alternative exists -> blocked.
+        spy.nextChoice = 0
+        let blockedDeclined = AgentCapabilityResolver.resolve(
+            selected: copilot, capability: .backgroundWebSearch, taskName: "web lookup",
+            canProceedWithoutCapability: false, fallbackDescription: "",
+            prompts: spy, isAvailable: { $0 == claude || $0 == copilot }
+        )
+        if case .blocked(let msg) = blockedDeclined { XCTAssertTrue(msg.contains("not confirmed")) }
+        else { XCTFail("Expected blocker when substitution declined and fallback infeasible") }
+
+        let blockedNone = AgentCapabilityResolver.resolve(
+            selected: copilot, capability: .backgroundWebSearch, taskName: "web lookup",
+            canProceedWithoutCapability: false, fallbackDescription: "",
+            prompts: spy, isAvailable: { $0 == copilot }
+        )
+        if case .blocked(let msg) = blockedNone { XCTAssertTrue(msg.contains("No compatible assistant")) }
+        else { XCTFail("Expected blocker when no compatible assistant is available") }
+
+        // 4. AICallLog distinguishes process outcome from AIOperation acceptance (REQ-009).
+        let opLog = scratch.appendingPathComponent("ai-operations.jsonl")
+        let entry = AICallLog.Entry(
+            timestamp: Date(timeIntervalSince1970: 1_800_000_000),
+            project: scratch.path, label: "verify-test", tool: "claude", model: "sonnet", effort: "low",
+            seconds: 1.2, inputTokens: 100, outputTokens: 25, costUSD: 0.002,
+            outcome: "ok", acceptance: "repair_needed", attempt: 1, rejectionReason: "missing required key"
+        )
+        AICallLog.recordOperation(entry, to: opLog)
+        AICallLog.waitForPendingWrites()
+        let decoded = AICallLog.read(from: opLog)
+        XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(decoded[0].outcome, "ok")
+        XCTAssertEqual(decoded[0].acceptance, "repair_needed")
+        XCTAssertEqual(decoded[0].attempt, 1)
+        XCTAssertEqual(decoded[0].rejectionReason, "missing required key")
+    }
+}

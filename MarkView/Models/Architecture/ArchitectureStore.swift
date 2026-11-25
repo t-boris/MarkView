@@ -758,14 +758,21 @@ final class ArchitectureStore: ObservableObject {
         var names: [String: [String: Any]] = [:]
         var grouping: [String: Any]?
         var latest = base
+        let maxConcurrentNamingCalls = 3
         try await withThrowingTaskGroup(of: AIRawJSONObject.self) { group in
-            for (index, chunk) in chunks.enumerated() {
+            var nextIndex = 0
+            func enqueue(_ index: Int) {
+                let chunk = chunks[index]
                 let prompt = plan.overview + "\n\nClusters:\n" + chunk.map { LogicalView.clusterLine($0, plan: plan) }.joined(separator: "\n")
                 group.addTask {
                     try await self.nameClusterChunk(prompt: prompt, system: system, single: single, root: root, db: db, index: index)
                 }
             }
-            for try await answered in group {
+            while nextIndex < min(maxConcurrentNamingCalls, chunks.count) {
+                enqueue(nextIndex)
+                nextIndex += 1
+            }
+            while let answered = try await group.next() {
                 let answer = answered.dictionary
                 for item in answer["clusters"] as? [[String: Any]] ?? [] {
                     if let id = item["id"] as? String { names[id] = item }
@@ -776,6 +783,11 @@ final class ArchitectureStore: ObservableObject {
                 latest = LogicalView.applyClusters(clusters, names: names, grouping: grouping, to: base)
                 snapshot = latest       // live; saved at the end
                 revision += 1
+                if nextIndex < chunks.count {
+                    try Task.checkCancellation()
+                    enqueue(nextIndex)
+                    nextIndex += 1
+                }
             }
         }
         guard !single else { return latest }

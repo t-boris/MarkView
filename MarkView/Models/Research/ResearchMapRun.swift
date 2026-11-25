@@ -213,6 +213,210 @@ enum ResearchMapPrompt {
         map.nodes.prefix(200).map { String(repeating: "  ", count: map.depth(of: $0.id)) + "- \($0.id) \($0.title)" }.joined(separator: "\n")
     }
 
+    // MARK: - Evidence-Backed Deep Research Map Prompts (REQ-008, I-5)
+
+    struct InquiryPlan: Decodable, Sendable {
+        struct Branch: Decodable, Sendable {
+            var ref: String
+            var title: String
+            var angle: String
+            var focus: String
+            var needsWeb: Bool
+        }
+        var rootTitle: String
+        var branches: [Branch]
+    }
+
+    static var inquiryPlanSchema: [String: Any] {
+        [
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rootTitle", "branches"],
+            "properties": [
+                "rootTitle": ["type": "string", "description": "Crisp central map title, at most 8 words, never a verbatim copy of the question."],
+                "branches": [
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 3,
+                    "items": [
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["ref", "title", "angle", "focus", "needsWeb"],
+                        "properties": [
+                            "ref": ["type": "string", "description": "Short unique ASCII slug like arch, risks, alternatives."],
+                            "title": ["type": "string", "description": "Branch title, at most 8 words."],
+                            "angle": ["type": "string", "description": "One sentence explaining this distinct line of inquiry."],
+                            "focus": ["type": "string", "description": "Specific repository files/modules or external topics this inquiry should verify."],
+                            "needsWeb": ["type": "boolean", "description": "True only when web search is allowed and this branch requires external facts."],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    }
+
+    static func inquiryPlanSystem(web: Bool, languageLine: String) -> String {
+        """
+        You are a research planner working inside a software repository. Decompose the research question into \
+        2 to 3 distinct, non-overlapping lines of inquiry that together answer the question thoroughly without \
+        duplicating effort. Do a quick, lightweight look at the targets and repository layout — do NOT do deep \
+        reading yet (parallel inquiry agents will do the deep investigation next).
+        \(web ? "Web search is permitted for branches that genuinely require external facts (set needsWeb: true only for those)." : "Web search is disabled or unavailable: set needsWeb to false for every branch.")
+        \(languageLine)
+        Never modify files. Answer with the JSON object only.
+        """
+    }
+
+    static func inquiryPlanPrompt(question: String, targets: [String], attachments: [String], scope: String) -> String {
+        var prompt = "Research question:\n\n\(question)\n\n"
+        if !targets.isEmpty {
+            prompt += "Target documents (primary focus):\n" + targets.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+        }
+        if !attachments.isEmpty {
+            prompt += "Attachments:\n" + attachments.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+        }
+        prompt += """
+            Produce 2 to 3 complementary, non-overlapping lines of inquiry (e.g., current codebase reality & constraints, \
+            implementation/architectural options or root causes, verification/risks/gaps or external comparisons when web is allowed).
+
+            """
+        return prompt + scope
+    }
+
+    static func inquiryBranch(
+        question: String,
+        branchID: String,
+        branch: InquiryPlan.Branch,
+        otherBranches: [String],
+        targets: [String],
+        attachments: [String],
+        scope: String,
+        limits: ResearchMapRun.Limits,
+        web: Bool
+    ) -> String {
+        var prompt = """
+            Overall research question:
+            \(question)
+
+            Your assigned line of inquiry (branch node id: \(branchID), title: "\(branch.title)"):
+            Angle: \(branch.angle)
+            Focus: \(branch.focus)
+
+            Other lines of inquiry running in parallel (do NOT duplicate them):
+            \(otherBranches.isEmpty ? "(none)" : otherBranches.map { "- \($0)" }.joined(separator: "\n"))
+
+            """
+        if !targets.isEmpty {
+            prompt += "Target documents:\n" + targets.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+        }
+        if !attachments.isEmpty {
+            prompt += "Attachments:\n" + attachments.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+        }
+        prompt += """
+            Investigate ONLY your assigned line of inquiry deeply using your permitted tools.
+            - Focus tightly on your assigned `Focus` files/modules first; stop searching once your angle has direct primary-source evidence (do not crawl unrelated parts of the repository).
+            - Read primary files before asserting any Project fact. ALWAYS cite the FULL workspace-relative path and exact line range from the Analysis scope in `source` (e.g. `MarkView/Models/AI/CLICompletion.swift:180-195`, NEVER a bare filename), and keep each evidence item atomic to the cited lines.
+            - \(web ? "Use web search only for generic external facts and cite exact opened URLs in `source` for External fact." : "Web search is NOT available for this inquiry: never emit External fact; label general knowledge as AI inference and record missing external data as Open assumption.")
+            - Write NODE lines ONLY (never write a ROOT line). Attach your direct findings to "parent":"\(branchID)" (2 to 4 children) and at most 1 deeper level where essential (at most \(limits.nodes) nodes total).
+            - Include explicit Open assumption evidence when something important cannot be verified from available sources.
+
+            """
+        return prompt + scope
+    }
+
+    struct MapSynthesis: Decodable, Sendable {
+        struct Connection: Decodable, Sendable {
+            var from: String
+            var to: String
+        }
+        var rootDescription: String
+        var connections: [Connection]
+        var gaps: [String]
+        var verdicts: [ResearchClaimVerifier.Verdict]
+    }
+
+    static var mapSynthesisSchema: [String: Any] {
+        [
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rootDescription", "connections", "gaps", "verdicts"],
+            "properties": [
+                "rootDescription": ["type": "string", "description": "Concise 2-4 sentence Markdown synthesis integrating all lines of inquiry and concrete conclusions, grounded ONLY in supported evidence."],
+                "connections": [
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": [
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["from", "to"],
+                        "properties": [
+                            "from": ["type": "string"],
+                            "to": ["type": "string"],
+                        ],
+                    ],
+                ],
+                "gaps": [
+                    "type": "array",
+                    "maxItems": 4,
+                    "items": ["type": "string"],
+                    "description": "Concrete Open assumption gap notes for unverified premises, failed branches, or unavailable sources.",
+                ],
+                "verdicts": [
+                    "type": "array",
+                    "items": [
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["id", "status", "reason"],
+                        "properties": [
+                            "id": ["type": "string"],
+                            "status": ["type": "string", "enum": ["supported", "unsupported"]],
+                            "reason": ["type": "string"],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    }
+
+    static func mapSynthesisPrompt(
+        question: String,
+        map: ResearchMap,
+        checks: [ResearchClaimVerifier.ClaimCheck],
+        branchGaps: [String]
+    ) -> String {
+        let nodeSummaries = map.nodes.dropFirst().prefix(45).map { node in
+            let desc = String(node.description.replacingOccurrences(of: "\n", with: " ").prefix(240))
+            return "- \(node.id) [parent: \(node.parent)] \(node.title): \(desc)"
+        }.joined(separator: "\n")
+        let claimsBlock = checks.filter { $0.deterministicFailure == nil }.map { check in
+            """
+            CLAIM \(check.id) [\(check.label.rawValue)]: \(check.claimText)
+            SOURCES: \(check.sources.joined(separator: ", "))
+            VERBATIM EXCERPTS:
+            \(check.excerpts.isEmpty ? "(no excerpt available)" : check.excerpts)
+            """
+        }.joined(separator: "\n\n---\n\n")
+        let gapsBlock = branchGaps.isEmpty ? "(none)" : branchGaps.map { "- \($0)" }.joined(separator: "\n")
+        return """
+            Research question:
+            \(question)
+
+            Map nodes collected across distinct lines of inquiry:
+            \(nodeSummaries)
+
+            Recorded branch / source gaps:
+            \(gapsBlock)
+
+            Tasks:
+            1. Write `rootDescription`: a concise, evidence-backed synthesis answering the question across all lines of inquiry (relying only on supported claims).
+            2. Propose up to 4 meaningful cross-branch `connections` using exact node ids (`n...`) linking related findings across DIFFERENT branches.
+            3. Return one strict verdict per CLAIM id below, checking each factual claim strictly against its VERBATIM EXCERPTS.
+            4. Add up to 3 concise `gaps` for remaining unverified premises or unavailable sources.
+
+            \(claimsBlock.isEmpty ? "(no factual claims to verify)" : claimsBlock)
+            """
+    }
+
     private static func detail(_ node: ResearchMap.Node, descriptionLimit: Int = 1500, findings: Int = 8) -> String {
         var text = ""
         if !node.description.isEmpty { text += "Its description:\n\(String(node.description.prefix(descriptionLimit)))\n" }
@@ -413,21 +617,23 @@ struct ResearchMapRun {
     // MARK: Applying
 
     /// Applies events to the map; returns the ids of the nodes created. `pathExists` verifies the
-    /// repository files the agent cited (a finding without a real file or URL becomes an inference).
-    mutating func apply(_ events: [Event], to map: inout ResearchMap, pathExists: (String) -> Bool) -> [String] {
+    /// repository files the agent cited; when `root` is provided, also checks cited line ranges,
+    /// cited symbols in file content, and web availability (REQ-008).
+    mutating func apply(_ events: [Event], to map: inout ResearchMap, pathExists: (String) -> Bool,
+                        root: URL? = nil, webAllowed: Bool = true) -> [String] {
         var created: [String] = []
         let rootID = map.root?.id ?? "n1"
         for event in events {
             switch event {
             case .root(let draft):
-                guard mode == .research, let root = map.root else { continue }
-                var edit = root
+                guard mode == .research, let rootNode = map.root else { continue }
+                var edit = rootNode
                 edit.title = ResearchMap.clean(title: draft.title)
                 edit.description = ResearchMap.clean(description: draft.description)
                 edit.tags = ResearchMap.clean(tags: draft.tags)
-                edit.evidence = verified(draft.evidence, pathExists: pathExists)
-                if let i = map.index(of: root.id) { map.nodes[i] = edit }
-                refs["root"] = root.id
+                edit.evidence = verified(draft.evidence, pathExists: pathExists, root: root, webAllowed: webAllowed)
+                if let i = map.index(of: rootNode.id) { map.nodes[i] = edit }
+                refs["root"] = rootNode.id
             case .update(let patch):
                 guard let target = mode.singleNode, updated == 0, let i = map.index(of: target) else { refused += 1; continue }
                 var node = map.nodes[i]
@@ -435,14 +641,16 @@ struct ResearchMapRun {
                 case .describe:
                     guard let text = patch.description.map({ ResearchMap.clean(description: $0) }), !text.isEmpty else { refused += 1; continue }
                     node.description = text
-                    node.evidence = Self.merged(node.evidence, verified(patch.evidence ?? [], pathExists: pathExists))
+                    node.evidence = Self.merged(node.evidence, verified(patch.evidence ?? [], pathExists: pathExists, root: root, webAllowed: webAllowed))
                 case .correct:
                     if let title = patch.title.map({ ResearchMap.clean(title: $0) }), !title.isEmpty { node.title = title }
                     if let text = patch.description.map({ ResearchMap.clean(description: $0) }), !text.isEmpty { node.description = text }
                     // An empty list is not a replacement: the findings are never wiped by an answer that forgot them.
-                    if let evidence = patch.evidence, !evidence.isEmpty { node.evidence = verified(evidence, pathExists: pathExists) }
+                    if let evidence = patch.evidence, !evidence.isEmpty {
+                        node.evidence = verified(evidence, pathExists: pathExists, root: root, webAllowed: webAllowed)
+                    }
                 case .investigate:
-                    node.evidence = Self.merged(node.evidence, verified(patch.evidence ?? [], pathExists: pathExists))
+                    node.evidence = Self.merged(node.evidence, verified(patch.evidence ?? [], pathExists: pathExists, root: root, webAllowed: webAllowed))
                 case .research, .develop, .continuation:
                     refused += 1
                     continue
@@ -457,7 +665,7 @@ struct ResearchMapRun {
                 let title = ResearchMap.clean(title: draft.title)
                 if map.children(of: parentID).contains(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) { refused += 1; continue }
                 var node = ResearchMap.Draft(title: title, description: draft.description, tags: draft.tags)
-                node.evidence = verified(draft.evidence, pathExists: pathExists)
+                node.evidence = verified(draft.evidence, pathExists: pathExists, root: root, webAllowed: webAllowed)
                 node.number = draft.number
                 guard let id = try? map.addNode(parent: parentID, draft: node) else { refused += 1; continue }
                 added += 1
@@ -468,8 +676,11 @@ struct ResearchMapRun {
         return created
     }
 
-    private func verified(_ evidence: [Evidence], pathExists: (String) -> Bool) -> [ResearchMap.Evidence] {
-        evidence.map { ResearchMap.verified(label: $0.label, text: $0.text, source: $0.source, pathExists: pathExists) }
+    private func verified(_ evidence: [Evidence], pathExists: (String) -> Bool, root: URL?, webAllowed: Bool) -> [ResearchMap.Evidence] {
+        evidence.map {
+            ResearchMap.verifiedContent(label: $0.label, text: $0.text, source: $0.source,
+                                        root: root, pathExists: pathExists, webAllowed: webAllowed)
+        }
     }
 
     /// The old findings followed by the new ones that say something the old ones do not.

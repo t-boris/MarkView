@@ -1064,7 +1064,9 @@ enum PrototypeAI {
                                     prompt: PrototypePrompts.specPrompt(manifest: manifest, siteRelative: relative, language: language),
                                     schema: nil, label: "prototype:spec", record: record, stage: stage)
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw CLICompletion.Failure.invalidOutput(AssistantProviderRegistry.defaultTool, "the specification is empty") }
+        guard !text.isEmpty else {
+            throw CLICompletion.Failure.invalidOutput(AIAssistantPreferences.backend(project: root), "the specification is empty")
+        }
         return text
     }
 

@@ -13,6 +13,19 @@ struct AntigravityProvider: AssistantProvider {
     let cockpitDelegation: String? = "a /run-workflow with parallel() or pipeline() subagents of this session"
     let continueArgs = ["--continue"]
     let terminalIcon = "wand.and.stars"
+    let canSearchWeb = true
+    var launchCapabilities: AgentLaunchCapabilities {
+        // `agy --settings` enforces `read_url(*)` deny at CLI level; `search_web` has no separate permission action in agy 1.5.17.
+        AgentLaunchCapabilities(
+            backgroundWebSearch: true,
+            enforcesWebOptOutAtCLI: false,
+            backgroundImages: false,
+            backgroundStructuredOutput: true,
+            backgroundReportsCostUSD: false,
+            interactiveDelegation: true,
+            remoteWork: false
+        )
+    }
     var usage: (any AssistantUsageSupport)? { AntigravityUsage() }
     var activity: (any AssistantActivitySupport)? { AntigravityActivity() }
     var completion: (any AssistantCompletionSupport)? { self }
@@ -62,15 +75,30 @@ private struct AntigravityMCPConfigAdapter: AssistantMCPConfigAdapter {
 /// restricts its terminal. A schema answer arrives as `structured_output`.
 extension AntigravityProvider: AssistantCompletionSupport {
     func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
-        var arguments = ["--input-format", "stream-json", "--output-format", "stream-json", "--sandbox", "-p="]
+        var arguments = ["--input-format", "stream-json", "--output-format", "stream-json",
+                         "--sandbox", "--disable-slash-commands", "-p="]
+        var deny = ["write_file(*)", "command(*)", "execute_url(*)", "download_url(*)", "mcp(*)"]
+        if request.readableFolder == nil { deny.append("read_file(*)") }
+        var permissions: [String: Any] = [:]
+        if request.allowWeb {
+            permissions["allow"] = ["read_url(*)"]
+        } else {
+            deny.append("read_url(*)")
+        }
+        permissions["deny"] = deny
+        arguments += ["--settings", try CompletionJSON.string(["permissions": permissions])]
         arguments += modelArgs(request.model)
         if let effort = request.effort { arguments += ["--effort", effort] }
         if let schema = request.jsonSchema { arguments += ["--json-schema", try CompletionJSON.string(schema)] }
         if request.readableFolder != nil {
-            arguments += request.extraReadableFolders.flatMap { ["--add-dir", $0.path] }
+            let folders = (request.linkedFolders() + request.extraReadableFolders)
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+            arguments += folders.flatMap { ["--add-dir", $0.path] }
         }
         // No system-prompt flag: the instructions lead the prompt.
-        let text = request.systemPrompt.map { "<instructions>\n\($0)\n</instructions>\n\n\(request.prompt)" } ?? request.prompt
+        let webGuard = request.allowWeb ? nil : "Web access is disabled for this run: do not call search_web or read_url_content."
+        let instructions = [webGuard, request.systemPrompt].compactMap { $0 }.joined(separator: "\n\n")
+        let text = instructions.isEmpty ? request.prompt : "<instructions>\n\(instructions)\n</instructions>\n\n\(request.prompt)"
         let input = try CompletionJSON.string(["event": "user", "message": ["content": text]]) + "\n"
         return CompletionLaunch(arguments: arguments, input: input, schemaFile: nil)
     }
@@ -102,7 +130,7 @@ private final class AntigravityStreamParser: CompletionStreamParser {
                         ?? parameters.values.compactMap { $0 as? String }.first ?? ""
                 }
                 switch step["tool_name"] as? String {
-                case "view_file", "list_dir": sink.onActivity?(.read(value(["AbsolutePath", "DirectoryPath", "Path"])))
+                case "view_file", "read_file", "list_dir": sink.onActivity?(.read(value(["AbsolutePath", "DirectoryPath", "Path"])))
                 case "grep_search", "find_by_name": sink.onActivity?(.search(value(["Query", "Pattern"])))
                 case "run_command": sink.onActivity?(.run(value(["CommandLine"])))
                 case "search_web": sink.onActivity?(.webSearch(value(["query", "Query"])))

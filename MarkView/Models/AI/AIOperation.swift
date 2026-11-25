@@ -279,22 +279,56 @@ struct AIOperation<Input: Sendable, Output> {
         while true {
             try Task.checkCancellation()
             try request.validateSchema()
+            let attemptStarted = Date()
             let result = try await runner(request, onDelta, onActivity)
             await onResult?(result)
             let judged = AIAttempt(number: attempt + 1, isLast: attempt >= maxRepairAttempts)
+            let seconds = Date().timeIntervalSince(attemptStarted)
             do {
                 let output = try await parse(input, result, judged)
                 try await validate?(input, output, judged)
+                Self.recordAcceptance(request: request, result: result, seconds: seconds, attempt: judged.number,
+                                      acceptance: "accepted", reason: nil)
                 return (output, result)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                guard !judged.isLast, !(error is AIUnrepairable) else { throw error }
+                let willRepair = !judged.isLast && !(error is AIUnrepairable)
+                let reason = String(error.localizedDescription.replacingOccurrences(of: "\n", with: " ").prefix(240))
+                Self.recordAcceptance(request: request, result: result, seconds: seconds, attempt: judged.number,
+                                      acceptance: willRepair ? "repair_needed" : "rejected", reason: reason)
+                guard willRepair else { throw error }
                 let context = AIRepair(input: input, original: original, request: request, result: result, error: error, attempt: judged)
                 request = Self.labelled(repair?(context) ?? Self.defaultRepair(context), as: name)
                 attempt += 1
             }
         }
+    }
+
+    private static func recordAcceptance(request: CLICompletion.Request, result: CLICompletion.Result, seconds: Double,
+                                         attempt: Int, acceptance: String, reason: String?) {
+        #if MARKVIEW_HOSTED_TEST_HOST
+        // Avoid writing to the real user Application Support folder during hosted tests unless redirected.
+        if !AICallLog.operationsURL.path.contains("/tmp/") && !AICallLog.operationsURL.path.contains("/var/folders/") {
+            return
+        }
+        #endif
+        AICallLog.recordOperation(AICallLog.Entry(
+            timestamp: Date(),
+            project: (request.project ?? request.readableFolder)?.path ?? "",
+            label: request.label,
+            tool: request.tool.rawValue,
+            model: request.resolvedModel ?? "",
+            effort: request.effort ?? "",
+            seconds: seconds,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            costUSD: result.costUSD,
+            outcome: "ok",
+            acceptance: acceptance,
+            attempt: attempt,
+            rejectionReason: reason
+        ))
     }
 
     private static func labelled(_ request: CLICompletion.Request, as name: String) -> CLICompletion.Request {

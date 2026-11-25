@@ -342,8 +342,8 @@ enum ACPAssistant {
         if request.readableFolder == nil {
             parts.append("Answer from the text given here; do not use any tools.")
         } else {
-            // Refused calls cost a round trip each: say up front what works.
-            parts.append("Tools: only read_files and search_codebase are available (read-only). Shell commands, "
+            // Refused calls cost a round trip each: say up front what works (provider-neutral wording).
+            parts.append("Tools: only read-only file inspection and codebase search tools are available. Shell commands, "
                 + "edits and web fetches are refused, so do not try them.")
         }
         parts.append(request.prompt)

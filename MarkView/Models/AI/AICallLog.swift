@@ -21,13 +21,25 @@ enum AICallLog {
         var inputTokens: Int
         var outputTokens: Int
         var costUSD: Double?
-        /// "ok", "failed", "cancelled" or "timeout".
+        /// "ok", "failed", "cancelled" or "timeout" (CLI process-level outcome).
         var outcome: String
+        /// Result acceptance assessed by `AIOperation` separately from CLI process exit (REQ-009):
+        /// "accepted", "repair_needed", "rejected", or nil for raw process-level log entries.
+        var acceptance: String? = nil
+        /// 1-based attempt number inside `AIOperation`, when recorded at the operation level.
+        var attempt: Int? = nil
+        /// Short reason `parse` or `validate` rejected a response (never contains secrets or documents).
+        var rejectionReason: String? = nil
     }
 
     static var url: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("MarkView", isDirectory: true).appendingPathComponent("ai-calls.jsonl")
+    }
+
+    /// Operation-level log recording validation/acceptance separately from CLI process completion (REQ-009).
+    static var operationsURL: URL {
+        url.deletingLastPathComponent().appendingPathComponent("ai-operations.jsonl")
     }
 
     /// Writes in order, off the caller's thread.
@@ -40,6 +52,11 @@ enum AICallLog {
         guard let data = try? encoder.encode(entry) else { return }
         let url = destination ?? url
         queue.async { try? AtomicFile.append(data + Data("\n".utf8), to: url) }
+    }
+
+    /// Records an operation-level acceptance outcome into `ai-operations.jsonl` (or a test destination).
+    static func recordOperation(_ entry: Entry, to destination: URL? = nil) {
+        record(entry, to: destination ?? operationsURL)
     }
 
     /// Wait for queued writes before removing a temporary destination.

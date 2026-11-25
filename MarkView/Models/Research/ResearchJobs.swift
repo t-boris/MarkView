@@ -16,11 +16,23 @@ enum ResearchSettings {
     }
 
     static func webDisabledKey(_ root: URL) -> SettingsKey<Bool> {
-        Setting.researchWebDisabled(project: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+        RepositoryWebPolicy.webDisabledKey(root)
     }
 
     static func isWebDisabled(_ root: URL) -> Bool {
-        Settings.standard.value(webDisabledKey(root))
+        RepositoryWebPolicy.isWebDisabled(root)
+    }
+}
+
+/// Resolved launch profile and web-search policy for one research job (REQ-006, DEC-013).
+struct ResolvedResearchProfile: Equatable, Sendable {
+    var tool: CLITool
+    var webAllowed: Bool
+    var webUnavailable: String?
+    var webNote: String?
+
+    var webTuple: (allowed: Bool, unavailable: String?, note: String?) {
+        (webAllowed, webUnavailable, webNote)
     }
 }
 
@@ -58,12 +70,48 @@ final class ResearchJobs: ObservableObject {
     let project: any ProjectProviding
     private(set) weak var maps: ResearchMapController?
     private let tasks: TaskBag
+    let prompts: any UserPrompts
 
-    init(host: ResearchHost?, project: any ProjectProviding, maps: ResearchMapController, tasks: TaskBag) {
+    init(host: ResearchHost?, project: any ProjectProviding, maps: ResearchMapController, tasks: TaskBag,
+         prompts: any UserPrompts = NoPrompts()) {
         self.host = host
         self.project = project
         self.maps = maps
         self.tasks = tasks
+        self.prompts = prompts
+    }
+
+    /// Resolves the actual assistant tool and web capability for a research run under repository settings
+    /// and DEC-013 explicit substitution confirmation. Returns `nil` when cancelled or blocked.
+    func resolveProfile(root: URL, taskName: String,
+                        isAvailable: (CLITool) -> Bool = { CLIToolLocator.resolve($0) != nil }) -> ResolvedResearchProfile? {
+        let selected = AIAssistantPreferences.backend(project: root)
+        if ResearchSettings.isWebDisabled(root) {
+            return ResolvedResearchProfile(
+                tool: selected,
+                webAllowed: false,
+                webUnavailable: nil,
+                webNote: "Web search: disabled for this repository, so the research is repository-only."
+            )
+        }
+        switch AgentCapabilityResolver.resolve(
+            selected: selected,
+            capability: .backgroundWebSearch,
+            taskName: taskName,
+            canProceedWithoutCapability: true,
+            fallbackDescription: "the research will stay repository-only with web gaps noted",
+            prompts: prompts,
+            isAvailable: isAvailable
+        ) {
+        case .proceed(let tool, let available, let limitation):
+            let unavailable = available ? nil : "web search unavailable (\(limitation ?? "\(tool.displayName) has no web access")), so the findings are repository-only"
+            return ResolvedResearchProfile(tool: tool, webAllowed: available, webUnavailable: unavailable, webNote: nil)
+        case .blocked(let reason):
+            message = reason
+            return nil
+        case .cancelled:
+            return nil
+        }
     }
 
     func isRunning(on file: URL) -> Bool {
@@ -87,28 +135,109 @@ final class ResearchJobs: ObservableObject {
         followUp = FollowUpRequest(file: file)
     }
 
-    /// Appends a follow-up (or, with `retry`, a retry of that incomplete section) to `file`.
+    /// Structured answer returned by the low-effort claim-verification pass for follow-ups and retries (REQ-008).
+    private struct DocumentVerificationAnswer: Decodable, Sendable {
+        var verdicts: [ResearchClaimVerifier.Verdict]
+        var gaps: [String]
+        var refined_summary: String
+        var refined_recommendations: String
+    }
+
+    /// Structured answer returned by the low-effort claim-verification pass for Revise With Comment (REQ-008).
+    private struct CommentVerificationAnswer: Decodable, Sendable {
+        var verdicts: [ResearchClaimVerifier.Verdict]
+        var gaps: [String]
+    }
+
+    /// Appends an evidence-backed deep follow-up (or, with `retry`, a gap-aware deep retry of that
+    /// incomplete section) to `file` (REQ-008, I-6).
     func followUp(_ file: URL, question: String, retry: ResearchDocument.Section?) {
         guard let root = project.root else { return }
         guard host?.saveBeforeResearch(file, action: "continuing the research") == true else { return }
+        guard let profile = resolveProfile(root: root, taskName: retry == nil ? "follow-up research" : "research retry") else { return }
         let label = retry.map { "Retry: \($0.name)" } ?? "Follow-up: " + Self.title(question)
         launch(kind: .followUp, file: file, title: label) { job in
             guard let current = try? String(contentsOf: file, encoding: .utf8) else { return "Could not read \(file.lastPathComponent)." }
             job.update("Listing the repository")
             let targets = FrontMatter.split(current).0.strings("targets")
             let scope = await ResearchScope.files(root: root, always: targets)
-            let web = Self.web(root)
-            let prompt = ResearchPrompt.followUp(document: current, question: question, retrying: retry?.text,
-                                                 scope: scope, web: web.allowed)
-            let outcome = await job.run(prompt: prompt, root: root, web: web.allowed)
-            var run = ResearchDocument.Run(question: question, answer: ResearchDocument.parseAnswer(outcome.text))
+            let web = profile.webTuple
+            let prompt: String
+            if let retry {
+                let context = ResearchDocument.extractIncompleteContext(from: retry)
+                prompt = ResearchPrompt.deepRetry(document: current, question: question, partial: retry.text,
+                                                  context: context, scope: scope, web: web.allowed)
+            } else {
+                prompt = ResearchPrompt.deepFollowUp(document: current, question: question, scope: scope, web: web.allowed)
+            }
+            let outcome = await job.run(prompt: prompt, root: root, web: web.allowed, toolOverride: profile.tool,
+                                        label: retry == nil ? "research:followup" : "research:retry")
+            let exists = Self.existsIn(root)
+            var answer = ResearchDocument.parseAnswer(outcome.text)
+            let limitationNote = Self.incompleteReason(outcome, web: web) ?? web.note
+            let checks = ResearchClaimVerifier.prepareDocumentClaims(
+                findings: answer.findings,
+                root: root,
+                pathExists: exists,
+                webAllowed: web.allowed,
+                urlsFetched: outcome.urls
+            )
+            var verdicts: [ResearchClaimVerifier.Verdict] = []
+            var verificationGaps: [String] = []
+            if outcome.failure == nil, !Task.isCancelled, checks.contains(where: { $0.deterministicFailure == nil }) {
+                job.update("Verifying claims against cited sources")
+                let verifyPrompt = ResearchPrompt.documentVerificationPrompt(
+                    question: question,
+                    draft: answer,
+                    checks: checks,
+                    limitationNote: limitationNote
+                )
+                if let verified: DocumentVerificationAnswer = await job.runStructured(
+                    prompt: verifyPrompt,
+                    system: ResearchPrompt.claimVerificationSystem,
+                    schema: ResearchPrompt.documentVerificationSchema,
+                    root: root,
+                    toolOverride: profile.tool,
+                    label: retry == nil ? "research:followup:verify" : "research:retry:verify"
+                ) {
+                    verdicts = verified.verdicts
+                    verificationGaps = verified.gaps
+                    let hadUnsupported = verdicts.contains { $0.status.lowercased() == "unsupported" }
+                        || checks.contains { $0.deterministicFailure != nil }
+                    let refinedSummary = verified.refined_summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let refinedRecs = verified.refined_recommendations.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if hadUnsupported && !refinedSummary.isEmpty { answer.summary = refinedSummary }
+                    if hadUnsupported && !refinedRecs.isEmpty { answer.recommendations = refinedRecs }
+                } else if !Task.isCancelled {
+                    verificationGaps.append("Automated claim-content verification did not complete; deterministic path/symbol checks were still applied.")
+                }
+            }
+            answer.findings = ResearchClaimVerifier.applyDocumentVerdicts(
+                findings: answer.findings,
+                checks: checks,
+                verdicts: verdicts,
+                pathExists: exists
+            )
+            if let gapReason = Self.incompleteReason(outcome, web: web) {
+                verificationGaps.insert("Run gap: \(gapReason).", at: 0)
+            }
+            for gap in verificationGaps {
+                let cleaned = gap.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty else { continue }
+                let normalized = ResearchDocument.plain(cleaned)
+                let alreadyMentioned = answer.findings.contains { ResearchDocument.plain($0).contains(normalized) }
+                if !alreadyMentioned {
+                    let formatted = cleaned.hasPrefix("[") ? cleaned : "[\(ResearchDocument.Label.openAssumption.rawValue)] \(cleaned)"
+                    answer.findings.append(formatted)
+                }
+            }
+            var run = ResearchDocument.Run(question: question, answer: answer)
             run.incomplete = Self.incompleteReason(outcome, web: web)
             run.filesRead = outcome.filesRead(root: root)
             run.urlsFetched = outcome.urls
             run.webQueries = outcome.queries
-            run.notes = web.note.map { [$0] } ?? []
+            run.notes = [web.note, web.unavailable.map { "Web search gap: \($0)." }].compactMap { $0 }
             run.noProjectFiles = scope.isEmpty
-            let exists = Self.existsIn(root)
             // Appended to the file as it is now, not the copy the job started from (DEC-014).
             guard let latest = try? String(contentsOf: file, encoding: .utf8) else { return "\(file.lastPathComponent) is gone; the follow-up was not saved." }
             let number = ResearchDocument.nextFollowUpNumber(latest)
@@ -127,9 +256,10 @@ final class ResearchJobs: ObservableObject {
         }
     }
 
-    // MARK: - Comments (I-6, DEC-017)
+    // MARK: - Comments (I-6, DEC-017, REQ-008)
 
-    /// The AI revises the smallest section containing `passage` according to `comment`.
+    /// The AI revises the smallest section containing `passage` according to `comment` using the
+    /// evidence-backed deep workflow with claim-level source verification.
     func comment(on passage: String, comment: String, in file: URL) {
         guard let root = project.root else { return }
         guard !isRunning(on: file) else {
@@ -142,18 +272,71 @@ final class ResearchJobs: ObservableObject {
             message = "The selected text was not found under a heading of \(file.lastPathComponent); select text inside a section."
             return
         }
+        guard let profile = resolveProfile(root: root, taskName: "research comment revision") else { return }
         let original = String(current[range])
+        let preservedExternalClaims = Self.existingExternalClaims(in: original)
         launch(kind: .comment, file: file, title: "Comment: " + Self.title(comment)) { job in
-            let web = Self.web(root)
+            let web = profile.webTuple
             let targets = FrontMatter.split(current).0.strings("targets")
             let scope = await ResearchScope.files(root: root, always: targets)
-            let prompt = ResearchPrompt.comment(document: current, section: original, passage: passage, comment: comment,
-                                                scope: scope, web: web.allowed)
-            let outcome = await job.run(prompt: prompt, root: root, web: web.allowed)
+            let prompt = ResearchPrompt.deepComment(document: current, section: original, passage: passage, comment: comment,
+                                                    scope: scope, web: web.allowed)
+            let outcome = await job.run(prompt: prompt, root: root, web: web.allowed, toolOverride: profile.tool,
+                                        label: "research:comment")
             if let failure = outcome.failure { return "The comment was not applied: \(failure). The document is unchanged." }
             let revised = ResearchPrompt.revisedSection(outcome.text, original: original)
             guard !revised.isEmpty else { return "The assistant returned no revised text; the document is unchanged." }
-            let checked = ResearchDocument.checkingLabels(in: revised, pathExists: Self.existsIn(root))
+            let exists = Self.existsIn(root)
+            let preChecked = ResearchDocument.checkingLabels(in: revised, pathExists: exists)
+            let extractedFindings = Self.extractLabelledItems(from: preChecked)
+            let checks = ResearchClaimVerifier.prepareDocumentClaims(
+                findings: extractedFindings,
+                root: root,
+                pathExists: exists,
+                webAllowed: web.allowed,
+                urlsFetched: outcome.urls,
+                preservedExternalClaims: preservedExternalClaims
+            )
+            var verdicts: [ResearchClaimVerifier.Verdict] = []
+            var gaps: [String] = []
+            let limitationNote = Self.incompleteReason(outcome, web: web) ?? web.note
+            if !Task.isCancelled, checks.contains(where: { $0.deterministicFailure == nil }) {
+                job.update("Verifying revised claims against sources")
+                let verifyPrompt = ResearchPrompt.commentVerificationPrompt(
+                    comment: comment,
+                    originalSection: original,
+                    revisedSection: preChecked,
+                    checks: checks,
+                    limitationNote: limitationNote
+                )
+                if let verified: CommentVerificationAnswer = await job.runStructured(
+                    prompt: verifyPrompt,
+                    system: ResearchPrompt.claimVerificationSystem,
+                    schema: ResearchPrompt.commentVerificationSchema,
+                    root: root,
+                    toolOverride: profile.tool,
+                    label: "research:comment:verify"
+                ) {
+                    verdicts = verified.verdicts
+                    gaps = verified.gaps
+                }
+            }
+            var checked = Self.applyCommentVerdicts(
+                to: preChecked,
+                extractedFindings: extractedFindings,
+                checks: checks,
+                verdicts: verdicts,
+                pathExists: exists
+            )
+            if let webGap = outcome.webRefused ?? web.unavailable {
+                gaps.insert("Source gap: \(webGap).", at: 0)
+            }
+            for gap in gaps {
+                let cleaned = gap.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty, !ResearchDocument.plain(checked).contains(ResearchDocument.plain(cleaned)) else { continue }
+                let formatted = cleaned.hasPrefix("[") ? cleaned : "[\(ResearchDocument.Label.openAssumption.rawValue)] \(cleaned)"
+                checked += "\n- " + formatted
+            }
             // Written only when the section is still the one the AI saw (DEC-017).
             guard let latest = try? String(contentsOf: file, encoding: .utf8),
                   let now = latest.range(of: original) else {
@@ -170,6 +353,57 @@ final class ResearchJobs: ObservableObject {
             }
             return nil
         }
+    }
+
+    private static func existingExternalClaims(in section: String) -> Set<String> {
+        var out = Set<String>()
+        for item in extractLabelledItems(from: section) {
+            if let parsed = ResearchDocument.parsedLabel(of: item), parsed.label == .externalFact {
+                out.insert(ResearchDocument.plain(parsed.body))
+            }
+        }
+        return out
+    }
+
+    private static func extractLabelledItems(from markdown: String) -> [String] {
+        var items: [String] = []
+        for line in markdown.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            for marker in ["- ", "* ", "+ "] where trimmed.hasPrefix(marker) {
+                let rest = String(trimmed.dropFirst(marker.count))
+                if ResearchDocument.parsedLabel(of: rest) != nil { items.append(rest) }
+            }
+        }
+        return items
+    }
+
+    private static func applyCommentVerdicts(
+        to markdown: String,
+        extractedFindings: [String],
+        checks: [ResearchClaimVerifier.ClaimCheck],
+        verdicts: [ResearchClaimVerifier.Verdict],
+        pathExists: (String) -> Bool
+    ) -> String {
+        let updatedFindings = ResearchClaimVerifier.applyDocumentVerdicts(
+            findings: extractedFindings,
+            checks: checks,
+            verdicts: verdicts,
+            pathExists: pathExists
+        )
+        var replacements: [String: String] = [:]
+        for (old, new) in zip(extractedFindings, updatedFindings) where old != new {
+            replacements[old] = new
+        }
+        guard !replacements.isEmpty else { return markdown }
+        return markdown.components(separatedBy: "\n").map { line in
+            let indent = String(line.prefix { $0 == " " })
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            for marker in ["- ", "* ", "+ "] where trimmed.hasPrefix(marker) {
+                let body = String(trimmed.dropFirst(marker.count))
+                if let replacement = replacements[body] { return indent + marker + replacement }
+            }
+            return line
+        }.joined(separator: "\n")
     }
 
     /// A job rewrote `file` on disk: the tab that shows it takes the new text. A tab with unsaved edits that conflict is left as it was and
@@ -202,14 +436,14 @@ final class ResearchJobs: ObservableObject {
         jobs[index].step = step
     }
 
-    /// Web search for this run: allowed unless the repository opted out or the backend has none.
-    static func web(_ root: URL) -> (allowed: Bool, unavailable: String?, note: String?) {
+    /// Web search for this run: allowed unless the repository opted out or the actual launch profile has none (REQ-006).
+    static func web(_ root: URL, tool: CLITool? = nil) -> (allowed: Bool, unavailable: String?, note: String?) {
         if ResearchSettings.isWebDisabled(root) {
             return (false, nil, "Web search: disabled for this repository, so the research is repository-only.")
         }
-        let tool = AIAssistantPreferences.backend(project: root)
-        if tool.usesACP {
-            return (false, "web search unavailable (\(tool.displayName) has no web access), so the findings are repository-only", nil)
+        let resolved = tool ?? AIAssistantPreferences.backend(project: root)
+        if !resolved.launchCapabilities.backgroundWebSearch {
+            return (false, "web search unavailable (\(resolved.displayName)'s background launch profile has no web search), so the findings are repository-only", nil)
         }
         return (true, nil, nil)
     }
@@ -313,17 +547,21 @@ final class JobHandle {
     /// Runs the agent over `root` with the research system prompt. Cancel, errors and the
     /// timeout end it early; the text streamed so far is kept (DEC-004, DEC-012).
     func run(prompt: String, root: URL, web: Bool, titled: Bool = false, system: String? = nil, writing: String = "Writing the report",
+             toolOverride: CLITool? = nil, effort: String? = nil, label: String = "research",
              onText: (@Sendable (String) -> Void)? = nil, onQuery: (@Sendable (String) -> Void)? = nil) async -> JobOutcome {
         var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system ?? ResearchPrompt.system(web: web, titled: titled),
                                             readableFolder: root)
         request.allowWeb = web
+        request.toolOverride = toolOverride
+        request.effort = effort
+        request.label = label
         let minutes = ResearchSettings.timeoutMinutes
         request.timeout = TimeInterval(minutes * 60)
         let log = RunLog()
         let started = Date()
         update("Thinking")
         do {
-            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: "research", onDelta: { log.append(text: $0); onText?($0) }, onActivity: { [weak self] activity in
+            let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(request, name: label, onDelta: { log.append(text: $0); onText?($0) }, onActivity: { [weak self] activity in
                 switch activity {
                 case .writing, .answerDelta: break
                 // A tool call or a pause ends the text block the agent was writing, and the CLI hands over the next block
@@ -339,7 +577,7 @@ final class JobHandle {
             let snapshot = log.snapshot()
             let text = result.text.isEmpty ? snapshot.text : result.text
             // Refused web calls were never sent: they leave the lists, and the run lost web access (DEC-004).
-            let refusedWeb = result.refused.filter { $0.tool == "WebSearch" || $0.tool == "WebFetch" }
+            let refusedWeb = result.refused.filter { Self.isWebTool($0.tool) }
             return JobOutcome(text: text, reads: snapshot.reads,
                               urls: snapshot.urls.filter { url in !refusedWeb.contains { $0.input == url } },
                               queries: snapshot.queries.filter { query in !refusedWeb.contains { $0.input == query } },
@@ -359,6 +597,48 @@ final class JobHandle {
             }
             return JobOutcome(text: snapshot.text, reads: snapshot.reads, urls: snapshot.urls, queries: snapshot.queries, failure: failure)
         }
+    }
+
+    /// Runs a compact structured helper call (inquiry planning, claim verification, synthesis) with no file writes.
+    func runStructured<T: Decodable>(
+        prompt: String,
+        system: String,
+        schema: [String: Any],
+        root: URL,
+        readableFolder: URL? = nil,
+        toolOverride: CLITool? = nil,
+        effort: String = "low",
+        timeout: TimeInterval? = nil,
+        label: String
+    ) async -> T? {
+        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system,
+                                            jsonSchema: schema, readableFolder: readableFolder)
+        request.allowWeb = false
+        request.toolOverride = toolOverride
+        request.effort = effort
+        request.label = label
+        request.timeout = timeout ?? min(TimeInterval(ResearchSettings.timeoutMinutes * 60), 180)
+        let operation = AIOperation<CLICompletion.Request, T>(
+            name: label,
+            maxRepairAttempts: 1,
+            allowTextSalvage: true,
+            buildRequest: { $0 },
+            onResult: { [weak self] result in
+                await MainActor.run { result.record(in: self?.owner?.project.database) }
+            }
+        )
+        do {
+            return try await operation.execute(request).output
+        } catch {
+            return nil
+        }
+    }
+
+    private static func isWebTool(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return lower == "websearch" || lower == "webfetch" || lower == "search_web"
+            || lower == "read_url_content" || lower == "read_url"
+            || lower.contains("web") || lower.contains("url")
     }
 }
 

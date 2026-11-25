@@ -127,33 +127,67 @@ extension ResearchJobs {
         }
     }
 
-    /// Draws the diagrams the report asked for with the Graph Creator's generator, one after another. A diagram that cannot be
-    /// drawn is left out of the report (the assembly says which).
+    /// Bounded concurrency for independent report diagram calls (REQ-007).
+    private static let maxConcurrentReportDiagrams = 3
+
+    /// Draws the diagrams the report asked for with the Graph Creator's generator using bounded concurrency.
+    /// A diagram that cannot be drawn is left out of the report (the assembly says which).
     private static func drawReportDiagrams(draft: ResearchMapReport.Draft, map: ResearchMap, root: URL, job: JobHandle,
                                            project: any ProjectProviding) async throws -> [String: String] {
-        var drawn: [String: String] = [:]
-        for (index, request) in draft.diagrams.enumerated() {
-            try Task.checkCancellation()
-            guard let kind = DiagramKind(rawValue: request.kind) else { continue }
-            job.update("Drawing diagram \(index + 1) of \(draft.diagrams.count)")
+        struct DiagramWork: Sendable {
+            let id: String
+            let kind: DiagramKind
+            let prompt: String
+            let language: String?
+        }
+        let items: [DiagramWork] = draft.diagrams.compactMap { request in
+            guard let kind = DiagramKind(rawValue: request.kind) else { return nil }
             let context = draft.sections.first { $0.markdown.contains("{{diagram:\(request.id)}}") }?.markdown ?? ""
             let prompt = DiagramAI.mapPrompt(kind: kind, instruction: request.what + Self.pageNote, question: map.question, path: [map.title],
                                              title: String(request.what.prefix(120)), nodeText: context, evidence: [], root: root)
             // A report diagram follows the language of the report section it sits in.
             let language = DiagramAI.mapLanguage(title: request.what, nodeText: context, evidence: [])?.code
-            do {
-                let spec = try await DiagramAI.generate(prompt: prompt, root: root, label: "map-report-diagram:\(kind.rawValue)", system: DiagramAI.mapSystem,
-                                                        expectedLanguage: language, maxNodes: Self.pageNodes,
-                                                        onStage: { _ in },
-                                                        record: { result in Task { @MainActor in result.record(in: project.database) } })
-                // A wide left-to-right diagram is shrunk to the page width until its text cannot be read; a page is tall, so it runs downwards.
-                var onPage = spec
-                if onPage.nodes.count > 5 { onPage.direction = "TB" }
-                drawn[request.id] = DiagramAI.plainMermaid(onPage, kind: kind)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                continue
+            return DiagramWork(id: request.id, kind: kind, prompt: prompt, language: language)
+        }
+        guard !items.isEmpty else { return [:] }
+        let total = items.count
+        var drawn: [String: String] = [:]
+        var completed = 0
+        job.update("Drawing \(total) diagram\(total == 1 ? "" : "s")")
+        try await withThrowingTaskGroup(of: (String, String?).self) { group in
+            var nextIndex = 0
+            func enqueue(_ item: DiagramWork) {
+                group.addTask {
+                    try Task.checkCancellation()
+                    do {
+                        let spec = try await DiagramAI.generate(prompt: item.prompt, root: root, label: "map-report-diagram:\(item.kind.rawValue)",
+                                                                system: DiagramAI.mapSystem, expectedLanguage: item.language, maxNodes: Self.pageNodes,
+                                                                onStage: { _ in },
+                                                                record: { result in Task { @MainActor in result.record(in: project.database) } })
+                        // A wide left-to-right diagram is shrunk to the page width until its text cannot be read; a page is tall, so it runs downwards.
+                        var onPage = spec
+                        if onPage.nodes.count > 5 { onPage.direction = "TB" }
+                        return (item.id, DiagramAI.plainMermaid(onPage, kind: item.kind))
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        return (item.id, nil)
+                    }
+                }
+            }
+            while nextIndex < min(Self.maxConcurrentReportDiagrams, items.count) {
+                enqueue(items[nextIndex])
+                nextIndex += 1
+            }
+            while let (id, mermaid) = try await group.next() {
+                completed += 1
+                if let mermaid { drawn[id] = mermaid }
+                job.update("Drew diagram \(completed) of \(total)")
+                if nextIndex < items.count {
+                    try Task.checkCancellation()
+                    enqueue(items[nextIndex])
+                    nextIndex += 1
+                }
             }
         }
         return drawn
@@ -180,11 +214,38 @@ extension ResearchJobs {
                 var working = source
                 var translated = 0, kept = 0, diagramKept = 0
                 let batches = ResearchMapTranslation.batches(of: source)
+                let totalNodes = source.nodes.count
+                let maxConcurrentBatches = 3
+                var batchAnswers: [Int: ResearchMapTranslation.Answer] = [:]
+                var completedBatches = 0
+                job.update("Translating \(totalNodes) nodes (\(batches.count) batch\(batches.count == 1 ? "" : "es"))")
+                try await withThrowingTaskGroup(of: (Int, ResearchMapTranslation.Answer).self) { group in
+                    var nextIndex = 0
+                    func enqueue(_ index: Int) {
+                        let ids = batches[index]
+                        group.addTask {
+                            try Task.checkCancellation()
+                            let answer = try await Self.translateBatch(map: source, ids: ids, language: wanted, root: root, job: job, project: project)
+                            return (index, answer)
+                        }
+                    }
+                    while nextIndex < min(maxConcurrentBatches, batches.count) {
+                        enqueue(nextIndex)
+                        nextIndex += 1
+                    }
+                    while let (index, answer) = try await group.next() {
+                        batchAnswers[index] = answer
+                        completedBatches += 1
+                        job.update("Translated batch \(completedBatches) of \(batches.count)")
+                        if nextIndex < batches.count {
+                            try Task.checkCancellation()
+                            enqueue(nextIndex)
+                            nextIndex += 1
+                        }
+                    }
+                }
                 for (index, batch) in batches.enumerated() {
-                    try Task.checkCancellation()
-                    let done = batches.prefix(index).reduce(0) { $0 + $1.count }
-                    job.update("Translating nodes \(done + 1)–\(done + batch.count) of \(source.nodes.count)")
-                    let answer = try await Self.translateBatch(map: working, ids: batch, language: wanted, root: root, job: job, project: project)
+                    guard let answer = batchAnswers[index] else { continue }
                     let applied = ResearchMapTranslation.apply(answer: answer, to: &working, ids: batch)
                     translated += applied.translatedCount
                     kept += applied.keptOriginal.count
