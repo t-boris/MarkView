@@ -2,7 +2,7 @@
 type: feature
 id: agent-aware-implementation-runs
 title: Agent-aware implementation runs
-status: in-progress
+status: in-review
 owner: Boris Tsekinovsky
 created: 2026-11-24
 provenance: Created from the feature intake
