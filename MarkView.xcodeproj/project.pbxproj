@@ -24,6 +24,7 @@
 		9EF2792990CDBF023DF8BF5A /* ArchiveModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 118950A2E23855D420E6F93E /* ArchiveModel.swift */; };
 		03CC33F577463F4CDCCA922A /* QARunAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */; };
 		03D87B6042D0A0AEFBCB5C2C /* CockpitRunList.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF341DD17D4509302202B99E /* CockpitRunList.swift */; };
+		4561A0060226686BABF4E339 /* CockpitDeliveryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8045440388CC33A25BC6B1A /* CockpitDeliveryViews.swift */; };
 		04DF637E19889A6C91B6A0D4 /* UIStudioReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 677FA91946060D4B98EF58AE /* UIStudioReview.swift */; };
 		05330764F69306E4CE65E7E6 /* AgentUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */; };
 		05A50659D7D1F493403938D5 /* CockpitStepPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00C9C532902F213FC8436DC5 /* CockpitStepPolicy.swift */; };
@@ -128,6 +129,10 @@
 		3A7797858C429A08562B496E /* FeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE180277E01B9DBC61C4110 /* FeatureModels.swift */; };
 		3A8553BD0417A4C3DED64762 /* QARunCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40EC4D0B33F766DF89989E1 /* QARunCleanup.swift */; };
 		3BA06ECBFADD3E1E89187AB1 /* CockpitRunStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5612E561DAD2527239AB27E /* CockpitRunStore.swift */; };
+		8F2E9369F52C1414EC1EF20D /* CockpitDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F0850D8B036F0D240657913 /* CockpitDraftStore.swift */; };
+		0F75AFA792A5D3692AA2AFDE /* CockpitDelegateWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64827C761253D1EA255286C2 /* CockpitDelegateWatch.swift */; };
+		60F2EE4F128710BB8068C011 /* CockpitDeliveryProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AE3C852AFBDEF31005DFF2 /* CockpitDeliveryProbe.swift */; };
+		F3C532AAF63F30C691F96AF1 /* CockpitManagedRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CCDB30490A2791A5077AA71 /* CockpitManagedRun.swift */; };
 		3D26245935F584FAE724710E /* EditorDocumentRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AF52C251F7D6ADAE2EE8DED /* EditorDocumentRouting.swift */; };
 		3D9F7C1BE6A07DE7E8BFAF39 /* QAPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB11D14E6C7D38C077EA5F76 /* QAPlan.swift */; };
 		3E76683E13C010C82D63FBC1 /* DefinitionOfDoneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56712FFC082BC0126119C1DC /* DefinitionOfDoneView.swift */; };
@@ -311,6 +316,7 @@
 		9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */; };
 		A04D482E27A41747B95841CA /* QAAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B1794ED37907C706DA17A1 /* QAAPIClient.swift */; };
 		A0B252241524EFEFFEF486DD /* DefinitionOfDone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5854350E9786267B0E8656AF /* DefinitionOfDone.swift */; };
+		7D275CF265722EE24F6F5622 /* ImplementationLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 840C6AFB882527614FCC95B6 /* ImplementationLaunch.swift */; };
 		A1B7BA49D15B3B5D1706D24B /* GraphCreatorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACC3096F5958199C147B4B2C /* GraphCreatorSheet.swift */; };
 		A24B49057B4B87E4278B429F /* ProjectBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB25CF391C44897DD4AF564 /* ProjectBootstrap.swift */; };
 		A26F7B60A67BEF3CED078BBA /* PanelTabButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F11B5789897E966C65CC52B /* PanelTabButton.swift */; };
@@ -601,6 +607,7 @@
 		C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9143 /* CockpitPolicyHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9144 /* CockpitPolicyHostTests.swift */; };
+		64EDFB9020832AC91C23E2DF /* CockpitManagedRunHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 507E2D1EF18FBB7D63694833 /* CockpitManagedRunHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9145 /* QAEventRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9146 /* QAEventRecorder.swift */; };
 		C16A57BD3D044D9C8E6F9147 /* QAScenarioHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9148 /* QAScenarioHostTests.swift */; };
 		C16A57BD3D044D9C8E6F9149 /* RemoteChannelHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C16A57BD3D044D9C8E6F9150 /* RemoteChannelHostTests.swift */; };
@@ -870,6 +877,7 @@
 		57195BF70E262DF4C8B69EC4 /* QAScenario.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAScenario.swift; sourceTree = "<group>"; };
 		58204F3C068030E1598BED42 /* BookPDFExportModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPDFExportModel.swift; sourceTree = "<group>"; };
 		5854350E9786267B0E8656AF /* DefinitionOfDone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefinitionOfDone.swift; sourceTree = "<group>"; };
+		840C6AFB882527614FCC95B6 /* ImplementationLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImplementationLaunch.swift; sourceTree = "<group>"; };
 		5AA953CE3F790CC504854A3A /* UIStudioModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioModels.swift; sourceTree = "<group>"; };
 		5B3E1F0C54027CD3A8565C4C /* TextDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDiff.swift; sourceTree = "<group>"; };
 		5B43997D8A629734399B2640 /* NewProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectSheet.swift; sourceTree = "<group>"; };
@@ -1117,6 +1125,10 @@
 		B51DE8014E6E4B9D5269BD52 /* QARunAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunAssistant.swift; sourceTree = "<group>"; };
 		B5602C568336324C646AC72E /* markview-canvas.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-canvas.js"; sourceTree = "<group>"; };
 		B5612E561DAD2527239AB27E /* CockpitRunStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRunStore.swift; sourceTree = "<group>"; };
+		1F0850D8B036F0D240657913 /* CockpitDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitDraftStore.swift; sourceTree = "<group>"; };
+		64827C761253D1EA255286C2 /* CockpitDelegateWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitDelegateWatch.swift; sourceTree = "<group>"; };
+		57AE3C852AFBDEF31005DFF2 /* CockpitDeliveryProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitDeliveryProbe.swift; sourceTree = "<group>"; };
+		4CCDB30490A2791A5077AA71 /* CockpitManagedRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitManagedRun.swift; sourceTree = "<group>"; };
 		B5A3D891D5D7F1EBFC61ACF4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingClient.swift; sourceTree = "<group>"; };
 		B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureModel.swift; sourceTree = "<group>"; };
@@ -1141,6 +1153,7 @@
 		BED228E05C82D2EF282BC91F /* BookPDFAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPDFAssistant.swift; sourceTree = "<group>"; };
 		BEFD6DFD2725A8E5CA0B9E6B /* UIStudioBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioBridge.swift; sourceTree = "<group>"; };
 		BF341DD17D4509302202B99E /* CockpitRunList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitRunList.swift; sourceTree = "<group>"; };
+		F8045440388CC33A25BC6B1A /* CockpitDeliveryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitDeliveryViews.swift; sourceTree = "<group>"; };
 		BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageLogs.swift; sourceTree = "<group>"; };
 		BFDE3E1FD4F69D4D75576057 /* UIStudioChannels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioChannels.swift; sourceTree = "<group>"; };
 		C10E4370A98A5B1B660C9C42 /* QARunViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QARunViews.swift; sourceTree = "<group>"; };
@@ -1378,6 +1391,7 @@
 		C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitHostBridgeHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleSyncHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9144 /* CockpitPolicyHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitPolicyHostTests.swift; sourceTree = "<group>"; };
+		507E2D1EF18FBB7D63694833 /* CockpitManagedRunHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CockpitManagedRunHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9146 /* QAEventRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAEventRecorder.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9148 /* QAScenarioHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QAScenarioHostTests.swift; sourceTree = "<group>"; };
 		C16A57BD3D044D9C8E6F9150 /* RemoteChannelHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteChannelHostTests.swift; sourceTree = "<group>"; };
@@ -1661,6 +1675,10 @@
 				F8EF6DAAB291A58DCE6D2A7B /* CockpitResults.swift */,
 				AC6819622B5D2A65E58893A1 /* CockpitRun.swift */,
 				B5612E561DAD2527239AB27E /* CockpitRunStore.swift */,
+				1F0850D8B036F0D240657913 /* CockpitDraftStore.swift */,
+				64827C761253D1EA255286C2 /* CockpitDelegateWatch.swift */,
+				57AE3C852AFBDEF31005DFF2 /* CockpitDeliveryProbe.swift */,
+				4CCDB30490A2791A5077AA71 /* CockpitManagedRun.swift */,
 				20084E74DB92381226899AB8 /* CockpitRuntime.swift */,
 				72BACCBE46D42178D2B4CA76 /* CockpitSession.swift */,
 				494C09FD5CF09A63F3AABF0D /* CockpitStepAudit.swift */,
@@ -1753,6 +1771,7 @@
 				4FE3AA3CE442BA3B163881A1 /* CycleTimeModel.swift */,
 				29103C75BFDAD84F37CC8BF4 /* CycleTimeReport.swift */,
 				5854350E9786267B0E8656AF /* DefinitionOfDone.swift */,
+				840C6AFB882527614FCC95B6 /* ImplementationLaunch.swift */,
 				25283AC5B0D94581E1ACA701 /* EvidenceTimings.swift */,
 				19E031440F6D9721BE887B99 /* FeatureAI.swift */,
 				08E4B120E755FF9AED5F57E0 /* FeatureBugValidity.swift */,
@@ -2128,6 +2147,7 @@
 				E0C29C80578FBF1EA58507A1 /* CockpitPlanScreen.swift */,
 				ED64FCA6C04585D135176CE3 /* CockpitQAPlanView.swift */,
 				BF341DD17D4509302202B99E /* CockpitRunList.swift */,
+				F8045440388CC33A25BC6B1A /* CockpitDeliveryViews.swift */,
 				2B4837E2121DE840B42BFE81 /* CockpitRunScreen.swift */,
 				97EBFDF3C6E387DF3E3B4B1E /* CockpitRunTimeline.swift */,
 				392AD611F062D103079AAEC5 /* CockpitStepCard.swift */,
@@ -2639,6 +2659,7 @@
 				C16A57BD3D044D9C8E6F9102 /* CockpitHostBridgeHostTests.swift */,
 				C16A57BD3D044D9C8E6F9108 /* LifecycleSyncHostTests.swift */,
 				C16A57BD3D044D9C8E6F9144 /* CockpitPolicyHostTests.swift */,
+				507E2D1EF18FBB7D63694833 /* CockpitManagedRunHostTests.swift */,
 				C16A57BD3D044D9C8E6F9146 /* QAEventRecorder.swift */,
 				C16A57BD3D044D9C8E6F9148 /* QAScenarioHostTests.swift */,
 				C16A57BD3D044D9C8E6F9150 /* RemoteChannelHostTests.swift */,
@@ -3118,8 +3139,13 @@
 				DC71A8776EC3232A422811B4 /* CockpitResults.swift in Sources */,
 				5579B5AB66F8963B1955B045 /* CockpitRun.swift in Sources */,
 				03D87B6042D0A0AEFBCB5C2C /* CockpitRunList.swift in Sources */,
+				4561A0060226686BABF4E339 /* CockpitDeliveryViews.swift in Sources */,
 				77415EC5733379CD4A49D5A3 /* CockpitRunScreen.swift in Sources */,
 				3BA06ECBFADD3E1E89187AB1 /* CockpitRunStore.swift in Sources */,
+				8F2E9369F52C1414EC1EF20D /* CockpitDraftStore.swift in Sources */,
+				0F75AFA792A5D3692AA2AFDE /* CockpitDelegateWatch.swift in Sources */,
+				60F2EE4F128710BB8068C011 /* CockpitDeliveryProbe.swift in Sources */,
+				F3C532AAF63F30C691F96AF1 /* CockpitManagedRun.swift in Sources */,
 				CED96C6765048A4FC088E527 /* CockpitRunTimeline.swift in Sources */,
 				72656B2C10A2E60674F94C69 /* CockpitRuntime.swift in Sources */,
 				DC4A571FEE7ACDD11671FBD1 /* CockpitSession.swift in Sources */,
@@ -3151,6 +3177,7 @@
 				F51DCF6FC060B59DEC100AF0 /* DatabaseExplorer.swift in Sources */,
 				8EF1F6471911313C044957CB /* DatabaseKeychain.swift in Sources */,
 				A0B252241524EFEFFEF486DD /* DefinitionOfDone.swift in Sources */,
+				7D275CF265722EE24F6F5622 /* ImplementationLaunch.swift in Sources */,
 				3E76683E13C010C82D63FBC1 /* DefinitionOfDoneView.swift in Sources */,
 				80762A11E803B5EE934E216A /* DeploymentAdvisor.swift in Sources */,
 				685D46722E538BE5740CBEA1 /* DeploymentAgentTools.swift in Sources */,
@@ -3560,6 +3587,7 @@
 				C16A57BD3D044D9C8E6F9101 /* CockpitHostBridgeHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9107 /* LifecycleSyncHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9143 /* CockpitPolicyHostTests.swift in Sources */,
+				64EDFB9020832AC91C23E2DF /* CockpitManagedRunHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9145 /* QAEventRecorder.swift in Sources */,
 				C16A57BD3D044D9C8E6F9147 /* QAScenarioHostTests.swift in Sources */,
 				C16A57BD3D044D9C8E6F9149 /* RemoteChannelHostTests.swift in Sources */,

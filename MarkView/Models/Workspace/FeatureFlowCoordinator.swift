@@ -337,6 +337,32 @@ final class FeatureFlowCoordinator: ObservableObject {
         if project.aiProject != nil { requests.doneRequest = url } else { startImplementation(url, done: .standard) }
     }
 
+    /// What the Definition of Done sheet needs to recommend a mode (REQ-001): the feature's plan issues and approved requirements, and
+    /// the delivery rules of its process. nil for a document that is not a feature folder.
+    func launchOptions(for url: URL) -> ImplementationLaunchOptions? {
+        guard let feature = feature(at: url) else { return nil }
+        let approved = feature.list(.requirement).filter { $0.status == "approved" }.count
+        return ImplementationLaunchOptions(specification: .init(planIssues: feature.planIssues.map(\.id), approvedRequirements: approved),
+                                           rules: features.lifecycle.deliveryRules(.feature, feature.slug))
+    }
+
+    /// The feature a managed Cockpit run implements, with the checklist the person reviewed and where it disagrees with the project's
+    /// rules (REQ-001, REQ-004), and the goal its plan is written for.
+    func cockpitLaunch(for url: URL, done: DefinitionOfDone) -> (feature: CockpitFeatureContext, goal: String)? {
+        guard let feature = feature(at: url) else { return nil }
+        let rules = features.lifecycle.deliveryRules(.feature, feature.slug)
+        let path = project.relativePath(of: feature.folder)
+        let context = CockpitFeatureContext(slug: feature.slug, title: feature.title, folder: path, branch: CockpitFeatureContext.branch(for: feature.slug),
+                                            done: done, mandatory: ImplementationDeliveryRules.mandatory(rules: rules),
+                                            conflicts: ImplementationDeliveryRules.conflicts(done: done, rules: rules))
+        return (context, "Implement what \(path) specifies and verify the implementation against the specification.")
+    }
+
+    private func feature(at url: URL) -> Feature? {
+        let target = url.standardizedFileURL.path
+        return features.features.first { $0.folder.standardizedFileURL.path == target } ?? features.locate(url)?.feature
+    }
+
     /// Hand a document to the AI to implement, establishing a goal in the receiving assistant. The goal carries the definition of done.
     /// The feature is recorded as "implementation started" with the CLI that got it.
     func startImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession? = nil) {

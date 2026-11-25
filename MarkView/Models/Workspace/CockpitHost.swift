@@ -29,6 +29,12 @@ final class CockpitHost: CockpitWindow {
         ToolOpener(makeTab: { [unowned self] root, tool in makeTab(root: root, tool: tool) })
     }
 
+    /// Opens the feature's Cockpit draft and prepares its plan; the Cockpit tab is already shown (REQ-001).
+    func prepareImplementation(_ feature: CockpitFeatureContext, goal: String) {
+        guard let session else { return }
+        session.prepareFeature(feature, goal: goal)
+    }
+
     /// The window lets go of its folder: the session ends for it.
     func projectClosed() {
         session?.closeProject()
@@ -60,4 +66,8 @@ final class CockpitHost: CockpitWindow {
     func showAIConsole() { window?.showAIConsole() }
     func showCockpitTool() { tools?.open(.cockpit) }
     func showQATool() { tools?.open(.qa) }
+    func handOffDirectly(_ feature: CockpitFeatureContext) {
+        guard let root = session?.root else { return }
+        window?.startImplementation(root.appendingPathComponent(feature.folder, isDirectory: true), done: feature.done)
+    }
 }

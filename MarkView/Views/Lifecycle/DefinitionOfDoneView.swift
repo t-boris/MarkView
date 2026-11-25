@@ -7,8 +7,12 @@ struct DefinitionOfDoneSheet: View {
     let root: URL?
     /// The feature about to be implemented; nil when opened from Settings.
     var feature: URL?
-    /// Called with the checklist when the person starts the run.
+    /// What MarkView knows of the feature to recommend a mode; nil when it is not a feature folder (only the direct mode is offered).
+    var launch: ImplementationLaunchOptions? = nil
+    /// Called with the checklist when the person hands the feature to the assistant terminal.
     var onStart: ((DefinitionOfDone) -> Void)?
+    /// Called with the checklist when the person chooses a managed Cockpit run (REQ-001).
+    var onPrepareCockpit: ((DefinitionOfDone) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var done = DefinitionOfDone.standard
@@ -38,6 +42,7 @@ struct DefinitionOfDoneSheet: View {
                 Spacer()
                 Button("Reset to Standard") { done = .standard }.controlSize(.small)
             }
+            if feature != nil, let launch, onPrepareCockpit != nil { launchAdvice(launch) }
             if let error { Text(error).uiFont(size: 11).foregroundColor(palette.red) }
             HStack {
                 if feature != nil {
@@ -46,7 +51,11 @@ struct DefinitionOfDoneSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                if feature != nil {
+                if feature != nil, let launch, onPrepareCockpit != nil {
+                    let recommended = ImplementationLaunchAdvice.recommend(launch.specification, done: done).recommended
+                    modeButton(.direct, recommended: recommended) { start() }
+                    modeButton(.cockpit, recommended: recommended) { prepareCockpit() }
+                } else if feature != nil {
                     Button("Start") { start() }.keyboardShortcut(.defaultAction)
                 } else {
                     Button("Save") { if save() { dismiss() } }.keyboardShortcut(.defaultAction).disabled(root == nil)
@@ -56,6 +65,41 @@ struct DefinitionOfDoneSheet: View {
         .padding(18)
         .frame(width: 620)
         .onAppear { done = DefinitionOfDone.load(root: root) }
+    }
+
+    /// The recommended mode and why, from the feature's specification and this checklist, and where the checklist leaves out what the
+    /// project's rules require (REQ-001, REQ-004). Either mode can be chosen.
+    private func launchAdvice(_ launch: ImplementationLaunchOptions) -> some View {
+        let advice = ImplementationLaunchAdvice.recommend(launch.specification, done: done)
+        let conflicts = ImplementationDeliveryRules.conflicts(done: done, rules: launch.rules)
+        return VStack(alignment: .leading, spacing: 4) {
+            Label("Recommended: \(advice.recommended.title)", systemImage: advice.recommended == .cockpit ? "gauge.with.dots.needle.67percent" : "terminal")
+                .uiFont(size: 12, weight: .semibold)
+            ForEach(advice.reasons, id: \.self) { Text("• " + $0).uiFont(size: 10).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true) }
+            ForEach(conflicts) { conflict in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundColor(palette.orange)
+                    Text(conflict.message).uiFont(size: 10).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Require it") { setMode(.require, for: conflict.itemID) }.controlSize(.small)
+                }
+            }
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(palette.bg))
+    }
+
+    @ViewBuilder private func modeButton(_ mode: ImplementationLaunchMode, recommended: ImplementationLaunchMode, action: @escaping () -> Void) -> some View {
+        if mode == recommended {
+            Button(mode.title, action: action).keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+        } else {
+            Button(mode.title, action: action)
+        }
+    }
+
+    private func setMode(_ mode: DoneMode, for id: String) {
+        guard let index = done.items.firstIndex(where: { $0.id == id }) else { return }
+        done.items[index].mode = mode
     }
 
     private func row(_ item: Binding<DoneItem>) -> some View {
@@ -105,6 +149,12 @@ struct DefinitionOfDoneSheet: View {
             self.error = "Could not save: \(error.localizedDescription)"
             return false
         }
+    }
+
+    private func prepareCockpit() {
+        if saveAsDefault, root != nil, !save() { return }
+        onPrepareCockpit?(done)
+        dismiss()
     }
 
     private func start() {

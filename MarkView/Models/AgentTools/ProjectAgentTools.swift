@@ -57,7 +57,22 @@ enum ProjectAgentTools {
              ["ticket": ["type": "string", "description": "One-use ticket supplied with the assignment"],
               "passed": ["type": "boolean", "description": "Whether the assigned completion condition was met"],
               "detail": ["type": "string", "description": "Results, evidence and blockers for the next step"],
-              "build": ["type": "string", "description": "Identifier of the build under which the result was obtained, or empty"]],
+              "build": ["type": "string", "description": "Identifier of the build under which the result was obtained, or empty"],
+              "findings": ["type": "array", "items": ["type": "object", "properties": [
+                  "title": ["type": "string"], "detail": ["type": "string"],
+                  "basis": ["type": "string", "enum": ["criterion", "rule"], "description": "An acceptance criterion of the feature, or a mandatory project rule"],
+                  "reference": ["type": "string", "description": "The violated criterion or rule, in its own words"]],
+                  "required": ["title", "detail", "basis", "reference"]],
+                  "description": "Review steps of a managed run: every confirmed violation found in the changes examined"],
+              "findingChecks": ["type": "array", "items": ["type": "object", "properties": [
+                  "id": ["type": "string", "description": "The finding id, e.g. R1"], "fixed": ["type": "boolean"], "evidence": ["type": "string"]],
+                  "required": ["id", "fixed", "evidence"]],
+                  "description": "Fix and re-verification steps of a managed run: each finding checked at the current revision"],
+              "delegates": ["type": "array", "items": ["type": "object", "properties": [
+                  "work": ["type": "string", "description": "What was delegated"],
+                  "outcome": ["type": "string", "enum": ["finished", "stopped", "outstanding"]]],
+                  "required": ["work", "outcome"]],
+                  "description": "Every piece of work this step handed to its own subagents, and how it ended"]],
              required: ["ticket", "passed", "detail"]),
         tool("markview_cockpit_ask", "Ask the Cockpit supervisor (the Copilot that approved this run's plan) a question about the step you are working on and get its answer at once. "
              + "Use it when you need a decision you cannot make from the assignment and the controls. Nobody else is asked and nothing waits for a person; "

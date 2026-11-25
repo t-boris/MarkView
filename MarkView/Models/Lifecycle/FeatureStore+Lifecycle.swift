@@ -576,6 +576,16 @@ final class IssueLifecycleCoordinator {
         return (own, others)
     }
 
+    /// The delivery conditions of an item's process (DEC-027): its assigned variant, else the type's default, else the standard one.
+    func deliveryRules(_ kind: IssueKind, _ issue: String) -> DeliveryRules {
+        deliveryRules(kind, assigned: history(kind, issue)?.assignedVariant)
+    }
+
+    private func deliveryRules(_ kind: IssueKind, assigned: String?) -> DeliveryRules {
+        (workflow.resolvedVariant(kind, assigned: assigned) ?? workflow.resolvedVariant(kind, assigned: nil))?.deliveryRules
+            ?? ProjectWorkflow.standard.resolvedVariant(kind, assigned: nil)!.deliveryRules
+    }
+
     /// Delivery evidence of an item now (DEC-007, DEC-012). Runs git and gh off the main thread.
     func deliveryVerdict(_ kind: IssueKind, _ issue: String) async -> DeliveryVerdict {
         await deliveryObservation(kind, issue).verdict
@@ -586,8 +596,7 @@ final class IssueLifecycleCoordinator {
         guard let root = store.root, let history = history(kind, issue) else { return (.notCollected, []) }
         let linked = numbers(kind, issue)
         let since = history.deliveryRoundStart
-        let rules = (workflow.resolvedVariant(kind, assigned: history.assignedVariant) ?? workflow.resolvedVariant(kind, assigned: nil))?.deliveryRules
-            ?? ProjectWorkflow.standard.resolvedVariant(kind, assigned: nil)!.deliveryRules
+        let rules = deliveryRules(kind, assigned: history.assignedVariant)
         let confirmation = rules.confirmedEventName.flatMap { history.deliveryConfirmation(event: $0, confirmer: rules.confirmedBy)?.reason }
         let subject = IssueEvidenceCollector.Subject(kind: kind, issue: issue, exclusiveNumbers: linked.own.subtracting(linked.others),
                                                      sharedNumbers: linked.own.intersection(linked.others), since: since,

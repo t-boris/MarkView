@@ -32,6 +32,7 @@ struct CockpitRunScreen: View {
                         header(run, now: context.date)
                         attention(run, now: context.date)
                         cockpit(run, now: context.date)
+                        if run.plan.feature != nil { CockpitDeliveryCard(run: run) }
                         tabs(run)
                     }.padding(20).frame(maxWidth: 1000, alignment: .leading).frame(maxWidth: .infinity)
                 }
@@ -95,9 +96,14 @@ struct CockpitRunScreen: View {
         VStack(spacing: 8) {
             if let error = session.error ?? execution?.error { banner(icon: "xmark.octagon.fill", tint: palette.red, title: error) {} }
             if isLive, let notice = execution?.limitNotice { banner(icon: "hourglass", tint: palette.orange, title: notice) {} }
-            if phase == .needsYou { banner(icon: "exclamationmark.circle.fill", tint: palette.red, title: "A step failed", detail: run.waitingReason) { retryButton(run) } }
-            if phase == .interrupted { interruptedBanner(run) }
-            if phase == .paused { banner(icon: "pause.circle.fill", tint: palette.orange, title: "The run is paused", detail: run.waitingReason) { retryButton(run) } }
+            if run.plan.feature != nil {
+                CockpitManagedAttention(session: session, run: run, live: activeNow, phase: phase)
+            } else {
+                if let blocker = session.startBlocker, !activeNow { banner(icon: "hand.raised.fill", tint: palette.orange, title: blocker) {} }
+                if phase == .needsYou { banner(icon: "exclamationmark.circle.fill", tint: palette.red, title: "A step failed", detail: run.waitingReason) { retryButton(run) } }
+                if phase == .interrupted { interruptedBanner(run) }
+                if phase == .paused { banner(icon: "pause.circle.fill", tint: palette.orange, title: "The run is paused", detail: run.waitingReason) { retryButton(run); endButton(run) } }
+            }
             if activeNow, phase == .running, let quiet = run.quietSeconds(now: now, activity: execution?.lastSignal), run.isSilent(now: now, activity: execution?.lastSignal) {
                 banner(icon: "moon.zzz.fill", tint: palette.orange, title: "No report for \(CockpitFormat.duration(quiet))",
                        detail: "The agent may be waiting for an answer or a permission in its terminal, which MarkView cannot see.") {
@@ -132,6 +138,11 @@ struct CockpitRunScreen: View {
         }
     }
 
+    /// A saved run that no longer runs anywhere still holds the project until it is ended (REQ-001).
+    @ViewBuilder private func endButton(_ run: CockpitRun) -> some View {
+        if !activeNow, run.isUnfinished { Button("End run") { session.endRun(run) } }
+    }
+
     private func interruptedBanner(_ run: CockpitRun) -> some View {
         let canContinue = !activeNow && (run.status == .paused || run.status == .stopped)
         return banner(icon: "bolt.circle.fill", tint: palette.orange, title: "A step was interrupted; its effects may be incomplete",
@@ -139,16 +150,23 @@ struct CockpitRunScreen: View {
             if canContinue {
                 Button("Choose how to continue") { session.prepareRecovery(run) }.disabled(session.loadingRecovery || session.execution?.isActive == true)
                 if run.pendingRevision != nil { Button("Review the pending plan") { session.prepareRecovery(run, usePending: true) }.disabled(session.loadingRecovery || session.execution?.isActive == true) }
+                endButton(run)
             }
         }
     }
 
     @ViewBuilder private func outcomeBanner(_ run: CockpitRun) -> some View {
         let progress = run.results.last?.progress
-        switch CockpitOutcome.evaluate(criteria: run.plan.successCriteria, progress: progress) {
+        let outcome = CockpitOutcome.evaluate(criteria: run.plan.successCriteria, progress: progress)
+        // A managed run reports success only with every mandatory and required delivery action done (REQ-004).
+        if run.plan.feature != nil, outcome == .success, !CockpitManagedRun.deliveryComplete(run) {
+            banner(icon: "exclamationmark.triangle.fill", tint: palette.orange, title: "Finished, but delivery is incomplete: see Delivery") {}
+        } else {
+        switch outcome {
         case .success: banner(icon: "checkmark.seal.fill", tint: palette.green, title: "Success against the stated criteria") {}
         case .blocked: banner(icon: "exclamationmark.triangle.fill", tint: palette.orange, title: "Finished with remaining blockers") {}
         case .unverified: banner(icon: "questionmark.circle.fill", tint: palette.orange, title: "Finished, but the success criteria lack complete evidence") {}
+        }
         }
     }
 
@@ -254,6 +272,7 @@ struct CockpitRunScreen: View {
         let latest = run.results.last?.progress ?? run.steps.compactMap(\.progress).last
         let bugs = Array(Set(run.steps.compactMap(\.progress).flatMap(\.bugs) + run.results.compactMap(\.progress).flatMap(\.bugs))).sorted()
         return VStack(alignment: .leading, spacing: 12) {
+            if run.plan.feature != nil { CockpitReviewFindingsCard(session: session, run: run, live: activeNow) }
             VStack(alignment: .leading, spacing: 6) {
                 CockpitSectionTitle(title: "Success criteria", detail: "Judged against the evidence the agent reported.")
                 ForEach(run.plan.successCriteria, id: \.self) { criterion in

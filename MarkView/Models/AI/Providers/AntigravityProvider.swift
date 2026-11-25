@@ -9,6 +9,8 @@ struct AntigravityProvider: AssistantProvider {
     let authStatusArgs: [String] = []
     let loginCommand = ""
     let fullAccessArgs = ["--dangerously-skip-permissions"]
+    /// Workflows with parallel()/pipeline() run subagents under the session (2026-11-24 research).
+    let cockpitDelegation: String? = "a /run-workflow with parallel() or pipeline() subagents of this session"
     let continueArgs = ["--continue"]
     let terminalIcon = "wand.and.stars"
     var usage: (any AssistantUsageSupport)? { AntigravityUsage() }

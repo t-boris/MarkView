@@ -37,12 +37,27 @@ enum CockpitPlanning {
     must give while the run is going, and list a needed person's decision as an unavailable outcome with an alternative instead.
     """
 
+    /// What the planner is told on top of `systemPrompt` when it plans the implementation of a feature (a managed run, DEC-030).
+    static func managedPrompt(feature: CockpitFeatureContext) -> String {
+        """
+        This plan implements the feature specified in \(feature.folder) (\(feature.title)). Read the whole folder first: the overview, every
+        requirement and its acceptance criteria, the implementation plan, and the records that bind the work. \(HandoffPrompt.featureRecords)
+        Nothing waits for the person while the run goes: a question the specification leaves open is a blocker of the step that meets it.
+        Write only the implementation steps, in dependency order, each one sized to be checked on its own (one per issue of the
+        implementation plan when it has issues). MarkView adds the rest itself from the Definition of Done the person reviewed: the branch
+        \(feature.branch), the tests, an independent review, fixes and their re-verification, the version, the pull request, CI, merge,
+        release and the final verification. Do not plan those steps. Use successCriteria for the feature's acceptance criteria.
+        Set delegate to true on a step only when its agent is listed with a delegation mechanism and the step has independent parts that
+        its own subagents can do within the same assignment; otherwise false.
+        """
+    }
+
     static var schema: [String: Any] {
         let string: [String: Any] = ["type": "string"]
         let strings: [String: Any] = ["type": "array", "items": string]
         let step: [String: Any] = ["type": "object", "required": ["title", "agent", "model", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"], "properties": [
             "title": string, "agent": string, "model": string, "assignment": string, "completionCondition": string,
-            "isPrerequisite": ["type": "boolean"], "qaScenarioID": string
+            "isPrerequisite": ["type": "boolean"], "qaScenarioID": string, "delegate": ["type": "boolean"]
         ]]
         return ["type": "object", "required": ["title", "scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
             "title": string, "scenarios": strings, "steps": ["type": "array", "items": step], "successCriteria": strings,
@@ -80,7 +95,7 @@ enum CockpitPlanning {
             let proposed = (raw["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let model = !proposed.isEmpty && models[agent]?.contains(proposed) == true ? proposed : nil
             steps.append(CockpitStep(title: title, agent: agent, assignment: assignment, completionCondition: condition, isPrerequisite: prerequisite,
-                                     qaScenarioID: qaID.isEmpty ? nil : qaID, model: model))
+                                     qaScenarioID: qaID.isEmpty ? nil : qaID, model: model, delegate: (raw["delegate"] as? Bool) == true ? true : nil))
         }
         guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count else {
             throw ParseError.invalid(["Each selected QA scenario must be assigned to a step."])

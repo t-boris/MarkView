@@ -13,6 +13,8 @@ protocol ToolTabsWindow: AnyObject {
     func openFile(_ url: URL)
     func showFeatureContext(_ slug: String?)
     func showAIConsole()
+    /// "Implement with AI" handed to the assistant terminal with the checklist (the Cockpit's direct-handoff fallback, REQ-001).
+    func startImplementation(_ url: URL, done: DefinitionOfDone)
 }
 
 /// Opens the tabs of the tools of `ToolRegistry` in one window (`AR-14` step 10, `AR-31`): the tool's tab is shown, or built once, and
@@ -55,6 +57,12 @@ final class ToolTabsRouter: ToolOpening {
         self.features = features
         self.terminals = assistants
         qa.assistants = assistants
+    }
+
+    /// "Implement with AI" chose Cockpit: the feature's draft opens in the Cockpit and its plan is prepared (REQ-001).
+    func prepareCockpitImplementation(_ feature: CockpitFeatureContext, goal: String) {
+        open(.cockpit)
+        cockpit.prepareImplementation(feature, goal: goal)
     }
 
     /// What opening the tool does beyond showing its tab. Every tool of the registry that is not listed opens as a plain `.tool` tab.

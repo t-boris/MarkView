@@ -11,6 +11,8 @@ struct CodexProvider: AssistantProvider {
     let authStatusArgs = ["login", "status"]
     let loginCommand = "login"
     let fullAccessArgs = ["--dangerously-bypass-approvals-and-sandbox"]
+    /// Codex subagents inherit the parent session's sandbox and approval settings (2026-11-24 research).
+    let cockpitDelegation: String? = "Codex subagents spawned from this session, which inherit its permissions"
     let continueArgs = ["resume", "--last"]
     let modelFlag = "-m"
     let defaultXRayModel = "gpt-5.6-luna"

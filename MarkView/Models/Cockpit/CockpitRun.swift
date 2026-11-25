@@ -56,6 +56,8 @@ struct CockpitRun: Codable, Equatable {
     private(set) var switches: CockpitLiveSwitches? = nil
     /// What the person told the supervisor, the latest `CockpitCuratorNote.capacity`. Absent in older runs.
     private(set) var notes: [CockpitCuratorNote]? = nil
+    /// The decisions, review findings, external completions and surviving processes of a managed implementation run; nil otherwise.
+    private(set) var managed: CockpitManagedState? = nil
 
     /// When the run began, or its first event for a run saved before the start time was kept.
     var began: Date? { startedAt ?? events?.first?.at }
@@ -252,6 +254,53 @@ struct CockpitRun: Codable, Equatable {
         return true
     }
 
+    /// A managed run (`plan.feature`) changes its own state: a decision, a finding, an external completion, a process. The timeline
+    /// gets `event` when there is one.
+    mutating func updateManaged(_ change: (inout CockpitManagedState) -> Void, event: String? = nil, now: Date = Date()) {
+        guard plan.feature != nil else { return }
+        var state = managed ?? CockpitManagedState()
+        change(&state)
+        managed = state
+        if let event, !event.isEmpty { log(.managed, step: currentIndex, event, at: now) }
+    }
+
+    /// Whether the run still holds the project: approved and started, and neither stopped nor finished (REQ-001).
+    var isUnfinished: Bool { status == .running || status == .paused }
+
+    /// The person continues a managed run that paused on a failed or interrupted step, from the step evidence selected (DEC-027). The
+    /// plan and its approval stay as they were; an interrupted step's partial result is kept, and so are the changes in the checkout.
+    mutating func continueManaged(at index: Int, now: Date = Date()) -> Bool {
+        guard plan.feature != nil, status == .paused || status == .stopped, let approval, approval.permits(plan),
+              steps.indices.contains(index) else { return false }
+        if let oldIndex = currentIndex, steps.indices.contains(oldIndex), steps[oldIndex].status == .interrupted {
+            let partial = steps[oldIndex]
+            results.append(StepResult(plan: plan, stepID: partial.stepID, passed: false,
+                                      detail: "Interrupted; effects may be incomplete. " + partial.detail, build: "",
+                                      progress: partial.progress, interrupted: true))
+        }
+        let before = steps
+        steps = plan.steps.enumerated().map { offset, step in
+            if offset < index { return StepRecord(stepID: step.id, status: before[offset].status == .passed ? .passed : .skipped, detail: before[offset].detail) }
+            return StepRecord(stepID: step.id)
+        }
+        currentIndex = index
+        steps[index].status = .running
+        status = .running
+        waitingReason = ""
+        pendingRevision = nil
+        log(.recovered, step: index, "Continuing from step \(index + 1), the first step current evidence does not support.", at: now)
+        began(index, at: now)
+        return true
+    }
+
+    /// The person ends a saved run that no longer runs anywhere (its worker ended with the app), so the project is free for a new one.
+    mutating func end(now: Date = Date()) {
+        guard isUnfinished else { return }
+        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .running { steps[index].status = .interrupted }
+        status = .stopped
+        log(.stopped, step: currentIndex, "Ended by you.", at: now)
+    }
+
     mutating func discardPendingRevision(reason: String) {
         guard pendingRevision != nil else { return }
         pendingRevision = nil
@@ -299,7 +348,7 @@ struct CockpitRun: Codable, Equatable {
 /// One thing that happened in a run, for its timeline.
 struct CockpitRunEvent: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable {
-        case started, stepStarted, stepPassed, stepFailed, report, question, bug, fix, refusal, limit, paused, resumed, stopped, finished, recovered, revised, switched, note
+        case started, stepStarted, stepPassed, stepFailed, report, question, bug, fix, refusal, limit, paused, resumed, stopped, finished, recovered, revised, switched, note, managed
     }
     var at: Date
     var kind: Kind

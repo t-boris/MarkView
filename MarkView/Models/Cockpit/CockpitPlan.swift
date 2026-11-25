@@ -51,6 +51,9 @@ struct CockpitControls: Codable, Equatable {
     /// nil means the project's own assistant and model. Runs saved before the choice existed have neither.
     var supervisorAgent: String?
     var supervisorModel: String?
+    /// Whether a step's agent may delegate independent work to its own subagents where its launch profile supports it (REQ-002).
+    /// Off unless the person turns it on; plans saved before it existed have it off and encode as before.
+    var allowDelegation = false
 
     init() {}
 
@@ -71,6 +74,7 @@ struct CockpitControls: Codable, Equatable {
         build = try container.decodeIfPresent(Bool.self, forKey: .build) ?? false
         deployment = try container.decodeIfPresent(String.self, forKey: .deployment) ?? "Disabled"
         supervisor = try container.decodeIfPresent(Bool.self, forKey: .supervisor) ?? true
+        allowDelegation = try container.decodeIfPresent(Bool.self, forKey: .allowDelegation) ?? false
         supervisorAgent = Self.chosen(try container.decodeIfPresent(String.self, forKey: .supervisorAgent))
         supervisorModel = Self.chosen(try container.decodeIfPresent(String.self, forKey: .supervisorModel))
         if let minutes = try container.decodeIfPresent(Int.self, forKey: .timeLimitMinutes) {
@@ -86,7 +90,7 @@ struct CockpitControls: Codable, Equatable {
     }
 
     private enum Key: String, CodingKey {
-        case createScenarios, checks, fileBugs, fixBugs, build, deployment, supervisor, supervisorAgent, supervisorModel, timeLimitMinutes, fixCycleLimit
+        case createScenarios, checks, fileBugs, fixBugs, build, deployment, supervisor, supervisorAgent, supervisorModel, timeLimitMinutes, fixCycleLimit, allowDelegation
         /// Only read, from runs saved with a free-text time limit.
         case timeLimit
     }
@@ -104,6 +108,7 @@ struct CockpitControls: Codable, Equatable {
         try container.encodeIfPresent(Self.chosen(supervisorModel), forKey: .supervisorModel)
         try container.encodeIfPresent(timeLimitMinutes, forKey: .timeLimitMinutes)
         try container.encodeIfPresent(fixCycleLimit, forKey: .fixCycleLimit)
+        if allowDelegation { try container.encode(true, forKey: .allowDelegation) }
     }
 
     /// An empty choice is no choice: the same value everywhere, so a plan that never chose encodes exactly as before.
@@ -116,7 +121,7 @@ struct CockpitControls: Codable, Equatable {
     /// by MarkView while the plan runs and change no step.
     func affectsSteps(comparedTo other: CockpitControls) -> Bool {
         createScenarios != other.createScenarios || checks != other.checks || fileBugs != other.fileBugs
-            || fixBugs != other.fixBugs || build != other.build || deployment != other.deployment
+            || fixBugs != other.fixBugs || build != other.build || deployment != other.deployment || allowDelegation != other.allowDelegation
     }
 
     /// "90", "90 min", "2h", "1h30m", "1.5 hours": the minutes they name, or nil when the text is not just an amount of time.
@@ -170,6 +175,14 @@ struct CockpitStep: Codable, Equatable, Identifiable {
     /// The model the step's agent runs with: one of `AIAssistantPreferences.modelOptions(for:)`'s ids. nil or empty means the
     /// project's chosen model for that agent, or the agent's own default. Runs saved before the choice existed have none.
     var model: String? = nil
+    /// What the step is for in a managed implementation run (`CockpitManagedRun`); nil in other plans, whose saved JSON keeps no key.
+    var kind: CockpitStepKind? = nil
+    /// The Definition of Done item the step delivers, in a managed run.
+    var doneItem: String? = nil
+    /// The item is set to "Ask me": the step waits for the person's approval before it acts.
+    var asksFirst: Bool? = nil
+    /// The agent may hand independent parts of the step to its own subagents (REQ-002), when the controls allow delegation.
+    var delegate: Bool? = nil
 
     /// `model` with an empty choice read as no choice.
     var chosenModel: String? {
@@ -200,6 +213,8 @@ struct CockpitPlan: Codable, Equatable {
     var alternatives: [String]
     var productionQA: CockpitProductionQA?
     var qaReviews: [CockpitQAReview]? = nil
+    /// The feature a managed implementation run delivers; nil for every other plan.
+    var feature: CockpitFeatureContext? = nil
 
     /// What names this flow on screen and in notifications: the assistant's title, or the first line of the goal when there is none.
     var displayTitle: String {
@@ -249,6 +264,11 @@ struct CockpitPlan: Codable, Equatable {
     func approvalBlockers(productionConfirmed: Bool) -> [Blocker] {
         let structural = structuralBlockers
         guard structural.isEmpty else { return structural }
+        if let feature, !feature.conflicts.isEmpty, !feature.conflictsAcknowledged {
+            return feature.conflicts.map {
+                Blocker(stepID: nil, message: $0.message + " Change the checklist in Build, or acknowledge that this run delivers only what the checklist asks.")
+            }
+        }
         guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios) else {
             return [Blocker(stepID: nil, message: "Each selected QA scenario must be assigned to a step.")]
         }

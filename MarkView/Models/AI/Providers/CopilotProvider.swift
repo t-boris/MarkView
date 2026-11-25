@@ -11,6 +11,8 @@ struct CopilotProvider: AssistantProvider, AssistantACPSupport {
     let authStatusArgs: [String] = []
     let loginCommand = "login"
     let fullAccessArgs = ["--allow-all"]
+    /// /fleet works in the interactive CLI (not over ACP); the Cockpit step runs the interactive CLI (2026-11-24 research).
+    let cockpitDelegation: String? = "the /fleet command of this interactive session"
     let continueArgs = ["--continue"]
     let terminalIcon = "airplane"
     var usage: (any AssistantUsageSupport)? { CopilotUsage() }

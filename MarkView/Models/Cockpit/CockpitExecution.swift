@@ -83,7 +83,10 @@ final class CockpitExecution: ObservableObject {
         shutdownRequested = false
         defer { starting = false }
         var initial = recovering ?? CockpitRun(plan: plan)
-        if recovering != nil {
+        if let recovering, recovering.plan.feature != nil, recovering.plan == plan {
+            // A managed run continues its own approved plan from the step evidence selected (DEC-027).
+            guard initial.continueManaged(at: step) else { throw Failure.approval }
+        } else if recovering != nil {
             guard initial.continueAfterInterruption(plan: plan, approval: approval, at: step) else { throw Failure.approval }
         } else {
             guard initial.start(approval: approval, at: step) else { throw Failure.approval }
@@ -288,6 +291,11 @@ final class CockpitExecution: ObservableObject {
 
     private func addUsage(seconds: Double, fixCycles: Int) async {
         await updateRecord({ $0.addUsage(seconds: seconds, fixCycles: fixCycles) }, failure: "The time and fix cycles this step used could not be saved")
+    }
+
+    /// A managed run's own state changed (a decision, a finding, an external completion, a process); saved with the run.
+    func updateManaged(_ change: @escaping (inout CockpitManagedState) -> Void, event: String? = nil) async {
+        await updateRecord({ $0.updateManaged(change, event: event) }, failure: "The run's delivery state could not be saved")
     }
 
     /// One question of a step agent and the supervisor's answer join the run's log.
