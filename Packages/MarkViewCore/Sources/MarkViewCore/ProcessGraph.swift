@@ -5,11 +5,19 @@ public struct ProcessGraph: Codable, Equatable, Sendable {
         public var path: String
         public var line: Int
         public var endLine: Int
+        public var note: String?
 
-        public init(path: String, line: Int, endLine: Int) {
+        public init(path: String, line: Int, endLine: Int, note: String? = nil) {
             self.path = path
             self.line = line
             self.endLine = endLine
+            self.note = note
+        }
+
+        public var isProjectRelative: Bool {
+            let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+            return !path.isEmpty && path.count <= 1000 && !path.hasPrefix("/") && !path.contains("\\")
+                && !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." })
         }
     }
 
@@ -64,7 +72,7 @@ public struct ProcessGraph: Codable, Equatable, Sendable {
         }
     }
 
-    public struct Level: Equatable, Sendable {
+    public struct Level: Codable, Equatable, Sendable {
         public var nodes: [Node]
         public var edges: [Edge]
         public var boundary: [Edge]
@@ -114,6 +122,7 @@ public struct ProcessGraph: Codable, Equatable, Sendable {
         if question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || question.count > 4000 {
             problems.append("The process needs a question of at most 4000 characters")
         }
+        if takeaway.isEmpty || takeaway.count > 4000 || omitted.count > 4000 { problems.append("Invalid process description") }
         if nodes.count < 2 || nodes.count > Self.maxNodes { problems.append("Invalid process node count") }
         if edges.isEmpty || edges.count > Self.maxEdges { problems.append("Invalid process edge count") }
         guard problems.isEmpty else { throw ValidationError(problems: problems) }
@@ -123,7 +132,8 @@ public struct ProcessGraph: Codable, Equatable, Sendable {
             if !Self.validID(node.id) || byID[node.id] != nil { problems.append("Invalid or duplicate node id: \(node.id.prefix(96))") }
             byID[node.id] = node
             if node.title.isEmpty || node.title.count > 120 { problems.append("Invalid title for \(node.id)") }
-            if node.explanation.isEmpty || node.explanation.count > 4000 || node.input.count > 2000 || node.output.count > 2000 {
+            if node.explanation.isEmpty || node.explanation.count > 4000 || node.input.count > 2000
+                || node.output.count > 2000 || node.symbol.count > 200 {
                 problems.append("Invalid explanation for \(node.id)")
             }
             if node.sources.count > 8 || (node.kind != .external && node.sources.isEmpty) {
@@ -156,9 +166,8 @@ public struct ProcessGraph: Codable, Equatable, Sendable {
             }
         }
         for source in sources {
-            let parts = source.path.split(separator: "/", omittingEmptySubsequences: false)
-            if source.path.isEmpty || source.path.hasPrefix("/") || source.path.contains("\\")
-                || parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) {
+            if (source.note?.count ?? 0) > 2000 { problems.append("A source explanation is too long") }
+            if !source.isProjectRelative {
                 problems.append("Invalid project-relative source path")
             } else if let count = lineCounts[source.path], source.line > 0,
                       source.endLine >= source.line, source.endLine <= count {

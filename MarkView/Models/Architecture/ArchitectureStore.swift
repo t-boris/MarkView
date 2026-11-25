@@ -32,6 +32,7 @@ final class ArchitectureStore: ObservableObject {
     private(set) lazy var review = ChangeReviewStore(host: self)
     /// The importance rating, the person's filters, the search and "I need to understand" answers.
     private(set) lazy var filters = XRayFilterStore(host: self)
+    private(set) lazy var processes = ProcessGraphStore(host: self)
 
     @Published private(set) var snapshot: ArchitectureSnapshot?
     @Published private(set) var status: String?
@@ -141,6 +142,7 @@ final class ArchitectureStore: ObservableObject {
         changeWatcher = nil
         automaticState = .idle
         filters.reset()
+        processes.reset()
         rootPath = nil
         snapshot = nil
         outlines = [:]
@@ -277,7 +279,8 @@ final class ArchitectureStore: ObservableObject {
                                         },
                                         deploymentHints: result.deploymentHints, scannedAt: Date(),
                                         enrichedAt: previous?.enrichedAt, gitHead: result.gitHead,
-                                        codeSequences: previous?.codeSequences, codeModel: previous?.codeModel)
+                                        codeSequences: previous?.codeSequences, codeModel: previous?.codeModel,
+                                        processGraphs: previous?.processGraphs)
         let model = previous?.codeModel
         let sourceFileCount = automaticSourceFileCount(result.modules)
         next.codeCoverage = await Task.detached(priority: .userInitiated) {
@@ -419,6 +422,7 @@ final class ArchitectureStore: ObservableObject {
     /// Stop a running analysis; the assistant's process is terminated.
     func cancelAnalysis() {
         tasks.cancel(key: "analysis")
+        processes.cancel()
     }
 
     private func beginStep(_ step: Int, _ title: String, started: Date, steps: Int = 5) {
@@ -1639,6 +1643,7 @@ final class ArchitectureStore: ObservableObject {
             /// One entry per `snapshot.codeSequences`, in the same order: what the scenario
             /// list shows (the snapshot's own sequences carry the diagram and citations).
             let codeSequenceInfo: [CodeSequenceInfo]
+            let processState: ProcessGraphStore.State
         }
         let modules = snapshot?.view("modules")
         let payload = Payload(mode: mode, snapshot: snapshot.map { withCodeArchitecture(withContents(filters.withUnderstandingEvidence($0))) }, status: status, error: error,
@@ -1653,7 +1658,7 @@ final class ArchitectureStore: ObservableObject {
                               codeSequenceInfo: (snapshot?.codeSequences ?? []).map { sequence in
                                   CodeSequenceInfo(title: sequence.diagram.title, scope: sequence.scope, auto: sequence.auto,
                                                    stale: modules.map { sequence.isStale(modules: $0) } ?? false, createdAt: sequence.createdAt)
-                              })
+                              }, processState: processes.state)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

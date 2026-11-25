@@ -71,6 +71,9 @@ enum XRayCommand: Equatable {
     case explainEdge(view: String, source: String, target: String, kind: String, label: String?, again: Bool)
     case refreshCode
     case traceCode(scope: String, question: String)
+    case traceProcess(question: String)
+    case processLevel(scenario: String, parent: String?)
+    case processSource(scenario: String, node: String, index: Int)
     case describe(view: String, id: String)
 
     /// The pull-request operations the page may ask for.
@@ -189,6 +192,21 @@ enum XRayCommand: Equatable {
         case "traceCode":
             guard let scope = p["scope"] as? String, let question = p["question"] as? String else { return nil }
             return .traceCode(scope: scope, question: question)
+        case "traceProcess":
+            let question = text("question").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !question.isEmpty, question.count <= 4000 else { return nil }
+            return .traceProcess(question: question)
+        case "processLevel":
+            let scenario = text("scenario")
+            guard !scenario.isEmpty, scenario.count <= 128 else { return nil }
+            let parent = p["parent"] as? String
+            guard (parent?.count ?? 0) <= 96 else { return nil }
+            return .processLevel(scenario: scenario, parent: parent?.isEmpty == true ? nil : parent)
+        case "processSource":
+            let scenario = text("scenario"), node = text("node")
+            guard !scenario.isEmpty, scenario.count <= 128, !node.isEmpty, node.count <= 96,
+                  let index = p["index"] as? Int, (0..<8).contains(index) else { return nil }
+            return .processSource(scenario: scenario, node: node, index: index)
         case "describe": return .describe(view: p["view"] as? String ?? "modules", id: text("id"))
         default: return nil
         }

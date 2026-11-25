@@ -32,6 +32,7 @@ extension SemanticDatabase {
                 "codeSequences": try snapshot.codeSequences.map { try json($0) },
                 "codeModel": try snapshot.codeModel.map { try json($0) },
                 "codeCoverage": try snapshot.codeCoverage.map { try json($0) },
+                "processGraphs": try snapshot.processGraphs.map { try json($0) },
                 "components": try json(snapshot.components),
                 "assignments": try json(snapshot.assignments),
                 "overrides": try json(snapshot.overrides),
@@ -187,6 +188,7 @@ extension SemanticDatabase {
                                     gitHead: meta["gitHead"],
                                     codeSequences: decode("codeSequences", [CodeSequence].self),
                                     codeModel: decode("codeModel", CodeArchitectureModel.self),
-                                    codeCoverage: decode("codeCoverage", CodeCoverage.self))
+                                    codeCoverage: decode("codeCoverage", CodeCoverage.self),
+                                    processGraphs: decode("processGraphs", [ProcessScenario].self))
     }
 }

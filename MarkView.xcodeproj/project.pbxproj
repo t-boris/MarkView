@@ -338,6 +338,8 @@
 		DF971DA3F1BA7F80901CA7B1 /* LogicalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BFFF8C26811A3A21DDC827E /* LogicalView.swift */; };
 		2FEF2952039003CFEB04ADD5 /* ChangeReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C630F29D053DD1FAB8A37F /* ChangeReviewStore.swift */; };
 		9D3C3771BA7C422BF95CA090 /* ArchitectureHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA3E81538DEFDC5FA0AC764 /* ArchitectureHost.swift */; };
+		D4A783B0616C4CCBA83E0001 /* ProcessGraphSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A783B0616C4CCBA83E0011 /* ProcessGraphSource.swift */; };
+		D4A783B0616C4CCBA83E0002 /* ProcessGraphStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A783B0616C4CCBA83E0012 /* ProcessGraphStore.swift */; };
 		CC040EEDBE1D899D1CE0810B /* ChangeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D463840F256163AB414C09D0 /* ChangeSource.swift */; };
 		264465EC6A74D4C147CFD5D3 /* ChangeDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE081C518141989A6900227 /* ChangeDiff.swift */; };
 		3A993557374111460A125A73 /* ChangeReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */; };
@@ -597,6 +599,7 @@
 		A4DD9A6FAE364D6387E23DF3 /* ScriptedPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */; };
 		A4DD9A6FAE364D6387E23DF5 /* DiagramAIHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DF7 /* CodeArchitectureHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF8 /* CodeArchitectureHostTests.swift */; };
+		D4A783B0616C4CCBA83E0003 /* ProcessGraphHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A783B0616C4CCBA83E0013 /* ProcessGraphHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DF9 /* WorkflowDiagramHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DFA /* WorkflowDiagramHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DFB /* XRayComparisonHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DFC /* XRayComparisonHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DFD /* InsightPageHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DFE /* InsightPageHostTests.swift */; };
@@ -1046,6 +1049,8 @@
 		3BFFF8C26811A3A21DDC827E /* LogicalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogicalView.swift; sourceTree = "<group>"; };
 		22C630F29D053DD1FAB8A37F /* ChangeReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeReviewStore.swift; sourceTree = "<group>"; };
 		BFA3E81538DEFDC5FA0AC764 /* ArchitectureHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureHost.swift; sourceTree = "<group>"; };
+		D4A783B0616C4CCBA83E0011 /* ProcessGraphSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessGraphSource.swift; sourceTree = "<group>"; };
+		D4A783B0616C4CCBA83E0012 /* ProcessGraphStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessGraphStore.swift; sourceTree = "<group>"; };
 		D463840F256163AB414C09D0 /* ChangeSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSource.swift; sourceTree = "<group>"; };
 		ADE081C518141989A6900227 /* ChangeDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeDiff.swift; sourceTree = "<group>"; };
 		B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeReviewModel.swift; sourceTree = "<group>"; };
@@ -1381,6 +1386,7 @@
 		A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../tools/tests/ScriptedPrompts.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagramAIHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DF8 /* CodeArchitectureHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeArchitectureHostTests.swift; sourceTree = "<group>"; };
+		D4A783B0616C4CCBA83E0013 /* ProcessGraphHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessGraphHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DFA /* WorkflowDiagramHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowDiagramHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DFC /* XRayComparisonHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayComparisonHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DFE /* InsightPageHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightPageHostTests.swift; sourceTree = "<group>"; };
@@ -1601,6 +1607,8 @@
 				3BFFF8C26811A3A21DDC827E /* LogicalView.swift */,
 				22C630F29D053DD1FAB8A37F /* ChangeReviewStore.swift */,
 				BFA3E81538DEFDC5FA0AC764 /* ArchitectureHost.swift */,
+				D4A783B0616C4CCBA83E0011 /* ProcessGraphSource.swift */,
+				D4A783B0616C4CCBA83E0012 /* ProcessGraphStore.swift */,
 				D463840F256163AB414C09D0 /* ChangeSource.swift */,
 				ADE081C518141989A6900227 /* ChangeDiff.swift */,
 				B61AEFBC284DC7A8097B46AD /* ChangeReviewModel.swift */,
@@ -2689,6 +2697,7 @@
 				A4DD9A6FAE364D6387E23DFC /* XRayComparisonHostTests.swift */,
 				A4DD9A6FAE364D6387E23DFA /* WorkflowDiagramHostTests.swift */,
 				A4DD9A6FAE364D6387E23DF8 /* CodeArchitectureHostTests.swift */,
+				D4A783B0616C4CCBA83E0013 /* ProcessGraphHostTests.swift */,
 				A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */,
 				A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */,
 				A4DD9A6FAE364D6387E23DF2 /* ProjectContextHostTests.swift */,
@@ -3078,6 +3087,8 @@
 				DF971DA3F1BA7F80901CA7B1 /* LogicalView.swift in Sources */,
 				2FEF2952039003CFEB04ADD5 /* ChangeReviewStore.swift in Sources */,
 				9D3C3771BA7C422BF95CA090 /* ArchitectureHost.swift in Sources */,
+				D4A783B0616C4CCBA83E0001 /* ProcessGraphSource.swift in Sources */,
+				D4A783B0616C4CCBA83E0002 /* ProcessGraphStore.swift in Sources */,
 				CC040EEDBE1D899D1CE0810B /* ChangeSource.swift in Sources */,
 				264465EC6A74D4C147CFD5D3 /* ChangeDiff.swift in Sources */,
 				3A993557374111460A125A73 /* ChangeReviewModel.swift in Sources */,
@@ -3617,6 +3628,7 @@
 				A4DD9A6FAE364D6387E23DFB /* XRayComparisonHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF9 /* WorkflowDiagramHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF7 /* CodeArchitectureHostTests.swift in Sources */,
+				D4A783B0616C4CCBA83E0003 /* ProcessGraphHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF5 /* DiagramAIHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF3 /* ScriptedPrompts.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF1 /* ProjectContextHostTests.swift in Sources */,

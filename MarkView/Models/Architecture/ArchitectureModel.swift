@@ -1,4 +1,5 @@
 import Foundation
+import MarkViewCore
 
 /// A box in an architecture view: the project root, a folder or package, a file, an
 /// external dependency, a deployment unit or a document. Nodes nest via `parent`;
@@ -214,6 +215,7 @@ struct ArchitectureSnapshot: Codable {
     var codeModel: CodeArchitectureModel? = nil
     /// Per-language understanding report; nil for snapshots saved before it existed.
     var codeCoverage: CodeCoverage? = nil
+    var processGraphs: [ProcessScenario]? = nil
 
     func view(_ id: String) -> ArchView? { views.first { $0.id == id } }
 }

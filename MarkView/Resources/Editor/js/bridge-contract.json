@@ -52,7 +52,7 @@
                 "prAction", "prFileDiff", "prFindingComment", "prFindingDismiss", "prFindingExplain", "prFindingFix",
                 "prFindingIssue", "prFixAll", "prTasksToTerminal", "rateImportance", "recursiveInsight",
                 "refreshCode", "refreshPRSources", "rescan", "retryUnderstanding", "reviewPR", "saveSearchAnswer",
-                "setComponent", "showPR", "tempFilter", "traceCode"
+                "setComponent", "showPR", "tempFilter", "traceCode", "traceProcess", "processLevel", "processSource"
               ]
             }
           }
