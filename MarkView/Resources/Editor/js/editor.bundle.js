@@ -10783,7 +10783,7 @@ window.MVPanels = {
         const rawKind = node.kind || (count ? "group" : "action");
         const kind = rawKind.charAt(0).toUpperCase() + rawKind.slice(1);
         button.append(
-          P.element("span", "process-node-kind", kind + (count ? " \xB7 " + count + " steps" : "")),
+          P.element("span", "process-node-kind", kind + (count ? ", " + count + " steps" : "")),
           P.element("span", "process-node-title", node.title)
         );
         button.dataset.processNode = id;

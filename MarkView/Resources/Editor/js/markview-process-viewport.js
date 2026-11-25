@@ -93,7 +93,7 @@
                 const button = P.button('', function() { actions.select(id); }, 'process-node');
                 const rawKind = node.kind || (count ? 'group' : 'action');
                 const kind = rawKind.charAt(0).toUpperCase() + rawKind.slice(1);
-                button.append(P.element('span', 'process-node-kind', kind + (count ? ' · ' + count + ' steps' : '')),
+                button.append(P.element('span', 'process-node-kind', kind + (count ? ', ' + count + ' steps' : '')),
                     P.element('span', 'process-node-title', node.title));
                 button.dataset.processNode = id;
                 button.title = node.title + (count ? '\nDouble-click to open the group' : '');
