@@ -222,6 +222,67 @@ final class CockpitRuntimeIntegrationHostTests: XCTestCase {
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         guard readyToRestart else { throw CockpitFixtureFailure("workflow did not reach approval before restart") }
+        // A managed implementation run (agent-aware-implementation-runs): an Ask me step waits for the person's answer and runs again on
+        // Retry; a continuation of the same run keeps its passed steps and runs only from the step evidence selected.
+        let feature = CockpitFeatureContext(slug: "fixture", title: "Fixture", folder: "docs/features/fixture", branch: "feat/fixture",
+                                            done: DefinitionOfDone(items: []), mandatory: ["merge"])
+        let workStep = CockpitStep(title: "Work", agent: "Codex", assignment: "Work", completionCondition: "Done", isPrerequisite: true, kind: .work)
+        let mergeStep = CockpitStep(title: "Merge", agent: "Codex", assignment: "Merge", completionCondition: "Merged", isPrerequisite: true,
+                                    kind: .merge, doneItem: "merge", asksFirst: true)
+        var managedPlan = CockpitPlan(goal: "Implement", controls: CockpitControls(), scenarios: [], steps: [workStep, mergeStep],
+                                      successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        managedPlan.feature = feature
+        let managedApproval = try XCTUnwrap(CockpitApproval(plan: managedPlan, productionConfirmed: false))
+        let holder = ManagedHolder()
+        let managedEvents = Events()
+        let managed = CockpitExecution(root: root, service: service) { task in
+            await managedEvents.add(task)
+            if task.step.id == mergeStep.id.uuidString {
+                let approved = await MainActor.run { holder.execution?.record?.managed?.decision(for: mergeStep.id)?.approved == true }
+                if !approved { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "Waiting for your approval: Merge.", build: ""), error: "") }
+            }
+            return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Done", build: "m1"), error: "")
+        }
+        holder.execution = managed
+        try await managed.start(plan: managedPlan, approval: managedApproval, step: 0)
+        for _ in 0..<150 where !(managed.state?.status == "paused" && managed.record?.steps[1].status == .failed) { try await Task.sleep(nanoseconds: 100_000_000) }
+        guard managed.state?.status == "paused", managed.record?.steps[1].status == .failed, await managedEvents.tasks.count == 2 else {
+            throw CockpitFixtureFailure("an Ask me step did not wait for the person")
+        }
+        await managed.updateManaged({ $0.decide(mergeStep.id, approved: true) }, event: "You approved Merge.")
+        try await managed.control("retry")
+        for _ in 0..<150 where managed.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
+        guard managed.state?.status == "finished", await managedEvents.tasks.count == 3,
+              managed.record?.managed?.decision(for: mergeStep.id)?.approved == true,
+              managed.record?.events?.contains(where: { $0.kind == .managed && $0.text == "You approved Merge." }) == true else {
+            throw CockpitFixtureFailure("the person's approval did not let the Ask me step run: status \(managed.state?.status ?? "none")")
+        }
+        let pausedEvents = Events()
+        let pausing = CockpitExecution(root: root, service: service) { task in
+            await pausedEvents.add(task)
+            let passed = task.step.id == workStep.id.uuidString
+            return CockpitHostReply(result: CockpitHostResult(passed: passed, detail: passed ? "Done" : "Blocked", build: ""), error: "")
+        }
+        try await pausing.start(plan: managedPlan, approval: managedApproval, step: 0)
+        for _ in 0..<150 where pausing.state?.status != "paused" { try await Task.sleep(nanoseconds: 100_000_000) }
+        try await pausing.control("stop")
+        for _ in 0..<150 where pausing.isActive { try await Task.sleep(nanoseconds: 100_000_000) }
+        let pausedRun = try CockpitRunStore.load(try XCTUnwrap(pausing.runID), root: root)
+        guard pausedRun.status == .stopped, pausedRun.steps[0].status == .passed, pausedRun.steps[1].status == .failed else {
+            throw CockpitFixtureFailure("the managed run did not stop on its failed step")
+        }
+        let continuedEvents = Events()
+        let continuing = CockpitExecution(root: root, service: service) { task in
+            await continuedEvents.add(task)
+            return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Merged", build: ""), error: "")
+        }
+        try await continuing.start(plan: managedPlan, approval: managedApproval, step: 1, recovering: pausedRun)
+        for _ in 0..<150 where continuing.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
+        let continuedRun = try CockpitRunStore.load(pausedRun.id, root: root)
+        guard continuing.state?.status == "finished", await continuedEvents.tasks.map(\.step.id) == [mergeStep.id.uuidString],
+              continuedRun.steps[0].status == .passed, continuedRun.steps[1].status == .passed, continuedRun.status == .finished else {
+            throw CockpitFixtureFailure("a managed continuation did not keep its passed step and run only from the selected one")
+        }
         worker.stop(); bridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard AgentProcesses.count == 0 else { throw CockpitFixtureFailure("local helper processes did not stop") }
@@ -268,4 +329,9 @@ final class CockpitRuntimeIntegrationHostTests: XCTestCase {
         guard AgentProcesses.count == 0 else { throw CockpitFixtureFailure("restarted helper processes did not stop") }
         print("Cockpit packaged runtime integration checks passed")
     }
+}
+
+/// The execution a managed fixture's host handler reads its run from.
+@MainActor private final class ManagedHolder {
+    var execution: CockpitExecution?
 }

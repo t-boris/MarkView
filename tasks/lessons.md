@@ -124,6 +124,10 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 
 - A `URL` value caches its resource values (`resourceValues(forKeys:)` returns the modification time of the first read), so a test that reads a file signature twice through one long-lived `URL` sees a stale time; build a new `URL` for each read, as the store does. [A: xray-content-tests, 2026-11-16]
 
+- 2026-11-24: drive a recovery path (Retry, Continue) through the real runtime before trusting it. Why: Cockpit's "Retry prerequisite"
+  had never saved a retried step's result (`saveHostResult` needs a running step, the record stayed paused/failed) and every retry ended
+  interrupted; only the new integration check that answers an Ask me gate and retries found it.
+
 ## 5. The app-probe and live checks (no visible windows, no crashes)
 
 - Never drive UI in the user's live app: automate the Debug build in `/tmp/MarkViewDerivedData` or a scratch copy, confirm first which window and folder is key, and leave
@@ -159,6 +163,17 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   outlive the worktree it reads. [A: `pgrep -f`, 2026-11-10]
 - Run probes few times and hidden, never in loops on his own application (Boris: "stop creating StrikeDesk windows"); `alphaValue` 0 stops page rendering, so check a hiding trick
   against the baseline. [A: A hidden "Script error.", 2026-11-04 | Data the person asked for, 2026-11-04]
+
+- 2026-11-24: a real agent in the probe's empty HOME stops at Claude Code's folder-trust prompt ("No, exit" is the default) and the step
+  then waits with no sign of life. Give the probe HOME a copy of `~/.claude.json` with `hasTrustDialogAccepted` for the fixture path
+  (never edit the real file), unset `CLAUDECODE`/`NO_COLOR`, and drive buttons below the fold with the cockpit-e2e probe's `press`
+  (AXPress), not app-probe's `clicklabel` (it clicks coordinates outside the window).
+
+- 2026-11-24: an app probe's `MARKVIEW_SOCKET_DIR` must be short (`mktemp -d /tmp/mvs.XXXXXX`): a socket path over ~104 characters
+  makes `AgentToolServer.socketPath` nil, so agent terminals start without `--mcp-config` and say the MarkView tools are unavailable.
+- 2026-11-24: unit and runtime tests passed while every managed step that commits failed with a real agent: the existing "Fix bugs"
+  audit forbids commits. Run a feature that changes how agents work through the real agent on a fixture before the PR, and read the
+  step's failure text, not only the status.
 
 ## 6. Release and install
 

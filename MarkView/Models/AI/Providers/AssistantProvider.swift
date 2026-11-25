@@ -99,6 +99,13 @@ protocol AssistantProvider: Sendable {
     /// CLIs that have no goal command.
     func goalPrompt(_ objective: String, closing: String) -> String
 
+    // MARK: Cockpit
+
+    /// How the CLI hands independent work to subagents of its own inside one interactive terminal session, in words the step's
+    /// agent is told (agent-aware-implementation-runs REQ-002); nil when it has no such mechanism. The subagents run under the
+    /// session's own launch profile, so they keep its permissions.
+    var cockpitDelegation: String? { get }
+
     // MARK: Usage
 
     /// Present when the assistant's quota and usage are tracked (the Terminal tab's indicators).
@@ -145,6 +152,7 @@ extension AssistantProvider {
     var canSearchWeb: Bool { false }
     var fixesBugsAsGoal: Bool { false }
     func goalPrompt(_ objective: String, closing: String) -> String { objective + " " + closing }
+    var cockpitDelegation: String? { nil }
     var usage: (any AssistantUsageSupport)? { nil }
     func loginState(stdout: String, stderr: String) -> Bool? { nil }
     func additionalFolderArgs(_ folders: [URL]) -> [String] { [] }

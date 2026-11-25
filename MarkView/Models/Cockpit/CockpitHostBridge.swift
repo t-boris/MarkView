@@ -5,7 +5,13 @@ import MarkViewCore
 #endif
 
 struct CockpitHostStep: Codable, Sendable { var id: String; var title: String = ""; var agent: String; var assignment: String; var completionCondition: String = ""; var prerequisite: Bool; var qaScenarioID: String? = nil }
-struct CockpitHostResult: Codable, Sendable { var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil; var progress: CockpitProgress? = nil; var interrupted: Bool? = nil }
+struct CockpitHostResult: Codable, Sendable {
+    var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil; var progress: CockpitProgress? = nil; var interrupted: Bool? = nil
+    /// A managed run's step report (`CockpitManagedRun.absorb`): confirmed review findings, checks of findings, delegated work.
+    var findings: [CockpitReportedFinding]? = nil
+    var findingChecks: [CockpitFindingCheck]? = nil
+    var delegates: [CockpitDelegatedWork]? = nil
+}
 struct CockpitHostEntry: Codable, Sendable { var stepID: String; var result: CockpitHostResult; var planFingerprint: String? = nil }
 struct CockpitHostTask: Codable, Sendable {
     var step: CockpitHostStep

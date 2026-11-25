@@ -11,8 +11,9 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     private var ticket: UUID?
     private var continuation: CheckedContinuation<CockpitHostReply, Never>?
     private var progress: CockpitProgress?
-    /// The project as it was when the step began, and the controls it is held to; compared when the step ends.
-    private var audited: (before: CockpitStepAudit.Snapshot, controls: CockpitControls)?
+    /// The project as it was when the step began, the controls it is held to, and whether it may change source whatever fixing says;
+    /// compared when the step ends.
+    private var audited: (before: CockpitStepAudit.Snapshot, controls: CockpitControls, changesAllowed: Bool)?
     private var watchdog: CockpitChild?
     private var watchdogTask: Task<Void, Never>?
     private var watchdogExited: CockpitExitSignal?
@@ -37,6 +38,17 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     var stepModel: String?
     var supervisorTool: CLITool?
     var supervisorModel: String?
+    /// Whether the step about to run may delegate to its agent's own subagents, and how that agent does it (REQ-002). The session sets
+    /// it before each step from the approved plan, the controls and the launch profile.
+    var delegation: String?
+    /// Extra lines of a managed run's step: what to report and how to treat an interrupted attempt's changes.
+    var managedBrief: String?
+    /// The step about to run writes or delivers a managed run's change, so it may change source and commit (DEC-036). The session sets
+    /// it before each step; false for every step of a plan made outside Build.
+    var changesAllowed = false
+    /// Told, when a step has ended and its terminal's group was stopped, which of the processes it started are still alive.
+    private let onSurvivors: ([CockpitProcessRecord]) -> Void
+    private let delegates = CockpitDelegateWatch()
     private var ledger = CockpitSupervisor.Ledger()
 
     init(assistants: any AssistantProviding, root: URL, onFixCycle: @escaping (Int) -> Void = { _ in },
@@ -45,8 +57,9 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
          onExchange: @escaping (CockpitSupervisorExchange) -> Void = { _ in },
          liveCuts: @escaping () -> CockpitLiveSwitches = { CockpitLiveSwitches() },
          liveNotes: @escaping () -> [CockpitCuratorNote] = { [] },
-         onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in }) {
-        self.assistants = assistants; self.root = root.standardizedFileURL; self.onProgress = onProgress
+         onProgress: @escaping (CockpitProgress) async throws -> Void = { _ in },
+         onSurvivors: @escaping ([CockpitProcessRecord]) -> Void = { _ in }) {
+        self.assistants = assistants; self.root = root.standardizedFileURL; self.onProgress = onProgress; self.onSurvivors = onSurvivors
         self.onFixCycle = onFixCycle; self.onGate = onGate; self.askSupervisor = askSupervisor
         self.onExchange = onExchange; self.liveCuts = liveCuts; self.liveNotes = liveNotes
     }
@@ -69,7 +82,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
             return Self.failure("The step was interrupted.")
         }
         // The file audit holds the step to the controls with the cuts in force when it begins; a cut made during the step is the gate's.
-        audited = (before, CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()))
+        audited = (before, CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()), changesAllowed)
         session = terminal
         progress = nil
         // One attempt object serves every step of the run: what a step asked the supervisor is not carried into the next.
@@ -92,6 +105,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                     continuation.resume(returning: Self.failure("The step was interrupted.")); return
                 }
                 self.continuation = continuation
+                delegates.start(shell: pty.shell)
                 let ticket = CockpitAgentRegistry.register(root: root, progress: { [weak self] value in
                     guard let self else { throw CancellationError() }
                     self.progress = value
@@ -117,6 +131,8 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                     when fixes are disabled, report findings without changing source files; when deployment is disabled, do not deploy by any route;
                     when filing bugs is disabled, describe problems in your report instead. A refused call is not a puzzle to get around: report it as a blocker.
                     You cannot start or drive other agents through MarkView during a step.
+                    \(self.delegation.map { "You may hand independent parts of this assignment to your own subagents through \($0). They stay within this assignment, its controls and your permissions. Wait for each to finish, or stop it, before you report, and list every delegated piece in delegates with its outcome: delegated work left outstanding fails the step, and MarkView checks which processes of this terminal are still running when the step ends." } ?? "Do not delegate any of this assignment: do not start subagents, agent teams, fleets, workflows or other agents. MarkView checks which processes of this terminal are still running when the step ends.")
+                    \(self.managedBrief ?? "")
                     \(CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()).supervisor
                         ? "When you need a decision you cannot make from the assignment and the controls, call markview_cockpit_ask with ticket \(ticket.uuidString) and your question: the supervisor answers at once. Nobody else will be asked and nothing waits for a person, so do not print a question into the terminal and wait for it. If the answer says the matter is outside the plan, do not act on it: record it as a blocker."
                         : "There is no supervisor in this run and nobody to ask: decide conservatively inside the controls, say what you decided in your step report, or record a blocker.")
@@ -187,6 +203,8 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
         audited = nil
         let root = self.root
         let base = reported
+        let seen = delegates.stop()
+        let survivorsSeen = onSurvivors
         // The next Temporal step must not start while this terminal's process group is still stopping. The "after" picture is
         // taken only then, so the agent cannot still be changing files.
         terminationTask = Task {
@@ -195,8 +213,8 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
             var finalized = base
             if let audit {
                 let after = await Self.snapshot(of: root)
-                let found = CockpitStepAudit.violations(before: audit.before, after: after, controls: audit.controls)
-                let notes = CockpitStepAudit.limits(of: after, controls: audit.controls)
+                let found = CockpitStepAudit.violations(before: audit.before, after: after, controls: audit.controls, changesAllowed: audit.changesAllowed)
+                let notes = CockpitStepAudit.limits(of: after, controls: audit.controls, changesAllowed: audit.changesAllowed)
                 if !found.isEmpty {
                     finalized.result.passed = false
                     finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n")
@@ -205,6 +223,15 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                 if !notes.isEmpty {
                     finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n") + notes.joined(separator: "\n")
                 }
+            }
+            // What the step started and the end of its group did not stop: a delegate that may still write to the checkout (REQ-003).
+            let survivors = await Task.detached { CockpitDelegateWatch.alive(seen) }.value
+            survivorsSeen(survivors)
+            if !survivors.isEmpty, finalized.error.isEmpty {
+                finalized.result.passed = false
+                finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n")
+                    + "Processes this step started are still running after it ended, so its work is not accounted for:\n"
+                    + survivors.map { "- \($0.command) (process \($0.pid))" }.joined(separator: "\n")
             }
             continuation.resume(returning: finalized)
         }

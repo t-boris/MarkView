@@ -9,6 +9,8 @@ struct ClaudeProvider: AssistantProvider {
     let authStatusArgs = ["auth", "status"]
     let loginCommand = "auth login"
     let fullAccessArgs = ["--dangerously-skip-permissions"]
+    /// Subagents (the Task tool) and Agent Teams run inside the interactive session the Cockpit terminal is (2026-11-24 research).
+    let cockpitDelegation: String? = "subagents through your Task tool (or an agent team), inside this session"
     let continueArgs = ["--continue"]
     let defaultXRayModel = "sonnet"
     let terminalIcon = "sparkle"

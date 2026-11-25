@@ -71,13 +71,14 @@ struct CockpitRunList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { session.screen = .plan } label: {
+            Button { session.leaveDraft() } label: {
                 Label("New plan", systemImage: "plus").uiFont(size: 12, weight: .semibold).frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain).padding(10).background(session.screen == .plan ? palette.bgActive : Color.clear)
+            .buttonStyle(.plain).padding(10).background(session.screen == .plan && session.draft == nil ? palette.bgActive : Color.clear)
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    if !session.drafts.isEmpty { drafts }
                     if entries.isEmpty { Text("Runs appear here after you approve a plan.").uiFont(size: 11).foregroundColor(palette.textDim).padding(10) }
                     ForEach(entries, id: \.id) { run in row(run) }
                     if !session.savedQAResults.isEmpty { evidence }
@@ -85,6 +86,36 @@ struct CockpitRunList: View {
             }
         }
         .background(palette.bgSidebar)
+    }
+
+    /// One draft per feature prepared from Build (REQ-001): opening one keeps the others and their runs.
+    private var drafts: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("FEATURES").uiFont(size: 10, weight: .semibold).foregroundColor(palette.textDim).padding(.horizontal, 10).padding(.top, 8)
+            ForEach(session.drafts.sorted { $0.updated > $1.updated }) { draft in
+                let selected = session.screen == .plan && session.draft?.slug == draft.slug
+                Button { session.openDraft(draft.slug) } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(draft.feature.title).uiFont(size: 12, weight: .medium).lineLimit(2).multilineTextAlignment(.leading)
+                        Text(draftState(draft)).uiFont(size: 10).foregroundColor(draft.preparation == .blocked ? palette.red : palette.textDim).lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(10).contentShape(Rectangle())
+                    .background(selected ? palette.bgActive : Color.clear)
+                }.buttonStyle(.plain)
+            }
+            Divider()
+        }
+    }
+
+    private func draftState(_ draft: CockpitDraft) -> String {
+        if let id = draft.runID, let run = (session.execution?.record.map { [$0] } ?? []).first(where: { $0.id == id }) ?? session.savedRuns.first(where: { $0.id == id }) {
+            return "Run: " + CockpitRunPhase(run: run, coordinator: session.execution?.runID == id ? session.execution?.state?.status : nil).title
+        }
+        switch draft.preparation {
+        case .preparing: return "Preparing the plan…"
+        case .blocked: return "Blocked: " + CockpitText.firstLine(draft.blocker ?? "")
+        case .ready: return draft.approved != nil ? "Approved — ready to start" : "Ready to review"
+        }
     }
 
     private func isSelected(_ run: CockpitRun) -> Bool {

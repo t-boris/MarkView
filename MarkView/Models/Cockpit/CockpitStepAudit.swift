@@ -30,10 +30,11 @@ enum CockpitStepAudit {
     }
 
     /// What the step did that its controls forbid; empty when nothing was found. Source changes are looked for only when
-    /// fixing is off and scenarios only when creating them is off.
-    static func violations(before: Snapshot, after: Snapshot, controls: CockpitControls) -> [String] {
+    /// fixing is off and scenarios only when creating them is off. `changesAllowed`: a managed run's step that writes or delivers the
+    /// change may change source and commit whatever fixing says (agent-aware-implementation-runs DEC-036).
+    static func violations(before: Snapshot, after: Snapshot, controls: CockpitControls, changesAllowed: Bool = false) -> [String] {
         var found: [String] = []
-        if !controls.fixBugs, before.isGitRepository, after.isGitRepository {
+        if !controls.fixBugs, !changesAllowed, before.isGitRepository, after.isGitRepository {
             let paths = changedSources(before: before, after: after)
             if !paths.isEmpty {
                 let shown = paths.prefix(listed).joined(separator: ", ")
@@ -54,8 +55,8 @@ enum CockpitStepAudit {
     }
 
     /// What this audit could not look at, so a clean result is not read as more than it is.
-    static func limits(of snapshot: Snapshot, controls: CockpitControls) -> [String] {
-        !controls.fixBugs && !snapshot.isGitRepository
+    static func limits(of snapshot: Snapshot, controls: CockpitControls, changesAllowed: Bool = false) -> [String] {
+        !controls.fixBugs && !changesAllowed && !snapshot.isGitRepository
             ? ["Source changes were not checked: the project is not a git repository."] : []
     }
 }

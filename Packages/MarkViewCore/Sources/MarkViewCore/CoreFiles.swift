@@ -273,6 +273,8 @@ extension ProjectPaths {
     public static func cockpitRunsFolder(_ root: URL) -> URL { cockpitFolder(root).appendingPathComponent("runs", isDirectory: true) }
     public static func cockpitResultsFolder(_ root: URL) -> URL { cockpitFolder(root).appendingPathComponent("results", isDirectory: true) }
     public static func cockpitTemporalFolder(_ root: URL) -> URL { cockpitFolder(root).appendingPathComponent("temporal", isDirectory: true) }
+    /// The Cockpit plan drafts of features, one file per feature (agent-aware-implementation-runs).
+    public static func cockpitDraftsFolder(_ root: URL) -> URL { cockpitFolder(root).appendingPathComponent("drafts", isDirectory: true) }
     public static func discussionsFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("discussions", isDirectory: true) }
     public static func understandingFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("understanding", isDirectory: true) }
     public static func xrayFoldersFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("xray-folders", isDirectory: true) }

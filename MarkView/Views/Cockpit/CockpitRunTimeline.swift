@@ -74,6 +74,7 @@ struct CockpitRunTimeline: View {
         case .revised: return ("arrow.triangle.2.circlepath", palette.blue)
         case .switched: return ("switch.2", palette.orange)
         case .note: return ("antenna.radiowaves.left.and.right", palette.blue)
+        case .managed: return ("checklist", palette.accent)
         }
     }
 }

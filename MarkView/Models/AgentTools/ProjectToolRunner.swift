@@ -32,6 +32,44 @@ enum ProjectToolRunner {
         return .init(text: "Cockpit progress saved.")
     }
 
+    /// The managed-run parts of a step report; nil when one of them is malformed. Each list is optional and at most 50 entries long.
+    static func cockpitReport(_ args: [String: Any]) -> (findings: [CockpitReportedFinding]?, checks: [CockpitFindingCheck]?, delegates: [CockpitDelegatedWork]?)? {
+        func list(_ key: String) -> [[String: Any]]?? {
+            guard let raw = args[key] else { return .some(nil) }
+            guard let items = raw as? [[String: Any]], items.count <= 50 else { return nil }
+            return .some(items)
+        }
+        guard let rawFindings = list("findings"), let rawChecks = list("findingChecks"), let rawDelegates = list("delegates") else { return nil }
+        var findings: [CockpitReportedFinding]?
+        if let rawFindings {
+            findings = []
+            for item in rawFindings {
+                guard let title = item["title"] as? String, let detail = item["detail"] as? String, let reference = item["reference"] as? String,
+                      let basis = (item["basis"] as? String).flatMap(CockpitReviewFinding.Basis.init(rawValue:)) else { return nil }
+                findings?.append(CockpitReportedFinding(title: String(title.prefix(300)), detail: String(detail.prefix(4_000)), basis: basis,
+                                                        reference: String(reference.prefix(1_000))))
+            }
+        }
+        var checks: [CockpitFindingCheck]?
+        if let rawChecks {
+            checks = []
+            for item in rawChecks {
+                guard let id = item["id"] as? String, let fixed = item["fixed"] as? Bool, let evidence = item["evidence"] as? String else { return nil }
+                checks?.append(CockpitFindingCheck(id: String(id.prefix(20)), fixed: fixed, evidence: String(evidence.prefix(4_000))))
+            }
+        }
+        var delegates: [CockpitDelegatedWork]?
+        if let rawDelegates {
+            delegates = []
+            for item in rawDelegates {
+                guard let work = item["work"] as? String,
+                      let outcome = (item["outcome"] as? String).flatMap(CockpitDelegatedWork.Outcome.init(rawValue:)) else { return nil }
+                delegates?.append(CockpitDelegatedWork(work: String(work.prefix(1_000)), outcome: outcome))
+            }
+        }
+        return (findings, checks, delegates)
+    }
+
     /// A step agent's question for the supervisor. The reply is the answer, or the instruction to decide alone.
     static func askCockpitSupervisor(_ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply {
         guard let root = store.root else { return .error("This window has no project folder open.") }
@@ -60,7 +98,13 @@ enum ProjectToolRunner {
                       let passed = args["passed"] as? Bool, let detail = args["detail"] as? String else {
                     return .error("A valid ticket, result and detail are required.")
                 }
-                let result = CockpitHostResult(passed: passed, detail: detail, build: args["build"] as? String ?? "")
+                var result = CockpitHostResult(passed: passed, detail: detail, build: args["build"] as? String ?? "")
+                guard let report = cockpitReport(args) else {
+                    return .error("findings, findingChecks and delegates must be lists of objects with the fields their schema names.")
+                }
+                result.findings = report.findings
+                result.findingChecks = report.checks
+                result.delegates = report.delegates
                 guard CockpitAgentRegistry.complete(root: root, token: ticket, result: result) else {
                     return .error("The ticket is invalid, expired, belongs to another project, or the result is too long.")
                 }

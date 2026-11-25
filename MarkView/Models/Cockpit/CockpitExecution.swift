@@ -83,7 +83,10 @@ final class CockpitExecution: ObservableObject {
         shutdownRequested = false
         defer { starting = false }
         var initial = recovering ?? CockpitRun(plan: plan)
-        if recovering != nil {
+        if let recovering, recovering.plan.feature != nil, recovering.plan == plan {
+            // A managed run continues its own approved plan from the step evidence selected (DEC-027).
+            guard initial.continueManaged(at: step) else { throw Failure.approval }
+        } else if recovering != nil {
             guard initial.continueAfterInterruption(plan: plan, approval: approval, at: step) else { throw Failure.approval }
         } else {
             guard initial.start(approval: approval, at: step) else { throw Failure.approval }
@@ -103,6 +106,7 @@ final class CockpitExecution: ObservableObject {
             try Task.checkCancellation()
             let handler = self.handler
             let bridge = try CockpitHostBridge { [weak self] task in
+                await self?.retryBegan(task)
                 if let blocked = await self?.stepBegan(task) {
                     return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: blocked)
                 }
@@ -241,6 +245,14 @@ final class CockpitExecution: ObservableObject {
     /// Fix cycles the run has used, including the running step's.
     var usedFixCycles: Int { (record?.fixCyclesUsed ?? 0) + (meter?.stepCycles ?? 0) }
 
+    /// The coordinator runs a failed prerequisite again (the person chose Retry): the record shows the step running again, so the run
+    /// view says so and the attempt's result can be saved (`completeCurrent` takes only a running step).
+    private func retryBegan(_ task: CockpitHostTask) async {
+        guard let id = UUID(uuidString: task.step.id), let record, record.status == .paused, let index = record.currentIndex,
+              record.steps.indices.contains(index), record.steps[index].stepID == id, record.steps[index].status == .failed else { return }
+        await updateRecord({ _ = $0.retryPrerequisite() }, failure: "The retried step could not be saved")
+    }
+
     /// A step is about to run. Returns the reason when it must not (the run's time is already used up); otherwise starts its clock
     /// and a watch that pauses the step when the time limit is reached. Pausing is the cancel the person's own Pause uses.
     private func stepBegan(_ task: CockpitHostTask) -> String? {
@@ -279,6 +291,11 @@ final class CockpitExecution: ObservableObject {
 
     private func addUsage(seconds: Double, fixCycles: Int) async {
         await updateRecord({ $0.addUsage(seconds: seconds, fixCycles: fixCycles) }, failure: "The time and fix cycles this step used could not be saved")
+    }
+
+    /// A managed run's own state changed (a decision, a finding, an external completion, a process); saved with the run.
+    func updateManaged(_ change: @escaping (inout CockpitManagedState) -> Void, event: String? = nil) async {
+        await updateRecord({ $0.updateManaged(change, event: event) }, failure: "The run's delivery state could not be saved")
     }
 
     /// One question of a step agent and the supervisor's answer join the run's log.

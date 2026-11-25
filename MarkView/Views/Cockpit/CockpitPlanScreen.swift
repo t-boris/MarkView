@@ -16,6 +16,8 @@ struct CockpitPlanScreen: View {
     @State private var reviewingRecovery = false
     @State private var expandedID: UUID?
     @State private var showingGuardNote = false
+    /// The Start confirmation of an approved feature draft, with the launch-profile warning (REQ-004).
+    @State private var confirmingStart = false
     /// The controls are what the plan was written for; once there is a plan they fold into one line so the plan comes first.
     @State private var showControls = true
 
@@ -23,6 +25,7 @@ struct CockpitPlanScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
+                if let draft = session.draft { featureCard(draft) }
                 if session.recoveryRun != nil { recoveryBanner }
                 goalCard
                 rolesCard
@@ -40,16 +43,24 @@ struct CockpitPlanScreen: View {
         .onChange(of: startingStep) { _ in productionConfirmed = false }
         .onChange(of: session.plan) { _ in productionConfirmed = false }
         .alert(reviewingRevision ? "Approve these changes?" : "Approve this plan?", isPresented: $approving) {
-            Button(reviewingRevision ? "Approve changes" : "Approve and start") {
+            Button(reviewingRevision ? "Approve changes" : (session.draft != nil ? "Approve" : "Approve and start")) {
                 if let reviewedPlan, (try? session.preparedPlan(startingAt: reviewedStep)) == reviewedPlan {
                     if reviewingRevision { session.applyRevision(at: reviewedStep, reviewed: reviewedPlan, productionConfirmed: reviewedProduction) }
+                    else if session.draft != nil { session.approveDraft(reviewed: reviewedPlan, productionConfirmed: reviewedProduction) }
                     else { session.start(at: reviewedStep, reviewed: reviewedPlan, productionConfirmed: reviewedProduction) }
                 }
                 reviewedPlan = nil
             }
             Button("Cancel", role: .cancel) { reviewedPlan = nil }
         } message: {
-            Text(reviewingRecovery ? "Your chosen step and all following steps may run with your full permissions. Repeating a step may repeat partial actions, and detached background processes may still be running." : "The selected step and all following steps may run with your full permissions. Controls are advisory. Detached background processes may continue after a pause or after MarkView closes.")
+            Text(session.draft != nil ? "Approving does not start the run. You start it separately, when the project has no other unfinished run."
+                 : reviewingRecovery ? "Your chosen step and all following steps may run with your full permissions. Repeating a step may repeat partial actions, and detached background processes may still be running." : "The selected step and all following steps may run with your full permissions. Controls are advisory. Detached background processes may continue after a pause or after MarkView closes.")
+        }
+        .alert("Start this run?", isPresented: $confirmingStart) {
+            Button("Start") { session.startDraft() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(session.plan.map { CockpitSession.permissionWarning(plan: $0) + " Cockpit starts at the first step current evidence does not support." } ?? "")
         }
     }
 
@@ -174,6 +185,7 @@ struct CockpitPlanScreen: View {
         var parts = [controls.fileBugs ? "Files bugs" : "No bug filing", controls.fixBugs ? "Fixes bugs" : "No bug fixing", controls.build ? "Builds" : "No builds"]
         parts.append("Deployment: \(controls.deployment)")
         parts.append(controls.timeLimitMinutes.map { "\(CockpitFormat.duration(Double($0) * 60)) limit" } ?? "No time limit")
+        if controls.allowDelegation { parts.append("Delegation allowed") }
         return parts.joined(separator: " · ")
     }
 
@@ -204,10 +216,15 @@ struct CockpitPlanScreen: View {
             }
             control("Create scenarios", note: "Checked after each step", tint: palette.blue) { Toggle("Create scenarios", isOn: $session.controls.createScenarios) }
             control("File bugs", note: "Enforced", tint: palette.green) { Toggle("File bugs", isOn: $session.controls.fileBugs) }
-            control("Fix bugs", note: "Enforced; source changes checked", tint: palette.green) { Toggle("Fix bugs", isOn: $session.controls.fixBugs) }
+            control("Fix bugs", note: session.draft != nil ? "Enforced; verification steps checked" : "Enforced; source changes checked", tint: palette.green) {
+                Toggle("Fix bugs", isOn: $session.controls.fixBugs)
+            }
             control("Build", note: "Instruction only", tint: palette.orange) { Toggle("Build", isOn: $session.controls.build) }
             control("Deployment environment", note: "Enforced", tint: palette.green) {
                 TextField("Disabled", text: $session.controls.deployment).textFieldStyle(.roundedBorder).frame(width: 150).accessibilityLabel("Deployment environment")
+            }
+            control("Delegation to subagents", note: "Where the agent supports it", tint: palette.blue) {
+                Toggle("Delegation to subagents", isOn: $session.controls.allowDelegation)
             }
             control("Time limit, minutes", note: "Enforced", tint: palette.green) {
                 TextField("none", value: $session.controls.timeLimitMinutes, format: .number).textFieldStyle(.roundedBorder).frame(width: 90).accessibilityLabel("Time limit, minutes")
@@ -329,6 +346,100 @@ struct CockpitPlanScreen: View {
         }.uiFont(size: 12).cockpitCard()
     }
 
+    // MARK: Feature draft
+
+    /// The feature this plan implements, how its preparation went, and where the checklist leaves out what the project requires.
+    private func featureCard(_ draft: CockpitDraft) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "shippingbox").foregroundColor(palette.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Implements \(draft.feature.title)").uiFont(size: 13, weight: .semibold).fixedSize(horizontal: false, vertical: true)
+                    Text(draft.feature.folder).uiFont(size: 11).foregroundColor(palette.textDim).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                Button("New plan of your own") { session.leaveDraft() }.buttonStyle(.borderless).uiFont(size: 11).fixedSize()
+            }
+            Text("MarkView adds the branch, tests, an independent review, fixes, re-verification and the delivery steps of your checklist (\(draft.feature.done.items.filter { $0.mode != .skip }.count) items; Skip items are left out).")
+                .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            if draft.preparation == .blocked {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "xmark.octagon.fill").foregroundColor(palette.red)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cockpit could not prepare the plan").uiFont(size: 12, weight: .semibold)
+                        Text(draft.blocker ?? "").uiFont(size: 11).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Try again") { session.generate() }.disabled(session.busy)
+                    Button("Hand to the AI terminal instead") { session.handOffDraftDirectly() }
+                }
+            }
+            let conflicts = session.plan?.feature?.conflicts ?? draft.feature.conflicts
+            if !conflicts.isEmpty {
+                ForEach(conflicts) { Label($0.message, systemImage: "exclamationmark.triangle.fill").uiFont(size: 11).foregroundColor(palette.orange) }
+                Toggle("Run with the checklist as it is: this run delivers only what it asks", isOn: Binding(
+                    get: { session.plan?.feature?.conflictsAcknowledged ?? draft.feature.conflictsAcknowledged },
+                    set: { session.acknowledgeConflicts($0) })).toggleStyle(.checkbox).uiFont(size: 11)
+            }
+        }.cockpitCard(outline: draft.preparation == .blocked ? palette.red : palette.accent)
+    }
+
+    /// Approve, then Start (REQ-001): the approval does not start anything, and Start asks whether the project has an unfinished run.
+    @ViewBuilder private func draftApprovalBar(_ plan: CockpitPlan, state: (prepared: CockpitPlan?, blockers: [CockpitPlan.Blocker], reason: String?)) -> some View {
+        let general = state.blockers.filter { $0.stepID == nil }
+        let approved = session.draftApprovalHolds
+        let canApprove = state.prepared.flatMap { CockpitApproval(plan: $0, productionConfirmed: productionConfirmed) } != nil
+            && !session.busy && !session.planNeedsRecheck && !approved
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(general, id: \.message) { Label($0.message, systemImage: "exclamationmark.triangle.fill").uiFont(size: 12).foregroundColor(palette.orange) }
+            if session.planNeedsRecheck { Label("Re-check the steps against the new goal or controls first.", systemImage: "arrow.triangle.2.circlepath").uiFont(size: 12).foregroundColor(palette.orange) }
+            Text("Time limit: " + (plan.controls.timeLimitMinutes.map { CockpitFormat.duration(Double($0) * 60) + " of agent work in total" } ?? "none")
+                 + " · Delegation: " + (plan.controls.allowDelegation ? "allowed where the agent supports it" : "off"))
+                .uiFont(size: 11).foregroundColor(palette.textDim)
+            startNotes
+            HStack(spacing: 12) {
+                if approved { CockpitChip(text: "Approved", icon: "checkmark.seal.fill", tint: palette.green) }
+                Text("Cockpit starts at the first step current evidence does not support.").uiFont(size: 11).foregroundColor(palette.textDim)
+                Spacer()
+                if approved {
+                    Button(session.startingExecution ? "Starting…" : "Start") { confirmingStart = true }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                        .disabled(session.startingExecution || session.execution?.isActive == true)
+                } else {
+                    Button("Review and approve") {
+                        reviewedPlan = state.prepared
+                        reviewedStep = 0
+                        reviewedProduction = productionConfirmed
+                        reviewingRevision = false
+                        reviewingRecovery = false
+                        approving = reviewedPlan != nil
+                    }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!canApprove)
+                }
+            }
+        }.cockpitCard()
+    }
+
+    /// Why the last Start did not start, and what evidence let the run skip.
+    @ViewBuilder private var startNotes: some View {
+        if let blocker = session.startBlocker {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "hand.raised.fill").foregroundColor(palette.orange)
+                Text(blocker).uiFont(size: 12).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                if let run = session.savedRuns.first(where: { $0.isUnfinished }) {
+                    Button("Show that run") { session.screen = .saved(run.id) }
+                }
+            }
+        }
+        if !session.evidenceNote.isEmpty {
+            DisclosureGroup("Skipped on evidence (\(session.evidenceNote.count))") {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(session.evidenceNote, id: \.self) { Text($0).uiFont(size: 11).foregroundColor(palette.textDim) }
+                }
+            }.uiFont(size: 11)
+        }
+    }
+
     // MARK: Approval
 
     @ViewBuilder private func approvalBar(_ plan: CockpitPlan, state: (prepared: CockpitPlan?, blockers: [CockpitPlan.Blocker], reason: String?)) -> some View {
@@ -339,7 +450,9 @@ struct CockpitPlanScreen: View {
             && !session.busy && !session.startingExecution && !session.revisingExecution && (!active || mayRevise)
             && plan.steps.indices.contains(startingStep) && !session.planNeedsRecheck
             && (session.pendingPlan == nil || session.pendingPlan == state.prepared)
+        if session.draft != nil && !mayRevise { draftApprovalBar(plan, state: state) } else {
         VStack(alignment: .leading, spacing: 10) {
+            startNotes
             if !general.isEmpty {
                 ForEach(general, id: \.message) { Label($0.message, systemImage: "exclamationmark.triangle.fill").uiFont(size: 12).foregroundColor(palette.orange) }
             }
@@ -362,5 +475,6 @@ struct CockpitPlanScreen: View {
                 }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!canApprove)
             }
         }.cockpitCard()
+        }
     }
 }

@@ -104,6 +104,13 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
 
     /// `ToolTabsWindow`: the feature panel shown beside a document.
     func showFeatureContext(_ slug: String?) { flow.showFeatureContext(slug) }
+    /// `ToolTabsWindow`: the direct handoff of "Implement with AI".
+    func startImplementation(_ url: URL, done: DefinitionOfDone) { flow.startImplementation(url, done: done) }
+    /// "Implement with AI" → Prepare a Cockpit plan: the feature's managed run is planned in the Cockpit (REQ-001).
+    func prepareCockpitImplementation(_ url: URL, done: DefinitionOfDone) {
+        guard let launch = flow.cockpitLaunch(for: url, done: done) else { return }
+        toolTabs.prepareCockpitImplementation(launch.feature, goal: launch.goal)
+    }
 
     /// `WindowSessionHost`: a restored session shows the GitHub tab again.
     func openGitHubTab(_ item: GitHubItem) { flow.openGitHubTab(item) }

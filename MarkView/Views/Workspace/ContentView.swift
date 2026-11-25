@@ -373,9 +373,9 @@ private struct WorkspaceWindow: View {
         .sheet(isPresented: Binding(get: { requests.doneRequest != nil },
                                     set: { if !$0 { requests.doneRequest = nil } })) {
             if let url = requests.doneRequest {
-                DefinitionOfDoneSheet(root: workspaceManager.projectFolder, feature: url) { done in
-                    workspaceManager.flow.startImplementation(url, done: done)
-                }
+                DefinitionOfDoneSheet(root: workspaceManager.projectFolder, feature: url, launch: workspaceManager.flow.launchOptions(for: url),
+                                      onStart: { done in workspaceManager.flow.startImplementation(url, done: done) },
+                                      onPrepareCockpit: { done in workspaceManager.prepareCockpitImplementation(url, done: done) })
             }
         }
         .sheet(isPresented: $chrome.showGlobalSearch) {
