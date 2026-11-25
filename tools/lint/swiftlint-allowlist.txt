@@ -10,5 +10,4 @@
 2 MarkView/Models/Lifecycle/IssueSync.swift force_try
 2 MarkView/Models/Prototype/PrototypeThemes.swift force_try
 2 MarkView/Models/Remote/RemoteWorkspaceTools.swift force_try
-1 MarkView/Models/Research/ResearchMapJobs.swift unused_closure_parameter
 2 MarkView/Models/UIStudio/UIStudioRepairing.swift unused_closure_parameter
