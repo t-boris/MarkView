@@ -206,3 +206,241 @@ func TestContinuationCarriesInterruptedEvidence(t *testing.T) {
 		t.Fatalf("continuation lost interrupted evidence: %+v", received)
 	}
 }
+
+func TestFailedPrerequisiteRevisionCannotBypassUnpassedPrerequisite(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var called []string
+	var prereqCalls atomic.Int32
+	env.RegisterActivityWithOptions(func(_ context.Context, task StepTask) (Result, error) {
+		called = append(called, task.Step.ID+":"+task.PlanFingerprint)
+		if task.Step.Prerequisite && prereqCalls.Add(1) == 1 {
+			return Result{Passed: false, Detail: "Redirected to sign-in", NeededInput: "Supply a production test account"}, nil
+		}
+		return Result{Passed: true, Detail: "ok"}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+
+	initial := Plan{Fingerprint: "fp-1", Steps: []Step{
+		{ID: "pre-1", Title: "Check login", Agent: "Codex", Assignment: "Check", CompletionCondition: "Signed in", Prerequisite: true},
+		{ID: "dep-1", Title: "Dependent work", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+	// Refined plan with new UUIDs where step 0 is still an unpassed prerequisite.
+	bypassSameID := Plan{Fingerprint: "fp-bypass-same", Steps: []Step{
+		{ID: "pre-1", Title: "Check login", Agent: "Codex", Assignment: "Check revised", CompletionCondition: "Signed in", Prerequisite: true},
+		{ID: "dep-1", Title: "Dependent work", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+	bypassNewID := Plan{Fingerprint: "fp-bypass-new", Steps: []Step{
+		{ID: "pre-2", Title: "Check login revised", Agent: "Codex", Assignment: "Check revised", CompletionCondition: "Signed in", Prerequisite: true},
+		{ID: "dep-2", Title: "Dependent work", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+	validRevision := Plan{Fingerprint: "fp-valid", Steps: []Step{
+		{ID: "pre-2", Title: "Check login revised", Agent: "Codex", Assignment: "Use test account", CompletionCondition: "Signed in", Prerequisite: true},
+		{ID: "dep-2", Title: "Dependent work", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-1", Step: 0}) }, time.Second)
+	env.RegisterDelayedCallback(func() {
+		// Both bypass revisions target Step 1 while Step 0 is still an unpassed prerequisite: both must be ignored.
+		env.SignalWorkflow("replan", Revision{ExpectedFingerprint: "fp-1", Plan: bypassSameID, Step: 1})
+		env.SignalWorkflow("replan", Revision{ExpectedFingerprint: "fp-1", Plan: bypassNewID, Step: 1})
+	}, 2*time.Second)
+	env.RegisterDelayedCallback(func() {
+		value, err := env.QueryWorkflow("state")
+		if err != nil {
+			t.Errorf("query failed: %v", err)
+			return
+		}
+		var state State
+		if err := value.Get(&state); err != nil {
+			t.Errorf("decode failed: %v", err)
+			return
+		}
+		if state.Status != "paused" || state.Fingerprint != "fp-1" || state.NeededInput != "Supply a production test account" {
+			t.Errorf("bypass revision should not resume paused prerequisite: %+v", state)
+		}
+		// Valid revision starts at the prerequisite (Step 0).
+		env.SignalWorkflow("replan", Revision{ExpectedFingerprint: "fp-1", Plan: validRevision, Step: 0})
+	}, 3*time.Second)
+
+	env.ExecuteWorkflow(Execute, initial)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := env.GetWorkflowResult(&state); err != nil {
+		t.Fatal(err)
+	}
+	wantCalled := []string{"pre-1:fp-1", "pre-2:fp-valid", "dep-2:fp-valid"}
+	if len(called) != len(wantCalled) || called[0] != wantCalled[0] || called[1] != wantCalled[1] || called[2] != wantCalled[2] {
+		t.Fatalf("unexpected execution order: got %v, want %v", called, wantCalled)
+	}
+	if state.Status != "finished" || len(state.Results) != 3 || state.Results[0].PlanFingerprint != "fp-1" || state.Results[1].PlanFingerprint != "fp-valid" {
+		t.Fatalf("earlier result lost its original fingerprint: %+v", state)
+	}
+}
+
+func TestFailedPrerequisiteRevisionAllowedWhenPrerequisiteRemoved(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var called []string
+	env.RegisterActivityWithOptions(func(_ context.Context, task StepTask) (Result, error) {
+		called = append(called, task.Step.ID)
+		if task.Step.ID == "pre-1" {
+			return Result{Passed: false, Detail: "unavailable"}, nil
+		}
+		return Result{Passed: true, Detail: "ok"}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+
+	initial := Plan{Fingerprint: "fp-1", Steps: []Step{
+		{ID: "pre-1", Title: "Check", Agent: "Codex", Assignment: "Check", CompletionCondition: "Ok", Prerequisite: true},
+		{ID: "dep-1", Title: "Work", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+	relaxed := Plan{Fingerprint: "fp-2", Steps: []Step{
+		{ID: "pre-1", Title: "Check", Agent: "Codex", Assignment: "Check", CompletionCondition: "Ok", Prerequisite: false},
+		{ID: "dep-1", Title: "Work", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-1", Step: 0}) }, time.Second)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("replan", Revision{ExpectedFingerprint: "fp-1", Plan: relaxed, Step: 1}) }, 2*time.Second)
+
+	env.ExecuteWorkflow(Execute, initial)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	if len(called) != 2 || called[0] != "pre-1" || called[1] != "dep-1" {
+		t.Fatalf("expected revision with removed prerequisite to run step 1, got %v", called)
+	}
+}
+
+func TestFailedPrerequisiteBoundedRecoverySucceedsAndReruns(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var attempts []string
+	prereqRuns := 0
+	env.RegisterActivityWithOptions(func(_ context.Context, task StepTask) (Result, error) {
+		if task.RecoveryAttempt > 0 {
+			attempts = append(attempts, "recover:"+task.Step.Assignment)
+			if len(task.PriorResults) != 1 || task.PriorResults[0].Result.Passed {
+				t.Errorf("recovery did not receive failed prerequisite evidence: %+v", task.PriorResults)
+			}
+			return Result{Passed: true, Detail: "Created test account"}, nil
+		}
+		attempts = append(attempts, "step:"+task.Step.ID)
+		if task.Step.ID == "pre" {
+			prereqRuns++
+			if prereqRuns == 1 {
+				return Result{Passed: false, Detail: "Sign-in required", NeededInput: "Need account"}, nil
+			}
+		}
+		return Result{Passed: true, Detail: "Passed"}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+
+	plan := Plan{Fingerprint: "fp-rec", Steps: []Step{
+		{ID: "pre", Title: "Check chat", Agent: "Codex", Assignment: "Send test chat", CompletionCondition: "Reply received", Prerequisite: true,
+			Recovery: &StepRecovery{Assignment: "Create disposable test account", MaxAttempts: 1}},
+		{ID: "dep", Title: "Run QA", Agent: "Codex", Assignment: "Run QA", CompletionCondition: "Done"},
+	}}
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-rec", Step: 0}) }, time.Second)
+
+	env.ExecuteWorkflow(Execute, plan)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := env.GetWorkflowResult(&state); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"step:pre", "recover:Create disposable test account", "step:pre", "step:dep"}
+	if len(attempts) != len(want) || attempts[0] != want[0] || attempts[1] != want[1] || attempts[2] != want[2] || attempts[3] != want[3] {
+		t.Fatalf("unexpected bounded recovery sequence: got %v, want %v", attempts, want)
+	}
+	if state.Status != "finished" || len(state.Results) != 4 || state.Results[1].Result.RecoveryAttempt != 1 {
+		t.Fatalf("unexpected final state after recovery: %+v", state)
+	}
+	for _, entry := range state.Results {
+		if entry.PlanFingerprint != "fp-rec" {
+			t.Fatalf("expected original plan fingerprint on all entries, got %+v", entry)
+		}
+	}
+}
+
+func TestFailedPrerequisiteBoundedRecoveryExhaustedKeepsDependentPaused(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var sequence []string
+	var retried atomic.Bool
+	env.RegisterActivityWithOptions(func(_ context.Context, task StepTask) (Result, error) {
+		if task.RecoveryAttempt > 0 {
+			sequence = append(sequence, "recover")
+			return Result{Passed: true, Detail: "Attempted sign-in"}, nil
+		}
+		sequence = append(sequence, task.Step.ID)
+		if task.Step.ID == "pre" && !retried.Load() {
+			return Result{Passed: false, Detail: "MFA required", NeededInput: "Provide MFA code"}, nil
+		}
+		return Result{Passed: true, Detail: "Passed"}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+
+	plan := Plan{Fingerprint: "fp-exhaust", Steps: []Step{
+		{ID: "pre", Title: "Check chat", Agent: "Codex", Assignment: "Check", CompletionCondition: "Ok", Prerequisite: true,
+			Recovery: &StepRecovery{Assignment: "Try saved login", MaxAttempts: 1}},
+		{ID: "dep", Title: "Dependent", Agent: "Codex", Assignment: "Work", CompletionCondition: "Done"},
+	}}
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-exhaust", Step: 0}) }, time.Second)
+	env.RegisterDelayedCallback(func() {
+		value, err := env.QueryWorkflow("state")
+		if err != nil {
+			t.Errorf("query failed: %v", err)
+			return
+		}
+		var state State
+		if err := value.Get(&state); err != nil {
+			t.Errorf("decode failed: %v", err)
+			return
+		}
+		if state.Status != "paused" || state.NeededInput != "Provide MFA code" {
+			t.Errorf("expected paused state requesting MFA code, got %+v", state)
+		}
+		retried.Store(true)
+		env.SignalWorkflow("control", "retry")
+	}, 3*time.Second)
+
+	env.ExecuteWorkflow(Execute, plan)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"pre", "recover", "pre", "pre", "dep"}
+	if len(sequence) != len(want) || sequence[0] != want[0] || sequence[1] != want[1] || sequence[2] != want[2] || sequence[3] != want[3] || sequence[4] != want[4] {
+		t.Fatalf("unexpected sequence: got %v, want %v", sequence, want)
+	}
+}
+
+func TestFailedNonPrerequisiteStepCanBeRetried(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var calls atomic.Int32
+	env.RegisterActivityWithOptions(func(_ context.Context, _ StepTask) (Result, error) {
+		if calls.Add(1) == 1 {
+			return Result{Passed: false, Detail: "Temporary error", NeededInput: "Confirm retry"}, nil
+		}
+		return Result{Passed: true, Detail: "Fixed"}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+
+	plan := Plan{Fingerprint: "fp-nonpre", Steps: []Step{
+		{ID: "work", Title: "Work", Agent: "Codex", Assignment: "Do work", CompletionCondition: "Done", Prerequisite: false},
+	}}
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-nonpre", Step: 0}) }, time.Second)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "retry") }, 2*time.Second)
+
+	env.ExecuteWorkflow(Execute, plan)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := env.GetWorkflowResult(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "finished" || calls.Load() != 2 {
+		t.Fatalf("expected non-prerequisite step retry to succeed: %+v, calls %d", state, calls.Load())
+	}
+}

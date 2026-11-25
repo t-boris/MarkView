@@ -1194,6 +1194,27 @@ extension EditorHostTests {
         answer["steps"] = [["title": "Missing fields"]]
         check((try? CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])) == nil, "malformed steps are rejected")
 
+        // MARK: Bounded prerequisite recovery parsing (BUG-128)
+
+        var recStep = step
+        recStep["recovery"] = ["assignment": "Create a temporary test account and sign in", "maxAttempts": 2]
+        answer["steps"] = [recStep]
+        let withRec = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])
+        check(withRec.steps.first?.recovery == CockpitStepRecovery(assignment: "Create a temporary test account and sign in", maxAttempts: 2),
+              "valid bounded recovery on a prerequisite survives parsing")
+        recStep["recovery"] = ["assignment": "Try again", "maxAttempts": 99]
+        answer["steps"] = [recStep]
+        let clampedRec = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])
+        check(clampedRec.steps.first?.recovery?.maxAttempts == CockpitStepRecovery.maxAllowedAttempts,
+              "recovery maxAttempts is bounded to maxAllowedAttempts")
+        var nonPrereqRec = recStep
+        nonPrereqRec["isPrerequisite"] = false
+        answer["steps"] = [nonPrereqRec]
+        let ignoredRec = try CockpitPlanning.parse(answer, goal: "Research", controls: controls, availableAgents: ["Codex"])
+        check(ignoredRec.steps.first?.recovery == nil, "recovery on a non-prerequisite step is ignored during parsing")
+        let encodedNoRec = String(decoding: try JSONEncoder().encode(ignoredRec.steps[0]), as: UTF8.self)
+        check(!encodedNoRec.contains("recovery"), "a step without recovery encodes without the recovery key")
+
     }
 }
 
@@ -1624,6 +1645,84 @@ extension EditorHostTests {
         _ = delivered.completeCurrent(passed: true, detail: "ok", build: "", now: Date(timeIntervalSince1970: 2_300))
         check(delivered.delivery(of: early).briefedStep == 2 && !delivered.delivery(of: early).isQueued, "the step that begins after the note carries it in its briefing")
         check(delivered.delivery(of: CockpitCuratorNote(at: Date(timeIntervalSince1970: 3_000), text: "late")).isQueued, "a note sent after everything is queued")
+
+        // MARK: Failed prerequisite blockers, same-run revision guard, bounded recovery, direct responses and route overflow (BUG-128)
+
+        check(CockpitRun.blockerSummary(detail: "Evidence. Blocker: production AI chat requires sign-in; no test account provided. No project files changed.",
+                                        neededInput: nil, progress: nil) == "production AI chat requires sign-in; no test account provided.",
+              "blockerSummary extracts the Blocker clause when explicit neededInput is absent")
+        check(CockpitRun.blockerSummary(detail: "Raw detail", neededInput: "Supply prod credentials", progress: nil) == "Supply prod credentials",
+              "blockerSummary prefers explicit neededInput")
+        let withProgressBlocker = CockpitProgress(passNumber: 1, activity: "Check", scenarioCoverage: [], bugs: [], fixes: [],
+                                                  latestChange: "", blockers: ["Login required"], buildLogPath: nil)
+        check(CockpitRun.blockerSummary(detail: "Raw detail", neededInput: nil, progress: withProgressBlocker) == "Login required",
+              "blockerSummary falls back to progress blockers")
+
+        var pausedPrereq = CockpitRun(plan: plan)
+        check(pausedPrereq.start(approval: approved, at: 0, now: at(0)), "start prerequisite run")
+        check(pausedPrereq.completeCurrent(passed: false, detail: "Redirected to sign-in", build: "", neededInput: "Supply a prod account", now: at(1)),
+              "failed prerequisite pauses")
+        check(pausedPrereq.isPausedOnFailedPrerequisite && pausedPrereq.failedStepNeededInput == "Supply a prod account",
+              "failed prerequisite exposes its needed input")
+        var bypassPlan = plan; bypassPlan.steps[0].assignment = "Revised check"
+        let bypassApproval = CockpitApproval(plan: bypassPlan, productionConfirmed: false)!
+        check(pausedPrereq.revisionPrerequisiteBlocker(plan: bypassPlan, startingAt: 1) != nil,
+              "same-run revision targeting a dependent step after an unpassed prerequisite is blocked")
+        check(!pausedPrereq.queueRevision(plan: bypassPlan, approval: bypassApproval, at: 1, fingerprint: "bypass-fp"),
+              "queueRevision refuses a revision that skips an unpassed prerequisite")
+        check(pausedPrereq.revisionPrerequisiteBlocker(plan: bypassPlan, startingAt: 0) == nil
+              && pausedPrereq.queueRevision(plan: bypassPlan, approval: bypassApproval, at: 0, fingerprint: "retry-fp"),
+              "same-run revision starting at the failed prerequisite is allowed")
+        check(pausedPrereq.applyRevision(fingerprint: "retry-fp", now: at(2)) && pausedPrereq.results.first?.plan == plan,
+              "applying the revision keeps earlier result plan history intact")
+
+        var relaxedRun = CockpitRun(plan: plan)
+        _ = relaxedRun.start(approval: approved, at: 0, now: at(0))
+        _ = relaxedRun.completeCurrent(passed: false, detail: "Blocked", build: "", now: at(1))
+        var relaxedPlan = plan; relaxedPlan.steps[0].isPrerequisite = false
+        let relaxedApproval = CockpitApproval(plan: relaxedPlan, productionConfirmed: false)!
+        check(relaxedRun.revisionPrerequisiteBlocker(plan: relaxedPlan, startingAt: 1) == nil
+              && relaxedRun.queueRevision(plan: relaxedPlan, approval: relaxedApproval, at: 1, fingerprint: "relaxed-fp"),
+              "removing the prerequisite requirement permits starting at a later step")
+
+        // Bounded recovery keeps the run running while attempts remain, then pauses if the blocker persists.
+        var recFirst = first
+        recFirst.recovery = CockpitStepRecovery(assignment: "Create disposable account", maxAttempts: 1)
+        let recPlan = CockpitPlan(goal: "Work", controls: CockpitControls(), scenarios: [], steps: [recFirst, second],
+                                  successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        let recApproval = CockpitApproval(plan: recPlan, productionConfirmed: false)!
+        var recRun = CockpitRun(plan: recPlan)
+        check(recRun.start(approval: recApproval, at: 0, now: at(0)), "start recovery-enabled run")
+        check(recRun.completeCurrent(passed: false, detail: "Sign-in needed", build: "", neededInput: "Account", now: at(1))
+              && recRun.status == .running && recRun.currentIndex == 0,
+              "first prerequisite failure enters bounded recovery without advancing to step 2")
+        check(recRun.completeCurrent(passed: true, detail: "Account created", build: "", recoveryAttempt: 1, now: at(2))
+              && recRun.status == .running && recRun.currentIndex == 0,
+              "passing recovery stays on step 1 to re-check the prerequisite")
+        check(recRun.completeCurrent(passed: false, detail: "Still blocked by MFA", build: "", neededInput: "Provide MFA code", now: at(3))
+              && recRun.status == .paused && recRun.steps[0].status == .failed && recRun.failedStepNeededInput == "Provide MFA code",
+              "exhausted recovery pauses and keeps dependent step 2 waiting")
+        check(recRun.retryFailedStep() && recRun.status == .running && recRun.recoveryAttempts == nil,
+              "retry resets recovery attempts and resumes the step")
+
+        let responseNote = CockpitCuratorNote(at: at(4), text: "Use SSO login", kind: .stepResponse)
+        let block = CockpitCuratorNote.block([responseNote]) ?? ""
+        check(block.contains("[Direct response to failed step] Use SSO login") && block.contains("never a permission"),
+              "step response notes are clearly tagged while preserving control boundaries")
+        let responseRoundTrip = try JSONDecoder().decode(CockpitCuratorNote.self, from: JSONEncoder().encode(responseNote))
+        check(responseRoundTrip == responseNote, "step response notes round-trip")
+
+        // Route overflow geometry: 9 waypoints of 116 pt = 1044 pt overflow a 960 pt container.
+        let overflowed = CockpitFlightPathLayout(stepCount: 9, cellWidth: 116, containerWidth: 960, viewportWidth: 860, scrollOffset: 0)
+        check(overflowed.overflows && !overflowed.canScrollLeading && overflowed.canScrollTrailing && overflowed.hiddenTrailing >= 1,
+              "a 9-step route in a 960pt container reports trailing overflow")
+        check(overflowed.nextTrailingIndex() == 8, "advancing right targets the clipped 9th waypoint")
+        let scrolledEnd = CockpitFlightPathLayout(stepCount: 9, cellWidth: 116, containerWidth: 960, viewportWidth: 860, scrollOffset: overflowed.maxScroll)
+        check(scrolledEnd.canScrollLeading && !scrolledEnd.canScrollTrailing && scrolledEnd.hiddenTrailing == 0 && scrolledEnd.hiddenLeading >= 1,
+              "scrolling to the end reveals waypoint 9 and enables scrolling left")
+        let fits = CockpitFlightPathLayout(stepCount: 5, cellWidth: 116, containerWidth: 960, viewportWidth: 960, scrollOffset: 0)
+        check(!fits.overflows && !fits.canScrollLeading && !fits.canScrollTrailing && fits.hiddenTrailing == 0,
+              "a 5-step route fits without overflow controls")
 
 
     }

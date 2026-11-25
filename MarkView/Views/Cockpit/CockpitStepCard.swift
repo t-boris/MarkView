@@ -108,6 +108,10 @@ struct CockpitStepCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 CockpitChip(text: kind.title, icon: kind.icon)
+                if step.isPrerequisite, let recovery = step.recovery, recovery.isConfigured {
+                    CockpitChip(text: "Auto-recovery ×\(recovery.boundedAttempts)", icon: "arrow.triangle.2.circlepath", tint: palette.blue)
+                        .help("If this prerequisite fails, Cockpit attempts recovery up to \(recovery.boundedAttempts) time(s): \(recovery.assignment)")
+                }
                 if let id = step.qaScenarioID { CockpitChip(text: scenarioTitle(id), icon: "testtube.2", tint: palette.purple) }
                 if let review = plan.qaReviews?.first(where: { $0.scenarioID == step.qaScenarioID }) {
                     CockpitChip(text: review.targetID, tint: review.production ? palette.orange : palette.green)
@@ -145,12 +149,76 @@ struct CockpitStepCard: View {
         })
     }
 
+    private var prerequisiteBinding: Binding<Bool> {
+        Binding(get: { step.isPrerequisite }, set: { enabled in
+            session.editPlan { plan in
+                guard let i = plan.steps.firstIndex(where: { $0.id == step.id }) else { return }
+                plan.steps[i].isPrerequisite = enabled
+                if !enabled { plan.steps[i].recovery = nil }
+            }
+        })
+    }
+
+    private var recoveryEnabledBinding: Binding<Bool> {
+        Binding(get: { step.recovery != nil }, set: { enabled in
+            session.editPlan { plan in
+                guard let i = plan.steps.firstIndex(where: { $0.id == step.id }) else { return }
+                plan.steps[i].recovery = enabled ? CockpitStepRecovery(assignment: "", maxAttempts: 1) : nil
+            }
+        })
+    }
+
+    private var recoveryAssignmentBinding: Binding<String> {
+        Binding(get: { step.recovery?.assignment ?? "" }, set: { value in
+            session.editPlan { plan in
+                guard let i = plan.steps.firstIndex(where: { $0.id == step.id }) else { return }
+                var current = plan.steps[i].recovery ?? CockpitStepRecovery(assignment: "", maxAttempts: 1)
+                current.assignment = value
+                plan.steps[i].recovery = current
+            }
+        })
+    }
+
+    private var recoveryAttemptsBinding: Binding<Int> {
+        Binding(get: { step.recovery?.boundedAttempts ?? 1 }, set: { value in
+            session.editPlan { plan in
+                guard let i = plan.steps.firstIndex(where: { $0.id == step.id }) else { return }
+                var current = plan.steps[i].recovery ?? CockpitStepRecovery(assignment: "", maxAttempts: 1)
+                current.maxAttempts = min(max(1, value), CockpitStepRecovery.maxAllowedAttempts)
+                plan.steps[i].recovery = current
+            }
+        })
+    }
+
     private var editor: some View {
         VStack(alignment: .leading, spacing: 10) {
-            field("Title") { TextField("", text: binding(\.title)).textFieldStyle(.roundedBorder) }
-            field("Assignment", hint: "What the agent is asked to do. This is the prompt the step starts with.") { editorText(binding(\.assignment), height: 90) }
-            field("Complete when", hint: "What must be true for the step to count as done.") { editorText(binding(\.completionCondition), height: 56) }
-            Toggle("Prerequisite: the run does not go on until this passes", isOn: binding(\.isPrerequisite)).uiFont(size: 12)
+            field("Title") {
+                TextField("", text: binding(\.title)).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Step \(index + 1) title")
+            }
+            field("Assignment", hint: "What the agent is asked to do. This is the prompt the step starts with.") {
+                editorText(binding(\.assignment), height: 90, label: "Step \(index + 1) assignment")
+            }
+            field("Complete when", hint: "What must be true for the step to count as done.") {
+                editorText(binding(\.completionCondition), height: 56, label: "Step \(index + 1) completion condition")
+            }
+            Toggle("Prerequisite: the run does not go on until this passes", isOn: prerequisiteBinding).uiFont(size: 12)
+            if step.isPrerequisite {
+                Toggle("Bounded recovery on failure: attempt recovery and re-check before pausing", isOn: recoveryEnabledBinding).uiFont(size: 12)
+                if step.recovery != nil {
+                    field("Recovery assignment", hint: "Authorized action Cockpit runs when this prerequisite fails, then re-checks the prerequisite.") {
+                        editorText(recoveryAssignmentBinding, height: 64, label: "Step \(index + 1) recovery assignment")
+                    }
+                    HStack(spacing: 8) {
+                        Text("Max recovery attempts").uiFont(size: 11, weight: .semibold).foregroundColor(palette.textDim)
+                        Picker("Max recovery attempts", selection: recoveryAttemptsBinding) {
+                            ForEach(1...CockpitStepRecovery.maxAllowedAttempts, id: \.self) { count in
+                                Text("\(count) attempt\(count == 1 ? "" : "s")").tag(count)
+                            }
+                        }.labelsHidden().fixedSize()
+                    }
+                }
+            }
             field("QA scenario", hint: "Run an existing End-to-End QA scenario at the end of this step.") { scenarioPicker }
             Divider()
             HStack(spacing: 12) {
@@ -176,8 +244,9 @@ struct CockpitStepCard: View {
         }
     }
 
-    private func editorText(_ text: Binding<String>, height: CGFloat) -> some View {
+    private func editorText(_ text: Binding<String>, height: CGFloat, label: String) -> some View {
         TextEditor(text: text).uiFont(size: 12).frame(height: height)
+            .accessibilityLabel(label)
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
     }
 

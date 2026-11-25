@@ -4,16 +4,24 @@ import Darwin
 import MarkViewCore
 #endif
 
-struct CockpitHostStep: Codable, Sendable { var id: String; var title: String = ""; var agent: String; var assignment: String; var completionCondition: String = ""; var prerequisite: Bool; var qaScenarioID: String? = nil }
-struct CockpitHostResult: Codable, Sendable {
-    var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil; var progress: CockpitProgress? = nil; var interrupted: Bool? = nil
+struct CockpitHostStep: Codable, Equatable, Sendable {
+    var id: String; var title: String = ""; var agent: String; var assignment: String; var completionCondition: String = ""
+    var prerequisite: Bool; var qaScenarioID: String? = nil; var recovery: CockpitStepRecovery? = nil
+}
+struct CockpitHostResult: Codable, Equatable, Sendable {
+    var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil
+    var progress: CockpitProgress? = nil; var interrupted: Bool? = nil
+    /// Specific input or decision needed from the person when `passed` is false.
+    var neededInput: String? = nil
+    /// Set to 1...N when this result came from an authorized bounded prerequisite recovery attempt.
+    var recoveryAttempt: Int? = nil
     /// A managed run's step report (`CockpitManagedRun.absorb`): confirmed review findings, checks of findings, delegated work.
     var findings: [CockpitReportedFinding]? = nil
     var findingChecks: [CockpitFindingCheck]? = nil
     var delegates: [CockpitDelegatedWork]? = nil
 }
-struct CockpitHostEntry: Codable, Sendable { var stepID: String; var result: CockpitHostResult; var planFingerprint: String? = nil }
-struct CockpitHostTask: Codable, Sendable {
+struct CockpitHostEntry: Codable, Equatable, Sendable { var stepID: String; var result: CockpitHostResult; var planFingerprint: String? = nil }
+struct CockpitHostTask: Codable, Equatable, Sendable {
     var step: CockpitHostStep
     var planFingerprint: String
     var goal: String
@@ -21,6 +29,7 @@ struct CockpitHostTask: Codable, Sendable {
     var successCriteria: [String]
     var priorResults: [CockpitHostEntry]
     var isFinalStep: Bool? = nil
+    var recoveryAttempt: Int? = nil
 }
 struct CockpitHostReply: Codable, Sendable { var result: CockpitHostResult; var error: String }
 

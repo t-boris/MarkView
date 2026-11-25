@@ -125,8 +125,11 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                 do {
                     let data = try JSONEncoder().encode(task)
                     let assignment = String(decoding: data, as: UTF8.self)
+                    let recoveryNote = task.recoveryAttempt.map {
+                        "This is authorized bounded recovery attempt \($0) for a failed prerequisite. Inspect the prior failure in priorResults, resolve the blocker within the approved controls so the prerequisite can be re-checked, and call markview_cockpit_complete_step with passed true when ready (or passed false with neededInput stating the exact input or decision needed from the person if the blocker persists).\n"
+                    } ?? ""
                     let prompt = """
-                    This is one step of a user-approved Copilot Cockpit plan. Work only on the assignment below.
+                    \(recoveryNote)This is one step of a user-approved Copilot Cockpit plan. Work only on the assignment below.
                     The controls in the assignment bind you. MarkView refuses the MarkView tools they forbid and compares the project before and after your step:
                     when fixes are disabled, report findings without changing source files; when deployment is disabled, do not deploy by any route;
                     when filing bugs is disabled, describe problems in your report instead. A refused call is not a puzzle to get around: report it as a blocker.
@@ -140,7 +143,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                     If this assignment names qaScenarioID, MarkView will run that exact reviewed QA scenario after your report; do not run it separately.
                     If isFinalStep is true, explicitly evaluate each success criterion against evidence, report unmet criteria as blockers, and report passed only if the criteria are met.
                     Use the available MarkView project and browser tools as appropriate. Once you have finished this step, call markview_cockpit_complete_step
-                    with ticket \(ticket.uuidString), passed, detail (evidence and blockers), and build (the build identifier or an empty string).
+                    with ticket \(ticket.uuidString), passed, detail (evidence and blockers), build (the build identifier or an empty string), and neededInput (when passed is false and you need specific input, credentials, or a decision from the person before retrying).
                     While working, call markview_cockpit_report_progress with the same ticket to report the pass number, activity, scenario coverage, bugs, confirmed fixes, latest change, blockers, and build log path where known. On the final step include criteriaResults for every stated success criterion, with exact criterion text, met or unmet, and supporting evidence.
                     Report whether the completion condition was actually met. Your terminal session ends after your report; do not start subsequent steps.
                     \(CockpitCuratorNote.block(liveNotes()).map { "\n" + $0 + "\n" } ?? "")

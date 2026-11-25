@@ -26,6 +26,7 @@ struct CockpitPlanScreen: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 if let draft = session.draft { featureCard(draft) }
+                if session.draft == nil, session.execution?.isActive == true, let liveRun = session.execution?.record { liveRunBanner(liveRun) }
                 if session.recoveryRun != nil { recoveryBanner }
                 goalCard
                 rolesCard
@@ -35,7 +36,17 @@ struct CockpitPlanScreen: View {
             }
             .padding(20).frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity)
         }
+        .onAppear {
+            if session.plan != nil { showControls = false }
+            applyPreferredStartStep()
+        }
+        .onChange(of: session.preferredStartStep) { _ in applyPreferredStartStep() }
         .onChange(of: session.plan?.id) { id in if id != nil { showControls = false } }
+        .onChange(of: session.plan?.steps.count) { count in
+            guard let count, session.recoveryRun == nil else { return }
+            if count == 0 { startingStep = 0 }
+            else if startingStep >= count { startingStep = count - 1 }
+        }
         .onChange(of: session.goal) { _ in session.goalOrControlsChanged() }
         .onChange(of: session.controls) { _ in session.goalOrControlsChanged() }
         .onChange(of: session.recoveryRun?.id) { id in if id != nil { startingStep = -1 } }
@@ -97,6 +108,38 @@ struct CockpitPlanScreen: View {
         if !plan.scenarios.isEmpty { parts.append("\(plan.scenarios.count) QA scenario\(plan.scenarios.count == 1 ? "" : "s")") }
         if let minutes = plan.controls.timeLimitMinutes { parts.append("\(CockpitFormat.duration(Double(minutes) * 60)) limit") }
         return parts.joined(separator: " · ")
+    }
+
+    private func applyPreferredStartStep() {
+        guard let preferred = session.preferredStartStep else { return }
+        session.preferredStartStep = nil
+        if let count = session.plan?.steps.count, count > 0 {
+            startingStep = min(max(0, preferred), count - 1)
+        } else {
+            startingStep = 0
+        }
+    }
+
+    private func liveRunBanner(_ run: CockpitRun) -> some View {
+        let phase = CockpitRunPhase(run: run, coordinator: session.execution?.state?.status)
+        let currentTitle = run.currentIndex.flatMap { run.plan.steps.indices.contains($0) ? "Step \($0 + 1): \(run.plan.steps[$0].title)" : nil }
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: phase.icon).foregroundColor(phase.tint(palette))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("Editing plan for the active run").uiFont(size: 12, weight: .semibold)
+                    CockpitChip(text: phase.title, icon: phase.icon, tint: phase.tint(palette))
+                }
+                if let currentTitle {
+                    Text(currentTitle + (run.isPausedOnFailedPrerequisite ? " (prerequisite failed — dependent steps stay paused until it passes)" : ""))
+                        .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Edit steps directly or ask the Copilot to revise this plan below, then approve changes to apply them to this run.")
+                    .uiFont(size: 11).foregroundColor(palette.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button("Back to run") { session.screen = .live }.buttonStyle(.bordered).controlSize(.small)
+        }.cockpitCard(outline: phase.tint(palette))
     }
 
     private var recoveryBanner: some View {
@@ -316,8 +359,11 @@ struct CockpitPlanScreen: View {
             Text("The goal or the controls changed after the plan was written. The steps were not re-checked against them; your edits are kept.")
                 .uiFont(size: 12).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            Button("Revise with the Copilot") { session.refinement = "The goal or the controls changed. Adjust the steps to fit them."; session.generate(refining: true) }
-                .disabled(session.busy)
+            HStack(spacing: 8) {
+                Button("Keep my edits") { session.acknowledgePlanRecheck() }.disabled(session.busy)
+                Button("Revise with the Copilot") { session.refinement = "The goal or the controls changed. Adjust the steps to fit them."; session.generate(refining: true) }
+                    .disabled(session.busy)
+            }
         }.cockpitCard(outline: palette.orange)
     }
 
@@ -328,19 +374,41 @@ struct CockpitPlanScreen: View {
         expandedID = step.id
     }
 
+    private var refinementBlocker: String? {
+        if session.busy { return "Planning is in progress. Wait for it to finish or stop it before sending another revision." }
+        if session.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter a goal above before revising this plan." }
+        return nil
+    }
+
     private var refineCard: some View {
-        DisclosureGroup("Ask the Copilot to revise this plan") {
+        let trimmedRefinement = session.refinement.trimmingCharacters(in: .whitespacesAndNewlines)
+        let blocker = refinementBlocker
+        return DisclosureGroup("Ask the Copilot to revise this plan") {
             VStack(alignment: .leading, spacing: 8) {
                 DictationInput(text: $session.refinement, isFocused: { refinementFocused }) { voice in
                     VStack(alignment: .leading) {
                         TextEditor(text: $session.refinement).uiFont(size: 12).focused($refinementFocused).frame(height: 64)
+                            .accessibilityLabel("Plan revision instructions")
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
                             .overlay(alignment: .bottomTrailing) { voice.mic().padding(6) }
                         voice.status
                     }
                 }
-                Button("Revise plan") { session.generate(refining: true) }
-                    .disabled(session.busy || session.refinement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                HStack(spacing: 8) {
+                    Button("Revise plan") { session.generate(refining: true) }
+                        .disabled(blocker != nil || trimmedRefinement.isEmpty)
+                    if session.busy {
+                        ProgressView().controlSize(.small)
+                        Text("Planning…").uiFont(size: 11).foregroundColor(palette.textDim)
+                        Button("Stop") { session.cancel() }.controlSize(.small)
+                    }
+                }
+                if let blocker {
+                    Label(blocker, systemImage: "exclamationmark.triangle.fill").uiFont(size: 11).foregroundColor(palette.orange)
+                }
+                if let error = session.error {
+                    Text(error).uiFont(size: 11).foregroundColor(palette.red).textSelection(.enabled)
+                }
                 Text("Your hand edits are sent along, so the Copilot revises what you see.").uiFont(size: 10).foregroundColor(palette.textDim)
             }.padding(.top, 6)
         }.uiFont(size: 12).cockpitCard()
@@ -446,23 +514,33 @@ struct CockpitPlanScreen: View {
         let general = state.blockers.filter { $0.stepID == nil }
         let active = session.execution?.isActive == true
         let mayRevise = active && ["running", "paused"].contains(session.execution?.state?.status ?? "") && session.runningPlan != state.prepared
+        let prereqBlocker = active ? session.execution?.record?.revisionPrerequisiteBlocker(plan: state.prepared ?? plan, startingAt: startingStep) : nil
         let canApprove = state.prepared.flatMap { CockpitApproval(plan: $0, productionConfirmed: productionConfirmed) } != nil
             && !session.busy && !session.startingExecution && !session.revisingExecution && (!active || mayRevise)
-            && plan.steps.indices.contains(startingStep) && !session.planNeedsRecheck
+            && plan.steps.indices.contains(startingStep) && !session.planNeedsRecheck && prereqBlocker == nil
             && (session.pendingPlan == nil || session.pendingPlan == state.prepared)
         if session.draft != nil && !mayRevise { draftApprovalBar(plan, state: state) } else {
         VStack(alignment: .leading, spacing: 10) {
             startNotes
+            if let error = session.error {
+                Text(error).uiFont(size: 12).foregroundColor(palette.red).textSelection(.enabled)
+            }
             if !general.isEmpty {
                 ForEach(general, id: \.message) { Label($0.message, systemImage: "exclamationmark.triangle.fill").uiFont(size: 12).foregroundColor(palette.orange) }
             }
-            if session.planNeedsRecheck { Label("Re-check the steps against the new goal or controls first.", systemImage: "arrow.triangle.2.circlepath").uiFont(size: 12).foregroundColor(palette.orange) }
+            if let prereqBlocker {
+                Label(prereqBlocker, systemImage: "exclamationmark.shield.fill").uiFont(size: 12).foregroundColor(palette.red)
+            }
+            if session.planNeedsRecheck { Label("Re-check the steps against the new goal or controls first, or choose \"Keep my edits\" above.", systemImage: "arrow.triangle.2.circlepath").uiFont(size: 12).foregroundColor(palette.orange) }
+            if active, !mayRevise, prereqBlocker == nil, general.isEmpty, !session.planNeedsRecheck, !session.busy {
+                Text("Edit a step or revise the plan above to apply changes to the active run.").uiFont(size: 11).foregroundColor(palette.textDim)
+            }
             HStack(spacing: 12) {
                 if !plan.steps.isEmpty {
                     Picker("Start from", selection: $startingStep) {
                         if session.recoveryRun != nil { Text("Choose a step").tag(-1) }
                         ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in Text("\(index + 1). \(step.title)").tag(index) }
-                    }.fixedSize()
+                    }.fixedSize().accessibilityLabel("Start from step")
                 }
                 Spacer()
                 Button(mayRevise ? "Review and approve changes" : (session.recoveryRun != nil ? "Review and continue" : "Review and approve")) {
