@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 31,
+  "suiteCount": 32,
   "suites": [
     {
       "name": "process-graph-layout-tests",
