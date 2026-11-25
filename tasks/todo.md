@@ -1,3 +1,58 @@
+# Agent-aware implementation runs (2026-11-24, goal from Boris: implement docs/features/agent-aware-implementation-runs)
+
+Branch `feat/agent-aware-implementation-runs` (worktree `../MarkView-agent-aware-runs`), one PR, minor version bump, release.
+Binding records: Q-001 (B: recommend + override), Q-002 (C: delivery through merge and release), Q-003 (A: sequential steps,
+in-step delegation), DEC-011..013, DEC-027..031, F-001..F-005 resolutions, and DEC-032 (asked 2026-11-24: risk acceptance only for
+acceptance-criterion findings; project-rule findings need a verified fix). The Temporal workflow stays as it is: a managed run continues
+by starting a new workflow on the same run record from the step evidence selects.
+
+## Plan (plan issues I-1..I-7)
+- [x] I-1 Launch advice in Build: `ImplementationLaunch` (Lifecycle) recommends direct or Cockpit from the plan issues and the
+      checklist, with reasons and DoD/project-rule conflicts; the Definition of Done sheet offers both actions, Enter = recommended.
+- [x] I-1 Feature drafts: `CockpitDraftStore` (`.dde/cockpit/drafts/<slug>.json`); the session opens, prepares, saves and switches
+      drafts without touching other features' drafts or runs; a planning blocker offers an explicit direct handoff.
+- [x] I-1/I-5 Managed plan builder (`CockpitManagedRun.compose`): planner writes implementation steps only; MarkView adds branch,
+      tests, review, fix, re-verify, version, PR, CI, merge, release, other checklist items and a final verification (Skip omitted,
+      Ask gated, Require items become success criteria).
+- [x] I-2 Approval separate from Start; `CockpitAdmission` keeps at most one unfinished run per project (main-actor reservation plus
+      saved runs), names the blocking run and keeps the approval; End run for a saved unfinished run (DEC-034).
+- [x] I-2 Evidence-based start and continuation (DEC-027, DEC-035): `CockpitManagedRun.firstUnsupported`; implementation marked
+      started only when the first step of the run begins.
+- [x] I-3 Capabilities per launch profile (installed CLI, MarkView tools, full-access arguments, provider delegation) offered to the
+      planner and re-checked at Start; delegation only where supported and the control allows (DEC-033); delegates reported by the step.
+- [x] I-4 Delegate stop confirmation: `CockpitDelegateWatch` records the step terminal's descendant processes; a managed step does not
+      run while one of an earlier attempt is alive; the run screen names them and can stop them.
+- [x] I-5 Ask me gate: a scheduled Ask step pauses the run until the person approves; decline shows the blocking action; pre-launch
+      warning about launch-profile permissions.
+- [x] I-6 Delivery reconciliation: `CockpitDeliveryProbe` (git + gh) before each delivery step and before Start/Continue; external
+      completion recorded and the duplicate skipped; uncertain state stays pending; partial delivery status on the run screen.
+- [x] I-7 Review findings gate (DEC-029, DEC-032): findings reported by the review step, blocking merge and release until fixed and
+      verified or accepted for that finding and revision (criteria only); re-verification on a later revision.
+- [x] Pre-existing bug found by the new integration check: Retry of a failed prerequisite could never save its result
+      (`completeCurrent` needs a running step, the record stayed paused) and the run ended interrupted. `CockpitExecution.retryBegan`
+      moves the record back to running when the retried step's task arrives.
+- [x] DEC-036 (asked 2026-11-24 after the real-agent run failed its branch step on "Fix bugs is off, but a commit was made"): in a
+      managed run the steps that write or deliver the change may change source and commit; tests, review, re-verification, CI checks
+      and final verification stay under the audit. `CockpitStepKind.isVerification`, `CockpitStepAudit(changesAllowed:)`, step brief.
+- [x] Tests: `CockpitManagedRunHostTests` 19/19, `testCockpitPolicyAndControls`, Cockpit runtime integration (Ask me gate, retry,
+      continuation), qa-web-fault-tests (general hosted lane), cockpit-e2e S5 and S16, pure tier 8/8, `swift test` 136, architecture lint,
+      SwiftLint 50/50; Debug build.
+- [ ] Version bump, PR, CI, merge, release.
+
+## Review
+- Real pipeline on a fixture (`greeting-punctuation`, invisible probe app, real Claude Code): Implement with AI recommended a mode
+  with reasons; Prepare a Cockpit plan produced an 11-step draft (branch, 2 work, tests, review, fix, re-verify, PR, CI, merge Ask me,
+  final) with REQ-001's criteria and the checklist's Require items; Review and approve, then a separate Start with the permissions
+  warning; a second Start was refused while the first run was unfinished and named it; End run freed the project; the next Start
+  ran steps 1-7 with the real agent (branch, the change, its unittest, tests, review with no findings, fix, re-verify), each with its
+  revision recorded, and stopped at "Open the pull request" as pending because GitHub could not answer (local bare origin).
+- Found and fixed on the way: the Fix bugs audit failed every managed step that commits (DEC-036); the retried prerequisite never
+  saved its result (pre-existing); a refinement sent the delivery steps back to the planner; a live Retry was not held by live
+  delegates; zombies counted as live delegates; the feature card's title wrapped beside its folder.
+- Not seen with a real agent: the Ask me merge gate (covered by the runtime integration check), review findings that block merge,
+  risk acceptance, CI/merge/release evidence on GitHub, a delegate that outlives its step, the time limit in a managed run, the planning
+  blocker with its direct-handoff choice. Unticked criteria: REQ-001 #2-3, REQ-003 #2-4 and #6, REQ-004 #21 and #23-25.
+
 # Finish the architecture review (2026-11-15, goal from Boris: "fix all issues described above, finish the architecture review issue")
 
 Source: `docs/architecture/architecture-review-2026-11.md` (AR-01..AR-49) and `docs/architecture/architecture-review-2026-11-followup.md` (FU-01..FU-30, sections 10 and 12). Decisions DEC-001..DEC-011 stand. Rules: CLAUDE.md "Architecture & Refactoring Rules" (a finding is done when the old thing is gone and a count says so; one finding per pull request; a first real caller in the same pull request; behaviour tests only). Merged PRs are batched into one version bump and one release per wave; nothing is installed without Boris asking.
