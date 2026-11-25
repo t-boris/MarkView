@@ -70,6 +70,13 @@ extension WorkspaceManager {
     /// One headless, read-only call that answers in Markdown.
     private func markdownCall(root: URL, system: String, prompt: String, label: String, effort: String = "medium",
                               handle: AIToolJobs.Handle) async throws -> String {
+        try await Self.runMarkdownCall(root: root, system: system, prompt: prompt, label: label, effort: effort,
+                                       onStage: { handle.stage($0) }, record: jobRecorder)
+    }
+
+    private nonisolated static func runMarkdownCall(root: URL, system: String, prompt: String, label: String, effort: String = "medium",
+                                                    onStage: @escaping @Sendable (String) -> Void,
+                                                    record: @escaping @Sendable (CLICompletion.Result) -> Void) async throws -> String {
         var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: root)
         request.effort = effort
         request.timeout = 900
@@ -81,12 +88,12 @@ extension WorkspaceManager {
                 guard !text.isEmpty else { throw DiagramAI.Failure.unusable(["the assistant returned no text"]) }
                 return text
             },
-            onResult: { [jobRecorder] in jobRecorder($0) })
-        return try await operation.execute(request, onDelta: { _ in handle.stage("Writing") }, onActivity: { activity in
+            onResult: { record($0) })
+        return try await operation.execute(request, onDelta: { _ in onStage("Writing") }, onActivity: { activity in
             switch activity {
-            case .read: handle.stage("Reading project files")
-            case .search: handle.stage("Searching the code")
-            case .thinking: handle.stage("Thinking")
+            case .read: onStage("Reading project files")
+            case .search: onStage("Searching the code")
+            case .thinking: onStage("Thinking")
             default: break
             }
         }).output
@@ -114,10 +121,12 @@ extension WorkspaceManager {
         Use real paths and numbers from the project.
         """ + languageNote()
         aiJobs.start(title: title, work: { [jobRecorder] handle in
-            let spec = try await DiagramAI.generate(prompt: diagramPrompt, root: root, label: "codemap:diagram",
-                                                    onStage: { handle.stage("Diagram: \($0)") }, record: jobRecorder)
-            let sections = try await self.markdownCall(root: root, system: Self.writerSystem, prompt: textPrompt,
-                                                       label: "codemap:text", handle: handle)
+            handle.stage("Generating diagram and sections")
+            async let diagramSpec = DiagramAI.generate(prompt: diagramPrompt, root: root, label: "codemap:diagram",
+                                                       onStage: { handle.stage("Diagram: \($0)") }, record: jobRecorder)
+            async let writtenSections = self.markdownCall(root: root, system: Self.writerSystem, prompt: textPrompt,
+                                                          label: "codemap:text", handle: handle)
+            let (spec, sections) = try await (diagramSpec, writtenSections)
             var doc = "# Code Structure Map\n\n## Architecture Layers\n\n**Question:** \(spec.question)\n\n"
             doc += "**Takeaway:** \(spec.takeaway)\n\n```mermaid\n\(DiagramAI.mermaid(spec))\n```\n\n"
             doc += spec.nodes.map { n in "- **\(n.label)** (\(n.kind))" + (n.note.map { " — \($0)" } ?? "") + (n.source.map { " — `\($0)`" } ?? "") }
@@ -169,10 +178,13 @@ extension WorkspaceManager {
         })
     }
 
-    private struct AuditPlan: Decodable {
-        struct Doc: Decodable { var file: String; var title: String; var brief: String; var diagram: String }
+    private struct AuditPlan: Decodable, Sendable {
+        struct Doc: Decodable, Sendable { var file: String; var title: String; var brief: String; var diagram: String }
         var documents: [Doc]
     }
+
+    /// Bounded concurrency for independent audit document generation after the plan prerequisite finishes (REQ-007).
+    private static let maxConcurrentAuditDocuments = 3
 
     /// Codebase audit as a pipeline of focused calls: one call plans the document set, then one call
     /// writes each document, with diagrams drawn (and checked) by `DiagramAI`. The result goes to
@@ -225,40 +237,78 @@ extension WorkspaceManager {
             let (plan, _) = try await planning.execute(planRequest)
             try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
             let outline = plan.documents.map { "- \($0.file): \($0.title)" }.joined(separator: "\n")
-            var index: URL?
+            let language = self.languageNote()
+            struct AuditWork: Sendable {
+                let order: Int
+                let name: String
+                let doc: AuditPlan.Doc
+            }
+            var seenNames = Set<String>()
+            var items: [AuditWork] = []
             for (i, doc) in plan.documents.enumerated() {
-                try Task.checkCancellation()
-                // The model names the file; keep it inside the output folder.
+                // The model names the file; keep it inside the output folder and prevent concurrent races on duplicate names.
                 let name = doc.file.split(separator: "/").suffix(2).joined(separator: "/")
                     .replacingOccurrences(of: "..", with: "")
-                guard !name.isEmpty else { continue }
-                handle.stage("\(i + 1)/\(plan.documents.count): \(doc.title)")
-                var text = try await self.markdownCall(root: root, system: Self.writerSystem,
-                                                       prompt: """
-                    Write the document "\(doc.title)" (\(name)) of this documentation set:
-                    \(outline)
+                guard !name.isEmpty, seenNames.insert(name).inserted else { continue }
+                items.append(AuditWork(order: i, name: name, doc: doc))
+            }
+            let total = items.count
+            guard total > 0 else { return nil }
+            var completed = 0
+            var writtenByOrder: [(order: Int, name: String, url: URL)] = []
+            handle.stage("Writing 0/\(total) documents")
+            try await withThrowingTaskGroup(of: (Int, String, URL).self) { group in
+                var nextIndex = 0
+                func enqueue(_ item: AuditWork) {
+                    group.addTask {
+                        try Task.checkCancellation()
+                        var text = try await Self.runMarkdownCall(
+                            root: root,
+                            system: Self.writerSystem,
+                            prompt: """
+                            Write the document "\(item.doc.title)" (\(item.name)) of this documentation set:
+                            \(outline)
 
-                    What it must cover: \(doc.brief)
+                            What it must cover: \(item.doc.brief)
 
-                    For every statement say whether it is confirmed from code, from config, from documents, \
-                    inferred from patterns, or unknown. Link to the other documents of the set where useful. \
-                    Start with a level-1 heading.
-                    """ + self.languageNote(), label: "audit:\(name)", handle: handle)
-                if let kind = DiagramKind(rawValue: doc.diagram) {
-                    handle.stage("\(i + 1)/\(plan.documents.count): diagram for \(doc.title)")
-                    let prompt = DiagramAI.prompt(kind: kind, instruction: "The diagram illustrates this document: \(doc.brief)",
-                                                  sources: [], root: root) + self.languageNote()
-                    if let spec = try? await DiagramAI.generate(prompt: prompt, root: root, label: "audit:diagram:\(name)",
-                                                                onStage: { handle.stage($0) }, record: jobRecorder) {
-                        text += "\n\n## Diagram\n\n**Question:** \(spec.question)\n\n```mermaid\n\(DiagramAI.mermaid(spec))\n```\n"
+                            For every statement say whether it is confirmed from code, from config, from documents, \
+                            inferred from patterns, or unknown. Link to the other documents of the set where useful. \
+                            Start with a level-1 heading.
+                            """ + language,
+                            label: "audit:\(item.name)",
+                            onStage: { _ in },
+                            record: jobRecorder)
+                        if let kind = DiagramKind(rawValue: item.doc.diagram) {
+                            let prompt = DiagramAI.prompt(kind: kind, instruction: "The diagram illustrates this document: \(item.doc.brief)",
+                                                          sources: [], root: root) + language
+                            if let spec = try? await DiagramAI.generate(prompt: prompt, root: root, label: "audit:diagram:\(item.name)",
+                                                                        onStage: { _ in }, record: jobRecorder) {
+                                text += "\n\n## Diagram\n\n**Question:** \(spec.question)\n\n```mermaid\n\(DiagramAI.mermaid(spec))\n```\n"
+                            }
+                        }
+                        let url = outDir.appendingPathComponent(item.name)
+                        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try AtomicFile.write(text, to: url)
+                        return (item.order, item.name, url)
                     }
                 }
-                let url = outDir.appendingPathComponent(name)
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try AtomicFile.write(text, to: url)
-                if index == nil || name.hasPrefix("00") { index = url }
+                while nextIndex < min(Self.maxConcurrentAuditDocuments, items.count) {
+                    enqueue(items[nextIndex])
+                    nextIndex += 1
+                }
+                while let result = try await group.next() {
+                    completed += 1
+                    writtenByOrder.append((result.0, result.1, result.2))
+                    handle.stage("Wrote \(completed)/\(total) documents")
+                    if nextIndex < items.count {
+                        try Task.checkCancellation()
+                        enqueue(items[nextIndex])
+                        nextIndex += 1
+                    }
+                }
             }
-            return index
+            let ordered = writtenByOrder.sorted { $0.order < $1.order }
+            return ordered.first(where: { $0.name.hasPrefix("00") })?.url ?? ordered.first?.url
         }, onDone: { [weak self] url in
             self?.refreshFileTree()
             if let url { self?.openFile(url) }

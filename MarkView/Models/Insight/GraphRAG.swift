@@ -183,8 +183,10 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
         """
 
         do {
+            var classifyRequest = CLICompletion.Request(project: folderURL, prompt: userMessage, systemPrompt: systemPrompt)
+            classifyRequest.effort = "low"
             let result = try await AIOperation<CLICompletion.Request, CLICompletion.Result>.ask(
-                CLICompletion.Request(project: folderURL, prompt: userMessage, systemPrompt: systemPrompt), name: "insight-classify")
+                classifyRequest, name: "insight-classify")
             result.record(in: db)
             let token = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
