@@ -992,6 +992,397 @@ extension ResearchMapTranslationHostTests {
         check("the node format tells the agent when to number", Run.limits(for: .research).nodes > 0 && ResearchMapPrompt.system(web: false, webRules: "", languageLine: "", singleNode: false).contains("\"number\":1") && ResearchMapPrompt.system(web: false, webRules: "", languageLine: "", singleNode: false).contains("order of sibling nodes matters"))
         check("the single-node format has no number", !ResearchMapPrompt.system(web: false, webRules: "", languageLine: "", singleNode: true).contains("\"number\""))
     }
+
+    @MainActor func testDeepResearchClaimVerificationAndAllFourScenarios() async {
+        func check(_ condition: Bool, _ label: String, line: UInt = #line) {
+            XCTAssertTrue(condition, label, line: line)
+        }
+        let fm = FileManager.default
+        let sandbox = fm.temporaryDirectory.appendingPathComponent("deep-research-tests-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: sandbox) }
+
+        func write(_ text: String, to url: URL) {
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+
+        let repoFile = sandbox.appendingPathComponent("src/launch.swift")
+        write("""
+        import Foundation
+
+        enum LaunchRunner {
+            static func handleLaunch(web: Bool) -> [String] {
+                web ? ["--search"] : ["--no-web"]
+            }
+        }
+        """, to: repoFile)
+
+        let exists: (String) -> Bool = { rel in
+            fm.fileExists(atPath: sandbox.appendingPathComponent(rel).path)
+        }
+
+        // 1. Deterministic & verdict-based claim-content verification (REQ-008)
+        let findings = [
+            "[Project fact] `handleLaunch` controls web flags in `src/launch.swift:4`.",
+            "[Project fact] Out-of-range claim at `src/launch.swift:999`.",
+            "[Project fact] Calls `ghostHelper` in `src/launch.swift:4`.",
+            "[External fact] Upstream says X at https://example.com/spec.",
+            "[External fact] Pre-existing external fact at https://example.com/kept.",
+            "[AI inference] Likely requires a restart.",
+            "[Open assumption] Runtime latency was not measured."
+        ]
+        let preserved: Set<String> = [ResearchDocument.plain("Pre-existing external fact at https://example.com/kept.")]
+        let checks = ResearchClaimVerifier.prepareDocumentClaims(
+            findings: findings,
+            root: sandbox,
+            pathExists: exists,
+            webAllowed: false,
+            urlsFetched: [],
+            preservedExternalClaims: preserved
+        )
+        let byID = Dictionary(uniqueKeysWithValues: checks.map { ($0.id, $0) })
+        check(byID["f0"]?.deterministicFailure == nil && (byID["f0"]?.excerpts.contains("handleLaunch") == true),
+              "valid Project fact passes deterministic checks and reads verbatim excerpt")
+        check(byID["f1"]?.deterministicFailure?.contains("exceeds") == true,
+              "out-of-range cited line fails deterministically")
+        check(byID["f2"]?.deterministicFailure?.contains("ghostHelper") == true,
+              "missing backticked symbol fails deterministically")
+        check(byID["f3"]?.deterministicFailure?.contains("not permitted or available") == true,
+              "new External fact when web is disabled fails deterministically")
+        check(byID["f4"]?.deterministicFailure == nil,
+              "pre-existing External fact preserved during comment revision is not penalised when web is disabled")
+
+        let verifiedFindings = ResearchClaimVerifier.applyDocumentVerdicts(
+            findings: findings,
+            checks: checks,
+            verdicts: [
+                ResearchClaimVerifier.Verdict(id: "f0", status: "supported", reason: "Matches L4"),
+                ResearchClaimVerifier.Verdict(id: "f4", status: "supported", reason: "Preserved")
+            ],
+            pathExists: exists
+        )
+        check(verifiedFindings[0].hasPrefix("[Project fact]"), "supported Project fact stays Project fact")
+        check(verifiedFindings[1].hasPrefix("[AI inference]") && verifiedFindings[1].contains("exceeds"), "out-of-range claim demoted with reason")
+        check(verifiedFindings[2].hasPrefix("[AI inference]") && verifiedFindings[2].contains("ghostHelper"), "missing-symbol claim demoted with reason")
+        check(verifiedFindings[3].hasPrefix("[AI inference]") && verifiedFindings[3].contains("not permitted"), "unpermitted External fact demoted with reason")
+        check(verifiedFindings[4].hasPrefix("[External fact]"), "preserved External fact stays External fact")
+        check(verifiedFindings[5].hasPrefix("[AI inference]"), "AI inference stays distinguishable")
+        check(verifiedFindings[6].hasPrefix("[Open assumption]"), "Open assumption stays distinguishable")
+
+        // 2. Incomplete context extraction for Retry incomplete part
+        let incompleteDoc = """
+        ---
+        type: research
+        id: 2026-11-25-retry-sample
+        status: incomplete
+        question: How does LaunchRunner handle web flags?
+        web_queries: []
+        ---
+
+        # How does LaunchRunner handle web flags?
+
+        > ⚠️ Incomplete: cancelled after 1:10; web search unavailable
+
+        ## Question
+
+        How does LaunchRunner handle web flags?
+
+        ## Summary
+
+        Partial summary before cancellation.
+
+        ## Findings
+
+        - [Project fact] `handleLaunch` toggles flags in `src/launch.swift:4`.
+        - [Project fact] Bad line citation at `src/launch.swift:999`.
+
+        ## Sources
+
+        - `src/launch.swift`
+        """
+        let sections = ResearchDocument.sections(incompleteDoc)
+        let unresolved = ResearchDocument.unresolved(sections)
+        check(unresolved.count == 1, "finds the single unresolved incomplete section")
+        let incompleteCtx = ResearchDocument.extractIncompleteContext(from: unresolved[0])
+        check(incompleteCtx.reasons.contains { $0.contains("cancelled after 1:10") }, "extracts exact incomplete failure reason")
+        check(incompleteCtx.preservedFindings.count == 2, "extracts existing partial findings")
+        check(incompleteCtx.missingParts.contains("Recommendations"), "detects missing Recommendations section")
+
+        // 3. Map claim-content verification (REQ-008)
+        var testMap = ResearchMap.new(id: "m1", question: "Q", created: "2026-11-25", targets: [], attachments: [])
+        _ = try? testMap.addNode(parent: testMap.root!.id, draft: ResearchMap.Draft(
+            title: "Launch",
+            description: "Desc",
+            evidence: [
+                ResearchMap.verifiedContent(label: .projectFact, text: "`handleLaunch` returns flags", source: "src/launch.swift:4", root: sandbox, pathExists: exists, webAllowed: false),
+                ResearchMap.verifiedContent(label: .projectFact, text: "Wrong line", source: "src/launch.swift:888", root: sandbox, pathExists: exists, webAllowed: false),
+                ResearchMap.verifiedContent(label: .externalFact, text: "Web claim", source: "https://example.com", root: sandbox, pathExists: exists, webAllowed: false),
+                ResearchMap.Evidence(label: .openAssumption, text: "Unverified latency", source: "")
+            ]
+        ))
+        let childNode = testMap.nodes[1]
+        check(childNode.evidence[0].label == .projectFact, "valid map Project fact stays Project fact")
+        check(childNode.evidence[1].label == .aiInference && childNode.evidence[1].text.contains("exceeds"), "out-of-range map claim demoted")
+        check(childNode.evidence[2].label == .aiInference && childNode.evidence[2].text.contains("not permitted"), "unpermitted map External fact demoted")
+        check(childNode.evidence[3].label == .openAssumption, "map Open assumption preserved")
+        let mapChecks = testMap.prepareClaimChecks(root: sandbox, pathExists: exists, webAllowed: false, urlsFetched: [])
+        check(mapChecks.count == 1 && mapChecks[0].id == "\(childNode.id):0", "only remaining factual map claims are sent to semantic verification")
+        testMap.applyClaimVerdicts(checks: mapChecks, verdicts: [
+            ResearchClaimVerifier.Verdict(id: "\(childNode.id):0", status: "unsupported", reason: "Excerpt contradicts claim")
+        ])
+        check(testMap.nodes[1].evidence[0].label == .aiInference && testMap.nodes[1].evidence[0].text.contains("Excerpt contradicts claim"),
+              "map claim-verification verdict demotes unsupported claim with reason")
+
+        // 4. DEC-013 explicit substitution confirmation in ResearchJobs.resolveProfile
+        let host = ResearchMapFixtureWindow()
+        let project = StubProject(root: sandbox, aiProjectTracksRoot: true)
+        let tasks = TaskBag()
+        let prompts = ScriptedPrompts()
+        let controller = ResearchMapController(host: host, project: project, tasks: tasks, prompts: prompts)
+        let jobs = controller.jobs
+        let claude = CLITool(rawValue: "claude")!
+        let copilot = CLITool(rawValue: "copilot")!
+        let savedProjectAI = Settings.standard.value(Setting.projectAI)
+        let webDisabledKey = ResearchSettings.webDisabledKey(sandbox)
+        let savedWebDisabled = Settings.standard.value(webDisabledKey)
+        defer {
+            Settings.standard.set(savedProjectAI, for: Setting.projectAI)
+            Settings.standard.set(savedWebDisabled, for: webDisabledKey)
+            AIAssistantRunner.setTestRunner(nil)
+            tasks.cancelAll()
+        }
+
+        ProjectAIChoice.update(sandbox) { $0.backend = copilot.rawValue }
+        Settings.standard.set(true, for: webDisabledKey)
+        let disabledProfile = jobs.resolveProfile(root: sandbox, taskName: "research", isAvailable: { _ in true })
+        check(disabledProfile == ResolvedResearchProfile(
+            tool: copilot,
+            webAllowed: false,
+            webUnavailable: nil,
+            webNote: "Web search: disabled for this repository, so the research is repository-only."
+        ) && prompts.asked.isEmpty, "repo web opt-out skips capability prompt and keeps selected tool repo-only")
+
+        Settings.standard.set(false, for: webDisabledKey)
+        prompts.script = [.press("Continue with Copilot")]
+        let declinedProfile = jobs.resolveProfile(root: sandbox, taskName: "research", isAvailable: { $0 == claude || $0 == copilot })
+        check(declinedProfile?.tool == copilot && declinedProfile?.webAllowed == false && declinedProfile?.webUnavailable != nil,
+              "declining substitution keeps GitHub Copilot with repository-only fallback")
+
+        prompts.script = [.press("Use Claude Code for This Run")]
+        let confirmedProfile = jobs.resolveProfile(root: sandbox, taskName: "research", isAvailable: { $0 == claude || $0 == copilot })
+        check(confirmedProfile?.tool == claude && confirmedProfile?.webAllowed == true,
+              "explicit user confirmation switches to compatible web-capable provider")
+
+        prompts.script = [.press("Cancel")]
+        let cancelledProfile = jobs.resolveProfile(root: sandbox, taskName: "research", isAvailable: { $0 == claude || $0 == copilot })
+        check(cancelledProfile == nil, "cancelling capability prompt aborts job cleanly")
+
+        // 5. End-to-end execution of ALL FOUR Research scenarios (S1, S2, S3, S4)
+        ProjectAIChoice.update(sandbox) { $0.backend = claude.rawValue }
+        Settings.standard.set(true, for: webDisabledKey)
+
+        let lock = NSLock()
+        var recordedLabels: [String] = []
+        var recordedPrompts: [String: String] = [:]
+
+        AIAssistantRunner.setTestRunner { request, onText, _ in
+            let label = request.label
+            lock.withLock {
+                recordedLabels.append(label)
+                recordedPrompts[label] = request.prompt
+            }
+            let text: String
+            switch label {
+            case "research:plan":
+                text = #"{"rootTitle":"Launch Flag Handling","branches":[{"ref":"flags","title":"CLI Flag Emission","angle":"How LaunchRunner maps web Bool to flags","focus":"src/launch.swift","needsWeb":false},{"ref":"gaps","title":"Edge Cases and Gaps","angle":"Untested modes and limitations","focus":"src/launch.swift","needsWeb":false}]}"#
+            case "research:branch:flags":
+                text = """
+                NODE {"ref":"f1","parent":"n2","title":"handleLaunch mapping","description":"Maps web Bool to flags.","evidence":[{"label":"Project fact","text":"`handleLaunch` returns `--search` or `--no-web`","source":"src/launch.swift:4"},{"label":"Project fact","text":"Unverified semantic claim in `src/launch.swift:4`","source":"src/launch.swift:4"}]}
+                """
+            case "research:branch:gaps":
+                text = """
+                NODE {"ref":"g1","parent":"n3","title":"Missing timeout flag","description":"No timeout option is passed.","evidence":[{"label":"Open assumption","text":"Timeout behaviour depends on caller","source":""}]}
+                """
+            case "research:verify":
+                // Extract the actual claim IDs from the verification prompt so parallel branch ID order never flakes.
+                let promptLines = request.prompt.components(separatedBy: "\n")
+                var verdictEntries: [String] = []
+                for line in promptLines where line.hasPrefix("CLAIM ") {
+                    let rest = line.dropFirst("CLAIM ".count)
+                    guard let spaceIdx = rest.firstIndex(of: " ") else { continue }
+                    let claimID = String(rest[..<spaceIdx])
+                    if line.contains("Unverified semantic claim") {
+                        verdictEntries.append(#"{"id":"\#(claimID)","status":"unsupported","reason":"Not present in excerpt"}"#)
+                    } else {
+                        verdictEntries.append(#"{"id":"\#(claimID)","status":"supported","reason":"Matches L4-L5"}"#)
+                    }
+                }
+                text = #"{"rootDescription":"LaunchRunner maps web permissions to flags with clear separation of gaps.","connections":[{"from":"n2","to":"n3"}],"verdicts":["# + verdictEntries.joined(separator: ",") + #"],"gaps":["Caller timeout handling was not inspected"]}"#
+            case "research:followup":
+                text = """
+                ## Summary
+
+                Follow-up deepened launch analysis.
+
+                ## Findings
+
+                - [Project fact] `handleLaunch` maps web flag in `src/launch.swift:4`.
+                - [Project fact] `handleLaunch` retries failed calls in `src/launch.swift:4`.
+
+                ## Recommendations
+
+                Keep flag mapping centralized.
+                """
+            case "research:followup:verify":
+                text = #"{"verdicts":[{"id":"f0","status":"supported","reason":"Matches L4-L5"},{"id":"f1","status":"unsupported","reason":"No retry loop in excerpt"}],"gaps":["Error propagation to callers was not verified"],"refined_summary":"Follow-up verified flag mapping and found no retry loop.","refined_recommendations":"Add tests for both web flag branches."}"#
+            case "research:retry":
+                text = """
+                ## Summary
+
+                Completed retry of LaunchRunner behavior.
+
+                ## Findings
+
+                - [Project fact] `handleLaunch` returns `--search` or `--no-web` in `src/launch.swift:4`.
+                - [Open assumption] Web search remained disabled by repository settings.
+
+                ## Recommendations
+
+                Document the `--no-web` invariant.
+                """
+            case "research:retry:verify":
+                text = #"{"verdicts":[{"id":"f0","status":"supported","reason":"Matches L4-L5"}],"gaps":[],"refined_summary":"","refined_recommendations":""}"#
+            case "research:comment":
+                text = """
+                ## Findings
+
+                - [Project fact] `handleLaunch` maps web flag in `src/launch.swift:4`.
+                - [Project fact] `handleLaunch` caches responses in `src/launch.swift:4`.
+                - [AI inference] Untouched inference stays intact.
+                """
+            case "research:comment:verify":
+                text = #"{"verdicts":[{"id":"f0","status":"supported","reason":"Matches L4-L5"},{"id":"f1","status":"unsupported","reason":"No caching in src/launch.swift"}],"gaps":["Cache layer lives elsewhere"]}"#
+            default:
+                text = ""
+            }
+            onText?(text)
+            let structured: Any? = request.jsonSchema != nil ? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) : nil
+            return try CLICompletion.Result(text: text, structured: structured, inputTokens: 100, outputTokens: 50, costUSD: 0.002)
+        }
+
+        func waitUntilIdle(_ timeout: TimeInterval = 5.0) async -> Bool {
+            let end = Date().addingTimeInterval(timeout)
+            while !jobs.jobs.isEmpty && Date() < end {
+                try? await Task.sleep(nanoseconds: 25_000_000)
+            }
+            return jobs.jobs.isEmpty
+        }
+
+        // Scenario 1: New Research document (shared intake -> start)
+        jobs.start(question: "How does LaunchRunner work?", relativePath: "docs/research/2026-11-25-launch.research-map.md", targets: [], attachments: [])
+        check(await waitUntilIdle(), "S1 deep new-research job finishes")
+        let s1File = sandbox.appendingPathComponent("docs/research/2026-11-25-launch.research-map.md")
+        let s1Text = (try? String(contentsOf: s1File, encoding: .utf8)) ?? ""
+        if case .success(let s1Map) = ResearchMap.parse(s1Text) {
+            check(s1Map.root?.title == "Launch Flag Handling", "S1 sets synthesized root title")
+            check(s1Map.nodes.count >= 5, "S1 seeds distinct inquiry branches and child findings (count: \(s1Map.nodes.count))")
+            check(!s1Map.links.isEmpty, "S1 synthesis adds cross-branch links")
+            let allEv = s1Map.nodes.flatMap(\.evidence)
+            check(allEv.contains { $0.label == .projectFact && $0.text.contains("handleLaunch") }, "S1 keeps verified Project fact")
+            check(allEv.contains { $0.label == .aiInference && $0.text.contains("Not present in excerpt") }, "S1 demotes unsupported Project fact with verdict reason")
+            check(allEv.contains { $0.label == .openAssumption && $0.text.contains("Caller timeout") }, "S1 records verification gaps as Open assumption")
+        } else {
+            check(false, "S1 output parses as valid ResearchMap")
+        }
+
+        // Scenario 2: Continue / deepen
+        let followDoc = sandbox.appendingPathComponent("docs/research/2026-11-25-existing.md")
+        write("""
+        ---
+        type: research
+        id: 2026-11-25-existing
+        status: complete
+        question: Initial question
+        web_queries: []
+        ---
+
+        # Initial question
+
+        ## Summary
+
+        Initial summary.
+
+        ## Findings
+
+        - [Project fact] `handleLaunch` exists in `src/launch.swift:4`.
+        - [AI inference] Untouched inference stays intact.
+
+        ## Recommendations
+
+        Initial rec.
+        """, to: followDoc)
+        jobs.followUp(followDoc, question: "Does handleLaunch retry?", retry: nil)
+        check(await waitUntilIdle(), "S2 deep follow-up finishes")
+        let s2Text = (try? String(contentsOf: followDoc, encoding: .utf8)) ?? ""
+        check(s2Text.contains("Follow-up verified flag mapping and found no retry loop."), "S2 adopts refined summary when unsupported claim is demoted")
+        check(s2Text.contains("[AI inference] `handleLaunch` retries failed calls in `src/launch.swift:4`. *(labelled as inference: No retry loop in excerpt)*"),
+              "S2 demotes unsupported Project fact with verification verdict")
+        check(s2Text.contains("[Open assumption] Error propagation to callers was not verified"), "S2 preserves explicit verification gap")
+
+        // Scenario 3: Retry incomplete part
+        let retryDoc = sandbox.appendingPathComponent("docs/research/2026-11-25-retry.md")
+        write(incompleteDoc, to: retryDoc)
+        let retryTarget = ResearchDocument.unresolved(ResearchDocument.sections(incompleteDoc)).first!
+        jobs.followUp(retryDoc, question: retryTarget.question, retry: retryTarget)
+        check(await waitUntilIdle(), "S3 deep retry finishes")
+        let s3Text = (try? String(contentsOf: retryDoc, encoding: .utf8)) ?? ""
+        check(FrontMatter.split(s3Text).0.string("status") == "complete", "S3 resolves incomplete document to complete")
+        check(recordedPrompts["research:retry"]?.contains("cancelled after 1:10") == true, "S3 retry prompt carries prior incomplete failure reason")
+        check(s3Text.contains("Document the `--no-web` invariant."), "S3 supplies previously missing Recommendations")
+
+        // Scenario 4: Revise With Comment
+        let commentDoc = sandbox.appendingPathComponent("docs/research/2026-11-25-comment.md")
+        write("""
+        ---
+        type: research
+        id: 2026-11-25-comment
+        status: complete
+        question: Initial question
+        web_queries: []
+        ---
+
+        # Initial question
+
+        ## Summary
+
+        Summary text.
+
+        ## Findings
+
+        - [Project fact] `handleLaunch` exists in `src/launch.swift:4`.
+        - [AI inference] Untouched inference stays intact.
+
+        ## Recommendations
+
+        Rec text.
+        """, to: commentDoc)
+        jobs.comment(on: "handleLaunch exists", comment: "Verify whether handleLaunch caches responses.", in: commentDoc)
+        check(await waitUntilIdle(), "S4 deep comment revision finishes")
+        let s4Text = (try? String(contentsOf: commentDoc, encoding: .utf8)) ?? ""
+        check(s4Text.contains("Untouched inference stays intact."), "S4 preserves untouched findings")
+        check(s4Text.contains("[AI inference] `handleLaunch` caches responses in `src/launch.swift:4`. *(labelled as inference: No caching in src/launch.swift)*"),
+              "S4 demotes unsupported new factual claim in revised section")
+        check(s4Text.contains("[Open assumption] Cache layer lives elsewhere"), "S4 appends explicit verification gap")
+
+        let labelsSnapshot = lock.withLock { recordedLabels }
+        for expected in ["research:plan", "research:branch:flags", "research:branch:gaps", "research:verify",
+                         "research:followup", "research:followup:verify",
+                         "research:retry", "research:retry:verify",
+                         "research:comment", "research:comment:verify"] {
+            check(labelsSnapshot.contains(expected), "executed expected stage \(expected) (labels: \(labelsSnapshot))")
+        }
+    }
 }
 
 extension ResearchMapTranslationHostTests {

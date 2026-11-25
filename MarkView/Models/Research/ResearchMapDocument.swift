@@ -550,6 +550,174 @@ struct ResearchMap: Equatable {
         } ?? "unverified"
         return Evidence(label: .aiInference, text: "\(text) (labelled as inference: \(note))", source: source)
     }
+
+    /// Content-aware evidence verification (REQ-008): checks cited repository line bounds, cited backticked
+    /// symbols against actual file content, and web-search permission/availability.
+    static func verifiedContent(
+        label: Label,
+        text: String,
+        source: String,
+        root: URL?,
+        pathExists: (String) -> Bool,
+        webAllowed: Bool
+    ) -> Evidence {
+        let base = verified(label: label, text: text, source: source, pathExists: pathExists)
+        guard base.label == label else { return base }
+        switch label {
+        case .projectFact:
+            guard let root else { return base }
+            let locs = ResearchDocument.citedPathLocations("\(base.text) \(base.source)", pathExists: pathExists)
+            let inspected = ResearchClaimVerifier.inspectProjectSources(claimText: base.text, locations: locs, root: root)
+            if let failure = inspected.deterministicFailure {
+                return Evidence(label: .aiInference, text: "\(base.text) (labelled as inference: \(failure))", source: base.source)
+            }
+            return base
+        case .externalFact:
+            if !webAllowed {
+                return Evidence(label: .aiInference,
+                                text: "\(base.text) (labelled as inference: web search was not permitted or available for this run)",
+                                source: base.source)
+            }
+            return base
+        case .aiInference, .openAssumption:
+            return base
+        }
+    }
+
+    /// Collects claim-content verification checks for `[Project fact]` and `[External fact]` evidence across map nodes,
+    /// sampling round-robin across top-level inquiry branches so every branch gets verified against source excerpts.
+    func prepareClaimChecks(
+        root: URL,
+        pathExists: (String) -> Bool,
+        webAllowed: Bool,
+        urlsFetched: [String],
+        maxChecks: Int = 18
+    ) -> [ResearchClaimVerifier.ClaimCheck] {
+        // Group nodes by their top-level branch (direct child of root) so one deep branch cannot starve sibling branches.
+        let rootID = self.root?.id ?? "n1"
+        var branchOrder: [String] = []
+        var byBranch: [String: [Node]] = [:]
+        for node in nodes {
+            let bucket: String
+            if node.id == rootID {
+                bucket = rootID
+            } else {
+                var cur = node
+                var hops = 0
+                while !cur.parent.isEmpty, cur.parent != rootID, hops < 10, let parent = self.node(cur.parent) {
+                    cur = parent
+                    hops += 1
+                }
+                bucket = cur.id
+            }
+            if byBranch[bucket] == nil { branchOrder.append(bucket) }
+            byBranch[bucket, default: []].append(node)
+        }
+
+        let queues: [[(nodeID: String, evIdx: Int, ev: Evidence)]] = branchOrder.map { bucket in
+            let bucketNodes = byBranch[bucket] ?? []
+            var items: [(String, Int, Evidence)] = []
+            let maxEv = bucketNodes.map(\.evidence.count).max() ?? 0
+            for evIdx in 0..<maxEv {
+                for node in bucketNodes where evIdx < node.evidence.count {
+                    let ev = node.evidence[evIdx]
+                    if ev.label == .projectFact || ev.label == .externalFact {
+                        items.append((node.id, evIdx, ev))
+                    }
+                }
+            }
+            return items
+        }
+
+        var checks: [ResearchClaimVerifier.ClaimCheck] = []
+        var cursor = Array(repeating: 0, count: queues.count)
+        while checks.count < maxChecks {
+            var progressed = false
+            for b in queues.indices {
+                guard cursor[b] < queues[b].count else { continue }
+                let item = queues[b][cursor[b]]
+                cursor[b] += 1
+                progressed = true
+                let id = "\(item.nodeID):\(item.evIdx)"
+                let ev = item.ev
+                switch ev.label {
+                case .projectFact:
+                    let locs = ResearchDocument.citedPathLocations("\(ev.text) \(ev.source)", pathExists: pathExists)
+                    let inspected = ResearchClaimVerifier.inspectProjectSources(claimText: ev.text, locations: locs, root: root)
+                    checks.append(ResearchClaimVerifier.ClaimCheck(
+                        id: id,
+                        label: .projectFact,
+                        claimText: ev.text,
+                        sources: locs.map { loc in loc.line.map { line in "\(loc.path):\(line)" } ?? loc.path },
+                        excerpts: inspected.excerpts,
+                        deterministicFailure: inspected.deterministicFailure
+                    ))
+                case .externalFact:
+                    let urls = ResearchDocument.citedURLs("\(ev.text) \(ev.source)")
+                    if !webAllowed {
+                        checks.append(ResearchClaimVerifier.ClaimCheck(
+                            id: id,
+                            label: .externalFact,
+                            claimText: ev.text,
+                            sources: urls,
+                            excerpts: "",
+                            deterministicFailure: "web search was not permitted or available for this run"
+                        ))
+                    } else {
+                        let fetchedMatches = urls.filter { url in urlsFetched.contains { $0 == url || url.hasPrefix($0) || $0.hasPrefix(url) } }
+                        let meta = fetchedMatches.isEmpty
+                            ? "Cited URL(s): \(urls.joined(separator: ", ")) (not directly logged as fetched in tool stream)"
+                            : "Fetched URL(s) confirmed in tool log: \(fetchedMatches.joined(separator: ", "))"
+                        checks.append(ResearchClaimVerifier.ClaimCheck(
+                            id: id,
+                            label: .externalFact,
+                            claimText: ev.text,
+                            sources: urls,
+                            excerpts: meta,
+                            deterministicFailure: nil
+                        ))
+                    }
+                case .aiInference, .openAssumption:
+                    continue
+                }
+                if checks.count >= maxChecks { return checks }
+            }
+            if !progressed { break }
+        }
+        return checks
+    }
+
+    /// Applies deterministic failures and content-verification verdicts to map node evidence in place.
+    mutating func applyClaimVerdicts(checks: [ResearchClaimVerifier.ClaimCheck], verdicts: [ResearchClaimVerifier.Verdict]) {
+        let deterministicByID = Dictionary(uniqueKeysWithValues: checks.compactMap { check in
+            check.deterministicFailure.map { (check.id, $0) }
+        })
+        let verdictByID = Dictionary(uniqueKeysWithValues: verdicts.map { ($0.id, $0) })
+        for nodeIndex in nodes.indices {
+            let nodeID = nodes[nodeIndex].id
+            for evIndex in nodes[nodeIndex].evidence.indices {
+                let id = "\(nodeID):\(evIndex)"
+                let current = nodes[nodeIndex].evidence[evIndex]
+                guard current.label == .projectFact || current.label == .externalFact else { continue }
+                let reason: String?
+                if let failure = deterministicByID[id] {
+                    reason = failure
+                } else if let verdict = verdictByID[id], verdict.status.lowercased() == "unsupported" {
+                    let text = verdict.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                    reason = text.isEmpty ? "not supported by cited source content" : text
+                } else {
+                    reason = nil
+                }
+                if let reason, !current.text.contains("(labelled as inference:") {
+                    nodes[nodeIndex].evidence[evIndex] = Evidence(
+                        label: .aiInference,
+                        text: "\(current.text) (labelled as inference: \(reason))",
+                        source: current.source
+                    )
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Parsing

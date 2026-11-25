@@ -533,4 +533,345 @@ enum ResearchDocument {
         s = String(String.UnicodeScalarView(s.unicodeScalars.compactMap { inline.contains($0) ? nil : block.contains($0) ? " " : $0 }))
         return s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
+
+    // MARK: - Incomplete Section Context Extraction (I-6, REQ-008)
+
+    /// Structured summary of an incomplete section for evidence-preserving deep retry.
+    struct IncompleteContext: Equatable, Sendable {
+        var reasons: [String]
+        var preservedFindings: [String]
+        var missingParts: [String]
+    }
+
+    /// Extracts the recorded failure reasons, already-collected valid findings, and missing parts
+    /// from an incomplete research section so retry builds on usable evidence and closes gaps.
+    static func extractIncompleteContext(from section: Section) -> IncompleteContext {
+        let lines = section.text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        var reasons: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix(incompletePrefix) {
+                let reason = trimmed.dropFirst(incompletePrefix.count).trimmingCharacters(in: .whitespaces)
+                if !reason.isEmpty, !reasons.contains(reason) { reasons.append(reason) }
+            }
+        }
+        let parsed = parseAnswer(section.text)
+        let preservedFindings = parsed.findings.filter { finding in
+            let trimmed = finding.trimmingCharacters(in: .whitespaces)
+            return !trimmed.isEmpty && trimmed != "*No findings were produced.*"
+        }
+        var missingParts: [String] = []
+        if parsed.summary.isEmpty || parsed.summary == "*No summary was produced.*" { missingParts.append("Summary") }
+        if preservedFindings.isEmpty { missingParts.append("Findings") }
+        if parsed.recommendations.isEmpty || parsed.recommendations == "*No recommendations were produced.*" {
+            missingParts.append("Recommendations")
+        }
+        return IncompleteContext(reasons: reasons, preservedFindings: preservedFindings, missingParts: missingParts)
+    }
+
+    /// Extracts `(path, startLine, endLine)` references for files confirmed to exist by `pathExists`.
+    static func citedPathLocations(_ text: String, pathExists: (String) -> Bool) -> [(path: String, line: Int?, endLine: Int?)] {
+        var found: [(path: String, line: Int?, endLine: Int?)] = []
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_.-/@+~:#"))
+        var token = ""
+        var lastPath: String?
+        func appendLocation(_ path: String, _ line: Int?, _ endLine: Int?) {
+            if !found.contains(where: { $0.path == path && $0.line == line && $0.endLine == endLine }) {
+                found.append((path, line, endLine))
+            }
+        }
+        func flush() {
+            var candidate = token
+            token = ""
+            while candidate.hasPrefix("./") { candidate.removeFirst(2) }
+            while let last = candidate.last, ".-/:#".contains(last) { candidate.removeLast() }
+            guard !candidate.isEmpty, !candidate.contains("://") else { return }
+            // Shorthand line reference following a cited file in the same sentence (e.g. "Foo.swift:24, :188-192").
+            if candidate.hasPrefix(":"), let prev = lastPath,
+               let match = candidate.range(of: #"^:L?(\d+)(?:-L?(\d+))?$"#, options: .regularExpression) {
+                let nums = candidate[match].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+                appendLocation(prev, nums.first, nums.count > 1 ? nums[1] : nil)
+                return
+            }
+            var path = candidate
+            var line: Int?
+            var endLine: Int?
+            if let match = candidate.range(of: #"(?::|#L?)L?(\d+)(?:-L?(\d+))?$"#, options: .regularExpression) {
+                let nums = candidate[match].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+                line = nums.first
+                endLine = nums.count > 1 ? nums[1] : nil
+                path = String(candidate[..<match.lowerBound])
+            }
+            while let last = path.last, ".-/".contains(last) { path.removeLast() }
+            guard path.contains("/") || path.contains("."), pathExists(path) else { return }
+            lastPath = path
+            appendLocation(path, line, endLine)
+        }
+        for scalar in text.unicodeScalars {
+            if allowed.contains(scalar) { token.unicodeScalars.append(scalar) } else { flush() }
+        }
+        flush()
+        return found
+    }
+
+    /// Demotes a finding line to `[AI inference]` with an explicit verification reason while keeping
+    /// the original claim text intact and distinguishable.
+    static func demoteFinding(_ finding: String, reason: String) -> String {
+        var rest = Substring(finding.trimmingCharacters(in: .whitespaces))
+        while let (_, after) = leadingLabel(rest) { rest = after }
+        let body = rest.trimmingCharacters(in: .whitespaces)
+        if body.contains("*(labelled as inference:") { return "[\(Label.aiInference.rawValue)] \(body)" }
+        let cleanReason = reason.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+        return "[\(Label.aiInference.rawValue)] \(body) *(labelled as inference: \(cleanReason.isEmpty ? "unverified against cited source" : cleanReason))*"
+    }
+
+    /// Parses the leading label and stripped body of a finding, or nil when unlabelled.
+    static func parsedLabel(of finding: String) -> (label: Label, body: String)? {
+        var rest = Substring(finding.trimmingCharacters(in: .whitespaces))
+        var labels: [Label] = []
+        while let (label, after) = leadingLabel(rest) {
+            labels.append(label)
+            rest = after
+        }
+        guard labels.count == 1 else { return nil }
+        return (labels[0], rest.trimmingCharacters(in: .whitespaces))
+    }
+}
+
+// MARK: - Claim-Level Source Content Verification (REQ-008)
+
+/// Checks factual research claims against ACTUAL cited repository file contents and web availability,
+/// not merely path existence or URL syntax. Pure Foundation so tests exercise it directly.
+enum ResearchClaimVerifier {
+    struct ClaimCheck: Equatable, Sendable {
+        let id: String
+        let label: ResearchDocument.Label
+        let claimText: String
+        let sources: [String]
+        /// Verbatim excerpts read from cited repository files (with line numbers) or web-fetch metadata.
+        let excerpts: String
+        /// Non-nil when deterministic content verification already disproved the citation.
+        let deterministicFailure: String?
+    }
+
+    struct Verdict: Decodable, Equatable, Sendable {
+        let id: String
+        /// "supported" or "unsupported"
+        let status: String
+        let reason: String
+    }
+
+    /// Extracts backticked code identifiers (non-paths, ≥ 4 chars) mentioned in a claim for deterministic checks.
+    static func backtickedSymbols(in text: String) -> [String] {
+        var symbols: [String] = []
+        var rest = Substring(text)
+        while let open = rest.firstIndex(of: "`") {
+            let afterOpen = rest[rest.index(after: open)...]
+            guard let close = afterOpen.firstIndex(of: "`") else { break }
+            let token = String(afterOpen[..<close]).trimmingCharacters(in: .whitespaces)
+            rest = afterOpen[afterOpen.index(after: close)...]
+            guard token.count >= 4, token.count <= 64,
+                  !token.contains(" "), !token.contains("/"), !token.contains("://"),
+                  !token.hasPrefix("-"), !token.hasPrefix("."),
+                  token.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { continue }
+            // Skip plain file extensions or all-numeric tokens.
+            guard token.contains(where: { $0.isLetter }) else { continue }
+            if !symbols.contains(token) { symbols.append(token) }
+        }
+        return symbols
+    }
+
+    /// Reads safe bounded content from `relativePath` inside `root`, refusing symlinks escaping `root`.
+    static func readRepoFile(_ relativePath: String, root: URL, maxBytes: Int = 250_000) -> String? {
+        guard !relativePath.hasPrefix("/"), !relativePath.split(separator: "/").contains("..") else { return nil }
+        let canonicalRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        let fileURL = canonicalRoot.appendingPathComponent(relativePath).resolvingSymlinksInPath().standardizedFileURL
+        guard fileURL.path.hasPrefix(canonicalRoot.path + "/") else { return nil }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+              (attrs[.type] as? FileAttributeType) == .typeRegular,
+              let size = attrs[.size] as? Int, size <= maxBytes else { return nil }
+        return try? String(contentsOf: fileURL, encoding: .utf8)
+    }
+
+    /// Builds verbatim line-numbered excerpts for cited repository locations, also catching
+    /// deterministic out-of-range lines or missing cited symbols.
+    static func inspectProjectSources(
+        claimText: String,
+        locations: [(path: String, line: Int?, endLine: Int?)],
+        root: URL,
+        maxExcerptChars: Int = 4200
+    ) -> (excerpts: String, deterministicFailure: String?) {
+        guard !locations.isEmpty else {
+            return ("", "no repository file cited")
+        }
+        let symbols = backtickedSymbols(in: claimText)
+        var matchedAnySymbol = symbols.isEmpty
+        var readableCount = 0
+        var outOfRangeNote: String?
+        var blocks: [String] = []
+        var totalChars = 0
+
+        for loc in locations.prefix(6) {
+            guard let content = readRepoFile(loc.path, root: root) else { continue }
+            readableCount += 1
+            let lines = content.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+            if !matchedAnySymbol, symbols.contains(where: { content.localizedCaseInsensitiveContains($0) }) {
+                matchedAnySymbol = true
+            }
+            if let citedLine = loc.line {
+                if citedLine < 1 || citedLine > lines.count {
+                    outOfRangeNote = "cited line \(citedLine) exceeds \(loc.path) length (\(lines.count) lines)"
+                    continue
+                }
+                let start = max(1, citedLine - 6)
+                let end = min(lines.count, max(citedLine, loc.endLine ?? citedLine) + 10)
+                let slice = (start...end).map { "L\($0): \(lines[$0 - 1])" }.joined(separator: "\n")
+                let block = "[\(loc.path):\(start)-\(end)]\n\(slice)"
+                if totalChars < maxExcerptChars {
+                    let clipped = String(block.prefix(maxExcerptChars - totalChars))
+                    blocks.append(clipped)
+                    totalChars += clipped.count
+                }
+            } else {
+                // Focus excerpt around lines mentioning claim symbols/terms; fall back to file head.
+                let terms = !symbols.isEmpty ? symbols : keyTerms(in: claimText)
+                var chosenLines: [Int] = []
+                for (idx, line) in lines.enumerated() where terms.contains(where: { line.localizedCaseInsensitiveContains($0) }) {
+                    let oneBased = idx + 1
+                    for around in max(1, oneBased - 2)...min(lines.count, oneBased + 2) where !chosenLines.contains(around) {
+                        chosenLines.append(around)
+                    }
+                    if chosenLines.count >= 28 { break }
+                }
+                if chosenLines.isEmpty {
+                    chosenLines = Array(1...min(lines.count, 25))
+                }
+                let slice = chosenLines.sorted().prefix(28).map { "L\($0): \(lines[$0 - 1])" }.joined(separator: "\n")
+                let block = "[\(loc.path)]\n\(slice)"
+                if totalChars < maxExcerptChars {
+                    let clipped = String(block.prefix(maxExcerptChars - totalChars))
+                    blocks.append(clipped)
+                    totalChars += clipped.count
+                }
+            }
+        }
+
+        if readableCount == 0 {
+            return ("", "cited repository file could not be read")
+        }
+        if let outOfRangeNote {
+            return (blocks.joined(separator: "\n\n"), outOfRangeNote)
+        }
+        if !matchedAnySymbol {
+            return (blocks.joined(separator: "\n\n"),
+                    "cited symbol(s) (\(symbols.prefix(3).joined(separator: ", "))) not found in cited file content")
+        }
+        return (blocks.joined(separator: "\n\n"), nil)
+    }
+
+    /// Prepares claim-content verification checks for a list of Markdown findings (`ResearchDocument`).
+    /// `preservedExternalClaims`: existing normalized external-fact bodies from before a comment revision
+    /// that must not be penalised when web search is currently disabled.
+    static func prepareDocumentClaims(
+        findings: [String],
+        root: URL,
+        pathExists: (String) -> Bool,
+        webAllowed: Bool,
+        urlsFetched: [String],
+        preservedExternalClaims: Set<String> = [],
+        maxChecks: Int = 16
+    ) -> [ClaimCheck] {
+        var checks: [ClaimCheck] = []
+        for (index, item) in findings.enumerated() {
+            let id = "f\(index)"
+            let baseChecked = ResearchDocument.checkedFinding(item, pathExists: pathExists)
+            if baseChecked.relabelled { continue }
+            guard let parsed = ResearchDocument.parsedLabel(of: baseChecked.text) else { continue }
+            switch parsed.label {
+            case .projectFact:
+                let locs = ResearchDocument.citedPathLocations(parsed.body, pathExists: pathExists)
+                let inspected = inspectProjectSources(claimText: parsed.body, locations: locs, root: root)
+                checks.append(ClaimCheck(
+                    id: id,
+                    label: .projectFact,
+                    claimText: parsed.body,
+                    sources: locs.map { loc in loc.line.map { line in "\(loc.path):\(line)" } ?? loc.path },
+                    excerpts: inspected.excerpts,
+                    deterministicFailure: inspected.deterministicFailure
+                ))
+            case .externalFact:
+                let urls = ResearchDocument.citedURLs(parsed.body)
+                let preExisting = preservedExternalClaims.contains(ResearchDocument.plain(parsed.body))
+                if !webAllowed && !preExisting {
+                    checks.append(ClaimCheck(
+                        id: id,
+                        label: .externalFact,
+                        claimText: parsed.body,
+                        sources: urls,
+                        excerpts: "",
+                        deterministicFailure: "web search was not permitted or available for this run"
+                    ))
+                } else {
+                    let fetchedMatches = urls.filter { url in urlsFetched.contains { $0 == url || url.hasPrefix($0) || $0.hasPrefix(url) } }
+                    let meta = preExisting
+                        ? "Pre-existing external fact preserved from original section; URLs: \(urls.joined(separator: ", "))"
+                        : (fetchedMatches.isEmpty
+                            ? "Cited URL(s): \(urls.joined(separator: ", ")) (not directly logged as fetched in tool stream)"
+                            : "Fetched URL(s) confirmed in tool log: \(fetchedMatches.joined(separator: ", "))")
+                    checks.append(ClaimCheck(
+                        id: id,
+                        label: .externalFact,
+                        claimText: parsed.body,
+                        sources: urls,
+                        excerpts: meta,
+                        deterministicFailure: nil
+                    ))
+                }
+            case .aiInference, .openAssumption:
+                continue
+            }
+            if checks.count >= maxChecks { break }
+        }
+        return checks
+    }
+
+    /// Applies deterministic failures and model verdicts to Markdown findings, preserving all 4 labels
+    /// cleanly and demoting unsupported factual claims to `[AI inference]` with explicit reasons.
+    static func applyDocumentVerdicts(
+        findings: [String],
+        checks: [ClaimCheck],
+        verdicts: [Verdict],
+        pathExists: (String) -> Bool
+    ) -> [String] {
+        let deterministicByID = Dictionary(uniqueKeysWithValues: checks.compactMap { check in
+            check.deterministicFailure.map { (check.id, $0) }
+        })
+        let verdictByID = Dictionary(uniqueKeysWithValues: verdicts.map { ($0.id, $0) })
+        return findings.enumerated().map { index, raw in
+            let checked = ResearchDocument.checkedFinding(raw, pathExists: pathExists)
+            if checked.relabelled { return checked.text }
+            let id = "f\(index)"
+            if let reason = deterministicByID[id] {
+                return ResearchDocument.demoteFinding(checked.text, reason: reason)
+            }
+            if let verdict = verdictByID[id], verdict.status.lowercased() == "unsupported" {
+                let reason = verdict.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                return ResearchDocument.demoteFinding(checked.text, reason: reason.isEmpty ? "not supported by cited source content" : reason)
+            }
+            return checked.text
+        }
+    }
+
+    private static func keyTerms(in text: String) -> [String] {
+        let stop: Set<String> = ["that", "this", "with", "from", "have", "does", "when", "only", "into", "their", "which", "about", "there", "where", "should", "would", "could", "after", "before", "every", "other", "project", "fact", "file"]
+        let words = text.split { !$0.isLetter && !$0.isNumber && $0 != "_" }.map(String.init)
+        var out: [String] = []
+        for word in words where word.count >= 5 && !stop.contains(word.lowercased()) {
+            if !out.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) {
+                out.append(word)
+            }
+            if out.count >= 6 { break }
+        }
+        return out
+    }
 }
