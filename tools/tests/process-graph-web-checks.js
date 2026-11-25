@@ -44,6 +44,8 @@
         }
         await until(function() { return !!node('11'); }, 'The real process view draws the top-level graph');
         check(root.querySelectorAll('.process-node').length === 14, 'All fourteen groups are visible');
+        const entryBox = node('1').getBoundingClientRect(), mapBox = q('.process-viewport').getBoundingClientRect();
+        check(entryBox.left >= mapBox.left + 16 && entryBox.left <= mapBox.left + 36, 'A large map starts near its leading edge without wasting half the viewport');
         check(root.querySelectorAll('.process-edge.is-return').length === 2, 'Both feedback paths are drawn');
         const group = node('11'); group.click();
         await until(function() { return sourceCode().includes('stage_11'); }, 'A click loads the selected code');

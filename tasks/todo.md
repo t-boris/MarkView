@@ -7,7 +7,7 @@ Branch `feat/xray-process-graph`, based on `93df066b`, submitted through the con
 - [x] Generate and persist source-grounded scenarios through the existing X-Ray assistant boundary.
 - [x] Read bounded source excerpts off the main thread and keep source explanations paired with the selected block.
 - [x] Add the Process view with orthogonal routing, separate return corridors, drill-down, zoom and pan.
-- [x] Verify the shipping web editor with 40 interaction checks over a 74-block, three-level fixture.
+- [x] Verify the shipping web editor with 41 interaction checks over a 74-block, three-level fixture.
 - [x] Run 130 layout checks, the pure suites, changed-source checks, editor type checking and architecture lint.
 - [x] Add a hosted WebKit regression using the same native graph projection and web checks.
 - [ ] Run full application compilation and XCTest on a runner with Xcode; keep the pull request as a draft until verified.

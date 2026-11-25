@@ -106,7 +106,18 @@
                 nodes.append(button); nodeElements.set(id, button);
             });
             if (savedPose) { pose = Object.assign({}, savedPose); apply(); }
-            else { fit(true); if (pose.zoom <= 0.7 && selected) focus(selected); }
+            else {
+                fit(true);
+                if (pose.zoom <= 0.7 && selected) {
+                    focus(selected);
+                    const entry = next.nodes.get(selected);
+                    if (entry && !next.edges.some(function(edge) { return edge.to === selected && edge.kind !== 'return'; })) {
+                        if (next.direction === 'DOWN') pose.y = 24 - entry.y * pose.zoom;
+                        else pose.x = 24 - entry.x * pose.zoom;
+                        apply();
+                    }
+                }
+            }
         }
 
         function highlight(selected, neighborsOnly) {
