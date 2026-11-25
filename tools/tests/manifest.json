@@ -3,6 +3,19 @@
   "suiteCount": 31,
   "suites": [
     {
+      "name": "process-graph-layout-tests",
+      "script": "tools/tests/process-graph-layout-tests.sh",
+      "tier": "pure",
+      "sources": [
+        "MarkView/Resources/Editor/js/markview-process-model.js",
+        "MarkView/Resources/Editor/js/markview-process-layout.js",
+        "MarkView/Resources/Editor/js/markview-process-panel.js",
+        "MarkView/Resources/Editor/js/markview-process-viewport.js",
+        "MarkView/Resources/Editor/js/markview-process-view.js",
+        "tools/tests/process-graph-layout-tests.mjs"
+      ]
+    },
+    {
       "name": "architecture-lint-tests",
       "script": "tools/tests/architecture-lint-tests.sh",
       "tier": "pure",
@@ -619,6 +632,9 @@
         "MarkView/Models/Architecture/XRayDigest.swift",
         "MarkViewHostedTests/CodeArchitectureHostTests.swift",
         "MarkViewHostedTests/ProcessGraphHostTests.swift",
+        "tools/tests/ProcessGraphWebFixture.swift",
+        "tools/tests/process-graph-web-checks.js",
+        "MarkView/Resources/Editor/css/process.css",
         "MarkView/Models/Architecture/ProcessGraphSource.swift",
         "MarkView/Models/Architecture/ProcessGraphStore.swift",
         "Packages/MarkViewCore/Sources/MarkViewCore/ProcessGraph.swift",

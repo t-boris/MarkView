@@ -599,6 +599,7 @@
 		A4DD9A6FAE364D6387E23DF3 /* ScriptedPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */; };
 		A4DD9A6FAE364D6387E23DF5 /* DiagramAIHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DF7 /* CodeArchitectureHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DF8 /* CodeArchitectureHostTests.swift */; };
+		D4A783B0616C4CCBA83E0004 /* ProcessGraphWebFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A783B0616C4CCBA83E0014 /* ProcessGraphWebFixture.swift */; };
 		D4A783B0616C4CCBA83E0003 /* ProcessGraphHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A783B0616C4CCBA83E0013 /* ProcessGraphHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DF9 /* WorkflowDiagramHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DFA /* WorkflowDiagramHostTests.swift */; };
 		A4DD9A6FAE364D6387E23DFB /* XRayComparisonHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DD9A6FAE364D6387E23DFC /* XRayComparisonHostTests.swift */; };
@@ -1386,6 +1387,7 @@
 		A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../tools/tests/ScriptedPrompts.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagramAIHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DF8 /* CodeArchitectureHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeArchitectureHostTests.swift; sourceTree = "<group>"; };
+		D4A783B0616C4CCBA83E0014 /* ProcessGraphWebFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = tools/tests/ProcessGraphWebFixture.swift; sourceTree = SOURCE_ROOT; };
 		D4A783B0616C4CCBA83E0013 /* ProcessGraphHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessGraphHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DFA /* WorkflowDiagramHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowDiagramHostTests.swift; sourceTree = "<group>"; };
 		A4DD9A6FAE364D6387E23DFC /* XRayComparisonHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayComparisonHostTests.swift; sourceTree = "<group>"; };
@@ -2698,6 +2700,7 @@
 				A4DD9A6FAE364D6387E23DFA /* WorkflowDiagramHostTests.swift */,
 				A4DD9A6FAE364D6387E23DF8 /* CodeArchitectureHostTests.swift */,
 				D4A783B0616C4CCBA83E0013 /* ProcessGraphHostTests.swift */,
+				D4A783B0616C4CCBA83E0014 /* ProcessGraphWebFixture.swift */,
 				A4DD9A6FAE364D6387E23DF6 /* DiagramAIHostTests.swift */,
 				A4DD9A6FAE364D6387E23DF4 /* ScriptedPrompts.swift */,
 				A4DD9A6FAE364D6387E23DF2 /* ProjectContextHostTests.swift */,
@@ -3629,6 +3632,7 @@
 				A4DD9A6FAE364D6387E23DF9 /* WorkflowDiagramHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF7 /* CodeArchitectureHostTests.swift in Sources */,
 				D4A783B0616C4CCBA83E0003 /* ProcessGraphHostTests.swift in Sources */,
+				D4A783B0616C4CCBA83E0004 /* ProcessGraphWebFixture.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF5 /* DiagramAIHostTests.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF3 /* ScriptedPrompts.swift in Sources */,
 				A4DD9A6FAE364D6387E23DF1 /* ProjectContextHostTests.swift in Sources */,

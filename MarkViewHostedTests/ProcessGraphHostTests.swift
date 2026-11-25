@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import MarkViewCore
+import WebKit
 import XCTest
 @testable import MarkView
 
@@ -68,6 +70,8 @@ extension EditorHostTests {
         XCTAssertEqual(snippet.requestedEndLine, 120)
         XCTAssertFalse(snippet.code.contains("\r"))
         XCTAssertFalse(snippet.stale)
+        XCTAssertTrue(snippet.truncated)
+        XCTAssertEqual(inspected.signatures["flow.py"], ArchitectureScanner.sourceSignature("flow.py", root: root))
         try ("changed = True\n" + snippet.code + String(repeating: "\n", count: 100))
             .write(to: root.appendingPathComponent("flow.py"), atomically: true, encoding: .utf8)
         let changed = try ProcessGraphSource.snippet(key: "selected", source: graph.nodes[0].sources[0], root: root,
@@ -143,5 +147,56 @@ extension EditorHostTests {
         XCTAssertNil(XRayCommand.parse("processSource", payload: ["scenario": "saved", "node": "entry", "index": 8]))
         XCTAssertEqual(XRayCommand.parse("processSource", payload: ["scenario": "saved", "node": "entry", "index": 0]),
                        .processSource(scenario: "saved", node: "entry", index: 0))
+    }
+}
+
+
+extension EditorHostTests {
+    @MainActor func testProcessGraphGroupsCodeAndViewportInShippingEditor() throws {
+        let editor = try XCTUnwrap(Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Editor"))
+            .deletingLastPathComponent()
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let checks = try String(contentsOf: repository.appendingPathComponent("tools/tests/process-graph-web-checks.js"), encoding: .utf8)
+        let fixture = try ProcessGraphWebFixture.json()
+        _ = NSApplication.shared
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let bridge = ArchitectureBridgeRecorder()
+        configuration.userContentController.add(bridge, name: "bridge")
+        let contract = try BridgeContract(contentsOf: editor.appendingPathComponent("js/bridge-contract.json"))
+        configuration.userContentController.addUserScript(contract.userScript)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800), configuration: configuration)
+        let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = web
+        defer {
+            web.stopLoading()
+            web.navigationDelegate = nil
+            configuration.userContentController.removeScriptMessageHandler(forName: "bridge")
+            window.contentView = nil
+            window.close()
+        }
+        func spin(_ seconds: TimeInterval, until done: () -> Bool) {
+            let end = Date().addingTimeInterval(seconds)
+            while !done() && Date() < end {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+        }
+        let loaded = ArchitecturePageLoad()
+        web.navigationDelegate = loaded
+        web.loadFileURL(editor.appendingPathComponent("index.html"), allowingReadAccessTo: editor)
+        spin(20) { loaded.done }
+        XCTAssertTrue(loaded.done, "shipping editor loaded")
+        guard loaded.done else { return }
+        var result: Result<Any, Error>?
+        web.callAsyncJavaScript(checks + "\nconst state = ProcessGraphWebChecks.setup(JSON.parse(fixtureJSON));"
+                                + " return JSON.stringify(await ProcessGraphWebChecks.run(state));",
+                                arguments: ["fixtureJSON": fixture], in: nil, in: .page) { result = $0 }
+        spin(60) { result != nil }
+        let response = try XCTUnwrap(result, "process graph checks finished").get()
+        let encoded = try XCTUnwrap(response as? String)
+        let summary = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Int])
+        XCTAssertGreaterThanOrEqual(summary["passed"] ?? 0, 40)
+        XCTAssertEqual(summary["blocks"], 74)
     }
 }

@@ -72,15 +72,15 @@
                 const prMode = prTab || (overlayApplies() && ui.overlay === 'pr');
                 el.views[0].parentElement.hidden = prTab;
                 // Complexity, size and the other overlays work on a change too: its parts keep their marks.
-                el.overlay.hidden = false;
-                el.tempFilter.hidden = prTab;
+                el.overlay.hidden = ui.view === 'process';
+                el.tempFilter.hidden = prTab || ui.view === 'process';
                 el.prMap.hidden = !prTab;
                 Array.prototype.forEach.call(el.prMap.querySelectorAll('[data-arch-pr-map]'), function(b) {
                     b.classList.toggle('on', b.getAttribute('data-arch-pr-map') === ui.prMap);
                 });
                 // Comparison with a date stands on its own (BUG-110): the project X-Ray offers it too, not only the PR X-Ray.
                 // A folder X-Ray has no comparison view to open, so it does not.
-                el.prDate.hidden = p.mode === 'folder';
+                el.prDate.hidden = p.mode === 'folder' || ui.view === 'process';
                 el.hide.hidden = el.hide.hidden || prTab;
                 el.flagged.parentElement.hidden = el.flagged.parentElement.hidden || prTab;
                 el.prOpen.hidden = prTab;
@@ -97,6 +97,8 @@
                     ? 'Reload the change as it is now and review it again (no cached answers)'
                     : 'AI review of every changed file';
                 el.codeTrace.hidden = ui.view !== 'code' || p.mode === 'pr';
+                el.analyze.hidden = ui.view === 'process';
+                el.detailsToggle.hidden = ui.view === 'process';
                 renderHistory();
                 el.analyze.disabled = !!p.busy || !p.snapshot;
                 el.analyze.textContent = ui.view === 'code' ? 'Refresh' : 'Analyze';
@@ -211,6 +213,7 @@
 
             /** Another X-Ray (the project's or a folder's) in the same web view: start fresh. */
             function resetForRoot(root) {
+                if (A.process) A.process.reset();
                 ui.root = root;
                 ui.codeFilterInitialized = false; ui.codeHidden.clear();
                 ui.codeQuestions = {}; ui.codeAwaitingScope = null; ui.selectedEdge = null; hideCodeSequence();
@@ -264,6 +267,10 @@
                     ui.overlay = 'none';
                 }
                 renderToolbar();
+                el.crumbs.hidden = ui.view === 'process';
+                el.legend.hidden = ui.view === 'process';
+                if (ui.view === 'process' && A.process) { A.process.render(ui.payload); return; }
+                if (A.process) A.process.hide();
                 renderDetails();
                 const snap = ui.payload.snapshot;
                 const traces = snap && snap.codeSequences || [];
@@ -297,6 +304,7 @@
                     }
                 }
                 loadLibraries().then(function() {
+                    if (ui.view === 'process') return;
                     ensureCy();
                     // The structure grows live during an analysis: redraw when it changes.
                     const shape = (snap.components || []).map(function(c) { return c.id + '<' + c.parent; }).join(',')
@@ -518,7 +526,7 @@
             });
             el.analyze.addEventListener('click', function() { post(ui.view === 'code' ? 'refreshCode' : 'analyze'); });
             el.rescan.addEventListener('click', function() { post('rescan'); });
-            el.fit.addEventListener('click', function() { if (!A.cy) return; if (ui.view === 'code') A.cy.fit(A.cy.elements(), 28); else A.cy.animate({ fit: { eles: A.cy.elements(), padding: 28 }, duration: 240 }); });
+            el.fit.addEventListener('click', function() { if (ui.view === 'process' && A.process) { A.process.fit(); return; } if (!A.cy) return; if (ui.view === 'code') A.cy.fit(A.cy.elements(), 28); else A.cy.animate({ fit: { eles: A.cy.elements(), padding: 28 }, duration: 240 }); });
 
             // Other content types take over the editor area.
             ['setContent', 'setStructuredContent', 'setCodeContent'].forEach(function(name) {

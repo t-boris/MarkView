@@ -34,6 +34,7 @@
     <link rel="stylesheet" href="vendor/css/markview-canvas.css">
 
     <link rel="stylesheet" href="css/editor.css">
+    <link rel="stylesheet" href="css/process.css">
 </head>
 <body>
     <div class="editor-container">
@@ -127,6 +128,7 @@
                 <div class="arch-toolbar">
                     <div class="arch-seg" role="tablist">
                         <button data-arch-view="code" title="Source code: layers, components, files, symbols and scenario sequences">Code</button>
+                        <button data-arch-view="process" title="Source-grounded control flow with branches, parallel work and returns">Process</button>
                         <button data-arch-view="logical" class="on" title="Logical components (AI)">Logical</button>
                         <button data-arch-view="modules" title="Folders and files as they are on disk">Structure</button>
                         <button data-arch-view="deployment">Deployment</button>
@@ -188,6 +190,7 @@
                 </div>
                 <div class="arch-crumbs" id="arch-crumbs"></div>
                 <div class="arch-main">
+                    <section id="arch-process" class="arch-process" hidden aria-label="Process map"></section>
                     <div class="arch-graph-wrap">
                         <div class="arch-graph" id="arch-graph"></div>
                         <div class="arch-empty" id="arch-empty" hidden></div>
