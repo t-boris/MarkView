@@ -43,6 +43,9 @@ final class BackdropHostView: NSView {
     private var still = false
     private var detail = 1
     private(set) var builtSize = CGSize.zero
+    /// The scale and the motion setting the layers were built with: a callback that changes neither must not restart the animations.
+    private var builtScale: CGFloat = 0
+    private var builtAnimated = false
     private var pendingRebuild: Task<Void, Never>?
     /// How many times the layers were built: a SwiftUI update that changes nothing must not restart the animations.
     private(set) var buildCount = 0
@@ -54,7 +57,7 @@ final class BackdropHostView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         observers.observe(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rebuild() }
+            MainActor.assumeIsolated { self?.motionSettingMayHaveChanged() }
         }
     }
 
@@ -112,22 +115,31 @@ final class BackdropHostView: NSView {
         if window != nil { rebuild() }
     }
 
+    /// A colour space change calls this too; only a new scale needs new layers.
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        rebuild()
+        if backingScale != builtScale { rebuild() }
     }
+
+    /// The system posts one notification for every display option (contrast, transparency, colours); only Reduce Motion changes the build.
+    private func motionSettingMayHaveChanged() {
+        if isAnimating != builtAnimated { rebuild() }
+    }
+
+    private var backingScale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
     private func rebuild() {
         pendingRebuild?.cancel()
         guard let root = layer, let colors else { return }
         builtSize = bounds.size
+        builtScale = backingScale
+        builtAnimated = isAnimating
         buildCount += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         root.sublayers = nil
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        root.contentsScale = scale
-        let builder = BackdropBuilder(size: bounds.size, colors: colors, scale: scale, animated: isAnimating, seed: seed, detail: detail)
+        root.contentsScale = builtScale
+        let builder = BackdropBuilder(size: bounds.size, colors: colors, scale: builtScale, animated: builtAnimated, seed: seed, detail: detail)
         for layer in builder.layers(for: kind) { root.addSublayer(layer) }
         CATransaction.commit()
     }

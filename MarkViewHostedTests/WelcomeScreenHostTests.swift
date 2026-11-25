@@ -669,6 +669,9 @@ private func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
         }
         let background = NSColor(AppPalette(themePalette(.classicDark)).model.bg)
         CATransaction.flush()
+        // A rebuild restarts every animation, so two frames taken across one compare two beginnings: say so when a check fails.
+        let builds = view.buildCount
+        func rebuilt() -> String { view.buildCount == builds ? "" : "the backdrop was rebuilt \(view.buildCount - builds) times while it was measured" }
         guard let early = presentationImage(root, size: view.bounds.size, background: background) else { check(false, "frames \(backdrop.rawValue): a frame can be drawn"); continue }
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         CATransaction.flush()
@@ -676,7 +679,7 @@ private func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
         savePNG(early, "frame-\(backdrop.rawValue)-0.0s")
         savePNG(late, "frame-\(backdrop.rawValue)-1.5s")
         let share = differingShare(early, late)
-        check(share > 0.002, "frames \(backdrop.rawValue): the composed picture changes in 1.5 seconds (\(String(format: "%.1f", share * 100)) % of the pixels)")
+        check(share > 0.002, "frames \(backdrop.rawValue): the composed picture changes in 1.5 seconds (\(String(format: "%.1f", share * 100)) % of the pixels)", rebuilt())
         let lit = differingShare(late, { () -> CGImage in
             let context = CGContext(data: nil, width: late.width, height: late.height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -706,7 +709,8 @@ private func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
                 compared += 1
                 if angleBetween(atan2(dy, dx), atan2(sin(a.1) + sin(b.1), cos(a.1) + cos(b.1))) < 0.3 { aligned += 1 }
             }
-            check(compared >= before.count * 7 / 10 && aligned == compared, "frames bugs: every bug in motion faces the way it moves (\(aligned) of \(compared), \(before.count) bugs)")
+            check(compared >= before.count * 7 / 10 && aligned == compared, "frames bugs: every bug in motion faces the way it moves (\(aligned) of \(compared), \(before.count) bugs)",
+                  rebuilt())
         }
         if backdrop == .matrix {
             // The symbols change while a strip falls: a layer's picture is a different one a little later, and the same one a moment later.
@@ -745,6 +749,16 @@ private func angleBetween(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
     guard let view = descendants(hosting).compactMap({ $0 as? BackdropHostView }).first, let root = view.layer else { check(false, "reduce motion: the backdrop view exists"); return }
     func animated() -> Int { (root.sublayers ?? []).flatMap { [$0] + ($0.sublayers ?? []) }.filter { !($0.animationKeys() ?? []).isEmpty }.count }
     check(!reduce && view.isAnimating && animated() > 0, "reduce motion off: the bugs are animated (\(animated()) layers)")
+    // The system posts the same notification for every display option (contrast, transparency, colours), and a colour space
+    // change calls the backing callback too: neither changes what the layers are built from, so the animation goes on.
+    let builds = view.buildCount
+    NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+    settle(hosting)
+    check(view.buildCount == builds, "reduce motion off: another display option changing does not restart the animation",
+          "built \(view.buildCount - builds) more times")
+    window.colorSpace = window.colorSpace == NSColorSpace.displayP3 ? NSColorSpace.sRGB : NSColorSpace.displayP3
+    settle(hosting)
+    check(view.buildCount == builds, "a new colour space at the same scale does not restart the animation", "built \(view.buildCount - builds) more times")
     reduce = true
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     settle(hosting)
