@@ -8,6 +8,8 @@ struct CockpitRunScreen: View {
     let runID: UUID?
     @State private var tab: Tab = .timeline
     @State private var selectedStepID: String?
+    @State private var failureResponse = ""
+    @FocusState private var failureResponseFocused: Bool
 
     enum Tab: String, CaseIterable, Identifiable {
         case timeline = "Timeline", steps = "Steps", questions = "Questions", findings = "Findings"
@@ -100,9 +102,15 @@ struct CockpitRunScreen: View {
                 CockpitManagedAttention(session: session, run: run, live: activeNow, phase: phase)
             } else {
                 if let blocker = session.startBlocker, !activeNow { banner(icon: "hand.raised.fill", tint: palette.orange, title: blocker) {} }
-                if phase == .needsYou { banner(icon: "exclamationmark.circle.fill", tint: palette.red, title: "A step failed", detail: run.waitingReason) { retryButton(run) } }
+                if phase == .needsYou { failedStepBanner(run) }
                 if phase == .interrupted { interruptedBanner(run) }
-                if phase == .paused { banner(icon: "pause.circle.fill", tint: palette.orange, title: "The run is paused", detail: run.waitingReason) { retryButton(run); endButton(run) } }
+                if phase == .paused {
+                    banner(icon: "pause.circle.fill", tint: palette.orange, title: "The run is paused", detail: run.waitingReason) {
+                        retryButton(run)
+                        Button("Open Plan") { session.openPlanForRun(run) }
+                        endButton(run)
+                    }
+                }
             }
             if activeNow, phase == .running, let quiet = run.quietSeconds(now: now, activity: execution?.lastSignal), run.isSilent(now: now, activity: execution?.lastSignal) {
                 banner(icon: "moon.zzz.fill", tint: palette.orange, title: "No report for \(CockpitFormat.duration(quiet))",
@@ -132,9 +140,96 @@ struct CockpitRunScreen: View {
         }.cockpitCard(outline: tint)
     }
 
+    private func failedStepBanner(_ run: CockpitRun) -> some View {
+        let index = run.currentIndex
+        let step = index.flatMap { run.plan.steps.indices.contains($0) ? run.plan.steps[$0] : nil }
+        let isPrereq = step?.isPrerequisite == true
+        let liveNeeded = isLive ? execution?.state?.neededInput?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let needed = (liveNeeded?.isEmpty == false ? liveNeeded : nil) ?? run.failedStepNeededInput
+        let canAct = activeNow && execution?.state?.status == "paused"
+        let hasResponse = !failureResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.circle.fill").foregroundColor(palette.red)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text("A step failed").uiFont(size: 12, weight: .semibold).textSelection(.enabled)
+                        if let index, let step {
+                            Text("Step \(index + 1) of \(run.plan.steps.count) · \(step.title)")
+                                .uiFont(size: 11, weight: .medium).foregroundColor(palette.textDim).lineLimit(1)
+                        }
+                        if isPrereq { CockpitChip(text: "Prerequisite", icon: "checkmark.shield", tint: palette.orange) }
+                    }
+                    if let needed {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label("Input or decision needed", systemImage: "person.fill.questionmark")
+                                .uiFont(size: 11, weight: .semibold).foregroundColor(palette.orange)
+                            Text(needed).uiFont(size: 12).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        }
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(palette.orange.opacity(0.1)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(palette.orange.opacity(0.35), lineWidth: 1))
+                    }
+                    if !run.waitingReason.isEmpty {
+                        Text(run.waitingReason).uiFont(size: 11).foregroundColor(palette.textDim)
+                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    }
+                    if isPrereq {
+                        Text("Dependent steps remain paused until this prerequisite passes.")
+                            .uiFont(size: 10).foregroundColor(palette.textDim)
+                    }
+                }
+            }
+            if canAct {
+                VStack(alignment: .leading, spacing: 6) {
+                    DictationInput(text: $failureResponse, isFocused: { failureResponseFocused }, resetOn: run.id) { voice in
+                        VStack(alignment: .leading, spacing: 4) {
+                            ZStack(alignment: .topLeading) {
+                                TextEditor(text: $failureResponse).uiFont(size: 12).focused($failureResponseFocused).frame(height: 54)
+                                    .accessibilityLabel("Response for failed step")
+                                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(palette.border))
+                                    .overlay(alignment: .bottomTrailing) { voice.mic(compact: true).padding(6) }
+                                if failureResponse.isEmpty {
+                                    Text("Respond with needed input, guidance, or a decision for the retry…")
+                                        .uiFont(size: 11).foregroundColor(palette.textDim).padding(.horizontal, 6).padding(.vertical, 6)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            voice.status
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        Button("Send & retry") {
+                            let text = failureResponse
+                            failureResponse = ""
+                            session.respondAndRetry(text)
+                        }
+                        .buttonStyle(.borderedProminent).controlSize(.small).disabled(!hasResponse)
+                        retryButton(run).buttonStyle(.bordered).controlSize(.small)
+                        Button("Open Plan") { session.openPlanForRun(run) }.buttonStyle(.bordered).controlSize(.small)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .padding(.leading, 24)
+            } else {
+                HStack(spacing: 8) {
+                    Button("Open Plan") { session.openPlanForRun(run) }
+                    endButton(run)
+                }
+                .buttonStyle(.bordered).controlSize(.small).padding(.leading, 24)
+            }
+        }
+        .cockpitCard(outline: palette.red)
+    }
+
     @ViewBuilder private func retryButton(_ run: CockpitRun) -> some View {
-        if activeNow, let state = execution?.state, state.status == "paused", run.plan.steps.indices.contains(state.current), run.plan.steps[state.current].isPrerequisite {
-            Button("Retry prerequisite") { session.control("retry") }
+        if activeNow, let state = execution?.state, state.status == "paused", run.plan.steps.indices.contains(state.current) {
+            let isPrereq = run.plan.steps[state.current].isPrerequisite
+            let isFailed = run.steps.indices.contains(state.current) && run.steps[state.current].status == .failed
+            if isPrereq || isFailed {
+                Button(isPrereq ? "Retry prerequisite" : "Retry step") { session.control("retry") }
+            }
         }
     }
 

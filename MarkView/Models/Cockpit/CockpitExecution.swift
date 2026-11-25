@@ -3,10 +3,12 @@ import Foundation
 import MarkViewCore
 #endif
 
-struct CockpitExecutionState: Decodable {
+struct CockpitExecutionState: Decodable, Equatable {
     var status: String
     var current: Int
     var reason: String
+    var neededInput: String?
+    var recoveryAttempts: Int?
     var fingerprint: String
     var pendingFingerprint: String
     var results: [CockpitHostEntry]
@@ -16,12 +18,13 @@ struct CockpitExecutionState: Decodable {
 @MainActor
 final class CockpitExecution: ObservableObject {
     enum Failure: LocalizedError {
-        case alreadyRunning, approval, unavailable
+        case alreadyRunning, approval, unavailable, prerequisiteRequired(String)
         var errorDescription: String? {
             switch self {
             case .alreadyRunning: return "An execution is already active."
             case .approval: return "The exact plan and selected starting step must be approved."
             case .unavailable: return "The execution is unavailable."
+            case .prerequisiteRequired(let message): return message
             }
         }
     }
@@ -117,7 +120,7 @@ final class CockpitExecution: ObservableObject {
                     return CockpitHostReply(result: reply.result, error: "The step result could not be saved.")
                 }
                 do {
-                    try await self.saveHostResult(reply.result, stepID: stepID, planFingerprint: task.planFingerprint)
+                    try await self.saveHostResult(reply.result, stepID: stepID, planFingerprint: task.planFingerprint, recoveryAttempt: task.recoveryAttempt)
                     return reply
                 } catch {
                     return CockpitHostReply(result: reply.result, error: "The step result could not be saved; execution was interrupted.")
@@ -148,7 +151,7 @@ final class CockpitExecution: ObservableObject {
                             try? await Task.sleep(nanoseconds: 200_000_000)
                             continue
                         }
-                        self.state = state
+                        if self.state != state { self.state = state }
                         if state.status == "stopped" || state.status == "finished" { self.releaseWorker(); return }
                     } catch {
                         self.error = error.localizedDescription
@@ -190,14 +193,15 @@ final class CockpitExecution: ObservableObject {
 
     /// Persist a finished step before acknowledging it to Temporal, so no later step can
     /// begin while its predecessor's known result exists only in workflow memory.
-    func saveHostResult(_ result: CockpitHostResult, stepID: UUID, planFingerprint: String) async throws {
+    func saveHostResult(_ result: CockpitHostResult, stepID: UUID, planFingerprint: String, recoveryAttempt: Int? = nil) async throws {
         try await waitForRecord(planFingerprint: planFingerprint)
         mutatingRecord = true
         defer { mutatingRecord = false }
         guard var next = record, (try CockpitTemporalPlan(next.plan).fingerprint) == planFingerprint,
               let index = next.currentIndex, next.steps.indices.contains(index), next.steps[index].stepID == stepID,
               next.completeCurrent(passed: result.passed, detail: result.detail, build: result.build,
-                                   scenarioID: result.scenarioID, qaRunID: result.qaRunID, progress: result.progress) else { throw Failure.unavailable }
+                                   scenarioID: result.scenarioID, qaRunID: result.qaRunID, progress: result.progress,
+                                   neededInput: result.neededInput, recoveryAttempt: recoveryAttempt ?? result.recoveryAttempt) else { throw Failure.unavailable }
         try await save(next)
         record = next
     }
@@ -224,6 +228,9 @@ final class CockpitExecution: ObservableObject {
         let current = try CockpitTemporalPlan(next.plan)
         let updated = try CockpitTemporalPlan(plan)
         guard current.fingerprint == state.fingerprint, updated.fingerprint != current.fingerprint else { throw Failure.approval }
+        if let blocker = next.revisionPrerequisiteBlocker(plan: plan, startingAt: step) {
+            throw Failure.prerequisiteRequired(blocker)
+        }
         if let pending = next.pendingRevision {
             guard pending.plan == plan, pending.approval == approval, pending.step == step, pending.fingerprint == updated.fingerprint else { throw Failure.unavailable }
         } else {
@@ -245,12 +252,18 @@ final class CockpitExecution: ObservableObject {
     /// Fix cycles the run has used, including the running step's.
     var usedFixCycles: Int { (record?.fixCyclesUsed ?? 0) + (meter?.stepCycles ?? 0) }
 
-    /// The coordinator runs a failed prerequisite again (the person chose Retry): the record shows the step running again, so the run
-    /// view says so and the attempt's result can be saved (`completeCurrent` takes only a running step).
+    /// The coordinator runs a failed step again (Retry) or immediately adopts an approved revision: keep the record in sync before
+    /// the step finishes so `saveHostResult` finds the running step under the matching plan fingerprint.
     private func retryBegan(_ task: CockpitHostTask) async {
-        guard let id = UUID(uuidString: task.step.id), let record, record.status == .paused, let index = record.currentIndex,
+        guard let record else { return }
+        if record.pendingRevision?.fingerprint == task.planFingerprint {
+            await updateRecord({ _ = $0.applyRevision(fingerprint: task.planFingerprint) }, failure: "The approved revision could not be saved")
+            return
+        }
+        guard let currentFingerprint = try? CockpitTemporalPlan(record.plan).fingerprint, currentFingerprint == task.planFingerprint,
+              let id = UUID(uuidString: task.step.id), record.status == .paused, let index = record.currentIndex,
               record.steps.indices.contains(index), record.steps[index].stepID == id, record.steps[index].status == .failed else { return }
-        await updateRecord({ _ = $0.retryPrerequisite() }, failure: "The retried step could not be saved")
+        await updateRecord({ _ = $0.retryFailedStep() }, failure: "The retried step could not be saved")
     }
 
     /// A step is about to run. Returns the reason when it must not (the run's time is already used up); otherwise starts its clock
@@ -318,6 +331,16 @@ final class CockpitExecution: ObservableObject {
         let note = CockpitCuratorNote(at: Date(), text: trimmed)
         liveNotes = CockpitCuratorNote.appending(note, to: liveNotes)
         saveInBackground({ $0.addNote(note) }, failure: "A note could not be saved")
+    }
+
+    /// Records the person's direct response to a failed step before retrying it, awaiting persistence so the retried step and supervisor
+    /// both see it immediately.
+    func sendStepResponse(_ text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isActive, !trimmed.isEmpty else { return }
+        let note = CockpitCuratorNote(at: Date(), text: trimmed, kind: .stepResponse)
+        liveNotes = CockpitCuratorNote.appending(note, to: liveNotes)
+        await updateRecord({ $0.addNote(note) }, failure: "Your response could not be saved")
     }
 
     /// Starts `work` for this run and keeps its task, so that `shutdown()` ends it. Nothing starts once the shutdown was asked for. Each
@@ -437,13 +460,16 @@ final class CockpitExecution: ObservableObject {
             if let fingerprint = entry.planFingerprint, !fingerprint.isEmpty, fingerprint != current {
                 guard next.applyRevision(fingerprint: fingerprint) else { throw Failure.unavailable }
             }
-            if next.status == .paused { _ = next.retryPrerequisite() }
+            if next.status == .paused { _ = next.retryFailedStep() }
             guard let index = next.currentIndex, next.steps[index].stepID.uuidString == entry.stepID,
                   next.completeCurrent(passed: entry.result.passed, detail: entry.result.detail, build: entry.result.build,
-                                       scenarioID: entry.result.scenarioID, qaRunID: entry.result.qaRunID, progress: entry.result.progress) else { throw Failure.unavailable }
+                                       scenarioID: entry.result.scenarioID, qaRunID: entry.result.qaRunID, progress: entry.result.progress,
+                                       neededInput: entry.result.neededInput, recoveryAttempt: entry.result.recoveryAttempt) else { throw Failure.unavailable }
         }
         if state.fingerprint != (try CockpitTemporalPlan(next.plan).fingerprint) {
             guard next.applyRevision(fingerprint: state.fingerprint) else { throw Failure.unavailable }
+        } else if state.pendingFingerprint.isEmpty, next.pendingRevision != nil, next.isPausedOnFailedPrerequisite {
+            next.discardPendingRevision(reason: state.reason)
         }
         if state.status == "interrupted" { next.prepareAfterRestart(reason: limitReason) }
         if state.status == "stopped" { next.stop() }

@@ -20,6 +20,10 @@ enum CockpitPlanning {
     when unsure leave it empty. The person can change any agent or model before approving.
     State outcomes you know cannot be achieved and offer alternatives; do not present them as achievable. If a prerequisite is uncertain,
     a first step may check it. Use a prerequisite step only for a check whose failure must pause later steps.
+    When a prerequisite check may fail for a recoverable reason that stays within the goal and controls (for example starting a local
+    service, signing in with available credentials, or preparing a test precondition), you may include an optional recovery object
+    (assignment and maxAttempts 1–3) on that prerequisite step so Cockpit can attempt a bounded recovery and rerun the prerequisite
+    before pausing for the person. Never put an action forbidden by the controls in recovery.
     Return a complete plan, not a patch, including after a refinement. Do not execute the plan or modify project files during planning.
     Give the flow a title: a short name of 3 to 8 words, with no quotes and no final period, that says in your own words what this flow
     does, written in the language of the goal. Do not copy the goal's text. After a refinement keep the current title unless the changes
@@ -55,9 +59,12 @@ enum CockpitPlanning {
     static var schema: [String: Any] {
         let string: [String: Any] = ["type": "string"]
         let strings: [String: Any] = ["type": "array", "items": string]
+        let recovery: [String: Any] = ["type": "object", "properties": [
+            "assignment": string, "maxAttempts": ["type": "integer"]
+        ]]
         let step: [String: Any] = ["type": "object", "required": ["title", "agent", "model", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"], "properties": [
             "title": string, "agent": string, "model": string, "assignment": string, "completionCondition": string,
-            "isPrerequisite": ["type": "boolean"], "qaScenarioID": string, "delegate": ["type": "boolean"]
+            "isPrerequisite": ["type": "boolean"], "qaScenarioID": string, "delegate": ["type": "boolean"], "recovery": recovery
         ]]
         return ["type": "object", "required": ["title", "scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
             "title": string, "scenarios": strings, "steps": ["type": "array", "items": step], "successCriteria": strings,
@@ -94,8 +101,16 @@ enum CockpitPlanning {
             guard availableAgents.contains(agent) else { throw ParseError.invalid(["Unknown agent: \(agent)"]) }
             let proposed = (raw["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let model = !proposed.isEmpty && models[agent]?.contains(proposed) == true ? proposed : nil
+            var recovery: CockpitStepRecovery?
+            if prerequisite, let rawRecovery = raw["recovery"] as? [String: Any],
+               let recAssignment = (rawRecovery["assignment"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !recAssignment.isEmpty {
+                let rawMax = (rawRecovery["maxAttempts"] as? Int) ?? 1
+                let bounded = min(max(1, rawMax), CockpitStepRecovery.maxAllowedAttempts)
+                recovery = CockpitStepRecovery(assignment: recAssignment, maxAttempts: bounded)
+            }
             steps.append(CockpitStep(title: title, agent: agent, assignment: assignment, completionCondition: condition, isPrerequisite: prerequisite,
-                                     qaScenarioID: qaID.isEmpty ? nil : qaID, model: model, delegate: (raw["delegate"] as? Bool) == true ? true : nil))
+                                     qaScenarioID: qaID.isEmpty ? nil : qaID, model: model, delegate: (raw["delegate"] as? Bool) == true ? true : nil,
+                                     recovery: recovery))
         }
         guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count else {
             throw ParseError.invalid(["Each selected QA scenario must be assigned to a step."])

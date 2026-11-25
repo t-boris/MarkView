@@ -99,6 +99,9 @@ enum ProjectToolRunner {
                     return .error("A valid ticket, result and detail are required.")
                 }
                 var result = CockpitHostResult(passed: passed, detail: detail, build: args["build"] as? String ?? "")
+                if let needed = (args["neededInput"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !needed.isEmpty {
+                    result.neededInput = String(needed.prefix(2_000))
+                }
                 guard let report = cockpitReport(args) else {
                     return .error("findings, findingChecks and delegates must be lists of objects with the fields their schema names.")
                 }

@@ -52,6 +52,8 @@ final class CockpitSession: ObservableObject {
     @Published private(set) var currentProgress: CockpitProgress?
     @Published private(set) var recoveryRun: CockpitRun?
     @Published private(set) var loadingRecovery = false
+    /// Preferred starting step index when opening Plan from a paused run; consumed by `CockpitPlanScreen`.
+    @Published var preferredStartStep: Int? = nil
     @Published private(set) var qaScenarios: [QAScenario] = []
     @Published private(set) var deletedQARuns: Set<String> = []
     @Published var qaTargets: [String: String] = [:]
@@ -193,6 +195,53 @@ final class CockpitSession: ObservableObject {
         persistDraft()
     }
 
+    /// The person reviewed or hand-edited the steps after changing the goal or controls and chooses to keep them without AI re-planning.
+    func acknowledgePlanRecheck() {
+        planNeedsRecheck = false
+    }
+
+    /// Opens the Plan screen for a run (live or saved) so the person can edit steps or revise the plan directly.
+    /// Keeps in-memory direct edits when reopening Plan for the active run already loaded in the editor.
+    func openPlanForRun(_ run: CockpitRun) {
+        error = nil
+        recoveryRun = nil
+        preferredStartStep = run.currentIndex ?? 0
+        if execution?.runID == run.id, let existing = plan, runningPlan?.id == run.plan.id, draft == nil {
+            _ = existing
+            screen = .plan
+            return
+        }
+        draft = nil
+        goal = run.plan.goal
+        controls = run.plan.controls
+        plan = run.plan
+        planNeedsRecheck = false
+        screen = .plan
+        guard !run.plan.scenarios.isEmpty else { return }
+        let root = root
+        let selected = run.plan
+        tasks.store(Task { [weak self] in
+            let listing = await Task.detached { QAStore.loadScenarios(root) }.value
+            let saved = await Task.detached { BrowserPasswordStore.shared.all() }.value
+            guard !Task.isCancelled, let self else { return }
+            self.qaScenarios = listing.scenarios
+            self.qaLogins = Set(saved.map { QALoginReference(host: $0.host, username: $0.username) })
+            self.qaTargets = (selected.qaReviews ?? []).reduce(into: [:]) { $0[$1.scenarioID] = $1.targetID }
+        }, for: "open-plan-qa")
+    }
+
+    /// Records the person's direct response to a failed step and immediately retries it.
+    func respondAndRetry(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let execution, execution.isActive, !trimmed.isEmpty else { return }
+        error = nil
+        tasks.store(Task { [weak self] in
+            await execution.sendStepResponse(trimmed)
+            do { try await execution.control("retry") }
+            catch { self?.error = error.localizedDescription }
+        }, for: "respond-retry")
+    }
+
     func preparedPlan(startingAt index: Int) throws -> CockpitPlan {
         guard var plan = plan?.selectingStart(index) else { throw CockpitPlanning.ParseError.invalid(["Choose a starting step."]) }
         guard !plan.scenarios.isEmpty else { return plan }
@@ -301,6 +350,10 @@ final class CockpitSession: ObservableObject {
                     self.runningPlan = reviewed.plan
                     if self.pendingPlan == reviewed.plan { self.pendingPlan = nil }
                 }
+                if let self, self.pendingPlan != nil, !self.revisingExecution,
+                   execution?.record?.pendingRevision == nil, (execution?.state?.pendingFingerprint ?? "").isEmpty {
+                    self.pendingPlan = nil
+                }
                 if let self, let status = execution?.state?.status, ["finished", "stopped"].contains(status), self.pendingPlan != nil {
                     self.error = "The run ended before the approved changes were applied."
                     self.pendingPlan = nil
@@ -377,7 +430,7 @@ final class CockpitSession: ObservableObject {
             let findings = state.findings.count - (execution?.record?.managed?.findings.count ?? 0)
             await execution?.updateManaged({ $0 = state }, event: findings > 0 ? "The review reported \(findings) finding(s)." : nil)
         }
-        guard result.error.isEmpty, result.result.passed, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
+        guard result.error.isEmpty, result.result.passed, task.recoveryAttempt == nil, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
         let qa = CockpitQAAttempt(workspace: workspace, root: root, plan: reviewed.plan, productionConfirmed: reviewed.productionConfirmed) { [weak self] activity, coverage, blockers in
             guard let self, var progress = self.currentProgress else { return }
             progress.activity = activity
@@ -400,13 +453,23 @@ final class CockpitSession: ObservableObject {
               let approval = CockpitApproval(plan: reviewed, productionConfirmed: productionConfirmed),
               let fingerprint = try? CockpitTemporalPlan(reviewed).fingerprint,
               pendingPlan == nil || pendingPlan == reviewed else { return }
+        if let blocker = execution.record?.revisionPrerequisiteBlocker(plan: reviewed, startingAt: index) {
+            error = blocker
+            return
+        }
+        let wasPaused = execution.state?.status == "paused"
         reviewedExecutions[fingerprint] = ReviewedExecution(plan: reviewed, productionConfirmed: productionConfirmed)
         pendingPlan = reviewed
         revisingExecution = true
         error = nil
         tasks.store(Task { [weak self] in
-            do { try await execution.replan(reviewed, approval: approval, step: index) }
-            catch { self?.error = error.localizedDescription }
+            do {
+                try await execution.replan(reviewed, approval: approval, step: index)
+                if wasPaused { self?.screen = .live }
+            } catch {
+                self?.error = error.localizedDescription
+                if execution.record?.pendingRevision == nil { self?.pendingPlan = nil }
+            }
             self?.revisingExecution = false
         }, for: "replan")
     }

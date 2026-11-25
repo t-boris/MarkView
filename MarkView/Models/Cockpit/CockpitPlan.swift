@@ -163,6 +163,20 @@ struct CockpitQAReview: Codable, Equatable {
     var productionConfirmationRequired: Bool = false
 }
 
+/// A bounded recovery step authorized by the approved plan when a prerequisite check fails.
+/// Cockpit attempts it at most `boundedAttempts` times, reruns the prerequisite after each passing recovery,
+/// and pauses for the person if the blocker persists.
+struct CockpitStepRecovery: Codable, Equatable, Sendable {
+    static let maxAllowedAttempts = 3
+
+    var assignment: String
+    var maxAttempts: Int = 1
+
+    var trimmedAssignment: String { assignment.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var boundedAttempts: Int { min(max(1, maxAttempts), Self.maxAllowedAttempts) }
+    var isConfigured: Bool { !trimmedAssignment.isEmpty }
+}
+
 struct CockpitStep: Codable, Equatable, Identifiable {
     var id: UUID = UUID()
     var title: String
@@ -183,6 +197,8 @@ struct CockpitStep: Codable, Equatable, Identifiable {
     var asksFirst: Bool? = nil
     /// The agent may hand independent parts of the step to its own subagents (REQ-002), when the controls allow delegation.
     var delegate: Bool? = nil
+    /// Optional bounded recovery authorized for a failed prerequisite; nil when none is configured (omitted from JSON).
+    var recovery: CockpitStepRecovery? = nil
 
     /// `model` with an empty choice read as no choice.
     var chosenModel: String? {
@@ -247,8 +263,17 @@ struct CockpitPlan: Codable, Equatable {
         if empty(goal) { result.append(Blocker(stepID: nil, message: "A goal is required.")) }
         if steps.isEmpty { result.append(Blocker(stepID: nil, message: "At least one step is required.")) }
         if Set(steps.map(\.id)).count != steps.count { result.append(Blocker(stepID: nil, message: "Step identifiers must be unique.")) }
-        for (index, step) in steps.enumerated() where empty(step.title) || empty(step.agent) || empty(step.assignment) || empty(step.completionCondition) {
-            result.append(Blocker(stepID: step.id, message: "Step \(index + 1) needs a title, agent, assignment and completion condition."))
+        for (index, step) in steps.enumerated() {
+            if empty(step.title) || empty(step.agent) || empty(step.assignment) || empty(step.completionCondition) {
+                result.append(Blocker(stepID: step.id, message: "Step \(index + 1) needs a title, agent, assignment and completion condition."))
+            }
+            if let recovery = step.recovery {
+                if !step.isPrerequisite {
+                    result.append(Blocker(stepID: step.id, message: "Step \(index + 1) can use automatic recovery only when marked as a prerequisite."))
+                } else if empty(recovery.assignment) || !(1...CockpitStepRecovery.maxAllowedAttempts).contains(recovery.maxAttempts) {
+                    result.append(Blocker(stepID: step.id, message: "Step \(index + 1) recovery needs an assignment and 1 to \(CockpitStepRecovery.maxAllowedAttempts) attempts."))
+                }
+            }
         }
         if successCriteria.isEmpty || successCriteria.contains(where: empty) { result.append(Blocker(stepID: nil, message: "Explicit success criteria are required.")) }
         if let qa = productionQA, empty(qa.exactPlan) || qa.dataChangingActions.contains(where: empty) {
@@ -336,6 +361,7 @@ struct CockpitPlan: Codable, Equatable {
         copy.id = UUID()
         copy.qaScenarioID = nil
         copy.isPrerequisite = false
+        copy.recovery = nil
         steps.insert(copy, at: index + 1)
         normalizeScenarios()
         return copy.id

@@ -58,6 +58,7 @@ enum ProjectAgentTools {
               "passed": ["type": "boolean", "description": "Whether the assigned completion condition was met"],
               "detail": ["type": "string", "description": "Results, evidence and blockers for the next step"],
               "build": ["type": "string", "description": "Identifier of the build under which the result was obtained, or empty"],
+              "neededInput": ["type": "string", "description": "When passed is false, the specific input, credentials, or decision needed from the person before retrying"],
               "findings": ["type": "array", "items": ["type": "object", "properties": [
                   "title": ["type": "string"], "detail": ["type": "string"],
                   "basis": ["type": "string", "enum": ["criterion", "rule"], "description": "An acceptance criterion of the feature, or a mandatory project rule"],

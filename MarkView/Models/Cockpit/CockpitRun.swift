@@ -24,6 +24,10 @@ struct CockpitRun: Codable, Equatable {
         var qaRunID: String? = nil
         var progress: CockpitProgress? = nil
         var interrupted: Bool? = nil
+        /// Specific input or decision requested from the person when `passed` is false.
+        var neededInput: String? = nil
+        /// 1...N when this result came from an authorized bounded recovery attempt of a prerequisite.
+        var recoveryAttempt: Int? = nil
     }
     struct Revision: Codable, Equatable {
         var plan: CockpitPlan
@@ -58,6 +62,66 @@ struct CockpitRun: Codable, Equatable {
     private(set) var notes: [CockpitCuratorNote]? = nil
     /// The decisions, review findings, external completions and surviving processes of a managed implementation run; nil otherwise.
     private(set) var managed: CockpitManagedState? = nil
+    /// Specific input or decision needed from the person while paused on a failed step; absent in older runs.
+    private(set) var neededInput: String? = nil
+    /// Bounded recovery attempts already run for the current prerequisite failure; absent when none have run.
+    private(set) var recoveryAttempts: Int? = nil
+
+    /// Extracts the specific blocker or needed input for the failure banner: explicit `neededInput` first,
+    /// then reported progress blockers, then a `"Blocker:"` clause in `detail`.
+    static func blockerSummary(detail: String, neededInput: String?, progress: CockpitProgress?) -> String? {
+        if let explicit = neededInput?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        let blockers = (progress?.blockers ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !blockers.isEmpty { return blockers.joined(separator: "; ") }
+        if let range = detail.range(of: "blocker:", options: .caseInsensitive) {
+            var tail = String(detail[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let newline = tail.firstIndex(of: "\n") { tail = String(tail[..<newline]).trimmingCharacters(in: .whitespaces) }
+            for suffix in [" No project files changed", " No build/check"] {
+                if let cut = tail.range(of: suffix, options: .caseInsensitive) {
+                    tail = String(tail[..<cut.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            if !tail.isEmpty { return tail }
+        }
+        return nil
+    }
+
+    /// What input or decision the currently failed step needs from the person, if known.
+    var failedStepNeededInput: String? {
+        let index = currentIndex
+        let stepID = index.flatMap { steps.indices.contains($0) ? steps[$0].stepID : nil }
+        let lastResult = stepID.flatMap { id in results.last { $0.stepID == id && !$0.passed } }
+        let progress = index.flatMap { steps.indices.contains($0) ? steps[$0].progress : nil } ?? lastResult?.progress
+        return Self.blockerSummary(detail: waitingReason, neededInput: neededInput ?? lastResult?.neededInput, progress: progress)
+    }
+
+    /// True when the run is paused specifically because a prerequisite step failed.
+    var isPausedOnFailedPrerequisite: Bool {
+        guard status == .paused, let index = currentIndex,
+              steps.indices.contains(index), plan.steps.indices.contains(index) else { return false }
+        return steps[index].status == .failed && plan.steps[index].isPrerequisite
+    }
+
+    /// True when a prerequisite step with `stepID` has a passing non-recovery result in this run.
+    func hasPassedPrerequisite(stepID: UUID) -> Bool {
+        results.contains { $0.stepID == stepID && $0.passed && $0.recoveryAttempt == nil }
+    }
+
+    /// Non-nil when starting a same-run revision at `index` would skip an unpassed prerequisite while paused on a failed prerequisite.
+    func revisionPrerequisiteBlocker(plan candidate: CockpitPlan, startingAt index: Int) -> String? {
+        guard isPausedOnFailedPrerequisite else { return nil }
+        for prior in 0..<min(max(0, index), candidate.steps.count) where candidate.steps[prior].isPrerequisite {
+            if !hasPassedPrerequisite(stepID: candidate.steps[prior].id) {
+                let title = candidate.steps[prior].title
+                return "Step \(prior + 1) (\u{201C}\(title)\u{201D}) is a prerequisite that has not passed yet. Start from step \(prior + 1) or earlier, or turn off its prerequisite requirement."
+            }
+        }
+        return nil
+    }
 
     /// When the run began, or its first event for a run saved before the start time was kept.
     var began: Date? { startedAt ?? events?.first?.at }
@@ -94,30 +158,68 @@ struct CockpitRun: Codable, Equatable {
               approval.permits(plan), steps.indices.contains(index) else { return false }
         self.approval = approval
         for i in steps.indices { steps[i] = StepRecord(stepID: plan.steps[i].id, status: i < index ? .skipped : .waiting) }
-        currentIndex = index; steps[index].status = .running; waitingReason = ""; status = .running
+        currentIndex = index; steps[index].status = .running; waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running
         startedAt = now
         log(.started, step: nil, index == 0 ? "The run was approved and started." : "The run was approved and started at step \(index + 1).", at: now)
         began(index, at: now)
         return true
     }
 
-    /// A failed prerequisite never advances; the user can retry after resolving the issue.
-    mutating func completeCurrent(passed: Bool, detail: String, build: String, scenarioID: String? = nil, qaRunID: String? = nil, progress: CockpitProgress? = nil, now: Date = Date()) -> Bool {
+    /// A failed prerequisite never advances; if bounded recovery is authorized in the approved plan it stays running until recovery
+    /// finishes, otherwise the run pauses so the user can respond, revise the plan, or retry.
+    mutating func completeCurrent(passed: Bool, detail: String, build: String, scenarioID: String? = nil, qaRunID: String? = nil, progress: CockpitProgress? = nil, neededInput: String? = nil, recoveryAttempt: Int? = nil, now: Date = Date()) -> Bool {
         guard status == .running, let index = currentIndex, steps.indices.contains(index), steps[index].status == .running else { return false }
-        results.append(StepResult(plan: plan, stepID: steps[index].stepID, passed: passed, detail: detail, build: build, scenarioID: scenarioID, qaRunID: qaRunID, progress: progress))
-        steps[index].status = passed ? .passed : .failed
-        steps[index].detail = detail
-        steps[index].endedAt = now
-        // The timeline shows the first line of the result; the whole text stays in the step's record.
-        log(passed ? .stepPassed : .stepFailed, step: index, CockpitText.firstLine(detail), at: now, signal: true)
+        let normalizedNeeded = neededInput?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let keptNeeded = (normalizedNeeded?.isEmpty ?? true) ? nil : normalizedNeeded
+        results.append(StepResult(plan: plan, stepID: steps[index].stepID, passed: passed, detail: detail, build: build,
+                                  scenarioID: scenarioID, qaRunID: qaRunID, progress: progress,
+                                  neededInput: keptNeeded, recoveryAttempt: recoveryAttempt))
+        if let attempt = recoveryAttempt {
+            recoveryAttempts = attempt
+            steps[index].detail = detail
+            if passed {
+                log(.recovered, step: index, "Recovery attempt \(attempt) passed; re-checking prerequisite.", at: now, signal: true)
+            } else {
+                steps[index].status = .failed
+                steps[index].endedAt = now
+                status = .paused
+                waitingReason = detail
+                if let keptNeeded { self.neededInput = keptNeeded }
+                log(.stepFailed, step: index, "Recovery attempt \(attempt) failed: " + CockpitText.firstLine(detail), at: now, signal: true)
+            }
+            return true
+        }
         if !passed {
-            status = .paused; waitingReason = detail
-        } else if index + 1 < steps.count {
-            currentIndex = index + 1; steps[index + 1].status = .running
-            began(index + 1, at: now)
+            let stepPlan = plan.steps.indices.contains(index) ? plan.steps[index] : nil
+            let used = recoveryAttempts ?? 0
+            if let recovery = stepPlan?.recovery, stepPlan?.isPrerequisite == true, recovery.isConfigured,
+               used < recovery.boundedAttempts, pendingRevision == nil {
+                steps[index].detail = detail
+                self.neededInput = keptNeeded
+                log(.stepFailed, step: index, "Prerequisite failed; attempting recovery (\(used + 1) of \(recovery.boundedAttempts)): " + CockpitText.firstLine(detail), at: now, signal: true)
+                return true
+            }
+            steps[index].status = .failed
+            steps[index].detail = detail
+            steps[index].endedAt = now
+            status = .paused
+            waitingReason = detail
+            self.neededInput = keptNeeded
+            log(.stepFailed, step: index, CockpitText.firstLine(detail), at: now, signal: true)
         } else {
-            currentIndex = nil; status = .finished
-            log(.finished, step: nil, "Every step passed.", at: now)
+            steps[index].status = .passed
+            steps[index].detail = detail
+            steps[index].endedAt = now
+            recoveryAttempts = nil
+            self.neededInput = nil
+            log(.stepPassed, step: index, CockpitText.firstLine(detail), at: now, signal: true)
+            if index + 1 < steps.count {
+                currentIndex = index + 1; steps[index + 1].status = .running
+                began(index + 1, at: now)
+            } else {
+                currentIndex = nil; status = .finished
+                log(.finished, step: nil, "Every step passed.", at: now)
+            }
         }
         return true
     }
@@ -126,7 +228,15 @@ struct CockpitRun: Codable, Equatable {
         guard status == .paused, let index = currentIndex, steps.indices.contains(index),
               plan.steps[index].isPrerequisite, steps[index].status == .failed,
               approval?.permits(plan) == true else { return false }
-        steps[index].status = .running; waitingReason = ""; status = .running
+        steps[index].status = .running; waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running
+        return true
+    }
+
+    /// Retries any failed step on which the run paused (prerequisite or regular).
+    mutating func retryFailedStep() -> Bool {
+        guard status == .paused, let index = currentIndex, steps.indices.contains(index),
+              steps[index].status == .failed, approval?.permits(plan) == true else { return false }
+        steps[index].status = .running; waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running
         return true
     }
 
@@ -171,12 +281,13 @@ struct CockpitRun: Codable, Equatable {
         }
     }
 
-    /// The person told the supervisor something.
+    /// The person told the supervisor something, or responded directly to a failed step.
     mutating func addNote(_ note: CockpitCuratorNote) {
         guard !note.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard !(notes ?? []).contains(where: { $0.id == note.id }) else { return }
         notes = CockpitCuratorNote.appending(note, to: notes ?? [])
-        log(.note, step: currentIndex, "Note to the supervisor: " + CockpitSupervisor.clip(note.text, to: 120), at: note.at)
+        let prefix = note.kind == .stepResponse ? "Response for failed step: " : "Note to the supervisor: "
+        log(.note, step: currentIndex, prefix + CockpitSupervisor.clip(note.text, to: 120), at: note.at)
     }
 
     /// The gate refused a tool call of the step's agent. A refusal is also a sign that the agent is working.
@@ -248,6 +359,8 @@ struct CockpitRun: Codable, Equatable {
         steps[index].status = .running
         status = .running
         waitingReason = ""
+        neededInput = nil
+        recoveryAttempts = nil
         pendingRevision = nil
         log(.recovered, step: index, "Continuing from step \(index + 1) after an interruption.", at: now)
         began(index, at: now)
@@ -287,6 +400,8 @@ struct CockpitRun: Codable, Equatable {
         steps[index].status = .running
         status = .running
         waitingReason = ""
+        neededInput = nil
+        recoveryAttempts = nil
         pendingRevision = nil
         log(.recovered, step: index, "Continuing from step \(index + 1), the first step current evidence does not support.", at: now)
         began(index, at: now)
@@ -309,7 +424,8 @@ struct CockpitRun: Codable, Equatable {
 
     /// Record the person's approved revision before sending it to the coordinator.
     mutating func queueRevision(plan: CockpitPlan, approval: CockpitApproval, at index: Int, fingerprint: String) -> Bool {
-        guard pendingRevision == nil, (status == .running || status == .paused), approval.permits(plan), plan.steps.indices.contains(index), !fingerprint.isEmpty else { return false }
+        guard pendingRevision == nil, (status == .running || status == .paused), approval.permits(plan), plan.steps.indices.contains(index), !fingerprint.isEmpty,
+              revisionPrerequisiteBlocker(plan: plan, startingAt: index) == nil else { return false }
         pendingRevision = Revision(plan: plan, approval: approval, step: index, fingerprint: fingerprint)
         return true
     }
@@ -324,6 +440,8 @@ struct CockpitRun: Codable, Equatable {
         steps[revision.step].status = .running
         status = .running
         waitingReason = ""
+        neededInput = nil
+        recoveryAttempts = nil
         pendingRevision = nil
         log(.revised, step: revision.step, "The approved changes were applied from step \(revision.step + 1).", at: now)
         began(revision.step, at: now)

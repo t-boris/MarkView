@@ -7,7 +7,10 @@ import MarkViewCore
 
 struct CockpitTLSFiles: Codable { var ca: String; var cert: String; var key: String }
 struct CockpitEndpoint: Codable { var address: String; var tls: CockpitTLSFiles }
-struct CockpitTemporalStep: Codable { var id: String; var title: String; var agent: String; var assignment: String; var completionCondition: String; var prerequisite: Bool; var qaScenarioID: String? }
+struct CockpitTemporalStep: Codable {
+    var id: String; var title: String; var agent: String; var assignment: String; var completionCondition: String
+    var prerequisite: Bool; var qaScenarioID: String?; var recovery: CockpitStepRecovery? = nil
+}
 struct CockpitTemporalPlan: Codable {
     var fingerprint: String
     var goal: String
@@ -23,12 +26,17 @@ struct CockpitTemporalPlan: Codable {
         goal = plan.goal
         controls = String(decoding: try encoder.encode(plan.controls), as: UTF8.self)
         successCriteria = plan.successCriteria
-        steps = plan.steps.map { CockpitTemporalStep(id: $0.id.uuidString, title: $0.title, agent: $0.agent, assignment: $0.assignment, completionCondition: $0.completionCondition, prerequisite: $0.isPrerequisite, qaScenarioID: $0.qaScenarioID) }
+        steps = plan.steps.map {
+            CockpitTemporalStep(id: $0.id.uuidString, title: $0.title, agent: $0.agent, assignment: $0.assignment,
+                                completionCondition: $0.completionCondition, prerequisite: $0.isPrerequisite,
+                                qaScenarioID: $0.qaScenarioID, recovery: $0.recovery)
+        }
         initialResults = try prior.map { result in
             let oldFingerprint = try CockpitTemporalPlan(result.plan).fingerprint
             return CockpitHostEntry(stepID: result.stepID.uuidString,
                 result: CockpitHostResult(passed: result.passed, detail: result.detail, build: result.build, scenarioID: result.scenarioID,
-                                          qaRunID: result.qaRunID, progress: result.progress, interrupted: result.interrupted), planFingerprint: oldFingerprint)
+                                          qaRunID: result.qaRunID, progress: result.progress, interrupted: result.interrupted,
+                                          neededInput: result.neededInput, recoveryAttempt: result.recoveryAttempt), planFingerprint: oldFingerprint)
         }
     }
 }

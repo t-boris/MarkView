@@ -283,6 +283,64 @@ final class CockpitRuntimeIntegrationHostTests: XCTestCase {
               continuedRun.steps[0].status == .passed, continuedRun.steps[1].status == .passed, continuedRun.status == .finished else {
             throw CockpitFixtureFailure("a managed continuation did not keep its passed step and run only from the selected one")
         }
+        // BUG-128: bounded prerequisite recovery runs automatically, pauses with neededInput if the blocker persists,
+        // refuses a same-run revision that skips the failed prerequisite, and succeeds after the person responds and retries.
+        let prereqStep = CockpitStep(title: "Check chat", agent: "Codex", assignment: "Send test message", completionCondition: "AI replies",
+                                     isPrerequisite: true, recovery: CockpitStepRecovery(assignment: "Attempt automatic sign-in", maxAttempts: 1))
+        let dependentStep = CockpitStep(title: "Run QA", agent: "Codex", assignment: "Run QA", completionCondition: "Done")
+        let prereqPlan = CockpitPlan(goal: "Verify chat", controls: CockpitControls(), scenarios: [], steps: [prereqStep, dependentStep],
+                                     successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        let prereqApproval = try XCTUnwrap(CockpitApproval(plan: prereqPlan, productionConfirmed: false))
+        let prereqEvents = Events()
+        let prereqHolder = ManagedHolder()
+        let prereqExec = CockpitExecution(root: root, service: service) { task in
+            await prereqEvents.add(task)
+            if task.recoveryAttempt != nil {
+                return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Tried automatic sign-in", build: ""), error: "")
+            }
+            if task.step.id == prereqStep.id.uuidString {
+                let hasResponse = await MainActor.run { prereqHolder.execution?.liveNotes.contains(where: { $0.kind == .stepResponse }) == true }
+                if !hasResponse {
+                    return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "Sign-in still required", build: "", neededInput: "Supply a prod test account"), error: "")
+                }
+            }
+            return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Passed", build: "p1"), error: "")
+        }
+        prereqHolder.execution = prereqExec
+        try await prereqExec.start(plan: prereqPlan, approval: prereqApproval, step: 0)
+        for _ in 0..<150 where !(prereqExec.state?.status == "paused" && prereqExec.record?.steps[0].status == .failed) {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        let tasksBeforeRetry = await prereqEvents.tasks
+        guard prereqExec.state?.status == "paused",
+              prereqExec.record?.failedStepNeededInput == "Supply a prod test account",
+              tasksBeforeRetry.count == 3,
+              tasksBeforeRetry[0].step.id == prereqStep.id.uuidString && tasksBeforeRetry[0].recoveryAttempt == nil,
+              tasksBeforeRetry[1].recoveryAttempt == 1,
+              tasksBeforeRetry[2].step.id == prereqStep.id.uuidString && tasksBeforeRetry[2].recoveryAttempt == nil else {
+            throw CockpitFixtureFailure("bounded prerequisite recovery did not attempt recovery once, re-check, and pause with neededInput: count=\(tasksBeforeRetry.count), status=\(prereqExec.state?.status ?? "nil")")
+        }
+        var bypassCandidate = prereqPlan; bypassCandidate.steps[0].assignment = "Revised check"
+        let bypassCandidateApproval = try XCTUnwrap(CockpitApproval(plan: bypassCandidate, productionConfirmed: false))
+        var refusedBypass = false
+        do {
+            try await prereqExec.replan(bypassCandidate, approval: bypassCandidateApproval, step: 1)
+        } catch CockpitExecution.Failure.prerequisiteRequired {
+            refusedBypass = true
+        }
+        guard refusedBypass else { throw CockpitFixtureFailure("replan allowed bypassing an unpassed failed prerequisite") }
+        await prereqExec.sendStepResponse("Use disposable prod account")
+        try await prereqExec.control("retry")
+        for _ in 0..<150 where prereqExec.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
+        let finalPrereqTasks = await prereqEvents.tasks
+        let savedPrereqRun = try CockpitRunStore.load(try XCTUnwrap(prereqExec.runID), root: root)
+        guard prereqExec.state?.status == "finished",
+              finalPrereqTasks.count == 5,
+              finalPrereqTasks[3].step.id == prereqStep.id.uuidString,
+              finalPrereqTasks[4].step.id == dependentStep.id.uuidString,
+              savedPrereqRun.notes?.contains(where: { $0.kind == .stepResponse && $0.text == "Use disposable prod account" }) == true else {
+            throw CockpitFixtureFailure("respond-and-retry did not unblock prerequisite and run dependent step: status=\(prereqExec.state?.status ?? "nil"), tasks=\(finalPrereqTasks.count)")
+        }
         worker.stop(); bridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard AgentProcesses.count == 0 else { throw CockpitFixtureFailure("local helper processes did not stop") }
