@@ -1,3 +1,27 @@
+# BUG-129: Cockpit stops at recoverable CI blockers (2026-11-25)
+
+Goal from Boris: reproduce, find the root cause, fix and verify BUG-129. BQ-1 answered: the plan was launched directly in Cockpit
+(BQ-2 exact message and BQ-3 saved plan stay open). Answers of 2026-11-25 (binding): (1) recovery of the CI step is deterministic:
+`parse` attaches it to a prerequisite that checks CI; (2) when repair needs source changes and Fix bugs is off, ask specifically
+(warning before approval, a precise "input needed" text on the pause), the controls stay the person's; (3) both paths (direct plan and
+managed Build -> Cockpit run) in one release. One PR (one finding, two paths), patch bump, release.
+Branch `fix/bug-129-cockpit-ci-recovery` (worktree `../MarkView-bug-129`).
+
+## Root cause (static; no real run available)
+- Direct plan: recovery is optional in the planner prompt; `CockpitPlanning.parse` attaches it only when the model supplied one, so
+  the first failed CI attempt pauses the run (`CockpitRun.completeCurrent`). With Fix bugs off (the default) the step prompt tells the
+  agent not to change source and the audit fails any edit, so the agent can only report "cannot pass CI".
+- Managed run: `CockpitManagedRun.compose` adds the "CI is green" step as a verification (DEC-036: no source edits) without recovery,
+  while the default CI instruction says "fix failures".
+
+## Plan
+- [x] Red tests first (hosted): CI prerequisite without recovery gets one on parse (Fix bugs on); none when off; failed CI gate with
+      Fix bugs off pauses with a specific input text; managed `.checks` step has bounded recovery; a recovery attempt may change source.
+- [x] Direct path: `CockpitStep.verifiesCI`, default CI-repair recovery, planner prompt, approval advisory, specific pause text.
+- [x] Managed path: recovery on the `.checks` step, writable recovery attempt, step brief and instruction no longer contradict, DEC-037.
+- [x] Verify: Debug build, hosted Cockpit tests, Go workflow tests, pure tier, architecture lint, SwiftLint ratchet.
+- [x] PR, merge, release, install on request; add Boris's answers to BUG-129 `## Clarifications`.
+
 # Source-grounded process graphs in X-Ray (2026-11-25)
 
 Branch `feat/xray-process-graph`, based on `93df066b`, submitted through the contributor fork.
@@ -10,13 +34,22 @@ Branch `feat/xray-process-graph`, based on `93df066b`, submitted through the con
 - [x] Verify the shipping web editor with 41 interaction checks over a 74-block, three-level fixture.
 - [x] Run 130 layout checks, the pure suites, changed-source checks, editor type checking and architecture lint.
 - [x] Add a hosted WebKit regression using the same native graph projection and web checks.
-- [ ] Run full application compilation and XCTest on a runner with Xcode; keep the pull request as a draft until verified.
+- [x] Run full application compilation and XCTest on a runner with Xcode; keep the pull request as a draft until verified.
 
 Local verification constraints: Command Line Tools is selected, full Xcode is unavailable, and `swift test` cannot import XCTest.
 The core module itself compiled. Fork CI cannot start because GitHub reports an account billing issue.
 The pure architecture-lint suite required system Python because the Homebrew Python expat extension cannot load.
 Full app compilation and XCTest remain unverified; the installed application has not been replaced.
 The upstream account has read access; a contributor cannot merge or publish an upstream release.
+
+## Review (7.7.1)
+- Red first: 3 new hosted tests failed with 13 assertion failures on a behavior-neutral stub; they pass with the fix. 33 Cockpit hosted tests,
+  `cockpit-runtime-integration-tests`, pure tier 9/9, architecture lint, SwiftLint ratchet 49/49 passed. PR #450 merged as 9a49a136; release v7.7.1
+  notarized and stapled (Latest); `Build & Release` and `Copilot Cockpit Checks` on 9a49a136 succeeded, `CI` was still running at the time of writing.
+- Decision DEC-037 (agent-aware-implementation-runs) is `proposed`, not accepted: the managed repair may write whatever Fix bugs says.
+- Not verified: a real Cockpit run against a failing GitHub PR (no affected run or repository available); the advisory banner on the plan screen
+  was not looked at in the app; BQ-2/BQ-3 stay unanswered, so the cause of the reported run is inferred from the code.
+- Process miss: the bug stayed in `backlog` until Boris asked (see tasks/lessons.md, 2026-11-25).
 
 # BUG-127: welcome backdrops restart their animation on unrelated display callbacks (2026-11-25, 7.4.1)
 

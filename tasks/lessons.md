@@ -415,3 +415,6 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   [A: Beautiful PDF export, 2026-11-07 | A render step whose cost, 2026-11-07]
 - When a report names a suspect, measure it before fixing; when a fix is scoped to one flow, grep the sibling flows that share the mechanism; trust no diagnosis (mine included)
   until the real collector ran on real data. [A: A guard fixed for one entry point, 2026-09-27 | BUG-106, 2026-11-07]
+- 2026-11-25: when a bug or feature handoff arrives, call `markview_issue_context` first and move the status (`ready`/`fixing`) before the first edit; read it again after
+  Boris changes it. Why: on BUG-129 the context said `done` (MarkView matched unrelated PRs), I noted the mismatch, Boris reset it to `backlog`, and I worked through
+  a merged PR with the bug still in the backlog until he asked. [A: BUG-129, 2026-11-25]
