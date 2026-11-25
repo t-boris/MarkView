@@ -1,10 +1,8 @@
-import Foundation
-
 // How "Implement with AI" starts a feature (agent-aware-implementation-runs, DEC-011): handed to an assistant terminal at once, or
 // prepared as a managed Cockpit plan that is approved and started separately. MarkView recommends one mode from the feature's
 // implementation plan and the Definition of Done the person reviewed, says why, and the person may choose the other one. The
 // managed run also has to know where the checklist and the project's own delivery rules disagree (REQ-004), so the person can
-// reconcile them before anything runs. Foundation only.
+// reconcile them before anything runs. Standard library only.
 
 enum ImplementationLaunchMode: String, Codable, Equatable, Sendable {
     case direct, cockpit
