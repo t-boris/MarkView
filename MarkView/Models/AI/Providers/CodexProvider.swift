@@ -18,6 +18,17 @@ struct CodexProvider: AssistantProvider {
     let defaultXRayModel = "gpt-5.6-luna"
     let terminalIcon = "chevron.left.forwardslash.chevron.right"
     let canSearchWeb = true
+    var launchCapabilities: AgentLaunchCapabilities {
+        AgentLaunchCapabilities(
+            backgroundWebSearch: true,
+            enforcesWebOptOutAtCLI: true,
+            backgroundImages: true,
+            backgroundStructuredOutput: true,
+            backgroundReportsCostUSD: false,
+            interactiveDelegation: true,
+            remoteWork: true
+        )
+    }
     var usage: (any AssistantUsageSupport)? { CodexUsage() }
     var activity: (any AssistantActivitySupport)? { CodexActivity() }
     var completion: (any AssistantCompletionSupport)? { self }
@@ -237,7 +248,8 @@ private struct CodexMCPConfigAdapter: AssistantMCPConfigAdapter {
 /// `codex exec --json` in its read-only sandbox; a schema answer comes back as the message text.
 extension CodexProvider: AssistantCompletionSupport {
     func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
-        var arguments = (request.allowWeb ? ["--search"] : []) + ["exec"]
+        // Explicitly disable web search when `allowWeb` is false so user config.toml cannot bypass repository opt-out.
+        var arguments = (request.allowWeb ? ["--search"] : ["-c", "web_search=\"disabled\""]) + ["exec"]
             + request.images.flatMap { ["-i", $0.path] } + ["--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                      "--json", "--color", "never", "-C", request.workDir.path]
         arguments += modelArgs(request.model)

@@ -1006,4 +1006,123 @@ extension EditorHostTests {
         XCTAssertEqual(window.layout.issuesFeature, "ctx")
     }
 
+    @MainActor func testFixBugAndBatchBuildPromptForActualReceivingTerminal() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-recipient-host-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        let codex = try XCTUnwrap(CLITool(rawValue: "codex"))
+        let copilot = try XCTUnwrap(CLITool(rawValue: "copilot"))
+        let originalBackend = AIAssistantPreferences.backend(project: root)
+        defer { AssistantChoice(project: root).setTool(originalBackend.rawValue) }
+
+        @MainActor
+        final class RoutingAssistantSpy: AssistantProviding, AssistantPrompting {
+            var target: TerminalSession
+            var sends = true
+            var assistantIsBusy = false
+            private(set) var sent: [(prompt: String, submit: Bool, terminal: TerminalSession)] = []
+            var currentAssistant: CLICompletion.Assistant? { nil }
+            var sessions: [TerminalSession] { [target] }
+            var shownID: UUID? { target.id }
+            init(target: TerminalSession) { self.target = target }
+            func liveModelReported(_ model: String, terminalID: UUID) {}
+            func openAITerminal(_ profile: TerminalProfile, resuming: Bool, model: String?) -> TerminalSession? { nil }
+            func showAIConsole() {}
+            func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? {
+                guard sends else { return nil }
+                sent.append((prompt, submit, target))
+                return target
+            }
+            func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
+                guard sends else { return nil }
+                let chosen = terminal ?? target
+                guard let prompt = promptFor(chosen) else { return nil }
+                sent.append((prompt, submit, chosen))
+                return chosen
+            }
+        }
+
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer { window.composition.close() }
+        window.project.beginOpening(root)
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        _ = try ProjectWorkflowStore(projectRoot: root).save(.standard, expectedRevision: 0)
+
+        let claudeTerminal = TerminalSession(directory: root, profile: .assistant(claude))
+        let codexTerminal = TerminalSession(directory: root, profile: .assistant(codex))
+        let copilotTerminal = TerminalSession(directory: root, profile: .assistant(copilot))
+        let spy = RoutingAssistantSpy(target: codexTerminal)
+        let flow = FeatureFlowCoordinator(project: window.project, assistants: spy, tabs: window, requests: window.requests,
+                                          layout: window.layout, chrome: window.chrome, gitClient: window.composition.gitClient,
+                                          research: window.composition.research)
+        defer { flow.close() }
+        flow.features.setup(root: root)
+
+        // Case 1: Project default is Claude (fixesBugsAsGoal == true), but normal routing picks an open Codex terminal.
+        // Neither single nor batch Fix with AI may send Claude's `/goal` syntax into Codex.
+        AssistantChoice(project: root).setTool(claude.rawValue)
+        spy.target = codexTerminal
+        let bug1 = try flow.features.createBug(BugReportDraft(title: "Single codex recipient", body: "Detail", provenance: "Test"))
+        flow.fixBugWithAI(bug1.url)
+        let sentSingleCodex = try XCTUnwrap(spy.sent.last)
+        XCTAssertTrue(sentSingleCodex.submit)
+        XCTAssertTrue(sentSingleCodex.terminal === codexTerminal)
+        XCTAssertFalse(sentSingleCodex.prompt.hasPrefix("/goal "), "Codex recipient must not receive Claude /goal syntax")
+        XCTAssertTrue(sentSingleCodex.prompt.hasPrefix("Fix the bug described in "))
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug1.id), "fixing")
+
+        let bug2 = try flow.features.createBug(BugReportDraft(title: "Batch codex one", body: "Detail", provenance: "Test"))
+        let bug3 = try flow.features.createBug(BugReportDraft(title: "Batch codex two", body: "Detail", provenance: "Test"))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: bug2.url)))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: bug3.url)))
+        flow.fixBasketWithAI()
+        let sentBatchCodex = try XCTUnwrap(spy.sent.last)
+        XCTAssertTrue(sentBatchCodex.submit)
+        XCTAssertTrue(sentBatchCodex.terminal === codexTerminal)
+        XCTAssertFalse(sentBatchCodex.prompt.hasPrefix("/goal "), "Batch Codex recipient must not receive Claude /goal syntax")
+        XCTAssertTrue(sentBatchCodex.prompt.hasPrefix("Fix this batch of 2 bug reports"))
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug2.id), "fixing")
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug3.id), "fixing")
+
+        // Case 2: Project default is Copilot (fixesBugsAsGoal == false), but normal routing picks an open Claude terminal.
+        // Both single and batch Fix with AI must use Claude's `/goal` syntax matching the actual recipient.
+        AssistantChoice(project: root).setTool(copilot.rawValue)
+        spy.target = claudeTerminal
+        let bug4 = try flow.features.createBug(BugReportDraft(title: "Single claude recipient", body: "Detail", provenance: "Test"))
+        flow.fixBugWithAI(bug4.url)
+        let sentSingleClaude = try XCTUnwrap(spy.sent.last)
+        XCTAssertTrue(sentSingleClaude.terminal === claudeTerminal)
+        XCTAssertTrue(sentSingleClaude.prompt.hasPrefix("/goal fix the bug described in "))
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug4.id), "fixing")
+
+        let bug5 = try flow.features.createBug(BugReportDraft(title: "Batch claude one", body: "Detail", provenance: "Test"))
+        let bug6 = try flow.features.createBug(BugReportDraft(title: "Batch claude two", body: "Detail", provenance: "Test"))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: bug5.url)))
+        flow.bugBatch.toggle(try XCTUnwrap(flow.features.bug(at: bug6.url)))
+        // Failed handoff leaves bugs unmarked and basket intact.
+        spy.sends = false
+        flow.fixBasketWithAI()
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug5.id), "open")
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug6.id), "open")
+        XCTAssertEqual(flow.bugBatch.eligible.count, 2)
+
+        spy.sends = true
+        flow.fixBasketWithAI()
+        let sentBatchClaude = try XCTUnwrap(spy.sent.last)
+        XCTAssertTrue(sentBatchClaude.terminal === claudeTerminal)
+        XCTAssertTrue(sentBatchClaude.prompt.hasPrefix("/goal fix this batch of 2 bugs"))
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug5.id), "fixing")
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug6.id), "fixing")
+        XCTAssertTrue(flow.bugBatch.basket.isEmpty)
+
+        // Explicit terminal override also beats both project default and shown terminal.
+        let bug7 = try flow.features.createBug(BugReportDraft(title: "Explicit copilot", body: "Detail", provenance: "Test"))
+        flow.fixBugWithAI(bug7.url, in: copilotTerminal)
+        let sentExplicit = try XCTUnwrap(spy.sent.last)
+        XCTAssertTrue(sentExplicit.terminal === copilotTerminal)
+        XCTAssertFalse(sentExplicit.prompt.hasPrefix("/goal "))
+        XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug7.id), "fixing")
+    }
+
 }

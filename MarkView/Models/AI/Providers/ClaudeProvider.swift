@@ -18,6 +18,17 @@ struct ClaudeProvider: AssistantProvider {
     let updateArgs = ["update"]
     let canSearchWeb = true
     let fixesBugsAsGoal = true
+    var launchCapabilities: AgentLaunchCapabilities {
+        AgentLaunchCapabilities(
+            backgroundWebSearch: true,
+            enforcesWebOptOutAtCLI: true,
+            backgroundImages: true,
+            backgroundStructuredOutput: true,
+            backgroundReportsCostUSD: true,
+            interactiveDelegation: true,
+            remoteWork: true
+        )
+    }
     var liveModelSwitch: (any AssistantLiveModelSwitch)? { ClaudeSessionModel.liveSwitch }
     var usage: (any AssistantUsageSupport)? { ClaudeUsage() }
     var activity: (any AssistantActivitySupport)? { ClaudeActivity() }

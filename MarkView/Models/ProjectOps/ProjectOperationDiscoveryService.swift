@@ -74,7 +74,8 @@ enum ProjectOperationDiscoveryService {
         try Task.checkCancellation()
         var candidates = local.operations.map { ($0, false) }
         var unknowns = local.notDetermined
-        let canSearchWeb = fixture?.canSearchWeb ?? AIAssistantPreferences.backend(project: root).provider.canSearchWeb
+        let webDisabled = RepositoryWebPolicy.isWebDisabled(root)
+        let canSearchWeb = fixture?.canSearchWeb ?? (!webDisabled && AIAssistantPreferences.backend(project: root).launchCapabilities.backgroundWebSearch)
         var webSearched = false
         if canSearchWeb && !unknowns.isEmpty {
             phase("web")

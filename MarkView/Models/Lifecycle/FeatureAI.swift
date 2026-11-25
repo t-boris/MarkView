@@ -1047,13 +1047,24 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("research:" + slug)
         defer { preparing.remove("research:" + slug) }
         guard let feature = store.feature(slug) else { return nil }
+        let root = store.root
+        let webDisabled = root.map { RepositoryWebPolicy.isWebDisabled($0) } ?? false
+        let tool = AIAssistantPreferences.backend(project: root)
+        let webAllowed = !webDisabled && tool.launchCapabilities.backgroundWebSearch
+        let webNote: String? = webDisabled
+            ? "Web search is disabled for this repository; this note is repository-only."
+            : (!tool.launchCapabilities.backgroundWebSearch
+                ? "Web search was unavailable (\(tool.displayName)'s background launch profile has no web search); this note is repository-only."
+                : nil)
+        let webGuidance = webAllowed
+            ? "Search the web when external knowledge helps (standards, APIs, vendor limits, prior art) and read the project's documents and code for what already exists."
+            : "Web search is not available for this run (\(webNote ?? "repository-only")). Rely on the repository's documents and code; label general knowledge as ai-inference, never external-fact."
         let prompt = await context(feature, focus: linked.map { [$0] } ?? [], query: topic) + """
 
         ## Research topic
         \(topic)
 
-        Task: research this for the feature. Search the web when external knowledge helps (standards, \
-        APIs, vendor limits, prior art) and read the project's documents and code for what already exists. \
+        Task: research this for the feature. \(webGuidance) \
         Report claims, each labelled with its kind — project-fact (seen in this repository), external-fact \
         (from a cited web source), ai-inference, user-decision or open-assumption — and its source (URL or \
         project path; empty for inferences). End with open questions the research raised.
@@ -1063,10 +1074,12 @@ final class FeatureAssistant: ObservableObject {
                                        "source": Self.string])
         let schema = Self.object(["title": Self.string, "summary": Self.string,
                                   "claims": Self.array(claimSchema), "open_questions": Self.strings])
-        guard let result = await run("research:" + slug, prompt: prompt, schema: schema, web: true, timeout: 900),
+        guard let result = await run("research:" + slug, prompt: prompt, schema: schema, web: webAllowed, timeout: 900),
               let object = result.structured as? [String: Any] else { return nil }
         let claims = object["claims"] as? [[String: Any]] ?? []
-        var body = "## Topic\n\n\(topic)\n\n## Summary\n\n\(object["summary"] as? String ?? "")\n\n## Claims\n\n"
+        var body = "## Topic\n\n\(topic)\n\n## Summary\n\n\(object["summary"] as? String ?? "")"
+        if let webNote { body += "\n\n> \(webNote)" }
+        body += "\n\n## Claims\n\n"
         body += claims.map { c in
             let source = (c["source"] as? String ?? "").isEmpty ? "" : " — \(c["source"] as? String ?? "")"
             return "- `\(c["kind"] as? String ?? "ai-inference")` \(c["text"] as? String ?? "")\(source)"

@@ -13,6 +13,25 @@ struct AIModelOption: Identifiable, Hashable, Sendable {
     let detail: String
 }
 
+/// Capabilities of an assistant's actual MarkView launch profiles (REQ-006).
+/// Declared per provider inside `Models/AI/Providers/` so callers ask the provider rather than switching on identity.
+struct AgentLaunchCapabilities: Equatable, Sendable {
+    /// Background one-shot CLI/ACP run can perform live web search when `allowWeb == true`.
+    var backgroundWebSearch: Bool = false
+    /// Background one-shot CLI/ACP run enforces `allowWeb == false` at the CLI/tool layer.
+    var enforcesWebOptOutAtCLI: Bool = true
+    /// Background one-shot run can inspect image attachments (`request.images`).
+    var backgroundImages: Bool = false
+    /// Background one-shot run supports structured JSON output.
+    var backgroundStructuredOutput: Bool = true
+    /// Background one-shot run reports `costUSD` directly.
+    var backgroundReportsCostUSD: Bool = false
+    /// Interactive/Cockpit session supports provider-native subagent/workflow delegation.
+    var interactiveDelegation: Bool = false
+    /// Hosted Remote Work is supported (`AssistantRemoteSupport`).
+    var remoteWork: Bool = false
+}
+
 protocol AssistantProvider: Sendable {
     // MARK: Identity
 
@@ -91,8 +110,10 @@ protocol AssistantProvider: Sendable {
 
     // MARK: Prompts
 
-    /// The CLI can search the web by itself (project operation discovery relies on it).
+    /// The CLI can search the web by itself (project operation discovery and research rely on it).
     var canSearchWeb: Bool { get }
+    /// Capabilities of this assistant's actual MarkView launch profiles (REQ-006).
+    var launchCapabilities: AgentLaunchCapabilities { get }
     /// Fix with AI states the bug as a goal command (`/goal …`) instead of a plain request.
     var fixesBugsAsGoal: Bool { get }
     /// `objective` as a goal for the CLI's own command or task model; `closing` asks it to continue until it is done, for
@@ -150,6 +171,17 @@ extension AssistantProvider {
     var mcpConfig: (any AssistantMCPConfigAdapter)? { nil }
     var skillPath: String? { nil }
     var canSearchWeb: Bool { false }
+    var launchCapabilities: AgentLaunchCapabilities {
+        AgentLaunchCapabilities(
+            backgroundWebSearch: canSearchWeb,
+            enforcesWebOptOutAtCLI: true,
+            backgroundImages: false,
+            backgroundStructuredOutput: true,
+            backgroundReportsCostUSD: false,
+            interactiveDelegation: cockpitDelegation != nil,
+            remoteWork: remote != nil
+        )
+    }
     var fixesBugsAsGoal: Bool { false }
     func goalPrompt(_ objective: String, closing: String) -> String { objective + " " + closing }
     var cockpitDelegation: String? { nil }

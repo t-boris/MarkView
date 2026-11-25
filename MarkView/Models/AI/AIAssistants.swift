@@ -399,3 +399,113 @@ enum CLIToolLocator {
         return nil
     }
 }
+
+// MARK: - Repository Web Policy & Launch-Profile Capability Resolution (REQ-006, DEC-013)
+
+/// Per-repository web search opt-out stored in local settings (shared across Research, FeatureAI, and ProjectOps
+/// from the `AI/` layer so feature domains never introduce cross-domain cycles).
+enum RepositoryWebPolicy {
+    static func webDisabledKey(_ root: URL) -> SettingsKey<Bool> {
+        Setting.researchWebDisabled(project: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+    }
+
+    static func isWebDisabled(_ root: URL) -> Bool {
+        Settings.standard.value(webDisabledKey(root))
+    }
+}
+
+/// A task capability checked against an assistant's actual launch profile (REQ-006, DEC-013).
+enum AgentTaskCapability: Equatable, Sendable {
+    case backgroundWebSearch
+
+    var limitationDescription: String {
+        switch self {
+        case .backgroundWebSearch: return "web search in background runs"
+        }
+    }
+
+    func isSupported(by tool: CLITool) -> Bool {
+        switch self {
+        case .backgroundWebSearch: return tool.launchCapabilities.backgroundWebSearch
+        }
+    }
+}
+
+/// Evaluates whether the explicitly selected assistant's actual launch profile supports a needed capability.
+/// When it does not, explains the limitation and offers a compatible configured provider ONLY after explicit user
+/// confirmation (DEC-013). Declining (or non-interactive `nil`) never routes task context to another provider.
+enum AgentCapabilityResolver {
+    enum Resolution: Equatable, Sendable {
+        /// Proceed with `tool`. `capabilityAvailable` is false when continuing without the missing capability.
+        case proceed(tool: CLITool, capabilityAvailable: Bool, limitationNote: String?)
+        /// Cannot proceed without the capability and no confirmed compatible provider is available.
+        case blocked(String)
+        /// The user cancelled the confirmation prompt before any task context was sent.
+        case cancelled
+    }
+
+    /// Compatible installed/configured providers (excluding `selected`), in provider registry order.
+    static func compatibleProviders(
+        for capability: AgentTaskCapability,
+        excluding selected: CLITool,
+        isAvailable: (CLITool) -> Bool = { CLIToolLocator.resolve($0) != nil }
+    ) -> [CLITool] {
+        CLITool.allCases.filter { $0 != selected && capability.isSupported(by: $0) && isAvailable($0) }
+    }
+
+    @MainActor
+    static func resolve(
+        selected: CLITool,
+        capability: AgentTaskCapability,
+        taskName: String,
+        canProceedWithoutCapability: Bool,
+        fallbackDescription: String,
+        prompts: any UserPrompts,
+        isAvailable: (CLITool) -> Bool = { CLIToolLocator.resolve($0) != nil }
+    ) -> Resolution {
+        if capability.isSupported(by: selected) {
+            return .proceed(tool: selected, capabilityAvailable: true, limitationNote: nil)
+        }
+        let limitation = "\(selected.displayName)'s background launch profile does not support \(capability.limitationDescription)."
+        let alternatives = compatibleProviders(for: capability, excluding: selected, isAvailable: isAvailable)
+        if let replacement = alternatives.first {
+            let detail: String
+            let buttons: [String]
+            if canProceedWithoutCapability {
+                detail = "\(limitation) \(replacement.displayName) is configured on this Mac and supports \(capability.limitationDescription). "
+                    + "Task context will be sent to \(replacement.displayName) for this \(taskName) run only if you confirm. "
+                    + "If you stay with \(selected.displayName), \(fallbackDescription)."
+                // Safe default first: Return keeps the selected provider rather than sending context elsewhere.
+                buttons = ["Continue with \(selected.displayName)", "Use \(replacement.displayName) for This Run", "Cancel"]
+            } else {
+                detail = "\(limitation) \(replacement.displayName) is configured on this Mac and supports \(capability.limitationDescription). "
+                    + "Task context will be sent to \(replacement.displayName) for this \(taskName) run only if you confirm."
+                buttons = ["Cancel", "Use \(replacement.displayName) for This Run"]
+            }
+            let choice = prompts.ask(UserPrompt(
+                title: "\(selected.displayName) lacks \(capability.limitationDescription)",
+                detail: detail,
+                buttons: buttons
+            ))
+            if canProceedWithoutCapability {
+                switch choice {
+                case 1:
+                    return .proceed(tool: replacement, capabilityAvailable: true, limitationNote: nil)
+                case 2:
+                    return .cancelled
+                default:
+                    return .proceed(tool: selected, capabilityAvailable: false, limitationNote: limitation)
+                }
+            } else {
+                if choice == 1 {
+                    return .proceed(tool: replacement, capabilityAvailable: true, limitationNote: nil)
+                }
+                return .blocked("\(limitation) Substitution with \(replacement.displayName) was not confirmed.")
+            }
+        }
+        if canProceedWithoutCapability {
+            return .proceed(tool: selected, capabilityAvailable: false, limitationNote: limitation)
+        }
+        return .blocked("\(limitation) No compatible assistant is configured to run this \(taskName) with \(capability.limitationDescription).")
+    }
+}

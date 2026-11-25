@@ -25,6 +25,9 @@ struct CLITool: RawRepresentable, Hashable, Codable, CaseIterable, Sendable {
     /// Driven over the Agent Client Protocol (`ACPAssistant`) rather than a one-shot CLI run.
     var usesACP: Bool { provider.usesACP }
 
+    /// Capabilities of this assistant's actual MarkView launch profiles (REQ-006).
+    var launchCapabilities: AgentLaunchCapabilities { provider.launchCapabilities }
+
     /// Executable name as installed on disk.
     var binaryName: String { provider.binaryName }
 

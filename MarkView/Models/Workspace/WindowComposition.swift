@@ -48,7 +48,7 @@ final class WindowComposition {
     private var connections = Set<AnyCancellable>()
 
     /// Research of the window: the maps, and the jobs for new research, follow-ups and comments (docs/research/).
-    private(set) lazy var research = ResearchMapController(host: host, project: project, tasks: taskBag)
+    private(set) lazy var research = ResearchMapController(host: host, project: project, tasks: taskBag, prompts: prompts)
     /// The terminals of the window: the AI panel's, the editor tabs', the AI terminals that come back across launches, and what the
     /// assistants are doing.
     private(set) lazy var terminals = AITerminalsController(host: host, project: project, tasks: taskBag, polling: polling, prompts: prompts)

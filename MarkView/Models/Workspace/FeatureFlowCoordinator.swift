@@ -401,7 +401,7 @@ final class FeatureFlowCoordinator: ObservableObject {
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
     /// `terminal`: the one to fix it in (an agent driving the window names it); else the usual choice.
     func fixBugWithAI(_ url: URL, in terminal: TerminalSession? = nil) {
-        let tool: CLITool? = terminal != nil ? terminal?.profile.tool : AIAssistantPreferences.backend(project: project.aiProject)
+        let path = project.relativePath(of: url)
         let key = features.bug(at: url)?.key
         // A bug the lifecycle does not let start (already fixed or closed) is not handed over: nothing could mark it.
         if let key, !features.lifecycle.canStartByHandoff(.bug, key) {
@@ -409,10 +409,12 @@ final class FeatureFlowCoordinator: ObservableObject {
             return
         }
         let block = key.map { features.lifecycle.handoffBlock(.bug, [$0]) } ?? ""
-        let base = HandoffPrompt.bug(project.relativePath(of: url), tool: tool)
-        let prompt = block.isEmpty ? base : base + "\n\n" + block
-        // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
-        guard let session = assistants.sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
+        // Build instructions for the actual receiving terminal after routing picks it, and mark the report
+        // fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003, REQ-006).
+        guard let session = assistants.sendToAssistant(submit: true, to: terminal, promptFor: { receiving in
+            let base = HandoffPrompt.bug(path, tool: receiving.profile.tool)
+            return block.isEmpty ? base : base + "\n\n" + block
+        }), let key else { return }
         features.lifecycle.startByHandoff(.bug, key, tool: session.profile.tool?.displayName ?? "AI assistant", actor: .human(features.lifecycleActor))
     }
 
@@ -424,14 +426,15 @@ final class FeatureFlowCoordinator: ObservableObject {
         bugBatch.reconcile()
         let bugs = bugBatch.eligible
         guard bugs.count >= BugBasket.minimumBatch, !assistants.assistantIsBusy, features.root != nil else { return }
-        let tool = AIAssistantPreferences.backend(project: project.aiProject)
         var session: TerminalSession?
         let outcome = BatchStart.run(bugs, canStart: { bug in
             features.lifecycle.canStartByHandoff(.bug, bug.key)
         }, send: { startable in
-            let base = BatchFixPrompt.make(startable, tool: tool)
             let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
-            session = assistants.sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
+            session = assistants.sendToAssistant(submit: true, to: nil) { receiving in
+                let base = BatchFixPrompt.make(startable, tool: receiving.profile.tool)
+                return block.isEmpty ? base : base + "\n\n" + block
+            }
             return session != nil
         }, start: { bug in
             let tool = session?.profile.tool?.displayName ?? "AI assistant"
