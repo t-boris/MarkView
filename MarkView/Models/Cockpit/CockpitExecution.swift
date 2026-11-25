@@ -103,6 +103,7 @@ final class CockpitExecution: ObservableObject {
             try Task.checkCancellation()
             let handler = self.handler
             let bridge = try CockpitHostBridge { [weak self] task in
+                await self?.retryBegan(task)
                 if let blocked = await self?.stepBegan(task) {
                     return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: blocked)
                 }
@@ -240,6 +241,14 @@ final class CockpitExecution: ObservableObject {
 
     /// Fix cycles the run has used, including the running step's.
     var usedFixCycles: Int { (record?.fixCyclesUsed ?? 0) + (meter?.stepCycles ?? 0) }
+
+    /// The coordinator runs a failed prerequisite again (the person chose Retry): the record shows the step running again, so the run
+    /// view says so and the attempt's result can be saved (`completeCurrent` takes only a running step).
+    private func retryBegan(_ task: CockpitHostTask) async {
+        guard let id = UUID(uuidString: task.step.id), let record, record.status == .paused, let index = record.currentIndex,
+              record.steps.indices.contains(index), record.steps[index].stepID == id, record.steps[index].status == .failed else { return }
+        await updateRecord({ _ = $0.retryPrerequisite() }, failure: "The retried step could not be saved")
+    }
 
     /// A step is about to run. Returns the reason when it must not (the run's time is already used up); otherwise starts its clock
     /// and a watch that pauses the step when the time limit is reached. Pausing is the cancel the person's own Pause uses.
