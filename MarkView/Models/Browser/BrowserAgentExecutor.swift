@@ -126,10 +126,13 @@ enum BrowserAgentExecutor {
         }
         await collect(main, frame: nil, chain: [], depth: 0)
         let elements = (main["elements"] as? [String] ?? []).joined(separator: "\n")
+        let popupHeader = session.hasPendingPopup
+            ? "\nPending sign-in popup: Select tab \(session.agentName) in MarkView and click \"Open Sign-In Window\" to complete sign-in."
+            : ""
         return BrowserAgentTools.Reply(text: """
         Tab: \(session.agentName)
         URL: \(main["url"] ?? "")
-        Title: \(main["title"] ?? "")
+        Title: \(main["title"] ?? "")\(popupHeader)
 
         ## Visible text
         \(main["viewportText"] ?? "")
@@ -143,8 +146,28 @@ enum BrowserAgentExecutor {
         \(main["text"] ?? "")
         """)
     }
-    static func run(_ tool: String, _ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
-        session.agentControlled = true
+
+    static func pendingPopupNotice(for session: BrowserSession, since sequence: Int) -> String? {
+        guard session.deferredPopupSequence > sequence else { return nil }
+        return "A sign-in popup was opened by tab \(session.agentName) and kept hidden to preserve focus. Ask the user to select tab \(session.agentName) in MarkView and click \"Open Sign-In Window\" (if the popup is no longer available, retry sign-in manually on that page)."
+    }
+
+    private static func appendingPopupNotice(_ reply: BrowserAgentTools.Reply, session: BrowserSession, since sequence: Int) -> BrowserAgentTools.Reply {
+        guard let notice = pendingPopupNotice(for: session, since: sequence) else { return reply }
+        var updated = reply
+        updated.text = updated.text.isEmpty ? notice : updated.text + "\n" + notice
+        return updated
+    }
+
+    private static func automatedScript(_ body: String) -> String {
+        "const __mvFn = () => {\n" + body + "\n}; return window.__mvRunAutomated ? window.__mvRunAutomated(__mvFn) : __mvFn();"
+    }
+
+    static func run(_ tool: String, _ args: [String: Any], in session: BrowserSession, background: Bool = false) async -> BrowserAgentTools.Reply {
+        session.beginAutomation(background: background)
+        defer { session.endAutomation(background: background) }
+        session.ensureBackgroundLayoutFrame()
+        let beforePopup = session.deferredPopupSequence
         let web = session.webView
         switch tool {
         case "browser_navigate":
@@ -153,36 +176,38 @@ enum BrowserAgentExecutor {
             }
             session.load(url)
             await settle(session, started: true)
-            return status(session)
+            return appendingPopupNotice(status(session), session: session, since: beforePopup)
         case "browser_snapshot":
             return await snapshot(session)
         case "browser_click":
-            return await click(args, in: session)
+            return appendingPopupNotice(await click(args, in: session, background: background), session: session, since: beforePopup)
         case "browser_type":
-            return await type(args, in: session)
+            return appendingPopupNotice(await type(args, in: session, background: background), session: session, since: beforePopup)
         case "browser_press_key":
             let key = args["key"] as? String ?? ""
             guard !key.isEmpty else { return .error("A key is required.") }
             let reply: BrowserAgentTools.Reply
-            if canUseNativeInput(web), let event = keyEvents(key, in: web) {
+            if canUseNativeInput(web, background: background), let event = keyEvents(key, in: web) {
                 withFocus(web) {
                     web.keyDown(with: event.down)
                     web.keyUp(with: event.up)
                 }
                 reply = BrowserAgentTools.Reply(text: "Pressed \(key).")
             } else {
-                reply = await script(web, Scripts.pressKey, ["key": key]) { $0 as? String ?? "" }
+                reply = await script(web, automatedScript(Scripts.pressKey), ["key": key]) { $0 as? String ?? "" }
             }
             await settle(session, started: false)
-            return reply
+            return appendingPopupNotice(reply, session: session, since: beforePopup)
         case "browser_evaluate":
             guard let body = args["script"] as? String, !body.isEmpty else { return .error("A script is required.") }
             guard let chosen = target(args, in: session) else { return .error("The frame is no longer on the page. Take a new browser_snapshot.") }
-            return await script(web, "return JSON.stringify(await (async () => { \(body)\n })(), null, 1) ?? 'undefined';", [:], in: chosen.entry?.info) {
+            let runner = "const __mvFn = async () => { " + body + "\n }; const __mvVal = await (window.__mvRunAutomated ? window.__mvRunAutomated(__mvFn) : __mvFn()); return JSON.stringify(__mvVal, null, 1) ?? 'undefined';"
+            let reply = await script(web, runner, [:], in: chosen.entry?.info) {
                 $0 as? String ?? "undefined"
             }
+            return appendingPopupNotice(reply, session: session, since: beforePopup)
         case "browser_screenshot":
-            return await screenshot(web)
+            return await screenshot(session)
         case "browser_console":
             let clear = (args["clear"] as? Bool) == true
             let reply = await script(web, Scripts.console, ["clear": clear]) { $0 as? String ?? "" }
@@ -195,12 +220,12 @@ enum BrowserAgentExecutor {
             let deadline = Date().addingTimeInterval(Double(limit) / 1000)
             guard let text = args["text"] as? String, !text.isEmpty else {
                 try? await Task.sleep(nanoseconds: UInt64(limit) * 1_000_000)
-                return status(session)
+                return appendingPopupNotice(status(session), session: session, since: beforePopup)
             }
             while Date() < deadline {
                 let found = try? await web.callAsyncJavaScript("return (document.body ? document.body.innerText : '').includes(t);",
                                                                arguments: ["t": text], in: nil, contentWorld: .page) as? Bool
-                if found == true { return BrowserAgentTools.Reply(text: "Found “\(text)”.") }
+                if found == true { return appendingPopupNotice(BrowserAgentTools.Reply(text: "Found “\(text)”."), session: session, since: beforePopup) }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
             return .error("“\(text)” did not appear within \(limit) ms.")
@@ -208,11 +233,11 @@ enum BrowserAgentExecutor {
             guard web.canGoBack else { return .error("There is no previous page.") }
             web.goBack()
             await settle(session, started: true)
-            return status(session)
+            return appendingPopupNotice(status(session), session: session, since: beforePopup)
         case "browser_reload":
             session.reload()
             await settle(session, started: true)
-            return status(session)
+            return appendingPopupNotice(status(session), session: session, since: beforePopup)
         default:
             return .error("Unknown tool \(tool).")
         }
@@ -220,14 +245,15 @@ enum BrowserAgentExecutor {
 
     // MARK: Real input (trusted events)
 
-    /// Native events need the web view on screen in its window.
-    private static func canUseNativeInput(_ web: WKWebView) -> Bool {
-        web.window != nil && web.bounds.width > 0 && web.bounds.height > 0 && !web.isHiddenOrHasHiddenAncestor
+    /// Native events need a visible web view and are skipped in background automation so keyboard focus never leaves Copilot or the editor.
+    private static func canUseNativeInput(_ web: WKWebView, background: Bool) -> Bool {
+        guard !background else { return false }
+        return web.window != nil && web.bounds.width > 0 && web.bounds.height > 0 && !web.isHiddenOrHasHiddenAncestor
     }
 
-    /// A mouse click on the element's centre as the user's own (`isTrusted`) click; a script click
-    /// when the tab is not on screen or something else covers the element.
-    private static func click(_ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
+    /// A mouse click on the element's centre as the user's own (`isTrusted`) click in offscreen QA windows,
+    /// or a focus-preserving script click in background automation.
+    private static func click(_ args: [String: Any], in session: BrowserSession, background: Bool) async -> BrowserAgentTools.Reply {
         let web = session.webView
         guard let chosen = target(args, in: session), await frameGeometry(chosen, web: web, scroll: true) != nil else {
             return .error("The frame is no longer on the page. Take a new browser_snapshot.")
@@ -237,11 +263,14 @@ enum BrowserAgentExecutor {
               let target = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return located }
         let description = target["describe"] as? String ?? "the element"
         if (target["disabled"] as? Bool) == true { return .error("\(description) is disabled.") }
+        if background && (target["fileInput"] as? Bool) == true {
+            return .error("Choosing a file with \(description) requires foreground interaction in tab \(session.agentName). Select tab \(session.agentName) in MarkView and choose the file manually.")
+        }
         guard let geometry = await frameGeometry(chosen, web: web, scroll: false) else { return .error("The embedding frame moved. Take a new browser_snapshot.") }
         let point = CGPoint(x: geometry.x + (target["x"] as? Double ?? 0) * geometry.sx,
                             y: geometry.y + (target["y"] as? Double ?? 0) * geometry.sy)
         var how = "with a mouse click"
-        if canUseNativeInput(web), (target["hit"] as? Bool) == true, let window = web.window {
+        if canUseNativeInput(web, background: background), (target["hit"] as? Bool) == true, let window = web.window {
             let location = windowPoint(point, in: web)
             for type in [NSEvent.EventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
                 guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
@@ -255,44 +284,50 @@ enum BrowserAgentExecutor {
                 }
             }
         } else {
-            let reply = await script(web, Scripts.find + Scripts.click, ["a": chosen.arguments], in: chosen.entry?.info) { $0 as? String ?? "" }
+            let clickScript = background ? Scripts.backgroundClick : Scripts.click
+            let reply = await script(web, automatedScript(Scripts.find + clickScript), ["a": chosen.arguments], in: chosen.entry?.info) { $0 as? String ?? "" }
             guard !reply.isError else { return reply }
-            how = (target["hit"] as? Bool) == false ? "by script (another element covers it)" : "by script (the tab is not on screen)"
+            how = background ? "in the background" : ((target["hit"] as? Bool) == false ? "by script (another element covers it)" : "by script (the tab is not on screen)")
         }
         await settle(session, started: false)
+        if session.consumeBlockedOpenPanel() {
+            return .error("Choosing a file with \(description) requires foreground interaction in tab \(session.agentName). Select tab \(session.agentName) in MarkView and choose the file manually.")
+        }
         return BrowserAgentTools.Reply(text: "Clicked \(description) \(how).\n" + status(session).text)
     }
 
     /// Focus the field, select what it holds (unless appending), and type the text through the web
-    /// view's text input as real keystrokes; a script sets the value when that did not take.
-    private static func type(_ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
+    /// view's text input as real keystrokes in QA windows, or via script in background automation without stealing focus.
+    private static func type(_ args: [String: Any], in session: BrowserSession, background: Bool) async -> BrowserAgentTools.Reply {
         let web = session.webView
         let value = args["value"] as? String ?? ""
         guard let chosen = target(args, in: session), await frameGeometry(chosen, web: web, scroll: true) != nil else {
             return .error("The frame is no longer on the page. Take a new browser_snapshot.")
         }
-        let prepared = await script(web, Scripts.find + Scripts.prepareTyping, ["a": chosen.arguments], in: chosen.entry?.info) { $0 as? String ?? "" }
+        let prepareScript = background ? Scripts.prepareBackgroundTyping : Scripts.prepareTyping
+        let prepared = await script(web, Scripts.find + prepareScript, ["a": chosen.arguments], in: chosen.entry?.info) { $0 as? String ?? "" }
         guard !prepared.isError else { return prepared }
         var how = "as keystrokes"
         var typed = false
-        if canUseNativeInput(web), let client = web as? NSTextInputClient {
+        if canUseNativeInput(web, background: background), let client = web as? NSTextInputClient {
             withFocus(web) { client.insertText(value, replacementRange: NSRange(location: NSNotFound, length: 0)) }
             let current = await script(web, Scripts.typedValue, ["expected": value], in: chosen.entry?.info) { ($0 as? Bool) == true ? "yes" : "no" }
             typed = value.isEmpty || current.text == "yes"
         }
         if !typed {
-            let reply = await script(web, Scripts.find + Scripts.type, ["a": chosen.arguments.merging(["submit": false]) { $1 }], in: chosen.entry?.info) { $0 as? String ?? "" }
+            let typeScript = background ? Scripts.backgroundType : Scripts.type
+            let reply = await script(web, automatedScript(Scripts.find + typeScript), ["a": chosen.arguments.merging(["submit": false]) { $1 }], in: chosen.entry?.info) { $0 as? String ?? "" }
             guard !reply.isError else { return reply }
-            how = "by script"
+            how = background ? "in the background" : "by script"
         }
         if (args["submit"] as? Bool) == true {
-            if canUseNativeInput(web), let enter = keyEvents("Enter", in: web) {
+            if canUseNativeInput(web, background: background), let enter = keyEvents("Enter", in: web) {
                 withFocus(web) {
                     web.keyDown(with: enter.down)
                     web.keyUp(with: enter.up)
                 }
             } else {
-                _ = await script(web, Scripts.pressKey, ["key": "Enter"]) { $0 as? String ?? "" }
+                _ = await script(web, automatedScript(Scripts.pressKey), ["key": "Enter"]) { $0 as? String ?? "" }
             }
             await settle(session, started: false)
             return BrowserAgentTools.Reply(text: "Typed into \(prepared.text) \(how) and pressed Enter.\n" + status(session).text)
@@ -368,9 +403,10 @@ enum BrowserAgentExecutor {
         }
     }
 
-    private static func screenshot(_ web: WKWebView) async -> BrowserAgentTools.Reply {
-        guard web.window != nil, web.bounds.width > 0 else {
-            return .error("The browser tab is not visible in its window, so it cannot be captured.")
+    private static func screenshot(_ session: BrowserSession) async -> BrowserAgentTools.Reply {
+        let web = session.webView
+        guard web.window != nil, web.bounds.width > 0, web.bounds.height > 0, !web.isHiddenOrHasHiddenAncestor else {
+            return .error("Tab \(session.agentName) is in the background, so a screenshot cannot be captured without bringing it forward. Select tab \(session.agentName) in MarkView and retry browser_screenshot if you need an image.")
         }
         guard let image = try? await web.takeSnapshot(configuration: nil),
               let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
@@ -457,13 +493,27 @@ enum BrowserAgentExecutor {
         const r = el.getBoundingClientRect();
         const x = r.left + r.width / 2, y = r.top + r.height / 2;
         const top = document.elementFromPoint(x, y);
+        const fileInput = (el.tagName === 'INPUT' && el.type === 'file')
+          || (el.tagName === 'LABEL' && !!el.control && el.control.type === 'file');
         return JSON.stringify({ x, y, hit: !!top && (top === el || el.contains(top) || top.contains(el)),
-                                disabled: !!el.disabled, describe: describe(el) });
+                                disabled: !!el.disabled, fileInput, describe: describe(el) });
         """#
 
         static let click = #"""
         if (el.disabled) return 'ERROR: ' + describe(el) + ' is disabled.';
         if (el.focus) el.focus();
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+        }
+        el.click();
+        return 'Clicked ' + describe(el) + '.';
+        """#
+
+        /// Background click avoids DOM `el.focus()`, which would ask AppKit to make the WKWebView first responder
+        /// when the tab happens to be mounted beside Copilot or an editor.
+        static let backgroundClick = #"""
+        if (el.disabled) return 'ERROR: ' + describe(el) + ' is disabled.';
+        window.__mvActiveElement = el;
         for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
           el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
         }
@@ -486,6 +536,15 @@ enum BrowserAgentExecutor {
         } else {
           return 'ERROR: ' + describe(el) + ' does not take text.';
         }
+        return describe(el);
+        """#
+
+        /// Validate an editable target in background mode without calling DOM `el.focus()`.
+        static let prepareBackgroundTyping = #"""
+        if (!el.isContentEditable && !('value' in el)) {
+          return 'ERROR: ' + describe(el) + ' does not take text.';
+        }
+        window.__mvActiveElement = el;
         return describe(el);
         """#
 
@@ -523,8 +582,29 @@ enum BrowserAgentExecutor {
         return 'Typed into ' + describe(el) + '.';
         """#
 
+        /// Background typing updates value and dispatches input/change without DOM `el.focus()`.
+        static let backgroundType = #"""
+        const value = String(a.value ?? '');
+        window.__mvActiveElement = el;
+        if (el.isContentEditable) {
+          el.textContent = a.append ? el.textContent + value : value;
+          el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        } else if ('value' in el) {
+          const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
+            : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(el, a.append ? el.value + value : value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          return 'ERROR: ' + describe(el) + ' does not take text.';
+        }
+        return 'Typed into ' + describe(el) + '.';
+        """#
+
         static let pressKey = #"""
-        const el = document.activeElement || document.body;
+        const remembered = window.__mvActiveElement && window.__mvActiveElement.isConnected ? window.__mvActiveElement : null;
+        const el = (document.activeElement && document.activeElement !== document.body) ? document.activeElement : (remembered || document.body);
         const named = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, Delete: 46, Space: 32, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, Home: 36, End: 35, PageUp: 33, PageDown: 34 };
         const code = named[key] || (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
         const init = { key: key === 'Space' ? ' ' : key, keyCode: code, which: code, bubbles: true, cancelable: true };
@@ -540,6 +620,132 @@ enum BrowserAgentExecutor {
         const text = log.join('\n');
         if (clear) log.length = 0;
         return text;
+        """#
+
+        /// Propagates causal provenance across async callbacks (`setTimeout`, `Promise.then`, `requestAnimationFrame`,
+        /// `queueMicrotask`) so delayed automated `window.open` / `target="_blank"` requests stay in the background even
+        /// after the tool returns and the user selects the tab, while manual clicks retain foreground behavior (DEC-001, DEC-002).
+        static func provenance(token: String) -> String {
+            provenanceTemplate.replacingOccurrences(of: "__MV_PROVENANCE_TOKEN__", with: token)
+        }
+
+        private static let provenanceTemplate = #"""
+        (function () {
+          if (window.__mvProvenanceInstalled) return;
+          window.__mvProvenanceInstalled = true;
+          var PREFIX = '__mv_cause___MV_PROVENANCE_TOKEN__:';
+          var currentCause = null;
+          var autoAsyncDepth = 0;
+          var manualDepth = 0;
+          var savedBeforeManual = null;
+          var nativePrompt = window.prompt;
+          var origThen = Promise.prototype.then;
+          function effectiveCause() {
+            if (currentCause) return currentCause;
+            return autoAsyncDepth > 0 ? 'auto' : null;
+          }
+          function signalAuto() {
+            try { nativePrompt.call(window, PREFIX + 'auto', ''); } catch (e) {}
+          }
+          function runWithCause(cause, fn, thisArg, args) {
+            var prev = currentCause;
+            currentCause = cause;
+            try { return fn.apply(thisArg, args); }
+            finally { currentCause = prev; }
+          }
+          function wrapCallback(cb) {
+            if (typeof cb !== 'function') return cb;
+            var captured = effectiveCause();
+            if (!captured) return cb;
+            return function () { return runWithCause(captured, cb, this, arguments); };
+          }
+          ['pointerdown', 'mousedown', 'mouseup', 'click', 'auxclick', 'keydown', 'submit'].forEach(function (type) {
+            window.addEventListener(type, function (e) {
+              if (e && e.isTrusted) {
+                if (manualDepth === 0) savedBeforeManual = currentCause;
+                manualDepth++;
+                currentCause = 'manual';
+                origThen.call(Promise.resolve(), function () {
+                  manualDepth = Math.max(0, manualDepth - 1);
+                  if (manualDepth === 0) { currentCause = savedBeforeManual; savedBeforeManual = null; }
+                });
+              }
+            }, true);
+          });
+          var origSetTimeout = window.setTimeout;
+          window.setTimeout = function (fn) {
+            var args = Array.prototype.slice.call(arguments);
+            if (typeof fn === 'function') args[0] = wrapCallback(fn);
+            return origSetTimeout.apply(this, args);
+          };
+          var origSetInterval = window.setInterval;
+          window.setInterval = function (fn) {
+            var args = Array.prototype.slice.call(arguments);
+            if (typeof fn === 'function') args[0] = wrapCallback(fn);
+            return origSetInterval.apply(this, args);
+          };
+          if (typeof window.requestAnimationFrame === 'function') {
+            var origRAF = window.requestAnimationFrame;
+            window.requestAnimationFrame = function (fn) {
+              return origRAF.call(this, wrapCallback(fn));
+            };
+          }
+          if (typeof window.queueMicrotask === 'function') {
+            var origQM = window.queueMicrotask;
+            window.queueMicrotask = function (fn) {
+              return origQM.call(this, wrapCallback(fn));
+            };
+          }
+          Promise.prototype.then = function (onFulfilled, onRejected) {
+            return origThen.call(this, wrapCallback(onFulfilled), wrapCallback(onRejected));
+          };
+          var origOpen = window.open;
+          window.open = function () {
+            if (effectiveCause() === 'auto') signalAuto();
+            return origOpen.apply(this, arguments);
+          };
+          window.addEventListener('click', function (e) {
+            try {
+              var el = e.target && e.target.closest ? e.target.closest('a[href],area[href]') : null;
+              if (!el) return;
+              var target = (el.getAttribute('target') || '').trim().toLowerCase();
+              if (target && target !== '_self' && target !== '_parent' && target !== '_top') {
+                if (!e.isTrusted || effectiveCause() === 'auto') signalAuto();
+              }
+            } catch (err) {}
+          }, true);
+          window.addEventListener('submit', function (e) {
+            try {
+              var form = e.target;
+              var target = form && form.getAttribute ? (form.getAttribute('target') || '').trim().toLowerCase() : '';
+              if (target && target !== '_self' && target !== '_parent' && target !== '_top') {
+                if (!e.isTrusted || effectiveCause() === 'auto') signalAuto();
+              }
+            } catch (err) {}
+          }, true);
+          Object.defineProperty(window, '__mvRunAutomated', {
+            value: function (fn) {
+              var prev = currentCause;
+              currentCause = 'auto';
+              try {
+                var res = fn();
+                if (res && typeof res.then === 'function') {
+                  autoAsyncDepth++;
+                  currentCause = prev;
+                  var done = function () { autoAsyncDepth = Math.max(0, autoAsyncDepth - 1); };
+                  origThen.call(res, done, done);
+                  return res;
+                }
+                currentCause = prev;
+                return res;
+              } catch (e) {
+                currentCause = prev;
+                throw e;
+              }
+            },
+            configurable: false, enumerable: false, writable: false
+          });
+        })();
         """#
     }
 }

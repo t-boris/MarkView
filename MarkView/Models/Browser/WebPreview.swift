@@ -34,11 +34,17 @@ final class DevServerWatch {
 @MainActor
 protocol BrowserSessionHost: AnyObject {
     /// `target="_blank"` links and `window.open` of `session`: the page opens in a tab of the window.
-    func browserSession(_ session: BrowserSession, openInNewTab url: URL)
+    func browserSession(_ session: BrowserSession, openInNewTab url: URL, activate: Bool)
     /// An element the person picked on the page, with its screenshot (nil when the element is off screen).
     func browserSession(_ session: BrowserSession, picked element: PickedElement, screenshot: URL?)
     /// Preview Web App: show `target` in `session`, starting its server when it does not answer yet.
     func browserSession(_ session: BrowserSession, startWebApp target: WebAppTarget)
     /// Preview Web App: bring the terminal tab of the dev server `session` started to the front.
     func browserSessionShowTerminal(_ session: BrowserSession)
+}
+
+extension BrowserSessionHost {
+    func browserSession(_ session: BrowserSession, openInNewTab url: URL) {
+        browserSession(session, openInNewTab: url, activate: true)
+    }
 }

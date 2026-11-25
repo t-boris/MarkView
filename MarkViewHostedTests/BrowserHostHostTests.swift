@@ -214,29 +214,46 @@ extension EditorHostTests {
         let empty = await call("browser_tabs")
         XCTAssertFalse(empty.isError)
         XCTAssertTrue(empty.text.contains("No browser tabs are open"))
+        // AC1: Starting from Welcome (-1), browser_open_tab opens in the background and keeps Welcome selected.
+        XCTAssertEqual(window.tabs.activeTabIndex, -1)
+        window.layout.workspaceArea = .work
+        window.chrome.showCenter = false
         let opened = await call("browser_open_tab", ["name": "Jira"])
         XCTAssertFalse(opened.isError)
-        XCTAssertEqual(opened.text, "Opened tab Jira.")
+        XCTAssertTrue(opened.text.contains("Opened tab Jira"))
+        XCTAssertEqual(window.tabs.activeTabIndex, -1, "Opening the first browser tab must keep Welcome selected")
+        XCTAssertEqual(window.layout.workspaceArea, .work)
+        XCTAssertFalse(window.chrome.showCenter)
         let first = try XCTUnwrap(host.sessions.first)
         XCTAssertEqual(first.agentName, "Jira")
         XCTAssertNotNil(first.agentLastUsed)
         let list = await call("browser_tabs")
         XCTAssertTrue(list.text.contains("Jira"))
-        XCTAssertTrue(list.text.contains("[active]"))
+        XCTAssertFalse(list.text.contains("[active]"), "Welcome is active, so no browser tab is marked [active]")
         first.webView.loadHTMLString("<title>Isolated agent fixture</title><p>Host routing works</p>", baseURL: nil)
         for _ in 0..<500 where first.webView.title != "Isolated agent fixture" {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertEqual(first.webView.title, "Isolated agent fixture")
         let second = await call("browser_open_tab")
-        XCTAssertEqual(second.text, "Opened tab T1.")
+        XCTAssertTrue(second.text.contains("Opened tab T1"))
         XCTAssertEqual(host.sessions.map(\.agentName), ["Jira", "T1"])
-        XCTAssertEqual(window.tabs.activeTabIndex, 1)
+        XCTAssertEqual(window.tabs.activeTabIndex, -1, "Opening a second tab must not steal tab selection")
+        // User manually selects T1; browser_tabs must reflect the user's actual active tab.
+        window.tabs.activeTabIndex = 1
+        let activeList = await call("browser_tabs")
+        XCTAssertTrue(activeList.text.contains("T1:") && activeList.text.contains("[active]"))
+        XCTAssertFalse(activeList.text.split(separator: "\n").first { $0.contains("Jira:") }?.contains("[active]") == true)
+        // Inspecting Jira in the background must keep T1 selected and preserve workspace area and panel visibility.
+        window.layout.workspaceArea = .work
+        window.chrome.showCenter = false
         let snapshot = await call("browser_snapshot", ["tab": "Jira"])
         XCTAssertFalse(snapshot.isError, snapshot.text)
         XCTAssertTrue(snapshot.text.contains("Isolated agent fixture"))
         XCTAssertTrue(snapshot.text.contains("Host routing works"))
-        XCTAssertEqual(window.tabs.activeTabIndex, 0)
+        XCTAssertEqual(window.tabs.activeTabIndex, 1, "Background snapshot must not switch the user's active tab")
+        XCTAssertEqual(window.layout.workspaceArea, .work)
+        XCTAssertFalse(window.chrome.showCenter)
         XCTAssertNotNil(first.agentLastUsed)
         let missing = await call("browser_click", ["tab": "Nowhere"])
         XCTAssertTrue(missing.isError)
@@ -245,6 +262,9 @@ extension EditorHostTests {
         let stopped = await call("browser_click", ["tab": "Jira"])
         XCTAssertTrue(stopped.isError)
         XCTAssertTrue(stopped.text.contains("stopped agent control"))
+        first.agentStopped = false
+        let allowedAgain = await call("browser_snapshot", ["tab": "Jira"])
+        XCTAssertFalse(allowedAgain.isError, "Allowing control again must let agent calls resume")
     }
 
     @MainActor func testRealBrowserHostReusesTabsForProgramPages() async throws {
@@ -513,6 +533,364 @@ extension EditorHostTests {
         browser.close()
         if let reap = terminal.terminate() { await reap.value }
         XCTAssertEqual(kill(pid, 0), -1)
+    }
+
+    /// AC1, AC2, AC3, AC4 (foreground errors): Background browser tools interact with named tabs while
+    /// preserving active tab selection, workspace area, panel visibility, and keyboard focus (even when
+    /// the targeted browser tab is mounted in the same window beside the user's focused text input).
+    @MainActor func testBackgroundAutomationPreservesFocusAndExplainsForegroundOps() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-bg-focus-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pageURL = root.appendingPathComponent("bg-app.html")
+        try """
+        <!doctype html><html><head><title>BG App</title></head><body>
+          <input id="note" type="text" placeholder="Note">
+          <button id="apply" onclick="document.getElementById('out').textContent='Applied:' + document.getElementById('note').value">Apply</button>
+          <input id="picker" type="file">
+          <p id="out">Waiting</p>
+        </body></html>
+        """.write(to: pageURL, atomically: true, encoding: .utf8)
+
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let host = window.browser
+        let browserTabs = BrowserAgentTabs(
+            tabs: { [weak host] in host?.sessions ?? [] },
+            active: { [weak window] in
+                guard let window, window.tabs.openTabs.indices.contains(window.tabs.activeTabIndex),
+                      case .browser(let s) = window.tabs.openTabs[window.tabs.activeTabIndex].kind else { return nil }
+                return s
+            },
+            open: { [weak host] url, name in
+                guard let host else { return BrowserSession(url: url, prompts: NoPrompts()) }
+                let session = host.open(url, activate: false)
+                if let name { session.agentName = name }
+                return session
+            })
+        defer { window.composition.close() }
+
+        // User has a document tab open and focused in a real NSWindow text field (simulating Copilot/editor typing).
+        let docURL = root.appendingPathComponent("README.md")
+        try "# Doc\n".write(to: docURL, atomically: true, encoding: .utf8)
+        window.tabs.appendTab(OpenTab(url: docURL, content: "# Doc\n", originalContent: "# Doc\n"), activate: true)
+        window.layout.workspaceArea = .work
+        window.chrome.showCenter = false
+
+        let nsWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        nsWindow.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let userInput = NSTextField(frame: NSRect(x: 20, y: 20, width: 300, height: 24))
+        container.addSubview(userInput)
+        nsWindow.contentView = container
+        nsWindow.makeFirstResponder(userInput)
+        let editorResponder = nsWindow.firstResponder
+        defer { nsWindow.close() }
+
+        // AC1: open_tab with URL keeps document tab selected, layout/chrome unchanged, and focus untouched.
+        let opened = await browserTabs.run("browser_open_tab", ["url": pageURL.absoluteString, "name": "WorkBg"])
+        XCTAssertFalse(opened.isError, opened.text)
+        XCTAssertTrue(opened.text.contains("WorkBg"))
+        XCTAssertEqual(window.tabs.activeTabIndex, 0)
+        XCTAssertEqual(window.layout.workspaceArea, .work)
+        XCTAssertFalse(window.chrome.showCenter)
+        XCTAssertTrue(nsWindow.firstResponder === editorResponder)
+
+        let bgSession = try XCTUnwrap(host.sessions.first { $0.agentName == "WorkBg" })
+        for _ in 0..<500 where bgSession.webView.title != "BG App" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        // AC2: snapshot, type, click, press_key work in unmounted background tab with full visible text and elements.
+        let snap = await browserTabs.run("browser_snapshot", ["tab": "WorkBg"])
+        XCTAssertFalse(snap.isError, snap.text)
+        XCTAssertTrue(snap.text.contains("BG App"))
+        XCTAssertTrue(snap.text.contains("Waiting"), "Unmounted background tab must report visible text")
+        XCTAssertTrue(snap.text.contains("Apply"), "Unmounted background tab must report interactive elements")
+
+        let typed = await browserTabs.run("browser_type", ["tab": "WorkBg", "selector": "#note", "value": "hello"])
+        XCTAssertFalse(typed.isError, typed.text)
+        let clicked = await browserTabs.run("browser_click", ["tab": "WorkBg", "selector": "#apply"])
+        XCTAssertFalse(clicked.isError, clicked.text)
+        let afterSnap = await browserTabs.run("browser_snapshot", ["tab": "WorkBg"])
+        XCTAssertTrue(afterSnap.text.contains("Applied:hello"), afterSnap.text)
+
+        // AC4: foreground-only screenshot & file input return actionable guidance without changing tab or focus.
+        let shot = await browserTabs.run("browser_screenshot", ["tab": "WorkBg"])
+        XCTAssertTrue(shot.isError)
+        XCTAssertTrue(shot.text.contains("WorkBg") && shot.text.contains("Select tab WorkBg"), shot.text)
+        let fileClick = await browserTabs.run("browser_click", ["tab": "WorkBg", "selector": "#picker"])
+        XCTAssertTrue(fileClick.isError)
+        XCTAssertTrue(fileClick.text.contains("WorkBg") && fileClick.text.contains("manually"), fileClick.text)
+        XCTAssertEqual(window.tabs.activeTabIndex, 0)
+        XCTAssertTrue(nsWindow.firstResponder === editorResponder)
+
+        // AC2/AC3: Even when WorkBg IS mounted in the same window alongside the user's focused input (e.g. Copilot),
+        // background browser_click/browser_type/browser_press_key MUST NOT steal firstResponder.
+        bgSession.webView.frame = NSRect(x: 20, y: 80, width: 760, height: 480)
+        container.addSubview(bgSession.webView)
+        nsWindow.makeFirstResponder(userInput)
+        let focusedBefore = nsWindow.firstResponder
+        _ = await browserTabs.run("browser_type", ["tab": "WorkBg", "selector": "#note", "value": "mounted"])
+        _ = await browserTabs.run("browser_click", ["tab": "WorkBg", "selector": "#apply"])
+        _ = await browserTabs.run("browser_press_key", ["tab": "WorkBg", "key": "Tab"])
+        XCTAssertTrue(nsWindow.firstResponder === focusedBefore, "Automated actions on a visible tab must not steal keyboard focus: \(type(of: focusedBefore as Any)) -> \(type(of: nsWindow.firstResponder as Any))")
+
+        // Pending tool call never overrides a later user tab selection.
+        let waitTask = Task { await browserTabs.run("browser_wait_for", ["tab": "WorkBg", "timeout_ms": 300]) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        window.tabs.activeTabIndex = 0
+        _ = await waitTask.value
+        XCTAssertEqual(window.tabs.activeTabIndex, 0, "Completing a pending tool call must preserve the user's later tab selection")
+    }
+
+    /// AC4 + DEC-001: A delayed new-tab request caused by an automated page action opens in the background
+    /// even after the initiating tool returns and the user selects the originating tab, preserving selection and focus.
+    @MainActor func testDelayedAutomatedNewTabOpensInBackgroundAfterUserSelectsOriginatingTab() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-bg-delayed-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let targetURL = root.appendingPathComponent("delayed-target.html")
+        try "<!doctype html><html><head><title>Delayed Destination</title></head><body>Opened later</body></html>".write(to: targetURL, atomically: true, encoding: .utf8)
+        let originURL = root.appendingPathComponent("origin.html")
+        try """
+        <!doctype html><html><head><title>Origin Page</title></head><body>
+          <button id="delayed-open">Open Delayed</button>
+          <script>
+            document.getElementById('delayed-open').addEventListener('click', function () {
+              setTimeout(function () { window.open('\(targetURL.absoluteString)', '_blank'); }, 450);
+            });
+          </script>
+        </body></html>
+        """.write(to: originURL, atomically: true, encoding: .utf8)
+
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let host = window.browser
+        let browserTabs = BrowserAgentTabs(
+            tabs: { [weak host] in host?.sessions ?? [] },
+            active: { [weak window] in
+                guard let window, window.tabs.openTabs.indices.contains(window.tabs.activeTabIndex),
+                      case .browser(let s) = window.tabs.openTabs[window.tabs.activeTabIndex].kind else { return nil }
+                return s
+            },
+            open: { [weak host] url, name in
+                guard let host else { return BrowserSession(url: url, prompts: NoPrompts()) }
+                let session = host.open(url, activate: false)
+                if let name { session.agentName = name }
+                return session
+            })
+        defer { window.composition.close() }
+
+        let opened = await browserTabs.run("browser_open_tab", ["url": originURL.absoluteString, "name": "Origin"])
+        XCTAssertFalse(opened.isError, opened.text)
+        let origin = try XCTUnwrap(host.sessions.first)
+        for _ in 0..<500 where origin.webView.title != "Origin Page" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        // Mount originating tab alongside a focused input and fire the automated click.
+        let nsWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        nsWindow.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let userInput = NSTextField(frame: NSRect(x: 20, y: 20, width: 300, height: 24))
+        origin.webView.frame = NSRect(x: 20, y: 60, width: 760, height: 500)
+        container.addSubview(userInput)
+        container.addSubview(origin.webView)
+        nsWindow.contentView = container
+        nsWindow.makeFirstResponder(userInput)
+        let focusedBefore = nsWindow.firstResponder
+        defer { nsWindow.close() }
+
+        // User selects the originating tab BEFORE the delayed automated new-tab request arrives.
+        window.tabs.activeTabIndex = 0
+        let clickReply = await browserTabs.run("browser_click", ["tab": "Origin", "selector": "#delayed-open"])
+        XCTAssertFalse(clickReply.isError, clickReply.text)
+        // Tool has returned; ensure the user's originating tab is still selected and userInput stays focused.
+        window.tabs.activeTabIndex = 0
+        XCTAssertTrue(nsWindow.firstResponder === focusedBefore, "after click: \(type(of: focusedBefore as Any)) -> \(type(of: nsWindow.firstResponder as Any))")
+
+        for _ in 0..<300 where host.sessions.count < 2 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(host.sessions.count, 2, "Delayed automated window.open must create a new tab")
+        XCTAssertEqual(host.sessions.last?.url?.lastPathComponent, "delayed-target.html")
+        XCTAssertEqual(window.tabs.activeTabIndex, 0, "Delayed automated new tab must open in the background even after the tool returns and the user selected the originating tab")
+        XCTAssertTrue(nsWindow.firstResponder === focusedBefore, "Delayed automated new tab must preserve keyboard focus")
+    }
+
+    /// AC6 + DEC-001 (separate test): After automation has used a page, a subsequent manual click on the same page
+    /// that opens a new tab follows ordinary foreground browsing behavior and clears agentControlled.
+    @MainActor func testManualClickOnSamePageOpensNewTabInForeground() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-bg-manual-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manualTargetURL = root.appendingPathComponent("manual-target.html")
+        try "<!doctype html><html><head><title>Manual Destination</title></head><body>Opened manually</body></html>".write(to: manualTargetURL, atomically: true, encoding: .utf8)
+        let originURL = root.appendingPathComponent("manual-origin.html")
+        try """
+        <!doctype html><html><head><title>Manual Origin</title></head><body style="margin:0;padding:0;">
+          <button id="auto-noop" onclick="document.body.dataset.auto='1'">Auto</button>
+          <a id="manual-link" href="\(manualTargetURL.absoluteString)" target="_blank" style="display:block;width:300px;height:120px;background:#ccc;">Open Manual Tab</a>
+        </body></html>
+        """.write(to: originURL, atomically: true, encoding: .utf8)
+
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let host = window.browser
+        let browserTabs = BrowserAgentTabs(
+            tabs: { [weak host] in host?.sessions ?? [] },
+            active: { [weak window] in
+                guard let window, window.tabs.openTabs.indices.contains(window.tabs.activeTabIndex),
+                      case .browser(let s) = window.tabs.openTabs[window.tabs.activeTabIndex].kind else { return nil }
+                return s
+            },
+            open: { [weak host] url, name in
+                guard let host else { return BrowserSession(url: url, prompts: NoPrompts()) }
+                let session = host.open(url, activate: false)
+                if let name { session.agentName = name }
+                return session
+            })
+        defer { window.composition.close() }
+
+        _ = await browserTabs.run("browser_open_tab", ["url": originURL.absoluteString, "name": "SharedTab"])
+        let origin = try XCTUnwrap(host.sessions.first)
+        for _ in 0..<500 where origin.webView.title != "Manual Origin" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        // First, automation runs on this page.
+        let autoClick = await browserTabs.run("browser_click", ["tab": "SharedTab", "selector": "#auto-noop"])
+        XCTAssertFalse(autoClick.isError, autoClick.text)
+        XCTAssertTrue(origin.agentControlled)
+
+        // Now the user selects the tab and manually clicks the target=_blank link on the same page.
+        window.tabs.activeTabIndex = 0
+        let nsWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        nsWindow.isReleasedWhenClosed = false
+        origin.webView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        nsWindow.contentView = origin.webView
+        defer { nsWindow.close() }
+
+        let rawRect = try await origin.webView.callAsyncJavaScript(
+            "const r = document.getElementById('manual-link').getBoundingClientRect(); return JSON.stringify({x: r.left + r.width/2, y: r.top + r.height/2});",
+            arguments: [:], in: nil, contentWorld: .page) as? String
+        let rectJSON = try XCTUnwrap(rawRect)
+        let coords = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(rectJSON.utf8)) as? [String: Double])
+        let cssPoint = CGPoint(x: coords["x"] ?? 100, y: coords["y"] ?? 60)
+        let localPoint = CGPoint(x: cssPoint.x, y: origin.webView.isFlipped ? cssPoint.y : origin.webView.bounds.height - cssPoint.y)
+        let winPoint = origin.webView.convert(localPoint, to: nil)
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: winPoint, modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: nsWindow.windowNumber,
+                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: winPoint, modifierFlags: [],
+                                                  timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: nsWindow.windowNumber,
+                                                  context: nil, eventNumber: 0, clickCount: 1, pressure: 0))
+        origin.webView.mouseDown(with: down)
+        origin.webView.mouseUp(with: up)
+
+        for _ in 0..<300 where host.sessions.count < 2 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(host.sessions.count, 2, "Manual click must open the new tab")
+        XCTAssertEqual(host.sessions.last?.url?.lastPathComponent, "manual-target.html")
+        XCTAssertEqual(window.tabs.activeTabIndex, 1, "Subsequent manual click on the same page must open in the foreground")
+        XCTAssertFalse(origin.agentControlled, "Manual interaction restores ordinary browsing mode on an automation-created tab")
+    }
+
+    /// AC5 + DEC-002: Automated sign-in popups stay hidden while preserving window.opener; the tool names the
+    /// originating tab and explains how to open the popup; explicit open shows it; unavailable popup explains manual retry.
+    @MainActor func testBackgroundSignInPopupStaysHiddenUntilUserOpensIt() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-bg-popup-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let originURL = root.appendingPathComponent("signin.html")
+        try """
+        <!doctype html><html><head><title>Sign In Host</title></head><body>
+          <button id="sso">Sign in with SSO</button>
+          <p id="status">signed-out</p>
+          <script>
+            window.addEventListener('message', function (e) {
+              document.getElementById('status').textContent = 'msg:' + e.data;
+            });
+            document.getElementById('sso').addEventListener('click', function () {
+              var p = window.open('about:blank', 'sso-popup-' + Date.now(), 'width=480,height=600');
+              if (p) {
+                p.document.write('<title>SSO Provider</title><p>Enter credentials</p>');
+                p.document.close();
+              }
+            });
+          </script>
+        </body></html>
+        """.write(to: originURL, atomically: true, encoding: .utf8)
+
+        let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let host = window.browser
+        let browserTabs = BrowserAgentTabs(
+            tabs: { [weak host] in host?.sessions ?? [] },
+            active: { [weak window] in
+                guard let window, window.tabs.openTabs.indices.contains(window.tabs.activeTabIndex),
+                      case .browser(let s) = window.tabs.openTabs[window.tabs.activeTabIndex].kind else { return nil }
+                return s
+            },
+            open: { [weak host] url, name in
+                guard let host else { return BrowserSession(url: url, prompts: NoPrompts()) }
+                let session = host.open(url, activate: false)
+                if let name { session.agentName = name }
+                return session
+            })
+        defer { window.composition.close() }
+
+        _ = await browserTabs.run("browser_open_tab", ["url": originURL.absoluteString, "name": "AuthTab"])
+        let authSession = try XCTUnwrap(host.sessions.first)
+        for _ in 0..<500 where authSession.webView.title != "Sign In Host" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        // Trigger sign-in popup via automated click in the background.
+        let reply = await browserTabs.run("browser_click", ["tab": "AuthTab", "selector": "#sso"])
+        XCTAssertFalse(reply.isError, reply.text)
+        XCTAssertTrue(reply.text.contains("AuthTab"), "Tool reply must name the originating tab: \(reply.text)")
+        XCTAssertTrue(reply.text.contains("Open Sign-In Window"), "Tool reply must explain the explicit open action: \(reply.text)")
+        XCTAssertEqual(authSession.pendingPopups.count, 1)
+        XCTAssertTrue(authSession.pendingPopups[0].isAvailable)
+        XCTAssertEqual(authSession.openPopupCount, 1)
+        XCTAssertEqual(authSession.visiblePopupCount, 0, "Sign-in popup must stay hidden until the user explicitly opens it")
+        let tabList = await browserTabs.run("browser_tabs", [:])
+        XCTAssertTrue(tabList.text.contains("[pending sign-in window]"), tabList.text)
+
+        // Verify window.opener connection is preserved while hidden.
+        let firstPopupID = authSession.pendingPopups[0].id
+        let livePopup = try XCTUnwrap(authSession.livePopup(id: firstPopupID))
+        _ = try await livePopup.webView.evaluateJavaScript("window.opener.postMessage('oauth-token-ok', '*');")
+        for _ in 0..<200 {
+            let status = (try? await authSession.webView.evaluateJavaScript("document.getElementById('status').textContent") as? String) ?? ""
+            if status == "msg:oauth-token-ok" { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let openerStatus = try await authSession.webView.evaluateJavaScript("document.getElementById('status').textContent") as? String
+        XCTAssertEqual(openerStatus, "msg:oauth-token-ok", "Hidden popup must keep its window.opener link to the originating page")
+
+        // Explicit user action opens the popup.
+        XCTAssertTrue(authSession.openPendingPopup(firstPopupID))
+        XCTAssertTrue(authSession.pendingPopups.isEmpty)
+        XCTAssertTrue(livePopup.isVisible, "Explicit user action must display the pending sign-in popup")
+        livePopup.close()
+
+        // Second case: popup closes/becomes unavailable before user invokes the open action.
+        _ = await browserTabs.run("browser_click", ["tab": "AuthTab", "selector": "#sso"])
+        XCTAssertEqual(authSession.pendingPopups.count, 1)
+        let secondPopupID = authSession.pendingPopups[0].id
+        let secondPopup = try XCTUnwrap(authSession.livePopup(id: secondPopupID))
+        secondPopup.close()
+        XCTAssertEqual(authSession.pendingPopups.count, 1)
+        XCTAssertFalse(authSession.pendingPopups[0].isAvailable, "Closed pending popup must be marked unavailable")
+        XCTAssertFalse(authSession.openPendingPopup(secondPopupID))
+        let notice = try XCTUnwrap(authSession.unavailablePopupNotice)
+        XCTAssertTrue(notice.contains("no longer available") && notice.contains("manually"), notice)
     }
 
 }

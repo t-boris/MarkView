@@ -135,7 +135,7 @@ final class RemoteBrowserHostTests: XCTestCase {
         session.webView.loadHTMLString("<title>Relay fixture</title><button onclick=\"document.querySelector('p').textContent='clicked'\">Run</button><p>work page</p>", baseURL: URL(string: "http://localhost"))
         let id = UUID(), otherID = UUID()
         func registration(_ workspace: WorkspaceManager, _ tab: BrowserSession) -> AgentToolWindow {
-            let tabs = BrowserAgentTabs(tabs: { [tab] }, active: { tab }, show: { _ in }, open: { _, _ in tab })
+            let tabs = BrowserAgentTabs(tabs: { [tab] }, active: { tab }, open: { _, _ in tab })
             return .init(workspace: { workspace }, root: { root }, features: { featureStore }, browser: { tool, args in await tabs.run(tool, args) })
         }
         AgentToolServer.register(id, registration(workspace, session))
