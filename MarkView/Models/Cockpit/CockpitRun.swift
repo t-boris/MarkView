@@ -170,7 +170,13 @@ struct CockpitRun: Codable, Equatable {
     mutating func completeCurrent(passed: Bool, detail: String, build: String, scenarioID: String? = nil, qaRunID: String? = nil, progress: CockpitProgress? = nil, neededInput: String? = nil, recoveryAttempt: Int? = nil, now: Date = Date()) -> Bool {
         guard status == .running, let index = currentIndex, steps.indices.contains(index), steps[index].status == .running else { return false }
         let normalizedNeeded = neededInput?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let keptNeeded = (normalizedNeeded?.isEmpty ?? true) ? nil : normalizedNeeded
+        var keptNeeded = (normalizedNeeded?.isEmpty ?? true) ? nil : normalizedNeeded
+        // A CI step that failed where Cockpit may not repair it (Fix bugs is off) hands over the control to change, not only the
+        // agent's own words (BUG-129).
+        if !passed, plan.steps.indices.contains(index), plan.steps[index].verifiesCI, !plan.allowsRepair(by: switches ?? CockpitLiveSwitches()) {
+            keptNeeded = "CI did not pass, and Fix bugs is off, so Cockpit may not change source to repair it. Turn on Fix bugs (Open Plan) and retry this step."
+                + (keptNeeded.map { " The agent reported: \($0)" } ?? "")
+        }
         results.append(StepResult(plan: plan, stepID: steps[index].stepID, passed: passed, detail: detail, build: build,
                                   scenarioID: scenarioID, qaRunID: qaRunID, progress: progress,
                                   neededInput: keptNeeded, recoveryAttempt: recoveryAttempt))

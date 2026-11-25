@@ -24,6 +24,9 @@ enum CockpitPlanning {
     service, signing in with available credentials, or preparing a test precondition), you may include an optional recovery object
     (assignment and maxAttempts 1–3) on that prerequisite step so Cockpit can attempt a bounded recovery and rerun the prerequisite
     before pausing for the person. Never put an action forbidden by the controls in recovery.
+    A prerequisite that verifies the pull request's CI should carry a recovery (maxAttempts 2) that diagnoses the failing or missing
+    checks and repairs them on the feature branch; MarkView adds a default one when the controls allow fixing and you leave it out.
+    If the controls forbid fixing, list repairing a failing CI under unavailableOutcomes.
     Return a complete plan, not a patch, including after a refinement. Do not execute the plan or modify project files during planning.
     Give the flow a title: a short name of 3 to 8 words, with no quotes and no final period, that says in your own words what this flow
     does, written in the language of the goal. Do not copy the goal's text. After a refinement keep the current title unless the changes
@@ -108,9 +111,13 @@ enum CockpitPlanning {
                 let bounded = min(max(1, rawMax), CockpitStepRecovery.maxAllowedAttempts)
                 recovery = CockpitStepRecovery(assignment: recAssignment, maxAttempts: bounded)
             }
-            steps.append(CockpitStep(title: title, agent: agent, assignment: assignment, completionCondition: condition, isPrerequisite: prerequisite,
-                                     qaScenarioID: qaID.isEmpty ? nil : qaID, model: model, delegate: (raw["delegate"] as? Bool) == true ? true : nil,
-                                     recovery: recovery))
+            var step = CockpitStep(title: title, agent: agent, assignment: assignment, completionCondition: condition, isPrerequisite: prerequisite,
+                                   qaScenarioID: qaID.isEmpty ? nil : qaID, model: model, delegate: (raw["delegate"] as? Bool) == true ? true : nil,
+                                   recovery: recovery)
+            // A CI prerequisite is repaired and checked again whatever the planner wrote (BUG-129); with fixing off a repair would be
+            // refused, so none is promised and the plan screen says so instead.
+            if step.recovery == nil, controls.fixBugs, step.verifiesCI { step.recovery = .ciRepair(branch: nil) }
+            steps.append(step)
         }
         guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count else {
             throw ParseError.invalid(["Each selected QA scenario must be assigned to a step."])

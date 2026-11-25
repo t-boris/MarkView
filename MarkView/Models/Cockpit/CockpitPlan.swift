@@ -175,6 +175,36 @@ struct CockpitStepRecovery: Codable, Equatable, Sendable {
     var trimmedAssignment: String { assignment.trimmingCharacters(in: .whitespacesAndNewlines) }
     var boundedAttempts: Int { min(max(1, maxAttempts), Self.maxAllowedAttempts) }
     var isConfigured: Bool { !trimmedAssignment.isEmpty }
+
+    /// The repair of a failed CI prerequisite (BUG-129): diagnose the checks, repair the branch, push, so the prerequisite can be
+    /// checked again. `branch` is the managed run's feature branch; a direct plan works on the branch the checkout is on.
+    static func ciRepair(branch: String?) -> CockpitStepRecovery {
+        let on = branch.map { "the branch \($0)" } ?? "the current feature branch"
+        return CockpitStepRecovery(assignment: """
+            The pull request's CI did not pass. Read the failure in priorResults, then diagnose the checks with the GitHub CLI \
+            (gh pr checks, gh run view --log-failed). If a check failed, find its cause and repair it with a minimal change on \(on), \
+            never on the default branch; commit and push, and say which commit now heads the pull request. If a check is only pending, \
+            wait for it. If the pull request has no checks at all, confirm that (no workflow files, gh workflow list is empty, a few \
+            minutes since the last push) and report it as the blocker; add a minimal workflow that runs the project's own build and tests \
+            only when the goal covers providing CI. Do not merge, force-push or change branch protection. If the repair needs something \
+            the controls or your access do not allow, change nothing and report in neededInput the exact control or permission.
+            """, maxAttempts: 2)
+    }
+}
+
+extension CockpitStep {
+    /// A prerequisite whose pass condition is the pull request's CI (BUG-129): the step Cockpit repairs and checks again instead of
+    /// handing the run back at its first failure. A managed run's CI step is known by its kind; any other plan is read from the step's
+    /// own words (title and completion condition, in the language of the goal): the CI token and a pass or green outcome decide.
+    var verifiesCI: Bool {
+        guard isPrerequisite else { return false }
+        if kind == .checks { return true }
+        let text = (title + " " + completionCondition).lowercased()
+        let words = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        let subject = words.contains("ci")
+            || ["continuous integration", "github actions", "status check", "pull request check", "pipeline"].contains { text.contains($0) }
+        return subject && ["green", "pass", "succe", "успеш", "зелен", "зелён", "прош"].contains { text.contains($0) }
+    }
 }
 
 struct CockpitStep: Codable, Equatable, Identifiable {
@@ -283,6 +313,25 @@ struct CockpitPlan: Codable, Equatable {
     }
 
     var problems: [String] { structuralBlockers.map(\.message) }
+
+    /// Whether Cockpit may change source to repair a failing step: the controls (as the person's levers leave them) allow fixing, or
+    /// the plan is a managed run, whose CI repair writes by decision (agent-aware-implementation-runs DEC-037).
+    func allowsRepair(by cuts: CockpitLiveSwitches = CockpitLiveSwitches()) -> Bool { feature != nil || controls.narrowed(by: cuts).fixBugs }
+
+    /// What the person should know before approving, without it blocking approval: a CI step Cockpit cannot repair, or would not retry.
+    var advisories: [String] {
+        steps.enumerated().compactMap { index, step in
+            guard step.verifiesCI else { return nil }
+            if !allowsRepair() {
+                return "Step \(index + 1) verifies CI, but Fix bugs is off: Cockpit cannot repair a failing check and will stop at this step. "
+                    + "Turn on Fix bugs to allow repairs on the branch."
+            }
+            if step.recovery?.isConfigured != true {
+                return "Step \(index + 1) verifies CI without recovery: the run stops at its first failure. Turn on bounded recovery for this step."
+            }
+            return nil
+        }
+    }
 
     /// Everything that keeps `CockpitApproval` from existing for this plan, in the order the checks run. `CockpitApproval`
     /// is created only when this is empty, so the screen can say why instead of leaving a button grey.

@@ -3021,3 +3021,77 @@ extension EditorHostTests {
         _ = await databaseFixtureShell("docker rm -f \(name)")
     }
 }
+
+
+// BUG-129: Cockpit stops at recoverable CI blockers (direct plans).
+extension EditorHostTests {
+    private func ciAnswer(_ steps: [[String: Any]]) -> [String: Any] {
+        ["scenarios": [], "steps": steps, "successCriteria": ["The checks pass"], "unavailableOutcomes": [], "alternatives": []]
+    }
+
+    private func ciStep(_ title: String, condition: String, prerequisite: Bool = true, recovery: [String: Any]? = nil) -> [String: Any] {
+        var value: [String: Any] = ["title": title, "agent": "Codex", "assignment": "Check it", "completionCondition": condition,
+                                    "isPrerequisite": prerequisite, "qaScenarioID": ""]
+        if let recovery { value["recovery"] = recovery }
+        return value
+    }
+
+    func testCockpitCIPrerequisiteCarriesABoundedRepairWhateverThePlannerWrote() throws {
+        var fixing = CockpitControls(); fixing.fixBugs = true
+        let strict = CockpitControls()
+        let ci = ciStep("CI is green", condition: "Every check of the pull request's head commit has passed")
+
+        let repaired = try CockpitPlanning.parse(ciAnswer([ci]), goal: "Ship", controls: fixing, availableAgents: ["Codex"])
+        XCTAssertEqual(repaired.steps[0].recovery?.boundedAttempts, 2, "a CI prerequisite gets two bounded repair attempts")
+        XCTAssertEqual(repaired.steps[0].recovery?.isConfigured, true)
+        XCTAssertTrue(repaired.problems.isEmpty, "the attached recovery is a valid plan")
+
+        let own = ciStep("CI is green", condition: "Every check passed", recovery: ["assignment": "Rerun the flaky job", "maxAttempts": 1])
+        let kept = try CockpitPlanning.parse(ciAnswer([own]), goal: "Ship", controls: fixing, availableAgents: ["Codex"])
+        XCTAssertEqual(kept.steps[0].recovery?.assignment, "Rerun the flaky job", "the planner's own recovery is kept")
+
+        let russian = ciStep("CI зелёный", condition: "Все проверки CI прошли успешно")
+        XCTAssertNotNil(try CockpitPlanning.parse(ciAnswer([russian]), goal: "Ship", controls: fixing, availableAgents: ["Codex"]).steps[0].recovery,
+                        "the wording follows the goal's language; the CI token and the outcome decide")
+
+        let notCI = ciStep("The local server is running", condition: "The server answers on its port")
+        XCTAssertNil(try CockpitPlanning.parse(ciAnswer([notCI]), goal: "Ship", controls: fixing, availableAgents: ["Codex"]).steps[0].recovery,
+                     "another prerequisite gets no recovery the person did not see")
+
+        let optional = ciStep("CI is green", condition: "Every check passed", prerequisite: false)
+        XCTAssertNil(try CockpitPlanning.parse(ciAnswer([optional]), goal: "Ship", controls: fixing, availableAgents: ["Codex"]).steps[0].recovery,
+                     "recovery belongs to prerequisites only")
+
+        let off = try CockpitPlanning.parse(ciAnswer([ci]), goal: "Ship", controls: strict, availableAgents: ["Codex"])
+        XCTAssertNil(off.steps[0].recovery, "with Fix bugs off a repair would be refused, so none is promised")
+    }
+
+    func testCockpitAsksSpecificallyWhenCIRepairNeedsAControlThatIsOff() throws {
+        let ci = CockpitStep(title: "CI is green", agent: "Codex", assignment: "Wait for CI", completionCondition: "Every check passed", isPrerequisite: true)
+        func plan(fixing: Bool, recovery: CockpitStepRecovery? = nil) -> CockpitPlan {
+            var step = ci; step.recovery = recovery
+            var controls = CockpitControls(); controls.fixBugs = fixing
+            return CockpitPlan(goal: "Ship", controls: controls, scenarios: [], steps: [step], successCriteria: ["CI passes"],
+                               unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        }
+        XCTAssertTrue(plan(fixing: false).advisories.contains { $0.contains("Fix bugs") && $0.contains("Step 1") },
+                      "before approval the person is told that a failing CI cannot be repaired")
+        XCTAssertTrue(plan(fixing: true).advisories.contains { $0.contains("recovery") && $0.contains("Step 1") },
+                      "and that a CI step without recovery stops at its first failure")
+        XCTAssertTrue(plan(fixing: true, recovery: CockpitStepRecovery(assignment: "Repair", maxAttempts: 2)).advisories.isEmpty)
+
+        func failed(_ plan: CockpitPlan, cut: Bool = false, needed: String? = "Cannot get through CI") -> String? {
+            var run = CockpitRun(plan: plan)
+            XCTAssertTrue(run.start(approval: CockpitApproval(plan: plan, productionConfirmed: false)!, at: 0))
+            if cut { var cuts = CockpitLiveSwitches(); cuts.fixBugsCut = true; run.setSwitches(cuts) }
+            XCTAssertTrue(run.completeCurrent(passed: false, detail: "build failed", build: "", neededInput: needed))
+            return run.failedStepNeededInput
+        }
+        let off = failed(plan(fixing: false))
+        XCTAssertTrue(off?.contains("Fix bugs") == true && off?.contains("Open Plan") == true, "the pause names the control and where to change it: \(off ?? "nil")")
+        XCTAssertTrue(off?.contains("Cannot get through CI") == true, "the agent's own words stay")
+        XCTAssertEqual(failed(plan(fixing: true)), "Cannot get through CI", "with fixing allowed only the agent's blocker is shown")
+        XCTAssertTrue(failed(plan(fixing: true), cut: true)?.contains("Fix bugs") == true, "a Fix bugs lever the person switched off counts too")
+        XCTAssertNotNil(failed(plan(fixing: false), needed: nil), "even an agent that gave no reason leaves a specific request")
+    }
+}
