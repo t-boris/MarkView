@@ -1,9 +1,12 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 /// The application's main screens, ready before the first click (REQ-021, DEC-014). The list is kept in `.markview/studio/screens.json`.
 /// The assistant prepares a scenario for each main screen in the background without a page (a context change from the built-in Populated
-/// scenario, checked statically); the first opening verifies it on the page at no assistant cost, and one that does not reach its screen
-/// falls back to the correction path of the request box.
+/// scenario, checked statically), `CLICompletion.sideBySide` screens at a time; the first opening verifies it on the page at no assistant
+/// cost, and one that does not reach its screen falls back to the correction path of the request box.
 extension StudioSession {
     /// What a screen's first opening came to, for the menu action to follow.
     private final class OpenBox {
@@ -52,6 +55,9 @@ extension StudioSession {
         guard spec.preparesScreens, !closed, screenTask == nil else { return }
         screenTask = Task { [weak self] in
             await self?.runScreenWork()
+            // A task is cancelled only by whoever cleared its handle (Cancel, the switch, a new launch) or closed the session; the
+            // handle may hold a newer task by now.
+            guard !Task.isCancelled else { return }
             self?.screenTask = nil
         }
     }
@@ -91,29 +97,54 @@ extension StudioSession {
             screenWork = nil
             return
         }
-        for (index, entry) in pending.enumerated() {
-            guard !closed, !Task.isCancelled, spec.preparesScreens else { break }
-            screenWork = ScreenWork(text: "Preparing screens: \(entry.screen.name)", done: index, total: pending.count)
-            _ = await prepareScreen(entry)
+        await prepareScreens(pending)
+    }
+
+    /// Prepares `pending`, `CLICompletion.sideBySide` requests at a time: no screen's request depends on another's answer. The answers
+    /// are saved in the list's order whichever comes first, so that two screens of one name are always saved as "Home" and then
+    /// "Home 2". A request's slot goes to the next screen as soon as the request ends; its answer waits for the screens before it.
+    private func prepareScreens(_ pending: [StudioScreenBook.Entry]) async {
+        let (answers, deliver) = AsyncStream.makeStream(of: (index: Int, answer: ScreenAnswer).self)
+        async let saving: Void = saveInOrder(pending, answers)
+        _ = try? await SideBySide.map(pending, limit: CLICompletion.sideBySide, work: { @MainActor [weak self] entry -> ScreenAnswer in
+            await self?.askScreen(entry) ?? .cancelled
+        }, done: { index, answer in deliver.yield((index, answer)) })
+        deliver.finish()
+        await saving
+    }
+
+    /// Saves the answers as they come, each once those of the screens before it in `pending` are saved. A cancelled run saves and
+    /// marks nothing more: whoever cancelled it cleared the banner and the screens being prepared.
+    private func saveInOrder(_ pending: [StudioScreenBook.Entry], _ answers: AsyncStream<(index: Int, answer: ScreenAnswer)>) async {
+        var waiting: [Int: ScreenAnswer] = [:]
+        var saved = 0
+        func showProgress() {
+            guard saved < pending.count else { return }
+            screenWork = ScreenWork(text: "Preparing screens: \(pending[saved].screen.name)", done: saved, total: pending.count)
         }
+        showProgress()
+        for await (index, answer) in answers {
+            waiting[index] = answer
+            while let next = waiting.removeValue(forKey: saved) {
+                guard !closed, !Task.isCancelled else { return }
+                await saveScreen(pending[saved], next)
+                preparingScreens.remove(pending[saved].id)
+                saved += 1
+                showProgress()
+            }
+        }
+        guard !Task.isCancelled else { return }
         screenWork = nil
     }
 
-    /// Prepares the scenario of one screen without touching the page: the assistant proposes a context change from the built-in
-    /// Populated scenario (never chained on another scenario), MarkView checks it statically (the page check is the first opening),
-    /// and the scenario is saved under the screen's own id. Returns whether a scenario was saved.
-    @discardableResult
-    func prepareScreen(_ entry: StudioScreenBook.Entry) async -> Bool {
+    /// The assistant's scenario for one screen, without touching the page: a context change from the built-in Populated scenario (never
+    /// chained on another scenario), checked statically (the page check is the first opening).
+    private func askScreen(_ entry: StudioScreenBook.Entry) async -> ScreenAnswer {
+        // Checked before the screen is marked as being prepared: a run that starts after Cancel cleared the marks leaves none behind.
+        guard !closed, !Task.isCancelled else { return .cancelled }
         let screen = entry.screen
         preparingScreens.insert(entry.id)
-        defer { preparingScreens.remove(entry.id) }
         sessionLog.add(.preparation, "Preparing the screen \(screen.name) (\(screen.route))")
-        func fail(_ reason: String) -> Bool {
-            screenBook.markFailed(entry.id, reason)
-            persistScreenBook()
-            sessionLog.add(.preparation, problem: true, "The screen \(screen.name) was not prepared: \(reason)")
-            return false
-        }
         let base = presets.first { $0.id == "builtin-populated" } ?? presets[0]
         let (revision, snapshot) = await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers())
         func screenRequest(refusedContext refused: [String]?) -> CLICompletion.Request {
@@ -166,14 +197,31 @@ extension StudioSession {
             },
             repair: { context in screenRequest(refusedContext: (context.error as? ScreenRefusal)?.problems) },
             onResult: { [weak self] result in self?.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0) })
-        guard !closed, !Task.isCancelled else { return false }
+        guard !closed, !Task.isCancelled else { return .cancelled }
         let context: StudioContextPlan
         do {
             context = try await preparing.execute(nil).output
         } catch is CancellationError {
-            return false
+            return .cancelled
         } catch {
-            return fail(error.localizedDescription)
+            return .failed(error.localizedDescription)
+        }
+        return .plan(context, base: base, sources: snapshot)
+    }
+
+    /// Saves one screen's answer under the screen's own id, with a name no saved scenario has yet, or marks the screen failed.
+    private func saveScreen(_ entry: StudioScreenBook.Entry, _ answer: ScreenAnswer) async {
+        let screen = entry.screen
+        let context: StudioContextPlan, base: StudioScenario, snapshot: StudioWorkingSnapshot
+        switch answer {
+        case .cancelled:
+            return
+        case .failed(let reason):
+            return markScreenFailed(entry, reason)
+        case .plan(let plan, let from, let sources):
+            context = plan
+            base = from
+            snapshot = sources
         }
         let id = StudioScreenBook.scenarioID(for: screen)
         var next = StudioContextValidator.scenario(context, from: base, spec: spec, request: screen.request,
@@ -182,8 +230,10 @@ extension StudioSession {
         let unique = StudioContextValidator.uniqueName(screen.name, taken: (savedScenarios + presets).filter { $0.id != id })
         next.name = unique.name
         next.contractFingerprint = StudioScenarioCompatibility.fingerprint(next, spec: spec)
+        // Checked now, not when the answer came: it may have waited for the screens before it, and the screen is marked prepared for
+        // the sources as they are at the save.
         guard StudioContextValidator.sameSources(snapshot, await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers()).1) else {
-            return fail("The project's files changed while the assistant worked; it is prepared again next time.")
+            return markScreenFailed(entry, "The project's files changed while the assistant worked; it is prepared again next time.")
         }
         let projectRoot = root
         do {
@@ -193,12 +243,17 @@ extension StudioSession {
             }.value
             reloadSavedScenarios(scenarios)
         } catch {
-            return fail("The scenario could not be saved: \(error.localizedDescription)")
+            return markScreenFailed(entry, "The scenario could not be saved: \(error.localizedDescription)")
         }
         screenBook.markPrepared(entry.id, scenarioID: id, sources: await sourceHashes(of: screen))
         persistScreenBook()
         sessionLog.add(.preparation, "The screen \(screen.name) is prepared as the scenario \(next.name)")
-        return true
+    }
+
+    private func markScreenFailed(_ entry: StudioScreenBook.Entry, _ reason: String) {
+        screenBook.markFailed(entry.id, reason)
+        persistScreenBook()
+        sessionLog.add(.preparation, problem: true, "The screen \(entry.screen.name) was not prepared: \(reason)")
     }
 
     // MARK: - The click
@@ -258,16 +313,22 @@ extension StudioSession {
         guard !closed, screenTask == nil else { return }
         screenTask = Task { [weak self] in
             guard let self else { return }
-            let pending = self.screenBook.main.filter { [.notPrepared, .needsRefresh, .failed].contains(self.state(of: $0.screen)) }
-            for (index, entry) in pending.enumerated() {
-                guard !closed, !Task.isCancelled else { break }
-                screenWork = ScreenWork(text: "Preparing screens: \(entry.screen.name)", done: index, total: pending.count)
-                _ = await prepareScreen(entry)
-            }
-            screenWork = nil
-            screenTask = nil
+            await self.prepareScreens(self.screenBook.main.filter { [.notPrepared, .needsRefresh, .failed].contains(self.state(of: $0.screen)) })
+            // As in `scheduleScreenWork`: a cancelled task's handle is no longer its own to clear.
+            guard !Task.isCancelled else { return }
+            self.screenTask = nil
         }
     }
+}
+
+/// What the assistant made of one screen, kept until the screens before it in the list are saved.
+private enum ScreenAnswer: Sendable {
+    /// A scenario change, checked statically, the scenario it changes, and the project's files when the request started.
+    case plan(StudioContextPlan, base: StudioScenario, sources: StudioWorkingSnapshot)
+    /// Why the screen was not prepared, for the screen book.
+    case failed(String)
+    /// The run was stopped: nothing is marked.
+    case cancelled
 }
 
 /// A screen's preparation ended for a reason that asking again cannot mend; `reason` is what the screen book shows.

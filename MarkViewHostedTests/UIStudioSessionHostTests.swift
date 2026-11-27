@@ -3293,8 +3293,8 @@ private func screenPreparationChecks() async {
         case "ui-studio:screen":
             let name = rows.compactMap { $0["name"] as? String }.first { request.prompt.contains("Show the application screen \"\($0)\"") } ?? "?"
             calls.begin(name)
-            Thread.sleep(forTimeInterval: 0.4)
-            calls.end()
+            defer { calls.end() }
+            try await Task.sleep(nanoseconds: 400_000_000)
             let row = rows.first { ($0["name"] as? String) == name }
             return try CLICompletion.Result(text: "", structured: contextPlan(name: name, expectedPath: row?["route"] as? String ?? "", expectedSelector: row?["selector"] as? String ?? ""),
                                         inputTokens: 10, outputTokens: 5, costUSD: 0.02)
@@ -3320,14 +3320,15 @@ private func screenPreparationChecks() async {
     check("REQ-021 the session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
     let generation = session.pageGeneration
 
-    // Ahead of the click: the assistant lists the screens once and prepares each main one, one at a time, without the page.
+    // Ahead of the click: the assistant lists the screens once and prepares each main one, side by side, without the page.
     let done = await waitUntil(240) { session.screenBook.entries.count == 4 && session.screenBook.main.allSatisfy { $0.status == .prepared } && session.screenWork == nil }
     check("REQ-021 the screens are listed and every main one is prepared in the background", done,
           session.screenBook.entries.map { "\($0.screen.name):\($0.status?.rawValue ?? "-")" }.joined(separator: " "))
     check("REQ-021 the list is asked for once and one call is made per main screen",
           requests("ui-studio:screens") == listedBefore + 1 && requests("ui-studio:screen") == preparedBefore + 3 && Set(calls.prepared) == ["Home", "Accounts", "Ghost"],
           "\(calls.prepared)")
-    check("REQ-021 the screens are prepared one at a time", calls.peak == 1, "\(calls.peak)")
+    check("REQ-021 the screens are prepared side by side, never more than CLICompletion.sideBySide at once",
+          calls.peak > 1 && calls.peak <= CLICompletion.sideBySide, "\(calls.peak)")
     check("REQ-021 preparing screens does not touch the page or the scenario", session.pageGeneration == generation && session.scenario.id == baseID && session.busy == nil,
           "\(generation) → \(session.pageGeneration) \(session.scenario.id)")
     check("REQ-021 the screen that is not main is not prepared", session.screenBook.entries.first { $0.screen.name == "About" }?.status == nil)
@@ -3396,6 +3397,224 @@ private func screenPreparationChecks() async {
     try? await Task.sleep(nanoseconds: 4_500_000_000)
     check("REQ-021 with the switch off nothing is listed or prepared ahead", requests("ui-studio:screens") == listedBeforeOff && off.screens.isEmpty && off.screenWork == nil)
     await off.close()
+}
+
+/// What the stand-in assistant saw of screen requests that may run side by side: the screen of each (by its element), in the order
+/// they started and answered, and how many ran at once; `release` lets a request the test holds answer.
+private final class SideBySideScreenCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedSelectors: [String] = []
+    private var answeredSelectors: [String] = []
+    private var runningCount = 0
+    private var peakCount = 0
+    private var releasedFlag = false
+    var started: [String] { lock.withLock { startedSelectors } }
+    var answered: [String] { lock.withLock { answeredSelectors } }
+    var running: Int { lock.withLock { runningCount } }
+    var peak: Int { lock.withLock { peakCount } }
+    var released: Bool { lock.withLock { releasedFlag } }
+    func release() { lock.withLock { releasedFlag = true } }
+    func begin(_ selector: String) {
+        lock.withLock {
+            startedSelectors.append(selector)
+            runningCount += 1
+            peakCount = max(peakCount, runningCount)
+        }
+    }
+    func answer(_ selector: String) { lock.withLock { answeredSelectors.append(selector) } }
+    func end() { lock.withLock { runningCount -= 1 } }
+}
+
+/// REQ-021: the main screens are prepared side by side, `CLICompletion.sideBySide` requests at a time, by the background work and by the
+/// menu's Prepare Main Screens alike. The answers are saved in the list's order, so the second of two screens named Home is saved as
+/// "Home 2" though it answered first; an answer that waits for its turn while a source file changes is not saved; Cancel while
+/// requests run starts no other request and marks nothing.
+@MainActor
+private func sideBySideScreenChecks() async {
+    watchdog.reached("REQ-021 the main screens are prepared side by side and saved in the list's order")
+    let fm = FileManager.default
+    func makeRoot(_ name: String, prepareScreens: Bool? = nil) -> URL {
+        let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-\(name)-\(UUID().uuidString)").resolvingSymlinksInPath()
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try? "<!doctype html><html><head><meta charset=\"utf-8\"><title>Desk</title></head><body><div id=\"home\">Home</div></body></html>\n"
+            .write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        var env = StudioEnvironmentSpec()
+        env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+        env.autoRepair = false
+        env.prepareScreens = prepareScreens
+        try? StudioStore.saveEnvironment(env, root: root)
+        return root
+    }
+    // Two main screens share a name and differ by their element, which tells their requests apart.
+    let rows: [[String: Any]] = [
+        ["name": "Home", "route": "/index.html", "selector": "#home", "description": "The home screen", "instructions": "Open it.", "source": "index.html: home", "main": true],
+        ["name": "Home", "route": "/index.html", "selector": "#home-empty", "description": "The home screen with nothing in it", "instructions": "Open it.", "source": "index.html: home", "main": true],
+        ["name": "Accounts", "route": "/accounts.html", "selector": "#accounts", "description": "The accounts list", "instructions": "Open it.", "source": "index.html: accounts", "main": true],
+        ["name": "Reports", "route": "/reports.html", "selector": "#reports", "description": "The reports", "instructions": "Open it.", "source": "index.html: reports", "main": true],
+        ["name": "Settings", "route": "/settings.html", "selector": "#settings", "description": "The settings", "instructions": "Open it.", "source": "index.html: settings", "main": true]]
+    let selectors = rows.compactMap { $0["selector"] as? String }
+    let previous = studioAssistant.answer
+    defer { studioAssistant.answer = previous }
+    func requests() -> Int { studioAssistant.requests.filter { $0.label == "ui-studio:screen" }.count }
+
+    // In the background: every slot is taken before a request answers, and later screens answer first.
+    let calls = SideBySideScreenCalls()
+    studioAssistant.answer = { request in
+        switch request.label {
+        case "ui-studio:screens":
+            return try CLICompletion.Result(text: "", structured: ["screens": rows, "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
+        case "ui-studio:screen":
+            let position = selectors.firstIndex { request.prompt.contains("visible screen-specific element: \($0).\n") } ?? 0
+            let selector = selectors[position]
+            calls.begin(selector)
+            defer { calls.end() }
+            let deadline = Date().addingTimeInterval(3)
+            while Date() < deadline, calls.running < CLICompletion.sideBySide, calls.started.count < selectors.count {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            try await Task.sleep(nanoseconds: UInt64(selectors.count - 1 - position) * 200_000_000)
+            calls.answer(selector)
+            let row = rows[position]
+            let plan = contextPlan(name: row["name"] as? String ?? "", expectedPath: row["route"] as? String ?? "", expectedSelector: selector)
+            return try CLICompletion.Result(text: "", structured: plan, inputTokens: 10, outputTokens: 5, costUSD: 0.02)
+        default:
+            return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        }
+    }
+    let root = makeRoot("screens-side-by-side")
+    defer { try? fm.removeItem(at: root) }
+    let session = StudioSession(root: root)
+    let window = hostPageInvisibly(session)
+    defer { window.orderOut(nil) }
+    let port = freePort()
+    let preparedBefore = requests()
+    session.start(WebAppTarget(folder: root, label: "desk", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-021 the session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    let done = await waitUntil(120) {
+        session.screenBook.entries.count == rows.count && session.screenBook.main.allSatisfy { $0.status == .prepared }
+            && session.screenWork == nil && session.screenTask == nil
+    }
+    check("REQ-021 every main screen is prepared in the background, and the banner is gone", done && session.preparingScreens.isEmpty,
+          session.screenBook.entries.map { "\($0.screen.selector):\($0.status?.rawValue ?? "-")" }.joined(separator: " "))
+    check("REQ-021 one request is made per main screen", requests() == preparedBefore + rows.count && calls.started.sorted() == selectors.sorted(), "\(calls.started)")
+    check("REQ-021 the screens are prepared CLICompletion.sideBySide at a time", calls.peak == CLICompletion.sideBySide, "\(calls.peak)")
+    let firstHome = calls.answered.firstIndex(of: "#home") ?? -1, secondHome = calls.answered.firstIndex(of: "#home-empty") ?? -1
+    check("REQ-021 the second Home answered before the first", secondHome >= 0 && firstHome > secondHome, "\(calls.answered)")
+    func savedName(_ selector: String) -> String? {
+        let entry = session.screenBook.entries.first { $0.screen.selector == selector }
+        return session.savedScenarios.first { $0.id == entry?.scenarioID }?.name
+    }
+    check("REQ-021 the answers are saved in the list's order: the first Home is Home, the second Home 2",
+          savedName("#home") == "Home" && savedName("#home-empty") == "Home 2",
+          "\(String(describing: savedName("#home"))) \(String(describing: savedName("#home-empty")))")
+    let marker = " is prepared as the scenario "
+    let savedLines = session.sessionLog.entries.map(\.text).filter { $0.hasPrefix("The screen ") && $0.contains(marker) }
+    let savedNames = savedLines.compactMap { $0.components(separatedBy: marker).last }
+    check("REQ-021 the screens are saved, and logged, in the list's order", savedNames == ["Home", "Home 2", "Accounts", "Reports", "Settings"],
+          savedLines.joined(separator: "\n"))
+    await session.close()
+
+    // An answer that waits for the screens before it is checked against the project's files when it is saved: Reports answers at once,
+    // a source file changes while Accounts, before it in the list, is still asked, so Reports must not be saved as prepared.
+    let pair = [rows[2], rows[3]]
+    let late = SideBySideScreenCalls()
+    studioAssistant.answer = { request in
+        switch request.label {
+        case "ui-studio:screens":
+            return try CLICompletion.Result(text: "", structured: ["screens": pair, "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
+        case "ui-studio:screen":
+            let selector = ["#accounts", "#reports"].first { request.prompt.contains("visible screen-specific element: \($0).\n") } ?? "?"
+            late.begin(selector)
+            defer { late.end() }
+            let deadline = Date().addingTimeInterval(30)
+            while selector == "#accounts", !late.released, Date() < deadline {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            late.answer(selector)
+            let row = pair.first { ($0["selector"] as? String) == selector } ?? pair[0]
+            let plan = contextPlan(name: row["name"] as? String ?? "", expectedPath: row["route"] as? String ?? "", expectedSelector: selector)
+            return try CLICompletion.Result(text: "", structured: plan, inputTokens: 10, outputTokens: 5, costUSD: 0.02)
+        default:
+            return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        }
+    }
+    let changing = makeRoot("screens-late-change")
+    defer { try? fm.removeItem(at: changing) }
+    let waiting = StudioSession(root: changing)
+    let waitingWindow = hostPageInvisibly(waiting)
+    defer { waitingWindow.orderOut(nil) }
+    let waitingPort = freePort()
+    waiting.start(WebAppTarget(folder: changing, label: "desk", command: "python3 -m http.server \(waitingPort) --bind 127.0.0.1", ports: [waitingPort]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(waiting.state) && waiting.busy == nil }
+    let reportsAnswered = await waitUntil(60) { late.answered == ["#reports"] && late.running == 1 }
+    // Time for the answer to be read and to wait for its turn.
+    try? await Task.sleep(nanoseconds: 1_000_000_000)
+    try? "<!doctype html><html><head><meta charset=\"utf-8\"><title>Desk</title></head><body><div id=\"home\">Home v2</div></body></html>\n"
+        .write(to: changing.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    late.release()
+    let settled = await waitUntil(60) {
+        waiting.screenBook.entries.count == 2 && waiting.screenBook.entries.allSatisfy { $0.status != nil }
+            && waiting.screenWork == nil && waiting.screenTask == nil
+    }
+    let reports = waiting.screenBook.entries.first { $0.screen.selector == "#reports" }
+    let reportsFiles = ((try? fm.contentsOfDirectory(atPath: StudioStore.scenariosFolder(changing).path)) ?? []).filter { $0.hasPrefix("screen-reports-") }
+    check("REQ-021 an answer that waited while a source file changed is marked failed with that reason, not prepared",
+          reportsAnswered && settled && reports?.status == .failed && reports?.failure?.contains("files changed while the assistant worked") == true
+            && reportsFiles.isEmpty,
+          waiting.screenBook.entries.map { "\($0.screen.selector):\($0.status?.rawValue ?? "-"):\($0.failure ?? "")" }.joined(separator: " "))
+    await waiting.close()
+
+    // The menu's Prepare Main Screens runs side by side too; Cancel while its requests run starts no other and marks nothing.
+    let held = SideBySideScreenCalls()
+    studioAssistant.answer = { request in
+        switch request.label {
+        case "ui-studio:screens":
+            return try CLICompletion.Result(text: "", structured: ["screens": rows, "notes": ""], inputTokens: 10, outputTokens: 5, costUSD: 0.01)
+        case "ui-studio:screen":
+            let selector = selectors.first { request.prompt.contains("visible screen-specific element: \($0).\n") } ?? "?"
+            held.begin(selector)
+            defer { held.end() }
+            // Held until Cancel stops it.
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+            return try CLICompletion.Result(text: "", structured: contextPlan(name: "Late", expectedSelector: selector), inputTokens: 10, outputTokens: 5, costUSD: 0.02)
+        default:
+            return try CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        }
+    }
+    let quiet = makeRoot("screens-cancel", prepareScreens: false)
+    defer { try? fm.removeItem(at: quiet) }
+    let menu = StudioSession(root: quiet)
+    let menuWindow = hostPageInvisibly(menu)
+    defer { menuWindow.orderOut(nil) }
+    let menuPort = freePort()
+    menu.start(WebAppTarget(folder: quiet, label: "desk", command: "python3 -m http.server \(menuPort) --bind 127.0.0.1", ports: [menuPort]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(menu.state) && menu.busy == nil }
+    menu.discoverScreens()
+    let listed = await waitUntil(60) { menu.screens.count == rows.count && menu.busy == nil }
+    check("REQ-021 with the switch off the screens are listed on request and nothing is prepared ahead", listed && held.started.isEmpty && menu.screenWork == nil,
+          "\(menu.screens.count) \(held.started)")
+    menu.prepareMainScreens()
+    let full = await waitUntil(15) { held.running == CLICompletion.sideBySide }
+    // Time for a request beyond the limit to show.
+    try? await Task.sleep(nanoseconds: 500_000_000)
+    check("REQ-021 Prepare Main Screens asks CLICompletion.sideBySide screens at once and no more", full && held.started.count == CLICompletion.sideBySide
+          && held.peak == CLICompletion.sideBySide && menu.preparingScreens.count == CLICompletion.sideBySide && menu.screenWork != nil,
+          "\(held.started) peak \(held.peak) preparing \(menu.preparingScreens.count)")
+    menu.cancelScreenWork()
+    let stopped = await waitUntil(15) { held.running == 0 }
+    // Time for a request started by a slot that Cancel freed to show.
+    try? await Task.sleep(nanoseconds: 1_000_000_000)
+    check("REQ-021 Cancel stops the requests that run and starts no other", stopped && held.started.count == CLICompletion.sideBySide, "\(held.started)")
+    let scenarioFiles = ((try? fm.contentsOfDirectory(atPath: StudioStore.scenariosFolder(quiet).path)) ?? []).filter { $0.hasPrefix("screen-") }
+    check("REQ-021 a cancelled preparation marks no screen failed and saves no scenario",
+          menu.screenBook.entries.allSatisfy { $0.status == nil } && scenarioFiles.isEmpty
+            && !menu.sessionLog.entries.contains { $0.text.contains("was not prepared") },
+          menu.screenBook.entries.map { $0.status?.rawValue ?? "-" }.joined(separator: " ") + " \(scenarioFiles)")
+    check("REQ-021 Cancel clears the banner, the screens being prepared and the task",
+          menu.preparingScreens.isEmpty && menu.screenWork == nil && menu.screenTask == nil,
+          "\(menu.preparingScreens) \(String(describing: menu.screenWork))")
+    await menu.close()
 }
 
 // MARK: - Electron preload bridge (REQ-016)
@@ -4027,5 +4246,9 @@ final class UIStudioSessionHostTests: XCTestCase {
             await dependencyInstallChecks()
             await dynamicServerChecks()
         }
+    }
+
+    @MainActor func testScreensSideBySide() async {
+        await withAssistant { await sideBySideScreenChecks() }
     }
 }
