@@ -1,3 +1,48 @@
+# Every agent call uses the agent's own parallel work (2026-11-26)
+
+Goal from Boris: check every place that calls an agent (Claude Code, Codex, Antigravity, Copilot; buttons included) and call each one
+optimally: when the task has independent parts, run them in parallel (Claude: subagents, a workflow for list-shaped work), or let the
+agent create the parallel calls itself; Codex and Antigravity have their own mechanisms and settings.
+
+## Audit (2026-11-26, code and the installed CLIs)
+
+- 119 one-shot runs (`AIOperation` -> `CLICompletion`), 16 prompts sent into agent sessions (`AITerminalsController.sendToAssistant`),
+  about 30 user actions that call the assistant several times. Outside managed Cockpit runs no prompt mentions subagents or parallel
+  work; `AgentLaunchCapabilities.interactiveDelegation` is never read; `cockpitDelegation` is read only by `CockpitSession`.
+- Gap: a plain Cockpit plan shows "Delegation to subagents" and the planner may mark `delegate`, but `CockpitSession` passes delegation
+  only to managed (feature) runs, so the agent is told "Do not delegate".
+- Mechanisms (CLI versions on this Mac; docs checked 2026-11-26):
+  - Claude Code 2.1.332: subagents through the `Agent` tool (not "Task" any more); a dynamic workflow starts when the prompt says
+    "use a workflow" (not in `-p`), without approval under bypass permissions; size is the person's `workflowSizeGuideline`.
+  - Codex 0.172: subagents are on by default (`agents.enabled`) but start only after a direct request; they inherit the sandbox and
+    approvals.
+  - Antigravity 1.5.18: the agent starts subagents with its `invoke_subagent` tool (built-ins `research`, `browser`, `self`);
+    `/run-workflow` asks to approve its script unless the permission preset allows it.
+  - Copilot 1.0.114: `/fleet` only tells the agent to split the work into todos and run the independent ones as parallel subagents;
+    no setting turns it on; `--fleet` does not work with `--acp` (one-shot runs).
+  - Cline 3.0.74: no subagent mechanism.
+- One-shot runs cannot delegate today: Claude gets only Read/Grep/Glob, Copilot `view grep glob`, Cline plan mode.
+
+## Plan
+
+Phase 1 (PR 1): interactive sessions, where the agent itself can run parallel work.
+- [ ] Provider: `parallelWork` replaces `cockpitDelegation` (the mechanism in words + the sentence that asks for it for a task with
+      independent parts, and a stronger one for a list of independent items: Claude "use a workflow", Codex an explicit request to
+      spawn one subagent per item, Antigravity `invoke_subagent`, Copilot parallel subagents as /fleet does). Cline: none.
+- [ ] Every send: Implement with AI, Fix with AI, a goal via `markview_agent_send`, the bug basket (no more "for each bug in turn"),
+      Resolve conflicts, PR "fix all" and review tasks, CI failure fix, GitHub issue implement, Deployments discovery, prototype handoff.
+- [ ] Cockpit: a plain plan honours "Delegation to subagents" and the step's `delegate` like a managed run; the planner hears the
+      mechanisms in every plan.
+- [ ] Tests: prompt tests per provider and per send; Cockpit hosted tests; one live run per assistant in a scratch repository that
+      shows the subagents were started (Claude, Codex, Antigravity, Copilot).
+Phase 2 (PR 2): one-shot runs, where MarkView runs the independent calls itself.
+- [ ] Independent calls of one action run concurrently with a small bound (document translation chunks, QA screen reviews, UI Studio
+      screens, X-Ray book parts and scenarios, intake attachments, Book PDF chapters, Insight "Explore all"); calls that depend on
+      each other stay in order.
+- [ ] A read-only run over many files may use read-only subagents where the CLI supports them (Claude `Agent` within Read/Grep/Glob,
+      Codex explicit request in its read-only sandbox, Antigravity `invoke_subagent` under its deny list); Copilot and Cline unchanged.
+- One release at the end, minor bump.
+
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
 Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot
