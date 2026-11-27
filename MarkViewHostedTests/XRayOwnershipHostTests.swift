@@ -128,6 +128,83 @@ private actor XRayBookPartsFixture {
     }
 }
 
+/// Answers the calls of one Analyze by their kind (the naming by its "clusters" schema, the deployment map by its "nodes" schema,
+/// the Book by its `xray-book:` label) and counts the calls with it at once. Every cluster is named "Named <id>" and rated
+/// critical, every chapter is summarized "What <path> says." and rated high. In `.namingLast` the naming holds its answer until
+/// the Book's work is on screen; in `.bookLast` it holds it until a chapter call has started, and every chapter call holds its
+/// answer until the naming is on screen. Each wait gives up after 3 seconds, and the other calls take a short while, so calls that
+/// start together overlap.
+private actor XRayAnalyzeFixture {
+    enum Order { case namingLast, bookLast }
+
+    private let order: Order
+    private let namingShown: @Sendable @MainActor () -> Bool
+    private let bookShown: @Sendable @MainActor () -> Bool
+    private var running = 0
+    private var naming = 0
+    private var chaptersStarted = 0
+    private(set) var peak = 0
+    private(set) var bookStartedWhileNaming = false
+
+    init(order: Order, namingShown: @escaping @Sendable @MainActor () -> Bool, bookShown: @escaping @Sendable @MainActor () -> Bool) {
+        self.order = order
+        self.namingShown = namingShown
+        self.bookShown = bookShown
+    }
+
+    private func hold(until shown: @Sendable @MainActor () -> Bool) async throws {
+        for _ in 0..<150 {
+            if await shown() { return }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    func run(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        running += 1
+        peak = max(peak, running)
+        defer { running -= 1 }
+        let properties = request.jsonSchema?["properties"] as? [String: Any] ?? [:]
+        let answer: [String: Any]
+        if properties["clusters"] != nil {
+            naming += 1
+            defer { naming -= 1 }
+            switch order {
+            case .namingLast: try await hold(until: bookShown)
+            case .bookLast: for _ in 0..<150 where chaptersStarted == 0 { try await Task.sleep(nanoseconds: 20_000_000) }
+            }
+            let listing = request.prompt.components(separatedBy: "\nClusters:\n").last ?? ""
+            let ids = listing.split(separator: "\n").compactMap { line -> String? in
+                guard line.hasPrefix("- ") else { return nil }
+                return line.dropFirst(2).split(separator: " ").first.map(String.init)
+            }
+            let clusters = ids.map { id -> [String: Any] in
+                ["id": id, "name": "Named \(id)", "purpose": "Fixture component.", "layer": "application", "mergeInto": "",
+                 "importance": "critical"]
+            }
+            let subsystem: [String: Any] = ["id": "core", "name": "Core", "purpose": "Fixture subsystem.", "layer": "application",
+                                            "components": ids, "importance": "high"]
+            answer = ["clusters": clusters, "system": ["name": "Fixture system", "purpose": "A fixture."], "subsystems": [subsystem]]
+        } else if properties["nodes"] != nil {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            let node: [String: Any] = ["id": "app", "name": "Fixture app", "kind": "app", "tech": "macOS app", "summary": "The app.",
+                                       "parent": "", "runs": [String]()]
+            answer = ["nodes": [node], "edges": [[String: Any]]()]
+        } else if request.label == "xray-book:parts" {
+            answer = ["parts": [[String: Any]](), "book": ["summary": "The whole book."]]
+        } else {
+            chaptersStarted += 1
+            if naming > 0 { bookStartedWhileNaming = true }
+            switch order {
+            case .namingLast: try await Task.sleep(nanoseconds: 100_000_000)
+            case .bookLast: try await hold(until: namingShown)
+            }
+            let path = String(request.label.dropFirst("xray-book:".count))
+            answer = ["chapter": ["summary": "What \(path) says.", "importance": "high"], "sections": [[String: Any]]()]
+        }
+        return try CLICompletion.Result(text: "", structured: answer, inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
+}
+
 /// Explains a file at once, then holds the keyword search and the rating of a topic filter until both are with it (or a few
 /// seconds have passed), so a rating that waits for the search never has both in flight.
 private actor CodeRatingFixture {
@@ -1013,5 +1090,83 @@ extension EditorHostTests {
         let ratings = store.snapshot?.ratings["importance"] ?? [:]
         XCTAssertFalse(ratings.isEmpty)
         XCTAssertTrue(ratings.values.allSatisfy { $0.level == "high" }, "every container's items hold their rating")
+    }
+
+    /// Analyze annotates the Book while it names the components, and the Book's work stays when the naming lands after it.
+    @MainActor func testAnalyzeAnnotatesTheBookBesideNaming() async throws {
+        try await checkAnalyzeBookBesideNaming(.namingLast)
+    }
+
+    /// The other way round: the Book's answers land after the naming's, and the names and their levels stay.
+    @MainActor func testAnalyzeBookLandingAfterNamingKeepsTheNames() async throws {
+        try await checkAnalyzeBookBesideNaming(.bookLast)
+    }
+
+    /// One Analyze of two Swift folders and six chapters without headings: a chapter call starts while the naming runs, at most
+    /// four calls are with the assistant at once, and the end state holds the naming's names and levels, the Book's summaries
+    /// and levels, and the deployment map.
+    @MainActor private func checkAnalyzeBookBesideNaming(_ order: XRayAnalyzeFixture.Order) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xray-analyze-book-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for folder in ["App", "Core"] {
+            let sources = root.appendingPathComponent("Sources/" + folder, isDirectory: true)
+            try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+            try "struct \(folder)Model { var id = 1 }\n".write(to: sources.appendingPathComponent("\(folder)Model.swift"), atomically: true, encoding: .utf8)
+        }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("docs", isDirectory: true), withIntermediateDirectories: true)
+        let chapters = (1...6).map { "docs/notes-\($0).md" }
+        for (index, path) in chapters.enumerated() {
+            try "Plain notes, part \(index + 1), with no headings.\n".write(to: root.appendingPathComponent(path), atomically: true, encoding: .utf8)
+        }
+        let settings = Settings.standard
+        let oldAuto = settings.stored(Setting.autoAnalyze)
+        let oldGitHub = settings.stored(Setting.gitHubEnabled)
+        settings.set(false, for: Setting.autoAnalyze)
+        settings.set(false, for: Setting.gitHubEnabled)
+        defer {
+            settings.set(oldAuto, for: Setting.autoAnalyze)
+            settings.set(oldGitHub, for: Setting.gitHubEnabled)
+        }
+        let store = ArchitectureStore()
+        defer { store.reset() }
+        let fixture = XRayAnalyzeFixture(
+            order: order,
+            namingShown: { store.snapshot?.systemName == "Fixture system" },
+            bookShown: { store.snapshot?.view("docs")?.nodes.first { $0.kind == "root" }?.summary == "The whole book." })
+        AIAssistantRunner.setTestRunner { request, _, _ in try await fixture.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        store.open(root: root, db: nil)
+        for _ in 0..<1000 where store.snapshot?.view("docs") == nil || store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        let scanned = store.snapshot?.view("docs")?.nodes.filter { $0.kind == "doc" }.compactMap(\.path) ?? []
+        XCTAssertEqual(Set(scanned), Set(chapters))
+
+        store.analyze(root: root, db: nil)
+        XCTAssertTrue(store.isBusy)
+        for _ in 0..<1500 where store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(store.isBusy, "Analyze ends")
+        let startedWhileNaming = await fixture.bookStartedWhileNaming
+        let peak = await fixture.peak
+        XCTAssertTrue(startedWhileNaming, "a chapter call starts while the components are named")
+        XCTAssertLessThanOrEqual(peak, 4, "one Analyze has at most four calls with the assistant at once")
+
+        let snapshot = try XCTUnwrap(store.snapshot)
+        let ratings = snapshot.ratings[ImportanceRater.importance.id] ?? [:]
+        let components = snapshot.components.filter { $0.id.hasPrefix("c-") }
+        XCTAssertFalse(components.isEmpty)
+        for component in components {
+            XCTAssertEqual(component.name, "Named \(component.id.dropFirst(2))", "the naming's name of \(component.id) stays")
+            XCTAssertEqual(ratings["c:" + component.id]?.level, "critical", "the naming's level of \(component.id) stays")
+        }
+        XCTAssertEqual(ratings["c:s-core"]?.level, "high", "the subsystem's level stays")
+        let annotated = snapshot.view("docs")?.nodes.filter { $0.kind == "doc" } ?? []
+        XCTAssertEqual(annotated.count, chapters.count)
+        for chapter in annotated {
+            let path = chapter.path ?? ""
+            XCTAssertEqual(chapter.summary, "What \(path) says.", "the Book's summary of \(path) stays")
+            XCTAssertNotNil(chapter.summarySignature, "\(path) counts as annotated")
+            XCTAssertEqual(ratings["p:" + path]?.level, "high", "the Book's level of \(path) stays")
+        }
+        XCTAssertEqual(snapshot.view("deployment")?.nodes.first { $0.kind == "app" }?.name, "Fixture app", "the deployment map is there")
+        XCTAssertNil(store.error)
     }
 }

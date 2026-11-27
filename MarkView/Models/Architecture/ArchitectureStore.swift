@@ -93,6 +93,11 @@ final class ArchitectureStore: ObservableObject {
     var project: URL? { projectRoot ?? rootPath.map { URL(fileURLWithPath: $0, isDirectory: true) } }
     /// Answer characters per parallel AI call, summed into `progress.answerChars`.
     private var answerByCall: [Int: Int] = [:]
+    /// What a stage of Analyze shows unsaved (`update(save: false)`); the run saves it when it ends, also after a Stop or a failure.
+    private var showsUnsaved = false
+    /// The Book's counts while it is annotated (`annotateBook`). In Analyze the Book runs beside the naming, whose counts
+    /// `progress` shows meanwhile, so the Book's reach `progress` only in its own step, or at once in "Describe remaining chapters".
+    private var bookProgress: (done: Int, total: Int, scope: String?, current: String?)?
 
     struct AnalysisProgress: Codable {
         var step: Int
@@ -136,6 +141,8 @@ final class ArchitectureStore: ObservableObject {
         progress = nil
         review.reset()
         answerByCall = [:]
+        showsUnsaved = false
+        bookProgress = nil
         scheduler = AutoAnalysisScheduler()
         automaticContext = nil
         changeWatcher?.stop()
@@ -302,6 +309,7 @@ final class ArchitectureStore: ObservableObject {
 
     func commit(_ next: ArchitectureSnapshot, db: SemanticDatabase?) {
         snapshot = next
+        showsUnsaved = false
         if let db {
             let previous = databaseSave
             databaseSave = Task {
@@ -312,6 +320,17 @@ final class ArchitectureStore: ObservableObject {
             }
         }
         if db == nil, let file = persistenceFile { persist(next, to: file) }
+        revision += 1
+    }
+
+    /// Apply `change` to the snapshot on screen. The stages of Analyze run side by side and each changes only its own part, so none
+    /// writes an older copy over what another found; the change cannot await, so no stage writes between its read and its write.
+    private func update(save: Bool, db: SemanticDatabase?, _ change: (inout ArchitectureSnapshot) -> Void) {
+        guard var next = snapshot else { return }
+        change(&next)
+        guard !save else { return commit(next, db: db) }
+        snapshot = next
+        showsUnsaved = true
         revision += 1
     }
 
@@ -352,18 +371,22 @@ final class ArchitectureStore: ObservableObject {
 
     // MARK: - AI analysis
 
+    /// Assistant processes one Analyze runs at once, as before the Book joined the naming: three naming calls and the deployment map.
+    private static let analysisSideBySide = 4
+
     /// Build the X-Ray. The structure comes from how the project is connected (imports,
     /// note links, co-change; `XRayCluster`) and is shown within seconds; the assistant
-    /// then only names the clusters — chunks in parallel, deployment alongside — and
-    /// groups them into subsystems. No AI step reads files, and every answer is cached
-    /// by its input, so re-analysing redoes only what changed.
+    /// then only names the clusters — chunks in parallel, the deployment map and the Book
+    /// alongside — and groups them into subsystems. No AI step reads files, and every answer
+    /// is cached by its input, so re-analysing redoes only what changed.
     func analyze(root: URL, db: SemanticDatabase?) {
         guard !busy, let current = snapshot, let modules = current.view("modules") else { return }
         let token = beginRun()
         let started = Date()
         tasks.store(Task {
             defer { endRun(token) }
-            var next = current
+            // Every assistant call of this run takes one of these, so the stages that run side by side stay within one limit.
+            let slots = SideBySide.Slots(limit: Self.analysisSideBySide)
             do {
                 beginStep(1, "Finding the structure", started: started)
                 let (plan, clusters) = await Task.detached(priority: .userInitiated) { () -> (XRayDigest.Plan, [XRayCluster.Cluster]) in
@@ -372,49 +395,53 @@ final class ArchitectureStore: ObservableObject {
                 }.value
                 try Task.checkCancellation()
                 // The clusters under provisional names, on screen right away.
-                if next.components.isEmpty || next.logicalDraft {
-                    next = LogicalView.applyClusters(clusters, names: [:], grouping: nil, to: next)
-                    commit(next, db: db)
+                if current.components.isEmpty || current.logicalDraft {
+                    update(save: true, db: db) { $0 = LogicalView.applyClusters(clusters, names: [:], grouping: nil, to: $0) }
                 }
 
                 beginStep(2, "Naming components", started: started)
                 setProgressScope("\(clusters.count) components from \(plan.units.count) folders")
-                let deploymentBase = next
-                async let deployment = mapDeployment(in: deploymentBase, plan: plan, root: root, db: db)
-                next = try await nameClusters(clusters, plan: plan, base: next, root: root, db: db)
-                commit(next, db: db)
+                async let deployment = mapDeployment(in: current, plan: plan, root: root, db: db, slots: slots)
+                // The Book reads only its own view and the naming only the folders, and each writes only its own part of the
+                // snapshot (`update`), so the chapters are annotated while the components are named.
+                async let book: Void = annotateBook(root: root, db: db, only: nil, slots: slots)
+                try await nameClusters(clusters, plan: plan, root: root, db: db, slots: slots)
 
                 beginStep(3, "Mapping deployment", started: started)
+                var deploymentView: ArchView?
                 var deploymentError: String?
                 do {
-                    if let view = try await deployment {
-                        next.views.removeAll { $0.id == "deployment" }
-                        next.views.insert(view, at: next.views.firstIndex { $0.id == "docs" } ?? next.views.count)
-                        next.deploymentSignature = pendingDeploymentSignature ?? next.deploymentSignature
-                    }
+                    deploymentView = try await deployment
                 } catch let empty as EmptyDeploymentMap {
                     // Keep the previous map and its signature, so the next Analyze maps again.
                     deploymentError = empty.localizedDescription
                 }
-                next.enrichedAt = Date()
-                next.language = Self.graphLanguage
-                commit(next, db: db)
+                update(save: true, db: db) { next in
+                    if let deploymentView {
+                        next.views.removeAll { $0.id == "deployment" }
+                        next.views.insert(deploymentView, at: next.views.firstIndex { $0.id == "docs" } ?? next.views.count)
+                        next.deploymentSignature = pendingDeploymentSignature ?? next.deploymentSignature
+                    }
+                    next.enrichedAt = Date()
+                    next.language = Self.graphLanguage
+                }
                 if let deploymentError { self.error = deploymentError }
 
                 beginStep(4, "Annotating the book", started: started)
-                try await annotateBook(root: root, db: db, only: nil)
+                showBookProgress()
+                try await book
 
                 beginStep(5, "Indexing file contents", started: started)
                 // The outlines of the scan's own build are superseded by this one, which shows its progress.
                 tasks.cancel(key: "outline")
                 await buildOutlines(root: root)
             } catch is CancellationError {
-                // Keep the structure found so far (shown live, not yet saved).
-                // Not after `reset`: what the store shows then is another workspace's.
-                if token == runToken, let found = snapshot, found.components.map(\.id) != next.components.map(\.id) { commit(found, db: db) }
+                // Stopped: what landed is kept below.
             } catch {
                 self.error = "Analysis failed: \(error.localizedDescription)"
             }
+            // What the stages showed unsaved; not after `reset`, when what the store shows is another workspace's.
+            if token == runToken, showsUnsaved, let found = snapshot { commit(found, db: db) }
             setStatus(nil)
         }, for: "analysis")
     }
@@ -486,7 +513,7 @@ final class ArchitectureStore: ObservableObject {
     /// since the last mapping. The config files are inlined; the assistant reads nothing.
     /// Throws `EmptyDeploymentMap` rather than returning a view with no nodes.
     private func mapDeployment(in snapshot: ArchitectureSnapshot, plan: XRayDigest.Plan, root: URL,
-                               db: SemanticDatabase?) async throws -> ArchView? {
+                               db: SemanticDatabase?, slots: SideBySide.Slots) async throws -> ArchView? {
         guard let modules = snapshot.view("modules") else { return nil }
         // A stored map with only its root (an empty answer before BUG-020) counts as missing.
         if snapshot.view("deployment")?.nodes.contains(where: { $0.kind != "root" }) == true,
@@ -555,7 +582,7 @@ final class ArchitectureStore: ObservableObject {
         let nodeIds = { (object: [String: Any]) in
             Set((object["nodes"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
         }
-        let object = try await xrayCall(request, root: root, db: db, call: 100, accept: { !nodeIds($0).isEmpty })
+        let object = try await xrayCall(request, root: root, db: db, call: 100, slots: slots, accept: { !nodeIds($0).isEmpty })
         let ids = nodeIds(object)
         guard !ids.isEmpty else { throw EmptyDeploymentMap() }
         let rawNodes = object["nodes"] as? [[String: Any]] ?? []
@@ -603,8 +630,9 @@ final class ArchitectureStore: ObservableObject {
     /// answered from `.dde/cache/xray` when the same input was analysed before.
     /// An answer `accept` rejects is neither cached nor taken from the cache, and is asked
     /// once more; the last answer is returned either way, for the caller to judge.
+    /// With `slots`, the run waits for one of them; a cached answer takes none.
     func xrayCall(_ request: CLICompletion.Request, root: URL, db: SemanticDatabase?,
-                          call: Int, fresh: Bool = false, trackProgress: Bool = true,
+                          call: Int, fresh: Bool = false, trackProgress: Bool = true, slots: SideBySide.Slots? = nil,
                           accept: (([String: Any]) -> Bool)? = nil) async throws -> [String: Any] {
         try request.validateSchema()
         var prepared = request
@@ -639,8 +667,13 @@ final class ArchitectureStore: ObservableObject {
         )
 
         do {
-            let (decoded, _) = try await operation.execute(prepared, onActivity: progressHandler)
-            let object = decoded.dictionary
+            let answered: (output: AIRawJSONObject, result: CLICompletion.Result)
+            if let slots {
+                answered = try await slots.run { try await operation.execute(prepared, onActivity: progressHandler) }
+            } else {
+                answered = try await operation.execute(prepared, onActivity: progressHandler)
+            }
+            let object = answered.output.dictionary
             if let data = try? JSONSerialization.data(withJSONObject: object) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
                 try? AtomicFile.write(data, to: file)
@@ -732,17 +765,17 @@ final class ArchitectureStore: ObservableObject {
     }
 
     private func nameClusterChunk(prompt: String, system: String, single: Bool, root: URL,
-                                  db: SemanticDatabase?, index: Int) async throws -> AIRawJSONObject {
+                                  db: SemanticDatabase?, index: Int, slots: SideBySide.Slots) async throws -> AIRawJSONObject {
         var request = CLICompletion.Request(project: project, prompt: prompt, systemPrompt: system,
                                             jsonSchema: Self.clusterNamingSchema(single: single))
         request.timeout = 240
-        return try AIRawJSONObject(await xrayCall(request, root: root, db: db, call: index))
+        return try AIRawJSONObject(await xrayCall(request, root: root, db: db, call: index, slots: slots))
     }
 
     /// Name every cluster (in parallel chunks), then group them into subsystems. The
-    /// structure on screen is updated as each answer lands.
-    private func nameClusters(_ clusters: [XRayCluster.Cluster], plan: XRayDigest.Plan, base: ArchitectureSnapshot,
-                              root: URL, db: SemanticDatabase?) async throws -> ArchitectureSnapshot {
+    /// structure on screen is updated as each answer lands, and saved once all are in.
+    private func nameClusters(_ clusters: [XRayCluster.Cluster], plan: XRayDigest.Plan,
+                              root: URL, db: SemanticDatabase?, slots: SideBySide.Slots) async throws {
         let single = clusters.count <= Self.clustersPerCall
         let chunks = stride(from: 0, to: clusters.count, by: Self.clustersPerCall)
             .map { Array(clusters[$0..<min($0 + Self.clustersPerCall, clusters.count)]) }
@@ -761,7 +794,10 @@ final class ArchitectureStore: ObservableObject {
 
         var names: [String: [String: Any]] = [:]
         var grouping: [String: Any]?
-        var latest = base
+        // Into the snapshot on screen, not a copy from the start of the step: the Book is annotated meanwhile.
+        func show(save: Bool) {
+            update(save: save, db: db) { $0 = LogicalView.applyClusters(clusters, names: names, grouping: grouping, to: $0) }
+        }
         let maxConcurrentNamingCalls = 3
         try await withThrowingTaskGroup(of: AIRawJSONObject.self) { group in
             var nextIndex = 0
@@ -769,7 +805,7 @@ final class ArchitectureStore: ObservableObject {
                 let chunk = chunks[index]
                 let prompt = plan.overview + "\n\nClusters:\n" + chunk.map { LogicalView.clusterLine($0, plan: plan) }.joined(separator: "\n")
                 group.addTask {
-                    try await self.nameClusterChunk(prompt: prompt, system: system, single: single, root: root, db: db, index: index)
+                    try await self.nameClusterChunk(prompt: prompt, system: system, single: single, root: root, db: db, index: index, slots: slots)
                 }
             }
             while nextIndex < min(maxConcurrentNamingCalls, chunks.count) {
@@ -784,9 +820,8 @@ final class ArchitectureStore: ObservableObject {
                 if single { grouping = answer }
                 progress?.done += 1
                 progress?.current = "Named \(names.count) of \(clusters.count) components"
-                latest = LogicalView.applyClusters(clusters, names: names, grouping: grouping, to: base)
-                snapshot = latest       // live; saved at the end
-                revision += 1
+                // Live; saved at the end. A single call is the whole naming, so its answer is saved as it lands.
+                show(save: single)
                 if nextIndex < chunks.count {
                     try Task.checkCancellation()
                     enqueue(nextIndex)
@@ -794,7 +829,7 @@ final class ArchitectureStore: ObservableObject {
                 }
             }
         }
-        guard !single else { return latest }
+        guard !single else { return }
 
         // Subsystems over all named clusters: one short call.
         progress?.current = "Grouping into subsystems"
@@ -815,9 +850,9 @@ final class ArchitectureStore: ObservableObject {
                          "properties": ["system": Self.systemSchema, "subsystems": Self.groupingSchema],
                          "required": ["system", "subsystems"]])
         request.timeout = 180
-        grouping = try await xrayCall(request, root: root, db: db, call: chunks.count)
+        grouping = try await xrayCall(request, root: root, db: db, call: chunks.count, slots: slots)
         progress?.done += 1
-        return LogicalView.applyClusters(clusters, names: names, grouping: grouping, to: base)
+        show(save: true)
     }
 
     /// Move a folder or file to another component (user override), or back to the
@@ -1781,7 +1816,7 @@ final class ArchitectureStore: ObservableObject {
     private static let bookConcurrency = 4
 
     private func annotateBookJob(_ job: BookAnnotator.Job, book: BookAnnotator.Book, index: Int, root: URL,
-                                 db: SemanticDatabase?) async throws -> (Int, AIRawJSONObject?, [String]) {
+                                 db: SemanticDatabase?, slots: SideBySide.Slots?) async throws -> (Int, AIRawJSONObject?, [String]) {
         let lines = await Task.detached(priority: .userInitiated) { () -> [String] in
             ((try? String(contentsOf: root.appendingPathComponent(job.chapter.path), encoding: .utf8)) ?? "")
                 .editorLines.map(String.init)
@@ -1792,24 +1827,37 @@ final class ArchitectureStore: ObservableObject {
         request.timeout = job.chapter.isLarge ? 240 : 120
         request.label = "xray-book:" + job.chapter.path
         do {
-            let answer = try await xrayCall(request, root: root, db: db, call: 100 + index,
+            // Call ids of their own (the deployment map is 100, the parts 900 on), so each call's answer is counted once.
+            let answer = try await xrayCall(request, root: root, db: db, call: 1000 + index, slots: slots,
                                             accept: { BookAnnotator.isUsable($0, job: job) })
             return (index, try BookAnnotator.isUsable(answer, job: job) ? AIRawJSONObject(answer) : nil, lines)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            self.error = "Could not annotate \((job.chapter.path as NSString).lastPathComponent): \(error.localizedDescription)"
+            // The first problem stays: in Analyze the other stages run meanwhile.
+            self.error = self.error ?? "Could not annotate \((job.chapter.path as NSString).lastPathComponent): \(error.localizedDescription)"
             return (index, nil, lines)
         }
     }
 
-    /// Step 4 of Analyze (and "Describe this chapter"): the AI writes what every chapter and
-    /// section says, finds related sections and, for large chapters, lists the items they are
-    /// made of. One call per chapter (windows for very long ones), answers applied as they land.
-    /// `only` limits the work to one chapter path; nil annotates every chapter whose text or
-    /// language changed since it was last annotated.
-    private func annotateBook(root: URL, db: SemanticDatabase?, only: String?) async throws {
-        guard let current = snapshot, let view = current.view("docs") else { return }
+    /// `bookProgress` into `progress`, when the step on screen is the Book's.
+    private func showBookProgress() {
+        guard let book = bookProgress, progress?.step == 4 || progress?.steps == 1 else { return }
+        progress?.done = book.done
+        progress?.total = book.total
+        progress?.unit = "chapters"
+        progress?.scope = book.scope
+        if let current = book.current { progress?.current = current }
+    }
+
+    /// Step 4 of Analyze, run from step 2 on beside the naming (and "Describe this chapter"): the AI writes what every chapter
+    /// and section says, finds related sections and, for large chapters, lists the items they are made of. One call per chapter
+    /// (windows for very long ones), answers applied as they land. `only` limits the work to one chapter path; nil annotates
+    /// every chapter whose text or language changed since it was last annotated. `slots` is the limit shared with the rest of
+    /// an Analyze.
+    private func annotateBook(root: URL, db: SemanticDatabase?, only: String?, slots: SideBySide.Slots?) async throws {
+        bookProgress = nil
+        guard let view = snapshot?.view("docs") else { return }
         let language = ActionOutputLanguage.current
         let book = BookAnnotator.Book(view: view, language: language)
         var pending = book.chapters.filter { chapter in
@@ -1833,10 +1881,8 @@ final class ArchitectureStore: ObservableObject {
             }
         }
         let chapterIds = Set(jobs.map(\.chapter.id))
-        progress?.total = chapterIds.count
-        progress?.done = 0
-        progress?.unit = "chapters"
-        progress?.scope = only == nil ? "\(book.chapters.count) chapters" : nil
+        bookProgress = (done: 0, total: chapterIds.count, scope: only == nil ? "\(book.chapters.count) chapters" : nil, current: nil)
+        showBookProgress()
         describing.formUnion(chapterIds)
         revision += 1
         defer { describing.subtract(chapterIds) }
@@ -1844,12 +1890,18 @@ final class ArchitectureStore: ObservableObject {
         var remaining = Dictionary(grouping: jobs, by: { $0.chapter.id }).mapValues(\.count)
         var landed = 0
         var work = view
-        var ratings = current.ratings[ImportanceRater.importance.id] ?? [:]
+        // The levels the answers gave, by rating key. They join the ratings on screen, which the naming adds to meanwhile: a key
+        // that has a level keeps it, unless that level is provisional.
+        var levels: [String: String] = [:]
         func publish(save: Bool) {
-            guard var next = snapshot, let index = next.views.firstIndex(where: { $0.id == "docs" }) else { return }
-            next.views[index] = work
-            next.ratings[ImportanceRater.importance.id] = ratings
-            if save { commit(next, db: db) } else { snapshot = next; revision += 1 }
+            update(save: save, db: db) { next in
+                if let index = next.views.firstIndex(where: { $0.id == "docs" }) { next.views[index] = work }
+                var ratings = next.ratings[ImportanceRater.importance.id] ?? [:]
+                for (key, level) in levels where ratings[key] == nil || ratings[key]?.provisional == true {
+                    ratings[key] = .init(level: level, reason: "", signature: nil, provisional: nil)
+                }
+                next.ratings[ImportanceRater.importance.id] = ratings
+            }
         }
 
         try await withThrowingTaskGroup(of: (Int, AIRawJSONObject?, [String]).self) { group in
@@ -1857,7 +1909,7 @@ final class ArchitectureStore: ObservableObject {
             func start(_ i: Int) {
                 let job = jobs[i]
                 group.addTask {
-                    try await self.annotateBookJob(job, book: book, index: i, root: root, db: db)
+                    try await self.annotateBookJob(job, book: book, index: i, root: root, db: db, slots: slots)
                 }
             }
             while nextJob < min(Self.bookConcurrency, jobs.count) { start(nextJob); nextJob += 1 }
@@ -1869,9 +1921,7 @@ final class ArchitectureStore: ObservableObject {
                 if let answer {
                     let result = BookAnnotator.apply(answer, job: job, to: work, lines: lines)
                     work = result.view
-                    for (key, level) in result.importance where ratings[key] == nil || ratings[key]?.provisional == true {
-                        ratings[key] = .init(level: level, reason: "", signature: nil, provisional: nil)
-                    }
+                    levels.merge(result.importance) { first, _ in first }
                 } else if job.window.index == 0 {
                     self.error = self.error ?? "Could not annotate \((job.chapter.path as NSString).lastPathComponent): the assistant gave no usable answer."
                 }
@@ -1879,8 +1929,9 @@ final class ArchitectureStore: ObservableObject {
                 if remaining[job.chapter.id] == 0 {
                     describing.remove(job.chapter.id)
                     landed += 1
-                    progress?.done = landed
-                    progress?.current = "Annotated \(landed) of \(chapterIds.count) chapters"
+                    bookProgress?.done = landed
+                    bookProgress?.current = "Annotated \(landed) of \(chapterIds.count) chapters"
+                    showBookProgress()
                 }
                 publish(save: landed % 5 == 0)
             }
@@ -1888,7 +1939,8 @@ final class ArchitectureStore: ObservableObject {
 
         // The parts and the book itself, from the chapter summaries.
         if only == nil || jobs.count > 0 {
-            progress?.current = "Describing the parts"
+            bookProgress?.current = "Describing the parts"
+            showBookProgress()
             // Every call is built from the chapter summaries alone and names parts of its own, so the calls run side by side;
             // their answers are applied in the order of the calls.
             let requests = BookAnnotator.partsRequests(view: work, language: language).map { built -> CLICompletion.Request in
@@ -1899,7 +1951,7 @@ final class ArchitectureStore: ObservableObject {
             }
             let answers = try await SideBySide.map(Array(requests.indices), limit: CLICompletion.sideBySide, work: { @MainActor [weak self] index -> AIRawJSONObject? in
                 guard let self else { throw CancellationError() }
-                guard let answer = try? await self.xrayCall(requests[index], root: root, db: db, call: 90 + index) else { return nil }
+                guard let answer = try? await self.xrayCall(requests[index], root: root, db: db, call: 900 + index, slots: slots) else { return nil }
                 return try? AIRawJSONObject(answer)
             })
             for answer in answers.compactMap({ $0 }) {
@@ -1918,7 +1970,7 @@ final class ArchitectureStore: ObservableObject {
             defer { endRun(token) }
             beginStep(1, "Annotating the book", started: started, steps: 1)
             do {
-                try await annotateBook(root: root, db: db, only: path)
+                try await annotateBook(root: root, db: db, only: path, slots: nil)
             } catch is CancellationError {
             } catch {
                 self.error = "Annotating the book failed: \(error.localizedDescription)"
