@@ -1061,8 +1061,8 @@ extension EditorHostTests {
         defer { flow.close() }
         flow.features.setup(root: root)
 
-        // Case 1: Project default is Claude (fixesBugsAsGoal == true), but normal routing picks an open Codex terminal.
-        // Neither single nor batch Fix with AI may send Claude's `/goal` syntax into Codex.
+        // Case 1: Project default is Claude, but normal routing picks an open Codex terminal. Both take bug fixes as a goal, so
+        // single and batch Fix with AI send Codex's own `/goal`, with the parallel request written for Codex, not Claude.
         // The request to run independent work in parallel is written for the receiving assistant too: a single bug is a task with
         // parts, a basket a list of items.
         func request(_ work: ParallelWork, _ tool: CLITool) throws -> String { try XCTUnwrap(work.request(for: tool.provider)) }
@@ -1073,8 +1073,7 @@ extension EditorHostTests {
         let sentSingleCodex = try XCTUnwrap(spy.sent.last)
         XCTAssertTrue(sentSingleCodex.submit)
         XCTAssertTrue(sentSingleCodex.terminal === codexTerminal)
-        XCTAssertFalse(sentSingleCodex.prompt.hasPrefix("/goal "), "Codex recipient must not receive Claude /goal syntax")
-        XCTAssertTrue(sentSingleCodex.prompt.hasPrefix("Fix the bug described in "))
+        XCTAssertTrue(sentSingleCodex.prompt.hasPrefix("/goal fix the bug described in "))
         XCTAssertTrue(sentSingleCodex.prompt.contains(try request(.parts, codex)))
         XCTAssertFalse(sentSingleCodex.prompt.contains(try request(.parts, claude)))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug1.id), "fixing")
@@ -1087,14 +1086,15 @@ extension EditorHostTests {
         let sentBatchCodex = try XCTUnwrap(spy.sent.last)
         XCTAssertTrue(sentBatchCodex.submit)
         XCTAssertTrue(sentBatchCodex.terminal === codexTerminal)
-        XCTAssertFalse(sentBatchCodex.prompt.hasPrefix("/goal "), "Batch Codex recipient must not receive Claude /goal syntax")
-        XCTAssertTrue(sentBatchCodex.prompt.hasPrefix("Fix this batch of 2 bug reports"))
+        XCTAssertTrue(sentBatchCodex.prompt.hasPrefix("/goal fix this batch of 2 bugs"))
+        // The request is part of the goal; the bugs' lifecycle block follows it.
+        XCTAssertTrue(sentBatchCodex.prompt.components(separatedBy: "\n\n")[0].contains(try request(.items, codex)))
         XCTAssertTrue(sentBatchCodex.prompt.contains(try request(.items, codex)))
         XCTAssertFalse(sentBatchCodex.prompt.contains("in turn"))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug2.id), "fixing")
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug3.id), "fixing")
 
-        // Case 2: Project default is Copilot (fixesBugsAsGoal == false), but normal routing picks an open Claude terminal.
+        // Case 2: Project default is Copilot (its goal is `/autopilot`), but normal routing picks an open Claude terminal.
         // Both single and batch Fix with AI must use Claude's `/goal` syntax matching the actual recipient.
         AssistantChoice(project: root).setTool(copilot.rawValue)
         spy.target = claudeTerminal
@@ -1134,7 +1134,7 @@ extension EditorHostTests {
         flow.fixBugWithAI(bug7.url, in: copilotTerminal)
         let sentExplicit = try XCTUnwrap(spy.sent.last)
         XCTAssertTrue(sentExplicit.terminal === copilotTerminal)
-        XCTAssertFalse(sentExplicit.prompt.hasPrefix("/goal "))
+        XCTAssertTrue(sentExplicit.prompt.hasPrefix("/autopilot fix the bug described in "), "Copilot gets its own goal command")
         XCTAssertTrue(sentExplicit.prompt.contains(try request(.parts, copilot)))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug7.id), "fixing")
     }

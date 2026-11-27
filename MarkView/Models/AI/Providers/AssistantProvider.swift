@@ -156,7 +156,8 @@ protocol AssistantProvider: Sendable {
     var canSearchWeb: Bool { get }
     /// Capabilities of this assistant's actual MarkView launch profiles (REQ-006).
     var launchCapabilities: AgentLaunchCapabilities { get }
-    /// Fix with AI states the bug as a goal command (`/goal …`) instead of a plain request.
+    /// Fix with AI and the bug basket state the work as the CLI's goal command (`goalPrompt`), so the CLI goes on until it is
+    /// done, instead of a numbered request; false for a CLI that has no goal command.
     var fixesBugsAsGoal: Bool { get }
     /// `objective` as a goal for the CLI's own command or task model; `closing` asks it to continue until it is done, for
     /// CLIs that have no goal command.

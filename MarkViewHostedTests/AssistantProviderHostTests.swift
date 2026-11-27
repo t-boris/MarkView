@@ -1009,7 +1009,7 @@ final class AssistantExtensionHostTests: XCTestCase {
         XCTAssertEqual(HandoffPrompt.goal("tests pass", tool: fake), "FAKE GOAL: tests pass")
         XCTAssertTrue(HandoffPrompt.feature("docs/features/x", tool: fake).hasPrefix("FAKE GOAL: Implement what docs/features/x specifies."))
         XCTAssertTrue(HandoffPrompt.bug("docs/bugs/BUG-1.md", tool: fake).hasPrefix("FAKE GOAL: fix the bug described in docs/bugs/BUG-1.md"))
-        XCTAssertTrue(HandoffPrompt.bug("docs/bugs/BUG-1.md", tool: CLITool(rawValue: "codex")).hasPrefix("Fix the bug described in"))
+        XCTAssertTrue(HandoffPrompt.bug("docs/bugs/BUG-1.md", tool: CLITool(rawValue: "cline")).hasPrefix("Fix the bug described in"))
         XCTAssertTrue(CLITool.usageTracked.contains(fake) && fake.hasLocalLogs && fake.shortName == "Fake")
         XCTAssertEqual(Setting.usageHidden(fake.rawValue).name, "settings.usage.fakeassist.hidden")
         XCTAssertEqual(Setting.usageLimit(fake.rawValue).name, "settings.usage.fakeassist.limit")

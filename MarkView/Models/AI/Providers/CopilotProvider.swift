@@ -21,7 +21,10 @@ struct CopilotProvider: AssistantProvider, AssistantACPSupport {
     var activity: (any AssistantActivitySupport)? { CopilotActivity() }
     /// An organisation's policy may allow only listed MCP servers; Copilot then says so at every start (BUG-025).
     let reportsMCPPolicyBlock = true
+    let fixesBugsAsGoal = true
 
+    /// `/autopilot <objective>` sets an autopilot objective, which Copilot works on without waiting for the person (Copilot CLI
+    /// 1.0.114, `copilot help commands`).
     func goalPrompt(_ objective: String, closing: String) -> String { "/autopilot \(objective)" }
 
     var acp: (any AssistantACPSupport)? { self }

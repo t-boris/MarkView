@@ -46,7 +46,7 @@ extension EditorHostTests {
 
         let batch = [bug("BUG-001", "open", feature: "search"), bug("BUG-007", "open")]
         for claude in [true, false] {
-            let prompt = BatchFixPrompt.make(batch, tool: claude ? .claude : .codex)
+            let prompt = BatchFixPrompt.make(batch, tool: claude ? .claude : .cline)
             let name = claude ? "claude" : "generic"
             check("\(name): every path, id and title", batch.allSatisfy { prompt.contains($0.path) && prompt.contains($0.key) && prompt.contains($0.title) })
             check("\(name): feature when known", prompt.contains("feature search"))
@@ -62,9 +62,12 @@ extension EditorHostTests {
             check("\(name): other bugs untouched", prompt.contains("not in this list"))
             check("\(name): per-bug outcome", prompt.contains("outcome per bug"))
         }
-        let claudePrompt = BatchFixPrompt.make(batch, tool: .claude)
-        check("claude: one-line /goal", claudePrompt.hasPrefix("/goal ") && !claudePrompt.contains("\n"))
-        check("generic: no /goal", !BatchFixPrompt.make(batch, tool: .codex).hasPrefix("/goal"))
+        // Every assistant with a goal command gets the batch as that goal, on one line; one without gets the numbered steps.
+        for (tool, command) in [(CLITool.claude, "/goal "), (.codex, "/goal "), (.antigravity, "/goal "), (.copilot, "/autopilot ")] {
+            let goal = BatchFixPrompt.make(batch, tool: tool)
+            check("\(tool.rawValue): one-line \(command)goal", goal.hasPrefix(command + "fix this batch of 2 bugs") && !goal.contains("\n"))
+        }
+        check("generic: no goal command", BatchFixPrompt.make(batch, tool: .cline).hasPrefix("Fix this batch of 2 bug reports"))
 
         // MARK: Suggest similar (REQ-006)
 
@@ -649,4 +652,7 @@ extension EditorHostTests {
 private extension CLITool {
     static var claude: CLITool { CLITool(rawValue: "claude")! }
     static var codex: CLITool { CLITool(rawValue: "codex")! }
+    static var antigravity: CLITool { CLITool(rawValue: "antigravity")! }
+    static var copilot: CLITool { CLITool(rawValue: "copilot")! }
+    static var cline: CLITool { CLITool(rawValue: "cline")! }
 }

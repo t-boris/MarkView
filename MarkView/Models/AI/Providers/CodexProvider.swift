@@ -20,6 +20,7 @@ struct CodexProvider: AssistantProvider {
     let defaultXRayModel = "gpt-5.6-luna"
     let terminalIcon = "chevron.left.forwardslash.chevron.right"
     let canSearchWeb = true
+    let fixesBugsAsGoal = true
     var launchCapabilities: AgentLaunchCapabilities {
         AgentLaunchCapabilities(
             backgroundWebSearch: true,
@@ -36,6 +37,8 @@ struct CodexProvider: AssistantProvider {
     var completion: (any AssistantCompletionSupport)? { self }
     var remote: (any AssistantRemoteSupport)? { self }
 
+    /// `/goal [<objective>|clear|edit|pause|resume]` (Codex 0.172). An objective over 4000 characters is written by the TUI to
+    /// `goal-objective.md` and the goal becomes a reference to that file, so a long bug basket still fits.
     func goalPrompt(_ objective: String, closing: String) -> String { "/goal \(objective)" }
 
     func loginState(stdout: String, stderr: String) -> Bool? {
