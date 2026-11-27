@@ -1,34 +1,37 @@
 ---
 type: bug
 id: BUG-134
-title: Windows that are open are missing from windowSessions.json, so a restart loses them
-status: backlog
-severity: high
+title: A closed window stays listed by markview_windows, so it looks open but is not saved
+status: in-review
+severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27
 provenance: Created by an AI agent through MarkView
+updated: 2026-11-27
+schema: 1
 ---
 
-# Windows that are open are missing from windowSessions.json, so a restart loses them
+# A closed window stays listed by markview_windows, so it looks open but is not saved
 
 ## Summary
 
-Some open MarkView windows never enter the saved window archive (`~/Library/Application Support/MarkView/windowSessions.json`). When the app quits and relaunches (a reinstall), those windows do not come back. It happened twice: after the 7.4.0 reinstall 4 of 9 windows were missing, and on 2026-11-27 (7.7.1 → 7.21.0) 2 of 5 (3d-model-studio and astroweb). The archive copied right before the quit (last written 11:46:14) held 3 windows, while `markview_windows` listed 5 at about 11:49. 7.7.1 wrote no window-session log line. `WindowSessionController` is unchanged between 7.7.1 and 7.21.0, so 7.21.0 is expected to behave the same. Not known yet: how the two windows were opened (agent `markview_open_project`, Finder, or the menu) and whether the quit-time save (`saveBeforeTermination`) ran.
+A window that is closed stays in the agent window registry (`AgentToolServer`), so `markview_windows` keeps listing it and `markview_open_project` answers "already open" for its folder. The saved window archive (`windowSessions.json`) is right to leave it out. On 2026-11-27 the 2 windows that were "missing" from the archive, 3d-model-studio and astroweb, had been closed by Boris (he confirmed it). The window server showed them off screen, `markview_flow_status` said "has no project open", and their file watchers were gone, which is what `WindowComposition.close()` does. `BrowserHost.register()` adds the window to the registry. Nothing removes it on close: the registry drops a window only when its `WorkspaceManager` is freed, and a closed window's manager stays in memory. The earlier report (5 open vs 3 saved, and 4 of 9 after the 7.4.0 reinstall) counted closed windows as open.
 
 ## Steps to reproduce
 
-1. Have several project windows open in MarkView, some of them opened during the session
-2. Compare `markview_windows` with the `windows` list in windowSessions.json
-3. Quit MarkView normally (AppleScript quit) and relaunch it
+1. Open two project windows
+2. Close one of them (red button or Cmd-W)
+3. Call `markview_windows`: it still lists the closed window, last
+4. Call `markview_open_project` with the closed window's folder: it answers "already open in window …" and opens nothing
 
 ## Expected
 
-Every open window is in windowSessions.json within a second of opening or changing, the quit-time save records all of them, and all of them come back after the relaunch.
+A closed window leaves `markview_windows` at once, and `markview_open_project` opens its folder again in a new window.
 
 ## Actual
 
-windowSessions.json held 3 of 5 open windows before the quit; after the relaunch only those 3 came back. The other two had to be reopened by hand, and their agent terminals (Codex, Antigravity and Claude Code in astroweb) were not restored.
+The closed window stays listed with its folder for as long as the app runs, and an agent cannot reopen its project.
 
 ## Environment
 
-macOS 27.2, MarkView 7.7.1 quit and replaced by 7.21.0 (detached install, `osascript quit`, swap by rename, `open -a`), 2026-11-27 11:50
+macOS 27.2, MarkView 7.7.1 and 7.21.0, 2026-11-27. Not covered by this report, and filed on their own: closed windows' WorkspaceManagers stay in memory, and closing a window leaves its agent terminals running.

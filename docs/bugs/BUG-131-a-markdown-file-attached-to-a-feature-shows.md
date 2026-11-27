@@ -2,11 +2,12 @@
 type: bug
 id: BUG-131
 title: A Markdown file attached to a feature shows up as a second source with the same id
-status: backlog
+status: in-review
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27
 provenance: Created by an AI agent through MarkView
+schema: 1
 ---
 
 # A Markdown file attached to a feature shows up as a second source with the same id

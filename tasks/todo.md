@@ -340,6 +340,56 @@ Branch `fix/bug-133-stopped-qa-run-files-its-bug`, worktree `MarkView-qa-stop-fi
 - [x] Version 7.21.2, PR #470 merged (13955c32), one release v7.21.2 for BUG-135 + BUG-133; REQ-005's interrupted criterion
       ticked through the tools. Not installed, not checked by hand in the app.
 
+# BUG-131, BUG-136, BUG-134: the bugs left in backlog, and Antigravity's models (2026-11-27)
+
+Boris: "why did you leave 2 bugs in backlog?" (BUG-131, BUG-134) and "why does Antigravity not have all models?" (BUG-136).
+One release at the end (7.21.4 or later).
+
+- [x] BUG-131: the feature loader leaves out a file a source names as its `file` (the attached copy `SRC-nnn-<name>.md`); the
+      ingest test attaches Markdown now and reads the feature again; red on the old loader (8 sources for 4 files). PR #471
+      merged (158b065d, 7.21.3).
+- [x] BUG-136: `AssistantProvider.modelListing` (ACP over ACP, Antigravity `agy --log-file /dev/null models`), the cache renamed
+      `AssistantModelCache`; menus fetch when none is kept, Settings refreshes. Test with a fake agy; red on the fixed list.
+      PR #473 merged (c84bda40, 7.21.4).
+- [x] BUG-134: the "missing" windows were closed (Boris confirmed); the closed window stayed in `AgentToolServer`, so
+      `markview_windows` listed it and `markview_open_project` said "already open". Fix: `BrowserHost.close()` unregisters
+      it; hosted test `testAClosedWindowLeavesTheWindowList`. Record rewritten through the tools. Branch
+      `fix/bug-134-closed-window-leaves-agent-list`. Filed beside it: BUG-137 (closing a window leaves its agents running:
+      stop or ask is Boris's decision) and BUG-138 (a closed window's workspace stays in memory). PR #474 merged (1b8188d3, 7.21.5).
+- [x] BUG-137 (Boris chose "ask"): a window with running assistants asks "Stop the running agents and close this window?"
+      ("Keep working" / "Stop agents and close"); a window with only shells closes as before; `WindowComposition.close()` ends
+      every terminal (`AITerminalsController.stopAll()`, the folder's saved AI terminals stay). Hosted test with a stand-in
+      `claude` that records its pid. PR #475 merged (1dfe9aff, 7.21.6).
+- [x] BUG-138, step 1, PR #476 merged (05feaa7a, 7.21.7): `FeatureFlowCoordinator.tabs` weak (a loop through the window), the Settings window lets go of
+      its workspace when it closes, the window-opening action captures the action only. Hosted test (red with the strong hold).
+      Still open (Boris: release first): in the real app SwiftUI keeps a closed window and its `WorkspaceManager` (focused
+      values, menu items, a captured view: app probe `close`/`fds` steps and `leaks --traceTree`), so `.dde/state.db` stays open.
+- [x] BUG-139: `openFolder` returns its setup task (true when the folder opened); the restore waits for it, so a setup stopped
+      by a close or another folder ends the restore, and the completion callback is gone. Hosted test; the same scenario fails
+      on main without the fix. PR #477 merged (23038a8e, 7.21.8).
+- [ ] CI flake found on PR #476: `hosted-tests (4)` runs `qa-editor-0` and `qa-editor-1` at the same time
+      (`tools/ci/run-hosted-pair.sh`), and both hosts share the app's `UserDefaults.standard`. X-Ray tests in part 0 set
+      `Setting.gitHubEnabled` to false while `testRealFeatureFlowGitHubCheckoutWithLocalFixture` in part 1 expects it on (failed
+      at `FeatureFlowCoordinatorHostTests.swift:175`). Part 1's 49 tests in order pass locally. The new hosted test of BUG-138
+      moved the split so they now overlap. The fix (separate preferences per paired host, or no pairs) is Boris's decision.
+- [x] CI: the unused-import step analyzed changed files plus up to 120 recompiled dependants and hit its 35 minutes on 8 runs
+      (35-71 min each instead of 12-26). Boris chose changed files only: PR #472 merged (d2310063). Other failures of the day
+      were fixed earlier (SideBySide timing, a build warning) or ran once (`testPersistentRemoteSessions` on PR #469,
+      `ResearchMapTranslationHostTests` at 04:00); watch whether they recur.
+- [x] One release: v7.21.8 published 2026-11-27 from origin/main 23038a8e (Latest, signed, notarized, `spctl` accepts the DMG,
+      app version 7.21.8), https://github.com/t-boris/MarkView/releases/tag/v7.21.8; copy at `build/MarkView-7.21.8.dmg`.
+      It carries 7.21.3-7.21.8 (BUG-131, 136, 134, 137, 138 step 1, 139). Not installed: install only when Boris says.
+- [x] Statuses: BUG-131, 134, 136, 137, 139 in-review; BUG-138 in-progress (step 1 merged); no bug in backlog. Worktrees removed.
+
+Review (2026-11-27):
+- CI: the unused-import step now takes about a minute (55 s on PR #474) instead of timing out at 35 minutes.
+- BUG-138 is only partly fixed: the hosted test proves the three holders are gone, but in the real app SwiftUI still keeps a
+  closed window (same count as main in the app probe). Boris chose to release step 1 and keep investigating.
+- I pushed PR #477 without reading PR #476's failed CI first (lesson added); the failure is the shared-preferences race of a
+  CI pair, not the change.
+- Not hand-checked in the installed app: the close question of BUG-137, Antigravity's model menu, a closed window's memory, a
+  relaunch that closes a window while it restores, New Project's specification view after the change.
+
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
 Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot
