@@ -74,11 +74,21 @@ struct QALiveRunView: View {
         }
     }
 
+    /// The branches in progress, by their number in the plan and their names; once all have ended, how many have.
     private var statusText: String {
-        guard let branch = run.currentBranch else { return "Starting…" }
-        let label = run.labels[branch] ?? branch
-        let number = run.results.count + 1
-        return (run.isPaused ? "Paused · " : "") + "Branch \(min(number, max(run.branchCount, 1))) of \(run.branchCount): \(label)"
+        guard !run.running.isEmpty else {
+            if run.results.isEmpty { return "Starting…" }
+            return "\(run.results.count) of \(run.branchCount) branches done"
+        }
+        let paused = run.isPaused ? "Paused · " : ""
+        var numbers: [String] = [], names: [String] = []
+        for branch in run.running {
+            let index = run.restartBranches.firstIndex { $0.id == branch } ?? 0
+            numbers.append(String(index + 1))
+            names.append(run.labels[branch] ?? branch)
+        }
+        let which = numbers.count == 1 ? "Branch \(numbers[0])" : "Branches \(numbers.joined(separator: ", "))"
+        return paused + "\(which) of \(run.branchCount): \(names.joined(separator: " · "))"
     }
 
     private var finishedText: String {

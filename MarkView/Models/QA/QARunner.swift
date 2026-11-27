@@ -1,10 +1,14 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 
 // End-to-End QA (feature end-to-end-qa, DEC-001..003, DEC-005, DEC-011, REQ-002, REQ-003): the run itself. Every selected branch is a check
 // of its own: its baseline is restored, its players sign in, its condition is brought about, and then its steps are carried out one after
-// another, each by a loop of "look at the page, ask the assistant, do what it says". The rules of an outcome are QACheckMachine's; the
-// approval and the production confirmations are QAGate's. The browser, the assistant and the observer are passed in, so the whole run is
-// checked by the app-hosted QA tests. Foundation only.
+// another, each by a loop of "look at the page, ask the assistant, do what it says". Web and API branches that leave each other's data
+// alone run side by side (`branchLimit`); the others take turns. The rules of an outcome are QACheckMachine's; the approval and the
+// production confirmations are QAGate's. The browser, the assistant and the observer are passed in, so the whole run is checked by the
+// app-hosted QA tests.
 
 /// One browser (or application) session that belongs to one player. Sessions of different players never share cookies or storage.
 protocol QAActorDriver: AnyObject, Sendable {
@@ -75,9 +79,9 @@ enum QARunEvent {
     case narration(QATimelineEntry)
     /// What an actor's page showed at one turn.
     case screen(QAScreenEvent)
+    case paused(branch: String, Bool)
     /// The target and a clean picture immediately before input; failed attempts reuse that same picture.
-    case paused(Bool)
-    case input(actor: String?, mark: QAInputMark, png: Data?)
+    case input(branch: String, actor: String?, mark: QAInputMark, png: Data?)
     case nodeStarted(branch: String, node: String, actor: String?, title: String)
     case nodeFinished(branch: String, node: String, effort: QAEffort)
     case branchFinished(QACheckResult)
@@ -88,37 +92,35 @@ protocol QARunObserver: AnyObject, Sendable {
     func handle(_ event: QARunEvent)
 }
 
-/// One execution owns this gate. All state is protected because UI requests can race an assistant response.
+/// One execution owns this gate. All state is protected because UI requests can race an assistant response. Every branch in progress
+/// stops at the gate while the run is paused: Resume and Stop reach each of them.
 // unchecked Sendable: `lock` guards every mutable field: the UI and the assistant's response race on them.
 final class QARunControl: @unchecked Sendable {
     enum Command { case proceed, jump(String), stop }
     private let lock = NSLock()
     private var requested = false
     private var stopped = false
-    private var waiting: CheckedContinuation<Command, Never>?
+    private var waiting: [CheckedContinuation<Command, Never>] = []
     private var next: Command = .proceed
-    private var pausedAt: Date?
-    private var elapsed = 0.0
-    var pausedSeconds: Double { lock.lock(); defer { lock.unlock() }; return elapsed + (pausedAt.map { Date().timeIntervalSince($0) } ?? 0) }
+    var isStopped: Bool { lock.withLock { stopped } }
     func pause() { lock.lock(); if !stopped { requested = true }; lock.unlock() }
     func resume(at node: String? = nil) {
         lock.lock()
         guard !stopped else { lock.unlock(); return }
         requested = false
         let command: Command = node.map(Command.jump) ?? .proceed
-        let continuation = waiting
-        waiting = nil
-        if let pausedAt { elapsed += Date().timeIntervalSince(pausedAt); self.pausedAt = nil }
-        next = continuation == nil ? command : .proceed
+        let continuations = waiting
+        waiting = []
+        next = continuations.isEmpty ? command : .proceed
         lock.unlock()
-        continuation?.resume(returning: command)
+        // A jump is taken only by the branch that has its step (QARunner.checkpoint); the others go on where they were.
+        for continuation in continuations { continuation.resume(returning: command) }
     }
     func stop() {
         lock.lock(); stopped = true; requested = false
-        let continuation = waiting; waiting = nil
-        if let pausedAt { elapsed += Date().timeIntervalSince(pausedAt); self.pausedAt = nil }
+        let continuations = waiting; waiting = []
         lock.unlock()
-        continuation?.resume(returning: .stop)
+        for continuation in continuations { continuation.resume(returning: .stop) }
     }
     func checkpoint(isolation: isolated (any Actor)? = #isolation, onPause: () -> Void) async -> Command {
         await withTaskCancellationHandler(operation: {
@@ -126,7 +128,7 @@ final class QARunControl: @unchecked Sendable {
                 lock.lock()
                 if stopped || Task.isCancelled { lock.unlock(); continuation.resume(returning: .stop) }
                 else if requested {
-                    waiting = continuation; pausedAt = Date(); onPause(); lock.unlock()
+                    waiting.append(continuation); onPause(); lock.unlock()
                 } else { let command = next; next = .proceed; lock.unlock(); continuation.resume(returning: command) }
             }
         }, onCancel: { self.stop() })
@@ -167,6 +169,12 @@ actor QARunSessions {
         let open = Array(drivers.values); drivers = [:]
         for driver in open { await driver.close() }
     }
+    /// Closes the sessions of one branch that has ended. The branches still in progress keep theirs, and no open of theirs is undone.
+    func close(branch: String) async {
+        let keys = drivers.keys.filter { $0.hasPrefix(branch + "|") }
+        let open = keys.compactMap { drivers.removeValue(forKey: $0) }
+        for driver in open { await driver.close() }
+    }
     func closeAttached() async {
         attachedGeneration &+= 1
         let keys = drivers.keys.filter { $0.hasPrefix("attach|") }
@@ -205,6 +213,20 @@ actor QARunner {
         var effort = QAEffort()
     }
 
+    /// What one branch in progress has of its own; the branches running side by side share only the run's timeline and gate.
+    private final class Lane {
+        let branch: QABranch
+        /// The sessions of its players, by player (and application, for an API or an attached native application).
+        var drivers: [String: QAActorDriver] = [:]
+        /// The screen each player showed last, so that a screen is new only once.
+        var lastScreen: [String: String] = [:]
+        /// Only its completed scenario steps, never another branch's accounts or preparation.
+        var context: [String] = []
+        /// Seconds it waited while the run was paused, which no step's time counts.
+        var paused = 0.0
+        init(_ branch: QABranch) { self.branch = branch }
+    }
+
     let scenario: QAScenario
     let plan: QAExecutionPlan
     private(set) var gate: QAGate
@@ -220,13 +242,10 @@ actor QARunner {
 
     private let control: QARunControl
     private let sessions: QARunSessions
-    private var activeBranch = ""
+    /// The person is asked one thing at a time, whichever branch asks.
+    private let asking = SideBySide.Slots(limit: 1)
     private var startedAt = Date()
     private var timeline: [QATimelineEntry] = []
-    private var drivers: [String: QAActorDriver] = [:]
-    private var lastScreen: [String: String] = [:]
-    /// Only completed scenario steps of the current branch, never another branch's accounts or preparation.
-    private var branchContext: [String] = []
 
     init(scenario: QAScenario, plan: QAExecutionPlan, gate: QAGate, factory: QADriverFactory, assistant: QAAssistant, runID: String,
          confirm: @escaping @Sendable (QAConfirmation) async -> Bool, observer: QARunObserver? = nil, now: @escaping () -> Date = Date.init,
@@ -248,33 +267,43 @@ actor QARunner {
 
     // MARK: The run
 
+    /// How many branches are checked at the same time. A native check takes its turn (its clicks land at points of the screen, and an
+    /// attached application is one process), and so does every branch of a run that restores a baseline or brings about a state or
+    /// data condition: that changes data the other branches use. Web and API branches without them run side by side.
+    static func branchLimit(scenario: QAScenario, branches: [QABranch]) -> Int {
+        if scenario.appKind == .nativeMacOS || scenario.baseline != nil { return 1 }
+        let changesData = branches.contains { branch in
+            scenario.conditions(of: branch).contains { $0.condition.kind == .state || $0.condition.kind == .data }
+        }
+        return changesData ? 1 : CLICompletion.sideBySide
+    }
+
     func run() async -> QARunRecord {
         startedAt = now()
         var record = QARunRecord(id: runID, scenarioID: scenario.id, targetID: plan.target?.id ?? "", targetKind: plan.target?.kind ?? .local,
                                  selected: plan.branches.map(\.id), startedAt: startedAt)
         record.startPoint = config.startPoint
         emit(.runStarted(id: runID, branches: record.selected))
-        var stopped = false
-        for branch in plan.branches {
-            if Task.isCancelled { stopped = true }
-            let result: QACheckResult
-            if let start = config.startPoint, !plan.branches.contains(where: { $0.id == start.branch && $0.nodes.contains(start.node) }) {
-                let at = now()
-                result = QACheckResult(branch: branch.id, verdict: QACheckVerdict(outcome: .blocked, reason: "The selected starting point is not in the approved plan.", blockReason: .other), startedAt: at, finishedAt: at)
-            } else if let start = config.startPoint, start.branch != branch.id {
-                let at = now()
-                result = QACheckResult(branch: branch.id, verdict: QACheckVerdict(outcome: .uncovered, reason: "Not executed: another branch was selected for continuation."), startedAt: at, finishedAt: at)
-            } else if stopped {
-                let at = now()
-                result = QACheckResult(branch: branch.id, verdict: QACheckVerdict(outcome: .uncovered, reason: "Not executed: the run was stopped."),
-                                       startedAt: at, finishedAt: at)
-            } else {
-                result = await check(branch)
-                await closeDrivers()
-                if result.verdict.interruption == .stoppedByUser { stopped = true }
-            }
-            record.record(result)
+        let branches = plan.branches
+        var results = [QACheckResult?](repeating: nil, count: branches.count)
+        // A cancelled run starts no more branches and throws once those in progress have ended; the rest are recorded below.
+        _ = try? await SideBySide.map(branches, limit: Self.branchLimit(scenario: scenario, branches: branches), work: { [self] branch in
+            await checkOrSkip(branch)
+        }, done: { index, result in
+            results[index] = result
             emit(.branchFinished(result))
+            // A branch the person stopped stops the run: the others in progress are interrupted at their next step, and none starts.
+            if result.verdict.interruption == .stoppedByUser { control.stop() }
+        })
+        // The results are kept in the order of the plan, whichever branch ended first.
+        for (index, branch) in branches.enumerated() {
+            if let result = results[index] {
+                record.record(result)
+            } else {
+                let result = skipped(branch, QACheckVerdict(outcome: .uncovered, reason: Self.notExecuted))
+                record.record(result)
+                emit(.branchFinished(result))
+            }
         }
         // An attached user process is leased only for this execution, including on Stop and failure.
         await sessions.closeAttached()
@@ -284,11 +313,34 @@ actor QARunner {
         return record
     }
 
+    private static let notExecuted = "Not executed: the run was stopped."
+
+    /// A branch with no check: the run continues another branch, or it was stopped before this one began.
+    private func checkOrSkip(_ branch: QABranch) async -> QACheckResult {
+        if let start = config.startPoint, !plan.branches.contains(where: { $0.id == start.branch && $0.nodes.contains(start.node) }) {
+            return skipped(branch, QACheckVerdict(outcome: .blocked, reason: "The selected starting point is not in the approved plan.", blockReason: .other))
+        }
+        if let start = config.startPoint, start.branch != branch.id {
+            return skipped(branch, QACheckVerdict(outcome: .uncovered, reason: "Not executed: another branch was selected for continuation."))
+        }
+        if isStopped { return skipped(branch, QACheckVerdict(outcome: .uncovered, reason: Self.notExecuted)) }
+        let result = await check(Lane(branch))
+        if !config.keepSessions { await sessions.close(branch: branch.id) }
+        return result
+    }
+
+    private func skipped(_ branch: QABranch, _ verdict: QACheckVerdict) -> QACheckResult {
+        let at = now()
+        return QACheckResult(branch: branch.id, verdict: verdict, startedAt: at, finishedAt: at)
+    }
+
+    /// The person pressed Stop, or the run's task was cancelled.
+    private var isStopped: Bool { control.isStopped || Task.isCancelled }
+
     // MARK: One check
 
-    private func check(_ branch: QABranch) async -> QACheckResult {
-        activeBranch = branch.id
-        branchContext = []
+    private func check(_ lane: Lane) async -> QACheckResult {
+        let branch = lane.branch
         let started = now()
         var machine = QACheckMachine(conditionRequired: !scenario.conditions(of: branch).isEmpty)
         var steps: [QAStepEffort] = []
@@ -296,6 +348,8 @@ actor QARunner {
         var armed: [String] = []
         emit(.branchStarted(branch: branch.id, label: scenario.label(of: branch)))
 
+        // A refusal that came because the person pressed Stop is an interruption, not a missing approval.
+        func refused(_ event: QACheckEvent) { machine.apply(isStopped ? .interrupted(.stoppedByUser, "Stopped by the person.") : event) }
         func result() -> QACheckResult {
             var verdict = machine.verdict ?? QACheckVerdict(outcome: .interrupted, reason: "The check ended without a verdict.", interruption: .other)
             let skipped = branch.nodes.filter { !machine.nodesMet.contains($0) && $0 != verdict.node }
@@ -320,7 +374,7 @@ actor QARunner {
         if config.startPoint == nil {
             if let baseline = scenario.baseline {
                 if let refusal = await permit("baseline:\(branch.id)") {
-                    machine.apply(.baselineFailed(.approvalMissing, refusal))
+                    refused(.baselineFailed(.approvalMissing, refusal))
                     return result()
                 }
                 if baseline.isManual {
@@ -329,7 +383,7 @@ actor QARunner {
                 } else {
                     let app = firstApp(of: branch)
                     note(branch, nil, nil, .preparation, "Restoring the baseline: \(baseline.establish)")
-                    let outcome = await runSetup(branch, app: app, establish: baseline.establish, verify: baseline.verify, title: "Restore the baseline")
+                    let outcome = await runSetup(lane, app: app, establish: baseline.establish, verify: baseline.verify, title: "Restore the baseline")
                     if case .interrupted = outcome { machine.apply(.interrupted(.stoppedByUser, "Stopped by the person.")); return result() }
                     if let failure = failure(of: outcome) {
                         // The assistant has only the application's pages: when the baseline needs more, the person has to do it (or drop the baseline).
@@ -344,12 +398,12 @@ actor QARunner {
                 let stepID = plan.preparation.first { $0.actor == actorID && ($0.kind == .createAccount || $0.kind == .login) }
                 guard let step = stepID else { continue }
                 if let refusal = await permit(step.id) {
-                    machine.apply(.baselineFailed(.approvalMissing, refusal))
+                    refused(.baselineFailed(.approvalMissing, refusal))
                     return result()
                 }
                 let app = scenario.app(actor.app ?? firstApp(of: branch).id) ?? firstApp(of: branch)
                 let driver: QAActorDriver
-                do { driver = try await session(for: actor, app: app) } catch {
+                do { driver = try await session(for: actor, app: app, in: lane) } catch {
                     machine.apply(.baselineFailed(.launchFailed, "The application could not be opened: \(describe(error))"))
                     return result()
                 }
@@ -358,7 +412,7 @@ actor QARunner {
                                       title: step.kind == .login ? "Sign in as \(actor.name)" : "Create a new test account for \(actor.name) and sign in",
                                       detail: step.kind == .login ? "Use the placeholders {{username}} and {{password}}; the real values are supplied for you." : "Use a made-up name and address of the form qa-<random>@example.com and a made-up password.",
                                       actorName: actor.name, appName: app.name)
-                let outcome = await perform(task, branch: branch, node: nil, actor: actor.id, driver: driver, tally: Tally())
+                let outcome = await perform(task, lane: lane, node: nil, actor: actor.id, driver: driver, tally: Tally())
                 if case .interrupted = outcome { machine.apply(.interrupted(.stoppedByUser, "Stopped by the person.")); return result() }
                 if let failure = failure(of: outcome) {
                     machine.apply(.baselineFailed(step.kind == .login ? .loginFailed : .other, failure.message))
@@ -372,7 +426,7 @@ actor QARunner {
         if config.startPoint == nil {
             for (nodeID, condition) in scenario.conditions(of: branch) {
                 if let refusal = await permit("condition:\(branch.id):\(nodeID)") {
-                    machine.apply(.conditionNotAchieved(refusal))
+                    refused(.conditionNotAchieved(refusal))
                     return result()
                 }
                 if let fault = condition.fault, condition.kind == .networkFault || condition.kind == .delay {
@@ -382,7 +436,7 @@ actor QARunner {
                         return result()
                     }
                     do {
-                        let target = try await session(for: actor, app: app)
+                        let target = try await session(for: actor, app: app, in: lane)
                         try await target.arm(fault)
                     } catch {
                         machine.apply(.conditionNotAchieved("The fault could not be armed: \(describe(error))"))
@@ -397,7 +451,7 @@ actor QARunner {
                     let actor = node?.actor.flatMap { id in scenario.actors.first { $0.id == id } }
                     let app = node.flatMap { scenario.app(scenario.appID(of: $0) ?? "") } ?? firstApp(of: branch)
                     note(branch, nodeID, actor?.id, .preparation, condition.establish)
-                    let outcome = await runSetup(branch, app: app, establish: condition.establish, verify: condition.verify, title: "Bring about the condition", actor: actor)
+                    let outcome = await runSetup(lane, app: app, establish: condition.establish, verify: condition.verify, title: "Bring about the condition", actor: actor)
                     if case .interrupted = outcome { machine.apply(.interrupted(.stoppedByUser, "Stopped by the person.")); return result() }
                     if let failure = failure(of: outcome) {
                         machine.apply(.conditionNotAchieved(failure.message))
@@ -413,11 +467,11 @@ actor QARunner {
         // The steps.
         var index = config.startPoint.flatMap { branch.nodes.firstIndex(of: $0.node) } ?? 0
         while index < branch.nodes.count {
-            switch await checkpoint(branch: branch, node: branch.nodes[index]) {
+            switch await checkpoint(lane, node: branch.nodes[index]) {
             case .interrupted: machine.apply(.interrupted(.stoppedByUser, "Stopped by the person.")); return result()
             case .jump(let target):
                 index = branch.nodes.firstIndex(of: target) ?? index
-                branchContext = []
+                lane.context = []
                 note(branch, target, nil, .observation, "Continuing at \(scenario.node(target)?.title ?? target) using current application state.")
             default: break
             }
@@ -428,7 +482,7 @@ actor QARunner {
             let actorID = scenario.actorID(of: node)
             let actor = actorID.flatMap { id in scenario.actors.first { $0.id == id } }
             if let refusal = await permit("node:\(node.id)") {
-                machine.apply(.cannotProceed(node.id, .approvalMissing, refusal))
+                refused(.cannotProceed(node.id, .approvalMissing, refusal))
                 break
             }
             guard let app = scenario.app(scenario.appID(of: node) ?? "") else {
@@ -436,14 +490,14 @@ actor QARunner {
                 break
             }
             let driver: QAActorDriver
-            do { driver = try await session(for: actor, app: app) } catch {
+            do { driver = try await session(for: actor, app: app, in: lane) } catch {
                 machine.apply(.cannotProceed(node.id, .launchFailed, "The application could not be opened: \(describe(error))"))
                 break
             }
             emit(.nodeStarted(branch: branch.id, node: node.id, actor: actor?.id, title: node.title))
             let tally = Tally()
             let began = now()
-            let pauseBefore = control.pausedSeconds
+            let pauseBefore = lane.paused
             let task = QAStepTask(id: node.id, kind: node.kind == .check || node.kind == .failure ? .verify : .act, title: node.title, detail: node.detail,
                                   actorName: actor?.name ?? "the user", appName: app.name)
             let outcome: Outcome
@@ -451,7 +505,7 @@ actor QARunner {
                 if let api = node.api, let executor = driver as? QAAPIExecuting {
                     do {
                         try Task.checkCancellation()
-                        let boundary = await checkpoint(branch: branch, node: node.id)
+                        let boundary = await checkpoint(lane, node: node.id)
                         switch boundary {
                         case .jump, .interrupted: outcome = boundary
                         default:
@@ -466,9 +520,9 @@ actor QARunner {
                     outcome = .done
                 } else { outcome = .blocked(.other, "The API step has no executable request.") }
             } else {
-                outcome = await perform(task, branch: branch, node: node.id, actor: actor?.id, driver: driver, tally: tally, branchBefore: total)
+                outcome = await perform(task, lane: lane, node: node.id, actor: actor?.id, driver: driver, tally: tally, branchBefore: total)
             }
-            tally.effort.milliseconds = max(0, Int((now().timeIntervalSince(began) - (control.pausedSeconds - pauseBefore)) * 1000))
+            tally.effort.milliseconds = max(0, Int((now().timeIntervalSince(began) - (lane.paused - pauseBefore)) * 1000))
             total = total + tally.effort
             steps.append(QAStepEffort(node: node.id, actor: actor?.id, effort: tally.effort))
             emit(.nodeFinished(branch: branch.id, node: node.id, effort: tally.effort))
@@ -476,7 +530,7 @@ actor QARunner {
             case .refresh: break
             case .jump(let target):
                 index = branch.nodes.firstIndex(of: target) ?? index
-                branchContext = []
+                lane.context = []
                 note(branch, target, nil, .observation, "Continuing at \(scenario.node(target)?.title ?? target) using current application state.")
             case .done: machine.apply(.nodeMet(node.id))
             case .notMet(let message): machine.apply(.checkNotMet(node.id, message))
@@ -488,7 +542,7 @@ actor QARunner {
         if machine.verdict == nil {
             var unmet: String?
             for actorID in armed {
-                if let target = drivers[actorID], await target.faultHits() == 0 { unmet = "The network fault was never met, so the branch did not run under its condition." }
+                if let target = lane.drivers[actorID], await target.faultHits() == 0 { unmet = "The network fault was never met, so the branch did not run under its condition." }
             }
             if let unmet { machine.apply(.conditionNotAchieved(unmet)) } else { machine.apply(.allNodesDone) }
         }
@@ -498,15 +552,15 @@ actor QARunner {
     // MARK: Setup tasks
 
     /// Carries out what the person wrote to prepare the application (restore a baseline, bring about a condition), then checks it.
-    private func runSetup(_ branch: QABranch, app: QAApp, establish: String, verify: String, title: String, actor: QAActor? = nil) async -> Outcome {
+    private func runSetup(_ lane: Lane, app: QAApp, establish: String, verify: String, title: String, actor: QAActor? = nil) async -> Outcome {
         let driver: QAActorDriver
-        do { driver = try await session(for: actor, app: app) } catch { return .blocked(.launchFailed, "The application could not be opened: \(describe(error))") }
+        do { driver = try await session(for: actor, app: app, in: lane) } catch { return .blocked(.launchFailed, "The application could not be opened: \(describe(error))") }
         let doing = QAStepTask(id: "setup", kind: .act, title: title, detail: establish, actorName: actor?.name ?? "the test", appName: app.name, allowsHTTP: true)
         let evidence = scenario.appKind == .nativeMacOS ? QAPreparationEvidence() : nil
-        let first = await perform(doing, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally(), capturePreparation: evidence)
+        let first = await perform(doing, lane: lane, node: nil, actor: actor?.id, driver: driver, tally: Tally(), capturePreparation: evidence)
         guard case .done = first else { return first }
         let checking = QAStepTask(id: "setup", kind: .verify, title: "Confirm: \(title.lowercased())", detail: verify, actorName: actor?.name ?? "the test", appName: app.name, allowsHTTP: true)
-        return await perform(checking, branch: branch, node: nil, actor: actor?.id, driver: driver, tally: Tally(), preparationEvidence: evidence?.observations ?? [])
+        return await perform(checking, lane: lane, node: nil, actor: actor?.id, driver: driver, tally: Tally(), preparationEvidence: evidence?.observations ?? [])
     }
 
     private func failure(of outcome: Outcome) -> (reason: QABlockReason, message: String)? {
@@ -519,13 +573,14 @@ actor QARunner {
 
     // MARK: One step: look, ask, do
 
-    private func perform(_ task: QAStepTask, branch: QABranch, node: String?, actor: String?, driver: QAActorDriver, tally: Tally,
+    private func perform(_ task: QAStepTask, lane: Lane, node: String?, actor: String?, driver: QAActorDriver, tally: Tally,
                          branchBefore: QAEffort = QAEffort(), capturePreparation: QAPreparationEvidence? = nil, preparationEvidence: [String] = []) async -> Outcome {
+        let branch = lane.branch
         var history: [QAHistoryItem] = []
         var failed = 0, bad = 0
         var chosen: [String: Int] = [:]
         while true {
-            let boundary = await checkpoint(branch: branch, node: node)
+            let boundary = await checkpoint(lane, node: node)
             if case .interrupted = boundary { return boundary }; if case .jump = boundary { return boundary }
             let observation: QAObservation
             do { observation = try await driver.observe() } catch is CancellationError { return .interrupted } catch {
@@ -534,8 +589,8 @@ actor QARunner {
             capturePreparation?.record(observation)
             let key = actor ?? "setup"
             let signature = QAScreen.signature(address: observation.address, snapshot: observation.snapshot)
-            let isNew = lastScreen[key] != signature
-            lastScreen[key] = signature
+            let isNew = lane.lastScreen[key] != signature
+            lane.lastScreen[key] = signature
             if isNew && node != nil { tally.effort.screens += 1 }
             let png = config.captureFrames ? await driver.screenshot() : nil
             let evidence = (isNew && node != nil && config.measureScreens) ? await driver.measure() : nil
@@ -545,7 +600,7 @@ actor QARunner {
             let decision: QADecision
             do {
                 let answer = try await assistant.decide(system: QAStepPrompt.systemPrompt(scenario.appKind),
-                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: branchContext, branchPlan: QAStepPrompt.branchPlan(scenario: scenario, branch: branch), preparationEvidence: preparationEvidence),
+                                                        prompt: QAStepPrompt.prompt(kind: scenario.appKind, task: task, goal: scenario.goal, history: history, observation: observation, language: language, branchContext: lane.context, branchPlan: QAStepPrompt.branchPlan(scenario: scenario, branch: branch), preparationEvidence: preparationEvidence),
                                                         schema: QAStepPrompt.schema, isolation: self)
                 decision = try QAStepPrompt.parse(answer, kind: scenario.appKind, allowsHTTP: task.allowsHTTP)
             } catch is CancellationError {
@@ -560,7 +615,7 @@ actor QARunner {
             }
             bad = 0
             // A response may arrive after Pause was pressed. Never execute that stale response before checking the control gate.
-            let boundaryAfterAnswer = await checkpoint(branch: branch, node: node)
+            let boundaryAfterAnswer = await checkpoint(lane, node: node)
             if case .interrupted = boundaryAfterAnswer { return boundaryAfterAnswer }
             if case .jump = boundaryAfterAnswer { return boundaryAfterAnswer }
             if case .refresh = boundaryAfterAnswer { continue }
@@ -568,7 +623,7 @@ actor QARunner {
             switch decision.move {
             case .done:
                 if let node {
-                    branchContext.append("Step \(node) · \(task.actorName) · \(task.title)\nLast address: \(observation.address)\n\(QAStepPrompt.progress(history))\nCompletion: \(decision.narration)")
+                    lane.context.append("Step \(node) · \(task.actorName) · \(task.title)\nLast address: \(observation.address)\n\(QAStepPrompt.progress(history))\nCompletion: \(decision.narration)")
                 }
                 note(branch, node, actor, task.kind == .verify ? .observation : .action, line(actor, decision.narration, fallback: task.kind == .verify ? "The expectation holds." : "Done."))
                 return .done
@@ -591,7 +646,7 @@ actor QARunner {
                 note(branch, node, actor, .action, line(actor, decision.narration, fallback: action.summary))
                 var mark = await driver.inputMark(for: action)
                 let before = config.captureInputs ? await driver.screenshot() : nil
-                if config.captureInputs { emit(.input(actor: actor, mark: mark, png: before)) }
+                if config.captureInputs { emit(.input(branch: branch.id, actor: actor, mark: mark, png: before)) }
                 do {
                     let outcome = try await driver.perform(action)
                     failed = 0
@@ -601,7 +656,7 @@ actor QARunner {
                     return .interrupted
                 } catch {
                     mark.failed = true
-                    if config.captureInputs { emit(.input(actor: actor, mark: mark, png: before)) }
+                    if config.captureInputs { emit(.input(branch: branch.id, actor: actor, mark: mark, png: before)) }
                     failed += 1
                     history.append(QAHistoryItem(narration: decision.narration, action: action.summary, result: "failed: \(describe(error))"))
                     if failed >= config.maxFailedActions {
@@ -614,50 +669,48 @@ actor QARunner {
 
     // MARK: Helpers
 
-    private func session(for actor: QAActor?, app: QAApp) async throws -> QAActorDriver {
+    private func session(for actor: QAActor?, app: QAApp, in lane: Lane) async throws -> QAActorDriver {
         guard let address = plan.target?.locations[app.id]?.address(for: scenario.appKind) else { throw QARunnerError.noAddress(app.name) }
         let policy = plan.target?.locations[app.id]?.application?.effectiveStartupPolicy ?? .launch
         // Baseline preparation belongs to the first player using this application in the branch.
         // It must not acquire a second lease before that player's first step.
         let owner: QAActor? = if actor == nil && scenario.appKind == .nativeMacOS && policy == .attach,
-                                 let branch = plan.branches.first(where: { $0.id == activeBranch }),
-                                 let node = branch.nodes.compactMap({ scenario.node($0) }).first(where: { scenario.appID(of: $0) == app.id }),
+                                 let node = lane.branch.nodes.compactMap({ scenario.node($0) }).first(where: { scenario.appID(of: $0) == app.id }),
                                  let id = scenario.actorID(of: node) {
             scenario.actors.first { $0.id == id }
         } else { actor }
         let key = scenario.appKind == .api || (scenario.appKind == .nativeMacOS && policy == .attach)
             ? "\(owner?.id ?? "setup"):\(app.id)" : (owner?.id ?? "setup")
-        if let existing = drivers[key] { return existing }
+        if let existing = lane.drivers[key] { return existing }
         let request = QADriverRequest(actor: owner, app: app, address: address, login: owner?.login, startupPolicy: policy)
         let sessionKey = scenario.appKind == .nativeMacOS && policy == .attach
-            ? "attach|\(scenario.id)|\(plan.target?.id ?? "")|\(address)|\(key)" : activeBranch + "|" + key
+            ? "attach|\(scenario.id)|\(plan.target?.id ?? "")|\(address)|\(key)" : "\(lane.branch.id)|\(key)"
         let created = try await sessions.session(key: sessionKey, request: request, factory: factory)
-        drivers[key] = created
-        if let identity = await created.sessionIdentity(), let branch = plan.branches.first(where: { $0.id == activeBranch }) {
-            note(branch, nil, actor?.id, .preparation, identity)
+        lane.drivers[key] = created
+        if let identity = await created.sessionIdentity() {
+            note(lane.branch, nil, actor?.id, .preparation, identity)
         }
         return created
     }
 
-    private func closeDrivers() async {
-        drivers = [:]
-        lastScreen = [:]
-        if !config.keepSessions { await sessions.close() }
-    }
-
-    /// nil means proceed. A jump is accepted only within the current approved branch, never during preparation.
-    private func checkpoint(branch: QABranch, node: String?) async -> Outcome {
-        var paused = false
+    /// nil means proceed. A jump is accepted only within the branch's own approved steps, never during preparation.
+    private func checkpoint(_ lane: Lane, node: String?) async -> Outcome {
+        let branch = lane.branch
+        var pausedAt: Date?
         let command = await control.checkpoint {
-            paused = true
+            pausedAt = now()
             self.note(branch, node, nil, .observation, "Execution paused.")
-            self.emit(.paused(true))
+            self.emit(.paused(branch: branch.id, true))
         }
-        if paused { note(branch, node, nil, .observation, "Execution resumed."); emit(.paused(false)) }
+        if let pausedAt {
+            lane.paused += now().timeIntervalSince(pausedAt)
+            note(branch, node, nil, .observation, "Execution resumed.")
+            emit(.paused(branch: branch.id, false))
+        }
         switch command {
         case .stop: return .interrupted
-        case .jump(let target): return node != nil && branch.nodes.contains(target) ? .jump(target) : .done
-        case .proceed: return paused ? .refresh : .done
+        case .jump(let target) where node != nil && branch.nodes.contains(target): return .jump(target)
+        case .jump, .proceed: return pausedAt != nil ? .refresh : .done
         }
     }
 
@@ -666,8 +719,22 @@ actor QARunner {
         return scenario.apps.first ?? QAApp(id: "app", name: "Application")
     }
 
-    /// Whether the gate lets this thing be done: nil when it does, otherwise why not. A thing that needs the person's yes asks for it.
+    /// Whether the gate lets this thing be done: nil when it does, otherwise why not. A thing that needs the person's yes asks for it,
+    /// one question at a time: a branch waits for the question before it to be answered, then reads the gate again, because that yes
+    /// may cover its own action as well.
     private func permit(_ id: String) async -> String? {
+        guard case .needsConfirmation = gate.decision(for: id) else { return await answer(id) }
+        do {
+            return try await asking.run {
+                if isStopped { return "The run was stopped." }
+                return await answer(id)
+            }
+        } catch {
+            return "The run was stopped."
+        }
+    }
+
+    private func answer(_ id: String) async -> String? {
         switch gate.decision(for: id) {
         case .allowed: return nil
         case .refused(let message): return message

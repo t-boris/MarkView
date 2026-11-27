@@ -4,8 +4,9 @@ import MarkViewCore
 
 // End-to-End QA (feature end-to-end-qa, REQ-003, REQ-008, REQ-009): the state of a run on screen. It starts the runner, shows what each
 // player's page looks like, keeps the feed of what is happening and what the review finds, asks the person for the yes that production
-// needs, records the video with its subtitles, and saves the run when it ends. The run itself (QARunner) knows nothing of this; it only
-// tells what happens.
+// needs, records the video of each branch with its subtitles, and saves the run when it ends. Branches that run side by side each have
+// their players' pictures and their recording; their results, reviews and findings follow the order of the plan. The run itself
+// (QARunner) knows nothing of this; it only tells what happens.
 
 /// Carries the runner's events, in order, from whatever thread it runs on to the model.
 private final class QAEventSink: QARunObserver {
@@ -37,8 +38,12 @@ final class QARunModel: ObservableObject {
         }
     }
 
+    /// The page of one player of one branch in progress (`tile`).
     struct Player: Identifiable {
         let id: String
+        let branch: String
+        /// The player's id, or `setupPlayer` for the session that prepares data.
+        let actor: String
         var name: String
         var address = ""
         var title = ""
@@ -63,7 +68,6 @@ final class QARunModel: ObservableObject {
 
     private struct ReviewJob {
         var event: QAScreenEvent
-        var number: Int
         /// True for the screen a step ended on; false for a screen shown while the step was still being carried out.
         var endOfStep: Bool
         /// Seconds from the start of the run at which the screen was shown: where it is in the recording, whenever the review ends.
@@ -73,6 +77,16 @@ final class QARunModel: ObservableObject {
     private struct PendingScreen {
         var event: QAScreenEvent
         var shownAt: Double
+    }
+
+    /// The recording of one branch in progress: the latest picture of each of its players and the subtitle that is current.
+    private struct Recording {
+        var writer: QAVideoWriter
+        /// The players shown side by side in its frames.
+        var slots: [String]
+        var start: Date
+        var pictures: [String: CGImage] = [:]
+        var subtitle: String?
     }
 
     static let setupPlayer = "setup"
@@ -86,10 +100,12 @@ final class QARunModel: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var players: [Player] = []
     @Published private(set) var feed: [FeedItem] = []
+    /// In the order of the plan, whichever branch ended first.
     @Published private(set) var results: [QACheckResult] = []
     @Published private(set) var findings: [QAFinding] = []
-    @Published private(set) var currentBranch: String?
-    @Published private(set) var currentNode: String?
+    /// The branches in progress, in the order of the plan, and the step each is at.
+    @Published private(set) var running: [String] = []
+    @Published private(set) var runningNodes: [String: String] = [:]
     @Published private(set) var record: QARunRecord?
     /// The label of every branch of the run, and how many there are.
     @Published private(set) var labels: [String: String] = [:]
@@ -131,38 +147,43 @@ final class QARunModel: ObservableObject {
     private var answer: CheckedContinuation<Bool, Never>?
     private var nextFeedID = 1
     private var reviewCost = 0.0
+    /// True when the run lets its branches run side by side: a player's tile and every line of the feed then name their branch.
+    private var sideBySide = false
+    private var pausedBranches: Set<String> = []
 
     /// Where the bugs of a run are filed (REQ-007). Set by the window that owns the project's bug reports; without it nothing is filed.
     var bugFiler: QABugFiler?
     /// The runs that results outside QA link to; set by the window that owns them. Without it no run is pruned.
     var runLinks: (any QARunLinks)?
 
-    // The review of the screens.
-    private var jobs: AsyncStream<ReviewJob>.Continuation?
+    // The review of the screens. Each branch has its queue, and the queues are reviewed one after another in the order of the plan,
+    // so that every review is told the findings before it and the findings are numbered the same way whichever branch ends first.
+    private var reviewQueues: [String: AsyncStream<ReviewJob>.Continuation] = [:]
+    /// The screens each branch has queued for the review, by signature: a branch never queues one screen twice or more than a run reviews.
+    private var queued: [String: Set<String>] = [:]
+    /// The screens reviewed in the run, by signature: a screen two branches show is reviewed once, in the earlier branch of the plan.
     private var reviewed: Set<String> = []
-    /// The newest new screen of each step in progress. It is reviewed once the next one appears (then it was shown mid-step) or the step
-    /// ends (then it is the screen the step ended on), so the review is told which it is.
+    /// The newest new screen of each step in progress, by `tile(branch, node)`. It is reviewed once the next one appears (then it was
+    /// shown mid-step) or the step ends (then it is the screen the step ended on), so the review is told which it is.
     private var pendingScreen: [String: PendingScreen] = [:]
     private var reviewsMade = 0
 
-    // The recording of the branch in progress.
-    private var writer: QAVideoWriter?
-    private var pictures: [String: CGImage] = [:]
+    // The pictures of the branches in progress, by branch and then player (`setupPlayer` for the preparation).
+    private var recordings: [String: Recording] = [:]
     /// The same screens as taken (PNG) and their numbers in the run, for the viewer.
-    private var screenshots: [String: Data] = [:]
-    private var screenNumbers: [String: Int] = [:]
+    private var screenshots: [String: [String: Data]] = [:]
+    private var screenNumbers: [String: [String: Int]] = [:]
     private var screenCount = 0
-    private var thumbnails: [String: NSImage] = [:]
-    private var slots: [String] = []
-    private var subtitle: String?
-    private var branchStart = Date()
-    private var branchIndex = 0
+    private var thumbnails: [String: [String: NSImage]] = [:]
     private var videoTasks: [Task<Void, Never>] = []
     /// When the recording of each branch began, in seconds from the start of the run: a finding's time is counted from the run's start.
     private var videoStarts: [String: Double] = [:]
 
     var isRunning: Bool { phase == .running }
     var activeRunID: String? { isRunning ? runID : nil }
+    /// The branch in progress when only one is: "Continue from step" picks a step of it, and Cockpit names it.
+    var currentBranch: String? { running.count == 1 ? running.first : nil }
+    var currentNode: String? { currentBranch.flatMap { runningNodes[$0] } }
 
     init() {
         recordVideo = Settings.standard.value(Setting.qaRecordVideo)
@@ -219,9 +240,9 @@ final class QARunModel: ObservableObject {
         phase = .running
         dismissed = false
         runStart = Date()
-        players = scenario.actors.map { Player(id: $0.id, name: $0.name) }
         labels = scenario.displayLabels(for: plan.branches)
         branchCount = plan.branches.count
+        sideBySide = plan.branches.count > 1 && QARunner.branchLimit(scenario: scenario, branches: plan.branches) > 1
         QAStore.prepareLocalFolder(root)
 
         let runID = QAStore.newRunID(at: Date())
@@ -257,12 +278,19 @@ final class QARunModel: ObservableObject {
         let runner = QARunner(scenario: scenario, plan: plan, gate: gate, factory: runnerFactory, assistant: runnerAssistant, runID: runID,
                               confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, observer: sink, config: config, control: control, sessions: sessions)
 
-        let (queue, jobsContinuation) = AsyncStream.makeStream(of: ReviewJob.self)
-        jobs = jobsContinuation
+        var queues: [AsyncStream<ReviewJob>] = []
+        for branch in plan.branches {
+            let (queue, continuation) = AsyncStream.makeStream(of: ReviewJob.self)
+            queues.append(queue)
+            reviewQueues[branch.id] = continuation
+        }
         reviewer = Task { [weak self] in
-            for await job in queue {
-                guard let self else { return }
-                await self.review(job)
+            // A queue ends when its branch has ended; a later branch's screens wait until then.
+            for queue in queues {
+                for await job in queue {
+                    guard let self else { return }
+                    await self.review(job)
+                }
             }
         }
         consumer = Task { [weak self] in
@@ -273,13 +301,13 @@ final class QARunModel: ObservableObject {
             _ = await runner.run()
             continuation.finish()
             await self?.consumer?.value
-            self?.jobs?.finish()
+            self?.finishReviewQueues()
             await self?.reviewer?.value
             await self?.finishRun()
         }
     }
 
-    /// Stops the run: the branch in progress is interrupted and the ones not started stay uncovered.
+    /// Stops the run: the branches in progress are interrupted and the ones not started stay uncovered.
     func stop() {
         control?.stop()
         runTask?.cancel()
@@ -345,13 +373,15 @@ final class QARunModel: ObservableObject {
         filedBugIDs = []
         costUSD = nil
         question = nil
-        currentBranch = nil
-        currentNode = nil
-        pictures = [:]
+        players = []
+        running = []
+        runningNodes = [:]
+        pausedBranches = []
+        recordings = [:]
         thumbnails = [:]
-        writer = nil
-        subtitle = nil
         reviewing = 0
+        reviewQueues = [:]
+        queued = [:]
         reviewed = []
         videoTasks = []
         videoStarts = [:]
@@ -368,81 +398,123 @@ final class QARunModel: ObservableObject {
         case .runStarted:
             break
         case .branchStarted(let branch, _):
-            currentBranch = branch
-            currentNode = nil
-            branchIndex = (plan?.branches.firstIndex { $0.id == branch } ?? 0) + 1
-            branchStart = Date()
-            pictures = [:]
-            screenshots = [:]
-            thumbnails = [:]
-            subtitle = nil
-            players.removeAll { $0.id == Self.setupPlayer }
-            for index in players.indices { players[index].picture = nil; players[index].address = ""; players[index].title = "" }
+            running.insert(branch, at: running.firstIndex { planIndex($0) > planIndex(branch) } ?? running.endIndex)
+            runningNodes[branch] = nil
+            showPlayers(of: branch)
             startVideo(branch)
         case .narration(let entry):
-            subtitle = entry.text
+            recordings[entry.branch]?.subtitle = entry.text
             let key = entry.actor ?? Self.setupPlayer
-            addFeed(time: entry.time, kind: entry.kind, actor: entry.actor, node: entry.node, text: entry.text, picture: thumbnails[key], screenshot: screenshots[key], screen: screenNumbers[key] ?? 0)
-            addFrame()
-        case .paused(let paused):
-            isPaused = paused
+            addFeed(entry.branch, time: entry.time, kind: entry.kind, actor: entry.actor, node: entry.node, text: entry.text, picture: thumbnails[entry.branch]?[key],
+                    screenshot: screenshots[entry.branch]?[key], screen: screenNumbers[entry.branch]?[key] ?? 0)
+            addFrame(entry.branch)
+        case .paused(let branch, let paused):
+            if paused { pausedBranches.insert(branch) } else { pausedBranches.remove(branch) }
+            isPaused = !pausedBranches.isEmpty
             pauseRequested = false
-            subtitle = paused ? "Execution paused" : "Execution resumed"
-            addFrame()
+            recordings[branch]?.subtitle = paused ? "Execution paused" : "Execution resumed"
+            addFrame(branch)
         case .screen(let screen):
             show(screen)
-        case .input(let actor, let mark, let png):
+        case .input(let branch, let actor, let mark, let png):
             let key = actor ?? Self.setupPlayer
-            var shown = pictures
+            var shown = recordings[branch]?.pictures ?? [:]
             if let png, let image = QAFrameComposer.image(from: png) { shown[key] = image }
-            addFrame(input: (key, mark), pictures: shown)
-        case .nodeStarted(_, let node, _, _):
-            currentNode = node
-            players.removeAll { $0.id == Self.setupPlayer }
-        case .nodeFinished(_, let node, let effort):
-            if reviewDepth != .off, var last = pendingScreen.removeValue(forKey: node) {
+            addFrame(branch, input: (key, mark), pictures: shown)
+        case .nodeStarted(let branch, let node, _, _):
+            runningNodes[branch] = node
+            players.removeAll { $0.id == Self.tile(branch, nil) }
+        case .nodeFinished(let branch, let node, let effort):
+            if reviewDepth != .off, var last = pendingScreen.removeValue(forKey: Self.tile(branch, node)) {
                 last.event.stepEffort = effort
                 enqueue(last.event, shownAt: last.shownAt, endOfStep: true)
             }
         case .branchFinished(let result):
-            results.append(result)
-            currentNode = nil
-            finishVideo(result.branch)
+            let branch = result.branch
+            results.insert(result, at: results.firstIndex { planIndex($0.branch) > planIndex(branch) } ?? results.endIndex)
+            running.removeAll { $0 == branch }
+            runningNodes[branch] = nil
+            pausedBranches.remove(branch)
+            isPaused = !pausedBranches.isEmpty
+            pendingScreen = pendingScreen.filter { $0.value.event.branch != branch }
+            finishVideo(branch)
+            reviewQueues[branch]?.finish()
         case .runFinished(let finished):
             record = finished
         }
     }
 
+    /// The id of a player's tile: each branch in progress shows its own players, and the session that prepares data is nobody's.
+    static func tile(_ branch: String, _ actor: String?) -> String { "\(branch)|\(actor ?? setupPlayer)" }
+
+    /// Where a branch is in the plan; a branch the plan does not have comes last.
+    private func planIndex(_ branch: String) -> Int { plan?.branches.firstIndex { $0.id == branch } ?? Int.max }
+
+    /// A branch that starts takes the place of the branches that have ended: their tiles and pictures go, its players' tiles come.
+    private func showPlayers(of branch: String) {
+        players.removeAll { !running.contains($0.branch) }
+        screenshots = screenshots.filter { running.contains($0.key) }
+        thumbnails = thumbnails.filter { running.contains($0.key) }
+        guard let scenario, let found = plan?.branches.first(where: { $0.id == branch }) else { return }
+        for actor in scenario.actors(in: found) {
+            let name = scenario.actors.first { $0.id == actor }?.name ?? actor
+            players.append(Player(id: Self.tile(branch, actor), branch: branch, actor: actor, name: playerName(name, branch)))
+        }
+    }
+
+    private func playerName(_ name: String, _ branch: String) -> String {
+        guard let label = branchLabel(branch) else { return name }
+        return "\(name) · \(label)"
+    }
+
+    /// The label that tells a branch's tiles and feed lines from the other branches' when they run side by side; nil when one runs at a
+    /// time, whose tiles and lines need none.
+    private func branchLabel(_ branch: String) -> String? {
+        guard sideBySide else { return nil }
+        return labels[branch] ?? branch
+    }
+
     private func show(_ screen: QAScreenEvent) {
+        let branch = screen.branch
         let key = screen.actor ?? Self.setupPlayer
-        if screen.actor == nil, !players.contains(where: { $0.id == key }) { players.insert(Player(id: key, name: "Preparation"), at: 0) }
-        guard let index = players.firstIndex(where: { $0.id == key }) else { return }
+        let id = Self.tile(branch, screen.actor)
+        if screen.actor == nil, !players.contains(where: { $0.id == id }) {
+            let first = players.firstIndex { $0.branch == branch } ?? players.endIndex
+            players.insert(Player(id: id, branch: branch, actor: key, name: playerName("Preparation", branch)), at: first)
+        }
+        guard let index = players.firstIndex(where: { $0.id == id }) else { return }
         players[index].address = screen.observation.address
         players[index].title = screen.observation.title
         guard let png = screen.png, let full = QAFrameComposer.image(from: png) else { return }
-        pictures[key] = full
-        screenshots[key] = png
+        recordings[branch]?.pictures[key] = full
+        screenshots[branch, default: [:]][key] = png
         screenCount += 1
-        screenNumbers[key] = screenCount
+        screenNumbers[branch, default: [:]][key] = screenCount
         let thumbnail = QAFrameComposer.thumbnail(from: png)
-        thumbnails[key] = thumbnail
+        thumbnails[branch, default: [:]][key] = thumbnail
         players[index].picture = thumbnail
-        addFrame()
+        addFrame(branch)
         guard screen.isNew, let node = screen.node, reviewDepth != .off else { return }
         let shown = PendingScreen(event: screen, shownAt: max(0, Date().timeIntervalSince(runStart)))
-        if let earlier = pendingScreen.updateValue(shown, forKey: node), reviewDepth == .screens {
+        if let earlier = pendingScreen.updateValue(shown, forKey: Self.tile(branch, node)), reviewDepth == .screens {
             enqueue(earlier.event, shownAt: earlier.shownAt, endOfStep: false)
         }
     }
 
-    private func addFeed(time: Double, kind: QATimelineEntry.Kind, actor: String?, node: String?, text: String, picture: NSImage?, screenshot: Data? = nil,
-                         screen: Int = 0, finding: QAFinding? = nil) {
-        feed.append(FeedItem(id: nextFeedID, time: time, kind: kind, actor: actor, node: node, text: text, picture: picture, screenshot: screenshot, screen: screen, finding: finding))
+    /// A line of the feed. The lines of branches running side by side interleave, so each begins with its branch's label, the one its
+    /// players' tiles carry, to be read in turn and matched to the branch's video.
+    private func addFeed(_ branch: String, time: Double, kind: QATimelineEntry.Kind, actor: String?, node: String?, text: String, picture: NSImage?,
+                         screenshot: Data? = nil, screen: Int = 0, finding: QAFinding? = nil) {
+        let line = branchLabel(branch).map { "\($0) · \(text)" } ?? text
+        feed.append(FeedItem(id: nextFeedID, time: time, kind: kind, actor: actor, node: node, text: line, picture: picture, screenshot: screenshot, screen: screen, finding: finding))
         nextFeedID += 1
     }
 
-    /// The newest screenshot of a player as it was taken, for the viewer; nil before the first one and between branches.
-    func screenshot(ofPlayer id: String) -> Data? { screenshots[id] }
+    /// The newest screenshot of a player's tile as it was taken, for the viewer; nil before the first one and once the tile is gone.
+    func screenshot(ofPlayer id: String) -> Data? {
+        guard let player = players.first(where: { $0.id == id }) else { return nil }
+        return screenshots[player.branch]?[player.actor]
+    }
 
     private func finishRun() async {
         // The last recording is still being closed when the run ends; the bug reports name it.
@@ -461,8 +533,8 @@ final class QARunModel: ObservableObject {
         phase = .finished
         isPaused = false
         pauseRequested = false
-        currentBranch = nil
-        currentNode = nil
+        running = []
+        runningNodes = [:]
     }
 
     // MARK: The bugs of the run (REQ-007)
@@ -516,25 +588,34 @@ final class QARunModel: ObservableObject {
     // MARK: The review of the screens (REQ-008)
 
     private func enqueue(_ screen: QAScreenEvent, shownAt: Double, endOfStep: Bool) {
-        guard reviewsMade < Self.maxReviews, screen.png != nil else { return }
+        guard screen.png != nil, let queue = reviewQueues[screen.branch], queued[screen.branch, default: []].count < Self.maxReviews else { return }
         let signature = QAScreen.signature(address: screen.observation.address, snapshot: screen.observation.snapshot)
-        guard reviewed.insert(signature).inserted else { return }
-        reviewsMade += 1
+        guard queued[screen.branch, default: []].insert(signature).inserted else { return }
         reviewing += 1
-        jobs?.yield(ReviewJob(event: screen, number: reviewsMade, endOfStep: endOfStep, shownAt: shownAt))
+        queue.yield(ReviewJob(event: screen, endOfStep: endOfStep, shownAt: shownAt))
+    }
+
+    private func finishReviewQueues() {
+        for queue in reviewQueues.values { queue.finish() }
     }
 
     private func review(_ job: ReviewJob) async {
         defer { reviewing -= 1 }
-        guard !Task.isCancelled, let scenario, let root, let png = job.event.png else { return }
         let screen = job.event
+        // The cap and the screens shown before are counted here, in the order of the plan, so the run reviews the same screens and
+        // numbers their frames the same way whichever branch ended first.
+        let signature = QAScreen.signature(address: screen.observation.address, snapshot: screen.observation.snapshot)
+        guard reviewsMade < Self.maxReviews, reviewed.insert(signature).inserted else { return }
+        reviewsMade += 1
+        let number = reviewsMade
+        guard !Task.isCancelled, let scenario, let root, let png = screen.png else { return }
         guard let node = screen.node.flatMap({ scenario.node($0) }), let app = scenario.app(scenario.appID(of: node) ?? "") else { return }
         let actorName = screen.actor.flatMap { id in scenario.actors.first { $0.id == id }?.name } ?? "the user"
         let input = QAReviewInput(app: app, node: node, actorName: actorName, screenAddress: screen.observation.address, screenTitle: screen.observation.title,
                                   snapshot: screen.observation.snapshot, effort: screen.stepEffort, branchEffort: screen.branchEffort, evidence: screen.evidence,
                                   alreadyReported: findings.map(\.title), endOfStep: job.endOfStep, language: QALanguage.name(of: scenario))
         let folder = QAStore.runFolder(root, runID: runID)
-        let relative = "frames/\(job.number).png"
+        let relative = "frames/\(number).png"
         let file = folder.appendingPathComponent(relative)
         let written = await Task.detached(priority: .utility) { () -> Bool in
             do {
@@ -560,8 +641,9 @@ final class QARunModel: ObservableObject {
                 found[index].frame = relative
                 found[index].time = at
                 found[index].app = app.id
+                found[index].branch = screen.branch
                 findings.append(found[index])
-                addFeed(time: at, kind: .observation, actor: screen.actor, node: screen.node, text: found[index].title, picture: picture, screenshot: png,
+                addFeed(screen.branch, time: at, kind: .observation, actor: screen.actor, node: screen.node, text: found[index].title, picture: picture, screenshot: png,
                         screen: -(findings.count), finding: found[index])
             }
         } catch is CancellationError {
@@ -574,39 +656,46 @@ final class QARunModel: ObservableObject {
     // MARK: The video (REQ-009)
 
     private func startVideo(_ branch: String) {
-        writer = nil
-        guard recordVideo, let root, let scenario, scenario.appKind != .api, let plan, let found = plan.branches.first(where: { $0.id == branch }) else { return }
-        slots = scenario.actors(in: found)
+        guard recordVideo, let root, let scenario, scenario.appKind != .api, let plan, let index = plan.branches.firstIndex(where: { $0.id == branch }) else { return }
+        var slots = scenario.actors(in: plan.branches[index])
         if slots.isEmpty { slots = [Self.setupPlayer] }
         let size = QAFrameComposer.pictureSize(players: slots.count)
-        let url = QAStore.runFolder(root, runID: runID).appendingPathComponent("branch-\(branchIndex).mp4")
+        // Numbered by the branch's place in the plan, as the run's report looks for it (QARunArchive).
+        let url = QAStore.runFolder(root, runID: runID).appendingPathComponent("branch-\(index + 1).mp4")
+        let start = Date()
         do {
-            writer = try QAVideoWriter(url: url, pictureSize: size)
-            videoStarts[branch] = branchStart.timeIntervalSince(runStart)
+            recordings[branch] = Recording(writer: try QAVideoWriter(url: url, pictureSize: size), slots: slots, start: start)
+            videoStarts[branch] = start.timeIntervalSince(runStart)
         } catch { notice = "The video could not be started: \(error.localizedDescription)" }
     }
 
-    /// The latest pictures of the players, side by side, with the subtitle that is current, at this second of the branch.
-    private func addFrame(input: (String, QAInputMark)? = nil, pictures source: [String: CGImage]? = nil) {
-        guard let writer else { return }
-        let pictures = source ?? self.pictures
+    /// The latest pictures of a branch's players, side by side, with the subtitle that is current, at this second of the branch.
+    private func addFrame(_ branch: String, input: (String, QAInputMark)? = nil, pictures source: [String: CGImage]? = nil) {
+        guard let recording = recordings[branch] else { return }
+        let slots = recording.slots
+        let pictures = source ?? recording.pictures
         var shown = slots.map { pictures[$0] }
         // The session that prepares data is nobody's: it takes the first player's place until the steps begin.
         if let setup = pictures[Self.setupPlayer], !shown.isEmpty, shown[0] == nil { shown[0] = setup }
         var marks: [Int: QAInputMark] = [:]
         if let (key, mark) = input, let index = key == Self.setupPlayer ? (shown.isEmpty ? nil : 0) : slots.firstIndex(of: key) { marks[index] = mark }
-        let names = slots.map { id in players.first { $0.id == id }?.name ?? id }
+        let names = slots.map(videoName)
         guard let composed = QAFrameComposer.compose(shown, marks: marks, names: names) else { return }
-        do { try writer.append(composed, at: max(0, Date().timeIntervalSince(branchStart)), subtitle: subtitle,
-                               minimumDuration: input == nil ? 0 : 0.75) } catch {
+        do { try recording.writer.append(composed, at: max(0, Date().timeIntervalSince(recording.start)), subtitle: recording.subtitle,
+                                         minimumDuration: input == nil ? 0 : 0.75) } catch {
             notice = "The video stopped: \(error.localizedDescription)"
-            self.writer = nil
+            recordings[branch] = nil
         }
     }
 
+    /// The name a player has in a branch's video, which is the branch's own: without the branch's name that its tile may carry.
+    private func videoName(_ id: String) -> String {
+        if id == Self.setupPlayer { return "Preparation" }
+        return scenario?.actors.first { $0.id == id }?.name ?? id
+    }
+
     private func finishVideo(_ branch: String) {
-        guard let writer else { return }
-        self.writer = nil
+        guard let writer = recordings.removeValue(forKey: branch)?.writer else { return }
         let task = Task { [weak self] in
             do {
                 let url = try await writer.finish()

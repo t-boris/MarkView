@@ -4,9 +4,9 @@ import MarkViewCore
 #endif
 
 // End-to-End QA (feature end-to-end-qa, DEC-010): the bug reports a run asks for. A failed, blocked or interrupted check gets one bug
-// each, whatever the cause; a finding of the step-by-step review gets one only when it is a defect, and a suggestion stays in the run
-// report. This file is the pure mapping from a run to the reports (nothing is written here); QABugFiler.swift files them. Foundation
-// only; checked on its own by tools/tests/qa-bugs-tests.sh.
+// each, whatever the cause, except that one Stop is one bug however many branches it interrupted; a finding of the step-by-step review
+// gets one only when it is a defect, and a suggestion stays in the run report. This file is the pure mapping from a run to the reports
+// (nothing is written here); QABugFiler.swift files them. Foundation only; checked on its own by tools/tests/qa-bugs-tests.sh.
 
 /// A picture of the run to copy beside a bug report: a screen a finding is about.
 struct QABugPicture: Equatable, Sendable {
@@ -21,6 +21,8 @@ struct QABugCandidate: Equatable, Identifiable, Sendable {
     enum Origin: Equatable, Sendable {
         /// A branch of the run that failed, was blocked or was interrupted.
         case check(branch: String, outcome: QAOutcome)
+        /// The person stopped the run while these branches were in progress, in the order they were selected.
+        case stop(branches: [String])
         /// A finding of the review that is a defect.
         case finding(id: String)
     }
@@ -39,8 +41,11 @@ struct QABugCandidate: Equatable, Identifiable, Sendable {
 
     /// The outcome of the check; nil for a finding.
     var outcome: QAOutcome? {
-        if case .check(_, let outcome) = origin { return outcome }
-        return nil
+        switch origin {
+        case .check(_, let outcome): return outcome
+        case .stop: return .interrupted
+        case .finding: return nil
+        }
     }
 
     var branch: String? {
@@ -75,17 +80,24 @@ enum QABugDrafts {
     // MARK: Mapping
 
     /// The bug reports of a run, in the order they are told: the checks in the order they were selected, then the defect findings in
-    /// the order they were noticed. Passed, uncovered and not yet checked branches and suggestions give none. `videos` are the
-    /// recordings on this Mac by branch id (`.dde/` is not committed, so the report names the file and does not link it); `runFolder` is
-    /// where the findings' frames are.
+    /// the order they were noticed. Passed, uncovered and not yet checked branches and suggestions give none. The branches one Stop
+    /// interrupted share one report, told where the first of them is. `videos` are the recordings on this Mac by branch id (`.dde/` is
+    /// not committed, so the report names the file and does not link it); `runFolder` is where the findings' frames are.
     static func drafts(run: QARunRecord, scenario: QAScenario, findings: [QAFinding], videos: [String: QABugVideo], runFolder: URL?, now: Date) -> [QABugCandidate] {
         let context = Context(run: run, scenario: scenario, findings: findings, videos: videos, runFolder: runFolder, now: now)
         var candidates: [QABugCandidate] = []
         var seen = Set<String>()
-        for branch in run.selected {
-            guard let result = run.results.first(where: { $0.branch == branch }), result.verdict.outcome.createsBug,
-                  let prefix = result.verdict.outcome.bugTitlePrefix else { continue }
-            let candidate = context.check(result, prefix: prefix)
+        let checked = run.selected.compactMap { branch in run.results.first { $0.branch == branch } }
+        let stopped = checked.filter { $0.verdict.outcome == .interrupted && $0.verdict.interruption == .stoppedByUser }
+        for result in checked {
+            guard result.verdict.outcome.createsBug, let prefix = result.verdict.outcome.bugTitlePrefix else { continue }
+            let candidate: QABugCandidate
+            if stopped.count > 1, stopped.contains(where: { $0.branch == result.branch }) {
+                guard result.branch == stopped.first?.branch else { continue }
+                candidate = context.stop(stopped, prefix: prefix)
+            } else {
+                candidate = context.check(result, prefix: prefix)
+            }
             if seen.insert(candidate.key).inserted { candidates.append(candidate) }
         }
         for finding in findings where finding.isDefect {
@@ -100,6 +112,9 @@ enum QABugDrafts {
     static func key(run: String, branch: String) -> String { "\(run):\(component(branch))" }
 
     static func key(run: String, finding: String) -> String { "\(run):finding:\(component(finding))" }
+
+    /// The key of the bug of one Stop: its two colons keep it apart from the key of a branch's check.
+    static func key(run: String, stopped branches: [String]) -> String { "\(run):stopped:\(component(branches.joined(separator: ",")))" }
 
     /// Severity of the bug of a check: a check that did not hold is the product's fault, a blocked or interrupted one is not (yet).
     static func severity(of outcome: QAOutcome) -> String {
@@ -226,7 +241,7 @@ enum QABugDrafts {
             let outcome = verdict.outcome
             let branch = QABranch(nodes: result.branch.split(separator: ">").map(String.init))
             let label = branchLabel(branch, id: result.branch)
-            let related = findings.filter { finding in finding.node.map { branch.nodes.contains($0) } ?? false }
+            let related = findings.filter { seen($0, in: branch) }
             let target = targetText()
 
             let summary = "End-to-End QA run \(code(run.id)) against \(target): the branch \"\(line(label, 120))\" of the scenario "
@@ -255,7 +270,7 @@ enum QABugDrafts {
             if let interruption = verdict.interruption { details.append("- Interruption: \(words(interruption))") }
             if let node = verdict.node { details.append("- Step: \(stepName(node))") }
             let video = videos[result.branch]
-            details += runLines(video: video)
+            details += runLines(videos: [(nil, video)])
 
             let title = titled(prefix, label, shortReason(verdict))
             let body = document(title: title, [
@@ -265,11 +280,67 @@ enum QABugDrafts {
                 ("Actual", actual.joined(separator: "\n\n")),
                 ("Environment", environment(apps: scenario.apps(in: branch))),
                 ("QA run", details.joined(separator: "\n")),
-                ("Findings", findingList(related, video: video)),
+                ("Findings", findingList(related) { _ in video }),
             ])
             return QABugCandidate(key: QABugDrafts.key(run: run.id, branch: result.branch), origin: .check(branch: result.branch, outcome: outcome),
                                   runID: run.id, title: title, severity: QABugDrafts.severity(of: outcome),
                                   body: body, pictures: pictures(of: related))
+        }
+
+        /// The one bug of a Stop that interrupted several branches at once: the person stopped the run once, so the report names every
+        /// branch that was in progress and where each was.
+        func stop(_ results: [QACheckResult], prefix: String) -> QABugCandidate {
+            let branches = results.map { QABranch(nodes: $0.branch.split(separator: ">").map(String.init)) }
+            let ids = results.map(\.branch)
+            let related = findings.filter { finding in branches.contains { seen(finding, in: $0) } }
+            let title = "\(prefix): \(results.count) branches — \(words(QAInterruption.stoppedByUser))"
+            let summary = "End-to-End QA run \(code(run.id)) against \(targetText()): the person stopped the run while \(results.count) branches of the scenario "
+                + "\"\(line(scenario.title, 120))\" were in progress."
+            var stopped: [String] = []
+            var videos: [(String?, QABugVideo?)] = []
+            var apps: [String] = []
+            for (path, result) in zip(branches, results) {
+                let label = line(branchLabel(path, id: result.branch), 120)
+                var entry = "- \(label) (\(code(result.branch)))"
+                if let node = result.steps.last?.node { entry += ", at the step \(stepName(node))" }
+                stopped.append(entry)
+                videos.append((label, self.videos[result.branch]))
+                for app in scenario.apps(in: path) where !apps.contains(app) { apps.append(app) }
+            }
+            var details = [
+                "- Scenario: \(line(scenario.title, 120)) (\(code(scenario.id)))",
+                "- Outcome: \(QAOutcome.interrupted.label)",
+                "- Interruption: \(words(QAInterruption.stoppedByUser))",
+            ]
+            details += runLines(videos: videos)
+            let body = document(title: title, [
+                ("Summary", summary),
+                ("Interrupted branches", stopped.joined(separator: "\n")),
+                ("Expected", "Each check runs through every step of its branch and reaches a verdict."),
+                ("Actual", "The checks were stopped (\(words(QAInterruption.stoppedByUser)))."),
+                ("Environment", environment(apps: apps)),
+                ("QA run", details.joined(separator: "\n")),
+                ("Findings", findingList(related) { self.videos[branch(of: $0)?.id ?? ""] }),
+            ])
+            return QABugCandidate(key: QABugDrafts.key(run: run.id, stopped: ids), origin: .stop(branches: ids), runID: run.id, title: title,
+                                  severity: QABugDrafts.severity(of: .interrupted), body: body, pictures: pictures(of: related))
+        }
+
+        /// Whether a finding was seen in a branch: the branch it names, or, in a run written before findings named their branch, any
+        /// branch with its step.
+        private func seen(_ finding: QAFinding, in branch: QABranch) -> Bool {
+            if let id = finding.branch { return id == branch.id }
+            guard let node = finding.node else { return false }
+            return branch.nodes.contains(node)
+        }
+
+        /// The branch whose screen a finding was: the one it names, or, in a run written before findings named their branch, the first
+        /// selected branch with its step.
+        private func branch(of finding: QAFinding) -> QABranch? {
+            let selected = run.selected.map { QABranch(nodes: $0.split(separator: ">").map(String.init)) }
+            if let id = finding.branch { return selected.first { $0.id == id } }
+            guard let node = finding.node else { return nil }
+            return selected.first { $0.nodes.contains(node) }
         }
 
         private func titled(_ prefix: String, _ label: String, _ reason: String) -> String {
@@ -297,9 +368,7 @@ enum QABugDrafts {
 
         func defect(_ finding: QAFinding) -> QABugCandidate {
             let title = "\(defectTitlePrefix): \(short(finding.title.isEmpty ? finding.kind.rawValue : finding.title, 120))"
-            let covering = finding.node.flatMap { node in
-                run.selected.map { QABranch(nodes: $0.split(separator: ">").map(String.init)) }.first { $0.nodes.contains(node) }
-            }
+            let covering = branch(of: finding)
             var reproduction: [String] = []
             if let covering, let node = finding.node {
                 reproduction = steps(of: covering, upTo: node, marking: node, as: nil)
@@ -314,7 +383,7 @@ enum QABugDrafts {
             if let node = finding.node { details.append("- Step: \(stepName(node))") }
             let video = covering.flatMap { videos[$0.id] }
             if let time = videoTime(finding, video) { details.append("- At \(String(format: "%.1f", time)) s of the video") }
-            details += runLines(video: video)
+            details += runLines(videos: [(nil, video)])
 
             let detail = line(finding.detail, 1_500)
             let body = document(title: title, [
@@ -329,8 +398,9 @@ enum QABugDrafts {
                                   title: title, severity: finding.severity.rawValue, body: body, pictures: pictures(of: [finding]))
         }
 
-        private func findingList(_ list: [QAFinding], video: QABugVideo?) -> String {
-            var lines = list.prefix(maxListedFindings).flatMap { findingEntry($0, video: video) }
+        /// The findings, each with its time in the recording `video` gives for it.
+        private func findingList(_ list: [QAFinding], video: (QAFinding) -> QABugVideo?) -> String {
+            var lines = list.prefix(maxListedFindings).flatMap { findingEntry($0, video: video($0)) }
             if list.count > maxListedFindings { lines.append("- … and \(list.count - maxListedFindings) more in the run report.") }
             return lines.joined(separator: "\n")
         }
@@ -430,10 +500,13 @@ enum QABugDrafts {
             return code(line(parts.string ?? "", 200))
         }
 
-        private func runLines(video: QABugVideo?) -> [String] {
+        /// The run, and the recordings: one unnamed, or one for each branch of a report about several.
+        private func runLines(videos: [(branch: String?, video: QABugVideo?)]) -> [String] {
             var lines = ["- Run: \(code(run.id)), started \(iso(run.startedAt))" + (run.finishedAt.map { ", finished \(iso($0))" } ?? ", not finished")]
-            if let path = video?.path, !path.isEmpty {
-                lines.append("- Video (a file on this Mac: `.dde/` is not committed): \(code(path))")
+            for (branch, video) in videos {
+                guard let path = video?.path, !path.isEmpty else { continue }
+                let of = branch.map { " of \"\($0)\"" } ?? ""
+                lines.append("- Video\(of) (a file on this Mac: `.dde/` is not committed): \(code(path))")
             }
             lines.append("- Reported: \(iso(now))")
             return lines
