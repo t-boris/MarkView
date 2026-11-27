@@ -685,3 +685,73 @@ extension EditorHostTests {
         XCTAssertLessThanOrEqual(peak, CLICompletion.sideBySide, "never more than CLICompletion.sideBySide at once")
     }
 }
+
+/// The assistant's side of applying settlements: names the requirements and the overview a decision changes, then holds every
+/// rewrite until all of them are with it (or a few seconds have passed), so an apply that waits for some rewrites before it starts
+/// others never has them all in flight.
+private actor SettlementAssistant {
+    private var running = 0
+    private(set) var peak = 0
+    private(set) var rewrites: [String] = []
+    let slug: String
+    let expected: Int
+    init(slug: String, expected: Int) { self.slug = slug; self.expected = expected }
+
+    func run(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        if request.label == "apply:" + slug {
+            let changes: [[String: Any]] = [["id": "DEC-001", "requirements": ["REQ-001", "REQ-002", "OVERVIEW"]]]
+            return try CLICompletion.Result(text: "", structured: ["changes": changes], inputTokens: 1, outputTokens: 1, costUSD: nil)
+        }
+        rewrites.append(request.label)
+        running += 1
+        peak = max(peak, running)
+        for _ in 0..<150 where running < expected { try await Task.sleep(nanoseconds: 20_000_000) }
+        running -= 1
+        let object: [String: Any] = request.label.hasPrefix("apply:overview:")
+            ? ["edits": []]
+            : ["statement": "Settled by DEC-001 (\(request.label)).", "acceptance_criteria": ["It follows DEC-001."]]
+        return try CLICompletion.Result(text: "", structured: object, inputTokens: 1, outputTokens: 1, costUSD: nil)
+    }
+}
+
+extension EditorHostTests {
+    /// A settlement rewrites every requirement and the overview it changes at the same time: none of the rewrites reads another's
+    /// answer, so the overview does not wait for the requirements.
+    @MainActor func testApplyingASettlementRewritesRequirementsAndOverviewSideBySide() async throws {
+        let suiteName = "feature-apply-host-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-apply-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = FeatureStore(settings: Settings(defaults))
+        store.setup(root: root)
+        store.reloadSync()
+        defer { store.reset() }
+        let slug = try XCTUnwrap(store.createFeature(title: "Export", idea: "Export the report"))
+        for title in ["Export as PDF", "Export as CSV"] {
+            store.create(.requirement, in: slug, title: title,
+                         body: "## Statement\n\nThe old text.\n\n## Acceptance Criteria\n\n- [ ] The old criterion.\n", provenance: "test")
+        }
+        store.create(.decision, in: slug, title: "Exports run in the background", body: "## Decision\n\nExports run in the background.\n",
+                     provenance: "test")
+        store.reloadSync()
+        let feature = try XCTUnwrap(store.feature(slug))
+        XCTAssertEqual(feature.list(.requirement).map(\.id).sorted(), ["REQ-001", "REQ-002"])
+        XCTAssertEqual(feature.settlementsToApply.map(\.id), ["DEC-001"])
+        let assistant = SettlementAssistant(slug: slug, expected: 3)
+        AIAssistantRunner.setTestRunner { request, _, _ in try await assistant.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+
+        await store.assistant.applyDecisions(slug)
+
+        let rewrites = await assistant.rewrites, peak = await assistant.peak
+        XCTAssertEqual(rewrites.sorted(), ["apply:REQ-001", "apply:REQ-002", "apply:overview:" + slug])
+        XCTAssertEqual(peak, 3, "both requirements and the overview are rewritten at the same time")
+        let applied = try XCTUnwrap(store.feature(slug))
+        for id in ["REQ-001", "REQ-002"] {
+            XCTAssertEqual(applied.object(id)?.section("Statement"), "Settled by DEC-001 (apply:\(id)).", "\(id) holds its own rewrite")
+        }
+        XCTAssertFalse(applied.object("DEC-001")?.front.string("applied").isEmpty ?? true, "the decision is marked applied")
+    }
+}

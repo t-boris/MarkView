@@ -43,7 +43,6 @@
 1 MarkView/Models/Lifecycle/WorkflowTemplateLibrary.swift
 1 MarkView/Models/ProjectOps/ProjectOperationDiscovery.swift
 1 MarkView/Models/ProjectOps/ProjectOperationsStore.swift
-1 MarkView/Models/Prototype/PrototypeAI.swift
 1 MarkView/Models/Prototype/PrototypeExport.swift
 1 MarkView/Models/Prototype/PrototypeHandoff.swift
 2 MarkView/Models/Prototype/PrototypePlan.swift

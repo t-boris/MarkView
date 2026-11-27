@@ -27,7 +27,18 @@ enum PrototypeAssistantFixture {
             efforts[label] = effort
             calls[label, default: 0] += 1
         }
-        func reset() { labels = []; prompts = [:]; systems = [:]; efforts = [:]; calls = [:] }
+        /// The shell's two files rebuilt in parts: how many first parts ran at the same time.
+        var shellFilesRunning = 0
+        var shellFilesPeak = 0
+        func reset() { labels = []; prompts = [:]; systems = [:]; efforts = [:]; calls = [:]; shellFilesRunning = 0; shellFilesPeak = 0 }
+        /// Holds the first part of a shell file until the other file's first part runs too (or two seconds have passed), so a
+        /// build that writes the files one after another never has both in flight.
+        func shellFilePart() async throws {
+            shellFilesRunning += 1
+            shellFilesPeak = max(shellFilesPeak, shellFilesRunning)
+            defer { shellFilesRunning -= 1 }
+            for _ in 0..<100 where shellFilesRunning < 2 { try await Task.sleep(nanoseconds: 20_000_000) }
+        }
         func set(variant: String) { self.variant = variant }
     }
     static let audit = Audit()
@@ -61,6 +72,9 @@ enum PrototypeAssistantFixture {
         if variant.hasPrefix("fragments") {
             if let range = request.label.range(of: ":part:") {
                 let path = String(request.label[range.upperBound...].split(separator: ":")[0])
+                if request.label.hasPrefix("prototype:foundation:shell:part:"), request.label.hasSuffix(":1") {
+                    try await audit.shellFilePart()
+                }
                 let line = String(request.prompt.split(separator: "\n").last ?? "")
                 let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: String])
                 let prefix = try XCTUnwrap(saved["content"])

@@ -74,6 +74,16 @@ extension WorkspaceManager {
                                        onStage: { handle.stage($0) }, record: jobRecorder)
     }
 
+    /// The diagram of one audit document, drawn from its brief; nil when the plan asks for none or the call fails (the document
+    /// is written without it).
+    private nonisolated static func auditDiagram(for doc: AuditPlan.Doc, name: String, root: URL, language: String,
+                                                 record: @escaping @Sendable (CLICompletion.Result) -> Void) async -> DiagramSpec? {
+        guard let kind = DiagramKind(rawValue: doc.diagram) else { return nil }
+        let prompt = DiagramAI.prompt(kind: kind, instruction: "The diagram illustrates this document: \(doc.brief)",
+                                      sources: [], root: root) + language
+        return try? await DiagramAI.generate(prompt: prompt, root: root, label: "audit:diagram:\(name)", onStage: { _ in }, record: record)
+    }
+
     private nonisolated static func runMarkdownCall(root: URL, system: String, prompt: String, label: String, effort: String = "medium",
                                                     onStage: @escaping @Sendable (String) -> Void,
                                                     record: @escaping @Sendable (CLICompletion.Result) -> Void) async throws -> String {
@@ -262,6 +272,9 @@ extension WorkspaceManager {
                 func enqueue(_ item: AuditWork) {
                     group.addTask {
                         try Task.checkCancellation()
+                        // The diagram is drawn from the document's brief, not from its text, so both calls run at once.
+                        async let diagram = Self.auditDiagram(for: item.doc, name: item.name, root: root, language: language,
+                                                              record: jobRecorder)
                         var text = try await Self.runMarkdownCall(
                             root: root,
                             system: Self.writerSystem,
@@ -278,13 +291,8 @@ extension WorkspaceManager {
                             label: "audit:\(item.name)",
                             onStage: { _ in },
                             record: jobRecorder)
-                        if let kind = DiagramKind(rawValue: item.doc.diagram) {
-                            let prompt = DiagramAI.prompt(kind: kind, instruction: "The diagram illustrates this document: \(item.doc.brief)",
-                                                          sources: [], root: root) + language
-                            if let spec = try? await DiagramAI.generate(prompt: prompt, root: root, label: "audit:diagram:\(item.name)",
-                                                                        onStage: { _ in }, record: jobRecorder) {
-                                text += "\n\n## Diagram\n\n**Question:** \(spec.question)\n\n```mermaid\n\(DiagramAI.mermaid(spec))\n```\n"
-                            }
+                        if let spec = await diagram {
+                            text += "\n\n## Diagram\n\n**Question:** \(spec.question)\n\n```mermaid\n\(DiagramAI.mermaid(spec))\n```\n"
                         }
                         let url = outDir.appendingPathComponent(item.name)
                         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -86,7 +86,13 @@ final class BookPDFExportModel: ObservableObject {
         isBusy = true; error = nil; savedURL = nil; progress = 0; status = "Preparing chapters and illustrations…"
         task = Task {
             defer { isBusy = false; renderer = nil; task = nil }
+            // The export's own copy: the title and labels calls below read it while the chapters are rewritten.
+            let options = options
             do {
+                // The cover title and the labels need only the options and the chapters' text: their calls run while the chapters
+                // are prepared and rewritten.
+                async let coverTitle = translatedTitle(options: options)
+                async let labelsCall = bookLabels(options: options, chapters: chapters)
                 let renderer = try BookPDFRenderer(); self.renderer = renderer
                 let prepared = try await renderer.prepare(chapters, options: options)
                 let originalWords = try await renderer.proseWords()
@@ -102,24 +108,9 @@ final class BookPDFExportModel: ObservableObject {
                     }
                 }
                 var renderedOptions = options
-                if options.language != "document" {
-                    status = "Translating the book title…"
-                    var request = CLICompletion.Request(project: project, prompt: options.title,
-                        systemPrompt: "Translate this book title into \(options.language). Preserve proper names and identifiers. Return JSON with only the text field; do not add commentary.",
-                        jsonSchema: BookPDFTransform.schema)
-                    request.label = "pdf-book:cover-title"; request.effort = "low"
-                    let (title, _) = try await AIOperation<CLICompletion.Request, String>(
-                        name: "pdf-book:cover-title",
-                        parse: { result in
-                            guard let title = (result.structured as? [String: Any])?["text"] as? String,
-                                  !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BookPDFError.invalid("The book title could not be translated.") }
-                            return title
-                        },
-                        onResult: { [database] result in result.record(in: database) }).execute(request)
-                    renderedOptions.title = title
-                }
+                if let title = try await coverTitle { renderedOptions.title = title }
                 let finalWords = try await renderer.proseWords()
-                let labels = try await bookLabels(options: options, chapters: chapters)
+                let labels = try await labelsCall
                 status = "Typesetting the cover, contents, tables and chapters…"; progress = 0.68
                 let output = try await renderer.render(options: renderedOptions, labels: labels) { [weak self] page, count in
                     self?.status = "Rendering page \(page) of \(count)…"; self?.progress = 0.7 + 0.29 * Double(page) / Double(count)
@@ -137,6 +128,24 @@ final class BookPDFExportModel: ObservableObject {
     }
 
     func cancel() { if isBusy { status = "Stopping export…" }; task?.cancel(); renderer?.cancel() }
+
+    /// The book title in the export's language; nil when the book keeps the language of its documents.
+    private func translatedTitle(options: BookPDFOptions) async throws -> String? {
+        guard options.language != "document" else { return nil }
+        var request = CLICompletion.Request(project: project, prompt: options.title,
+            systemPrompt: "Translate this book title into \(options.language). Preserve proper names and identifiers. Return JSON with only the text field; do not add commentary.",
+            jsonSchema: BookPDFTransform.schema)
+        request.label = "pdf-book:cover-title"; request.effort = "low"
+        let (title, _) = try await AIOperation<CLICompletion.Request, String>(
+            name: "pdf-book:cover-title",
+            parse: { result in
+                guard let title = (result.structured as? [String: Any])?["text"] as? String,
+                      !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BookPDFError.invalid("The book title could not be translated.") }
+                return title
+            },
+            onResult: { [database] result in result.record(in: database) }).execute(request)
+        return title
+    }
 
     private func bookLabels(options: BookPDFOptions, chapters: [BookPDFChapter]) async throws -> [String: String] {
         let language = options.language == "document" ? BookPDFLabels.detectedLanguage(of: chapters.map(\.text).joined(separator: "\n"))
