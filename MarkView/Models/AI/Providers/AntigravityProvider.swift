@@ -17,6 +17,9 @@ struct AntigravityProvider: AssistantProvider {
     let continueArgs = ["--continue"]
     let terminalIcon = "wand.and.stars"
     let canSearchWeb = true
+    let fixesBugsAsGoal = true
+    /// `/goal`: "Run until the specified goal is completely finished" (agy 1.5.18; its changelog removed the goal's run limit).
+    func goalPrompt(_ objective: String, closing: String) -> String { "/goal \(objective)" }
     var launchCapabilities: AgentLaunchCapabilities {
         // `agy --settings` enforces `read_url(*)` deny at CLI level; `search_web` has no separate permission action in agy 1.5.17.
         AgentLaunchCapabilities(

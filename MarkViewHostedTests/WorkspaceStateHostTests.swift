@@ -1998,12 +1998,17 @@ extension EditorHostTests {
         check("codex feature prompt is a /goal", HandoffPrompt.feature(path, tool: CLITool(rawValue: "codex")!).hasPrefix("/goal "))
         check("copilot feature prompt is an autopilot objective", HandoffPrompt.feature(path, tool: CLITool(rawValue: "copilot")!).hasPrefix("/autopilot "))
         check("cline feature prompt sets a task goal", HandoffPrompt.feature(path, tool: CLITool(rawValue: "cline")!).hasPrefix("Goal for this Cline task:"))
-        check("claude bug prompt is a /goal", HandoffPrompt.bug("x.md", tool: CLITool(rawValue: "claude")!).hasPrefix("/goal fix the bug"))
+        check("antigravity feature prompt is a /goal", HandoffPrompt.feature(path, tool: CLITool(rawValue: "antigravity")!).hasPrefix("/goal "))
+        // Fix with AI: every assistant with a goal command gets the bug as its goal; one without (Cline) the plain request.
+        for (name, command) in [("claude", "/goal "), ("codex", "/goal "), ("antigravity", "/goal "), ("copilot", "/autopilot ")] {
+            check("\(name) bug prompt is \(command)fix the bug", HandoffPrompt.bug("x.md", tool: CLITool(rawValue: name)!).hasPrefix(command + "fix the bug"))
+        }
+        check("cline bug prompt is the plain request", HandoffPrompt.bug("x.md", tool: CLITool(rawValue: "cline")!).hasPrefix("Fix the bug described in x.md"))
         // A goal of the person's own words, for markview_agent_send.
         check("claude goal is /goal <text>", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "claude")!) == "/goal tests pass")
         check("codex goal is /goal <text>", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "codex")!) == "/goal tests pass")
         check("copilot goal is /autopilot <text>", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "copilot")!) == "/autopilot tests pass")
-        check("antigravity goal is the text, asked to continue", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "antigravity")!).hasPrefix("tests pass ") && !HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "antigravity")!).hasPrefix("/"))
+        check("antigravity goal is /goal <text>", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "antigravity")!) == "/goal tests pass")
         check("cline goal is a task goal", HandoffPrompt.goal("tests pass", tool: CLITool(rawValue: "cline")!).hasPrefix("Goal for this Cline task: tests pass"))
     }
 }
