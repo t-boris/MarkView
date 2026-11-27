@@ -2,7 +2,7 @@
 type: feature
 id: task-aware-agent-execution
 title: Task-Aware Agent Execution
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-25
 provenance: Created from the feature intake

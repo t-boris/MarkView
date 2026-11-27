@@ -2,7 +2,7 @@
 type: feature
 id: background-browser-automation
 title: Background Browser Automation
-status: in-progress
+status: done
 owner: Boris Tsekinovsky
 created: 2026-11-25
 provenance: Created from the quick feature intake

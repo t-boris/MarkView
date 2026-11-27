@@ -1,3 +1,24 @@
+# BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
+
+Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot
+does not list a React row that opens with a mouse click (`<tr onClick>`), so the branch ends blocked/elementNotFound; the workflow
+pauses on every failed step (the planner is told only a prerequisite pauses); the pause shows the agent's long report and no filed bugs.
+Branch `fix/bug-130-cockpit-continues-past-failed-steps` (worktree `../MarkView-bug-130`), minor bump (new behaviour), release.
+
+## Plan
+
+- [x] 1. Snapshot (`BrowserAgentExecutor.Scripts.snapshot`): list the outermost visible pointer-cursor element that is not a control,
+      not inside one and not a label, as `clickable`; clicking it by ref works. Page evidence (`QAPageEvidence`): a `mouseOnly` tally
+      (pointer cursor, no control role, not focusable) in the summary, `isClean`, the parser, the decoder and the review's "nothing flagged".
+- [x] 2a. Workflow (`workflow.go`, behind `GetVersion`): a failed step that is not a prerequisite is recorded and the run goes on; a
+      prerequisite still pauses (recovery unchanged). `CockpitRun.completeCurrent` mirrors it; a finished run with failed steps says so
+      (phase "Finished with failures", the outcome banner, the list, the notification); a step failure while the run goes on is notified.
+      Planner prompt and step prompt say what a failed non-prerequisite means. Managed runs are unchanged (their steps are prerequisites).
+- [x] 3. `CockpitQAAttempt`: the step detail starts with the QA result; a failed QA names branch, node, block reason and reason, the
+      bugs QA filed (new `QARunModel.filedBugIDs`) go into the step's progress.bugs and the needed input.
+- [ ] Tests: Go workflow tests (continue, prerequisite still pauses), hosted tests (record, phase, notice, QA text, snapshot pointer
+      row, page evidence), runtime integration, pure tier, lints. Decision record for 2a (Boris's choice).
+
 # BUG-129: Cockpit stops at recoverable CI blockers (2026-11-25)
 
 Goal from Boris: reproduce, find the root cause, fix and verify BUG-129. BQ-1 answered: the plan was launched directly in Cockpit

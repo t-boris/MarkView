@@ -2,7 +2,7 @@
 type: bug
 id: BUG-129
 title: Copilot stops at recoverable CI blockers
-status: ready
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-25

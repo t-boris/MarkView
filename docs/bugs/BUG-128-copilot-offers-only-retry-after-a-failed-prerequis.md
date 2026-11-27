@@ -2,7 +2,7 @@
 type: bug
 id: BUG-128
 title: Copilot offers only retry after a failed prerequisite and clips the step route
-status: backlog
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-25
@@ -23,7 +23,8 @@ questions:
   - id: BQ-2
     text: Что было сказано в исходном задании про вход и создание тестового аккаунта на продакшене?
     why: Это покажет, мог ли агент выбрать разрешённый способ продолжить проверку или ему действительно не хватало указаний.
-    status: open
+    status: answered
+    answer: Ничего он сам так решил
   - id: BQ-3
     text: Удалось ли прокрутить последовательность вправо и увидеть шаг 9?
     why: Это поможет отличить незаметную прокрутку от проблемы с доступом к последнему шагу.
@@ -51,7 +52,8 @@ questions:
   - id: BQ-5
     text: Чем и каким жестом вы пытались прокрутить маршрут вправо?
     why: Устройство и жест помогут воспроизвести ситуацию, в которой последний шаг остался недоступен.
-    status: open
+    status: answered
+    answer: There is  no tools for scrolling
   - id: BQ-6
     text: Что именно произошло в Plan, когда вы попытались отправить правку?
     why: "Это поможет проверить нужный путь в коде: доступность кнопки, ответ планировщика или сохранение прямой правки шага."
@@ -66,6 +68,18 @@ questions:
         text: Я редактировал шаг напрямую. Изменение не сохранилось или я не нашёл, как его сохранить.
     status: answered
     answer: Кнопка недоступна. Текст был введён, но «Revise plan» нельзя было нажать.
+  - id: BQ-7
+    text: Когда текст уже был введён, а «Revise plan» оставалась недоступной, был ли на экране Plan индикатор работы или кнопка «Stop» рядом с кнопкой построения плана?
+    why: Это поможет проверить, блокировало ли кнопку состояние планирования, и понять, нужно ли в первую очередь проверять, как поле передаёт введённый текст.
+    options:
+      - label: Да
+        text: Был виден индикатор работы или кнопка «Stop».
+      - label: Нет
+        text: Ни индикатора работы, ни кнопки «Stop» не было.
+      - label: Не помню
+        text: Не могу уверенно сказать.
+    status: answered
+    answer: Не помню. Не могу уверенно сказать.
 issue: "#440"
 schema: 1
 ---
@@ -74,56 +88,59 @@ schema: 1
 
 ## Summary
 
-A failed sign-in prerequisite leaves Copilot’s banner with retry as its only action. The reporter reached Plan but could not submit refinement text or save a step change, blocking recovery of the same run. Source review also found that an approved revision can select a later step while the prerequisite remains failed. The nine-step route clips waypoint 9 without an overflow cue, and the reporter’s scroll attempt did not reveal it.
+A failed Cockpit prerequisite leaves retry as the failure banner’s only action, while an accepted same-run revision can bypass the unresolved prerequisite and launch a dependent step. The nine-step route clips its final waypoint without a visible overflow cue. The reported disabled refinement and unsuccessful direct edit still need controlled reproduction.
 
 ## Steps to reproduce
 
-1. Start a nine-step Copilot Cockpit QA run whose first step requires a response from the production AI chat. Use a signed-out session with no test account available to the run.
-2. Submit a test message and let the sign-in redirect cause the prerequisite to fail. Inspect the paused run’s failure banner.
-3. Open Plan. Enter a refinement for step 1 and click “Revise plan.” Test direct editing of step 1 separately. Record whether each control is enabled, whether the draft changes, and any progress or error. If a changed plan appears, try to review and approve it for the same run.
-4. In a controlled run with the prerequisite still failing, submit an otherwise eligible revision with “Start from” set to a later dependent step. Check whether that step executes before the prerequisite passes.
-5. With the route viewport below 1,044 points, narrow it until waypoint 9 is clipped. Check for an overflow cue, then try to scroll horizontally over the route and select waypoint 9.
+1. Start a nine-step Cockpit QA run in a signed-out session. Use a controlled chat fixture that redirects to sign-in on submission and has no test account. Make the first step a prerequisite that requires a chat response, and leave sign-in and account creation unspecified in the task.
+2. Submit a chat message, let the prerequisite fail, and inspect the pause reason and the failure banner’s available actions.
+3. Open Plan, expand “Ask the Copilot to revise this plan,” and type nonblank text. Record whether “Revise plan” enables and whether planner progress or Stop is visible.
+4. Separately edit the first step’s title. Check whether the draft updates immediately, then reopen Plan and check whether the change persists and is eligible for review on the same run.
+5. On a controlled paused run, approve an otherwise eligible changed plan with “Start from” set to a later dependent step. Check whether it dispatches before a passing prerequisite result and whether earlier result entries retain their original fingerprints.
+6. Narrow the route until waypoint 9 is clipped. Check for a visible overflow cue and try to reveal and select waypoint 9. Record the route width, input device, and gesture.
 
 ## Expected
 
-The failure state offers clear actions to provide missing context and open Plan to revise the remaining work. Submitting refinement text or editing a step produces a reviewable change or a visible explanation of what blocked it. Approval resumes the same run and preserves prior results with the plan versions that produced them. If the approved plan authorizes a bounded recovery attempt, Copilot can try it and rerun the prerequisite. If sign-in still blocks the check, Copilot requests the specific input or decision needed and keeps dependent steps paused until the check passes. At narrow widths, the route signals horizontal overflow and every waypoint can be reached and selected.
+When a prerequisite fails, the banner should state the specific input or decision needed and let the user respond or open Plan directly. If the approved plan authorizes a bounded recovery attempt, Cockpit should attempt it and rerun the prerequisite. If the blocker persists, Cockpit should request the required input and keep dependent steps paused until the prerequisite passes. REQ-003 and DEC-014 establish the pass requirement. DEC-016 permits an arbitrary starting step but leaves its interaction with a known failure during same-run revision unspecified. A nonblank refinement should be submittable while planning is idle, and any blocker should be visible. Direct edits should update the draft immediately, survive reopening Plan, and be reviewable on the same paused run when eligible. Earlier results should keep their original plan fingerprints. An overflowing route should visibly indicate additional waypoints and let the user reach and select each one.
 
 ## Actual
 
-The run paused on step 1 of 9. The screenshot shows “Needs you,” “A step failed,” and “Retry prerequisite” as the banner’s only action. The agent’s report in the screenshot says production redirected to sign-in, no test account was known, and the supervisor directed the agent to avoid account creation and Google OAuth. The reporter opened Plan and identified submission as the point where recovery stalled: they could not send the refinement text or save a change to the step. There is no evidence that a revision reached approval or the workflow. The screenshot shows waypoint 9 clipped without an overflow cue, and the reporter says their scroll attempt did not reveal it.
+The screenshot shows step 1 of 9 paused with “Needs you.” The failure banner says the chat submission redirected to sign-in, no production test account was known, and the supervisor advised against account creation and Google OAuth. “Retry prerequisite” is the banner’s only action. The reporter confirmed that the original task gave no instructions about sign-in or account creation. In Plan, the reporter entered text and found “Revise plan” disabled. They could not recall whether planner progress or “Stop” was visible. They also reported being unable to apply a direct edit, with the field and persistence outcome unknown. Source review confirms that an accepted revision can clear the pause and dispatch a later dependent step before the prerequisite passes. Existing result entries retain their original plan fingerprints. The screenshot shows waypoint 9 clipped without a visible overflow cue, and the reporter found no visible scrolling controls.
 
 ## Environment
 
-MarkView for macOS, Copilot Cockpit, nine-step production QA run for vivaa.ai. The screenshot identifies the step agent as Codex with gpt-6-luna. The attachment, feature decisions, and local source matching the local origin/main ref at f32474da94 were reviewed. No live reproduction was performed. The installed MarkView and macOS versions are unknown.
+MarkView for macOS, Copilot Cockpit, nine-step production QA run for vivaa.ai. The screenshot identifies the step agent as Codex with gpt-6-luna. Reviewed the attached screenshot, requirements, decisions, and source at local HEAD and origin/main, both at bbc1e0ee. Installed MarkView and macOS versions are unknown. No live reproduction was performed.
 
 ## Suspected code
 
-- `MarkView/Views/Cockpit/CockpitRunScreen.swift` — The live failure banner offers “Retry prerequisite.” Radio is rendered separately.
-- `MarkView/Views/Cockpit/CockpitPlanScreen.swift` — The refinement button is disabled while busy or when the text is blank. Direct editing is a separate path. Reviewing an updated plan has additional eligibility checks.
-- `MarkView/Models/Cockpit/CockpitSession.swift` — generate(refining:) can return without feedback if busy or the goal is blank, and planner failures populate the session error. applyRevision separately rechecks the prepared draft and can return before sending it.
-- `tools/cockpit-temporal/workflow.go` — Results carry plan fingerprints. After a failed prerequisite, the loop waits for retry, revision, or stop. A valid revision assigns the selected step directly without checking the failed prerequisite.
-- `MarkView/Views/Cockpit/CockpitFlightPath.swift` — The route uses fixed-width waypoint cells in a horizontal scroll view with indicators disabled. The source explains clipping and the missing cue, while gesture behavior requires reproduction.
+- `MarkView/Views/Cockpit/CockpitRunScreen.swift` — The failed-step banner displays diagnostic text and exposes only Retry prerequisite for a live paused prerequisite.
+- `tools/cockpit-temporal/workflow.go` — The failed-step loop applies a pending revision by changing the current index and clearing the pause. It does not recheck the failed prerequisite before dispatch.
+- `MarkView/Views/Cockpit/CockpitPlanScreen.swift` — The refinement editor binds to session.refinement. Submission depends on planner busy state and trimmed text, while review and approval have separate eligibility checks.
+- `MarkView/Views/Cockpit/CockpitStepCard.swift` — Direct field changes call session.editPlan and are independent of refinement submission.
+- `MarkView/Models/Cockpit/CockpitSession.swift` — Owns the planner state, updates directly edited drafts in memory, and schedules draft persistence.
+- `MarkView/Views/Cockpit/CockpitFlightPath.swift` — Renders fixed-width selectable waypoints inside a horizontal scroll view with hidden indicators and no overflow cue.
 
 ## Likely causes
 
-- The failure banner exposes retry alone. Providing guidance through Radio and revising the plan through Plan are separate interactions.
-- Plan has separate paths for requesting a refinement, editing a step directly, and approving the resulting plan. The clarification narrows the reported failure to submission or saving, but does not establish which control failed or whether the planner ran. Approval and workflow guards remain separate possibilities to test after a changed plan is visible.
-- The workflow has no bounded recovery branch or structured request for missing input. It also accepts a revision’s selected starting step without enforcing a previously failed prerequisite. REQ-003 and DEC-014 require the prerequisite to pass before proceeding, while DEC-016 permits a user-selected starting step. Their interaction during a paused revision is unspecified.
-- Nine fixed 116-point cells require 1,044 points to fit in full. Hidden indicators explain the missing overflow cue. The failed scroll attempt remains unverified.
+- The failure banner renders the agent’s diagnostic as text and offers retry. The workflow has no structured response or bounded recovery path for a failed prerequisite.
+- The revision acceptance checks validate the plan and selected index. The failed-step loop then applies the revision and clears the pause without checking whether the selected step depends on the failed prerequisite.
+- The refinement button is disabled while planning is busy or the bound text trims to empty. The report establishes that the user entered text, but the runtime binding and planner state are unknown. Direct edits use a separate path.
+- Nine 116-point cells require 1,044 points of horizontal space. The route hides scroll indicators and provides no other visible overflow cue.
 
 ## Missing information
 
-- The exact Plan control used, the attempted edit, and the visible outcome of the submission attempt.
-- The original prerequisite instructions and authorized production sign-in options, already tracked by BQ-2.
-- The route viewport width and installed app and macOS versions. The input device and scroll gesture are already tracked by BQ-5.
+- A controlled Plan reproduction capturing the bound refinement text, planner busy state, and progress or Stop visibility at the same time.
+- The direct-edit field and whether the value appeared immediately, survived reopening Plan, and reached same-run review.
+- Installed MarkView and macOS versions, the route viewport width, and which input device and gesture were used. The clarification establishes that no controls were visible.
+- The generated prerequisite assignment and supervisor exchange, if the source of the authentication decision needs to be traced beyond the banner’s account.
 
 ## Validity check
 
 **Outcome:** Still present on main (checked 2026-11-25).
 
-**Verified against:** `origin/main` @ `f32474da94` (2026-11-24) — Merge pull request #439 from t-boris/fix/bug-127-welcome-backdrop-restarts
+**Verified against:** `origin/main` @ `bbc1e0eed4` (2026-11-24) — docs(BUG-128): record the Copilot prerequisite retry and clipped step route report
 
-**Reason:** On the supplied snapshot, CockpitRunScreen.swift still offers only “Retry prerequisite” in the failure banner. Radio accepts guidance separately. Plan supports editing, submitting a refinement, and approving an eligible revision on the same paused run, and the workflow preserves prior results under their original plan fingerprints. The report identifies submission as the point of failure, but the attempted edit, approval state, and any error are needed to identify what blocked it. In workflow.go, a failed prerequisite pauses the run until a manual retry, an accepted revision, or a stop. There is no bounded recovery branch or structured request for the specific missing input, and an accepted revision can start a later step before the prerequisite passes. CockpitFlightPath.swift lays out nine 116-point waypoints in a horizontal scroll view with hidden indicators, so a narrow viewport can clip waypoint 9 without an overflow cue. Whether the reported scroll gesture can reveal and select it remains unverified.
+**Reason:** In the supplied bbc1e0eed4 snapshot, CockpitRunScreen.swift:103 and 135–138 still give the failed-prerequisite banner only “Retry prerequisite.” Plan navigation and Radio notes are available separately. In workflow.go:197–200 and 249–283, the failure loop has no structured request for the missing input or bounded recovery branch. An eligible revision can clear the pause and dispatch a later dependent step before the failed prerequisite passes. Earlier results retain their original plan fingerprints. CockpitFlightPath.swift:35–45 and 67–90 lays out nine 116-point waypoints in a horizontal scroll view with hidden indicators, so a narrow viewport can clip waypoint 9 without an overflow cue. CockpitPlanScreen.swift enables refinement when planning is idle and the bound text is nonblank, and shows progress and Stop in the Planner row while busy. Direct title edits update the session plan immediately, and eligible changes can be reviewed on the same paused run. Source inspection did not establish why the reporter’s refinement button was disabled, whether the reported edit survived reopening Plan, or whether their scroll attempt could reveal and select waypoint 9. Those observations require a controlled app reproduction.
 
 ## Attachments
 
@@ -142,6 +159,15 @@ MarkView for macOS, Copilot Cockpit, nine-step production QA run for vivaa.ai. T
 
 **BQ-6** Что именно произошло в Plan, когда вы попытались отправить правку?
 → Кнопка недоступна. Текст был введён, но «Revise plan» нельзя было нажать.
+
+**BQ-7** Когда текст уже был введён, а «Revise plan» оставалась недоступной, был ли на экране Plan индикатор работы или кнопка «Stop» рядом с кнопкой построения плана?
+→ Не помню. Не могу уверенно сказать.
+
+**BQ-2** Что было сказано в исходном задании про вход и создание тестового аккаунта на продакшене?
+→ Ничего он сам так решил
+
+**BQ-5** Чем и каким жестом вы пытались прокрутить маршрут вправо?
+→ There is  no tools for scrolling
 
 ## Original description
 
