@@ -86,6 +86,11 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   its history in earlier failed runs before acting; never rerun it blindly. `WelcomeScreenHostTests` animated-frame checks stall on runners (matrix 11-18, aurora
   then bugs 11-25, identical tree green on the PR). Why: a blind rerun failed again on another backdrop ("Failed again!!!"). [A: PR #438 main run, 2026-11-25]
 
+- 2026-11-26: before pushing a change to Swift sources, run CI's two log checks on a clean build: `./tools/lint/build-warnings.sh --log
+  <app build log> --log <swift test log>` and `python3 tools/ci/unused-import-changes.py --base <base> --compiler-log <app build log>`.
+  Why: a grep of the xcodebuild output for warnings missed an unused `addTaskUnlessCancelled` result and an unused import in a new
+  Core file, so the build job of PR #453 and main failed and needed 7.10.1. [A: SideBySide, 2026-11-26]
+
 ## 4. Testing: harnesses, real data, evidence
 
 - A new check is evidence only if it fails without the fix: show it red on origin/main or under a deliberate mutation, in the same run as green; run a suspect check ten times.

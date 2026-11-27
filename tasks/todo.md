@@ -65,6 +65,9 @@ Phase 2 (PR 2): one-shot runs, where MarkView runs the independent calls itself.
   runs (X-Ray code analysis) are already split by MarkView and need exact `file:line` evidence that subagent summaries may lose, and
   every run would spend more tokens. (2) DEC-033: plans made outside Build keep "Delegation to subagents" off by default.
 - Found on the way: BUG-131 (a Markdown attachment's copy is read as a second source with the same id), recorded, not fixed.
+- CI: PR #453's build job failed on a new warning (unused `addTaskUnlessCancelled` result) and an unused import in `SideBySide.swift`;
+  fixed in PR #454 (ba250238, 7.10.1). PR #452's build job timed out in the unused-import step (107 recompiled files, 35 min); the
+  same check run locally over every changed source of both PRs finds nothing.
 
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
