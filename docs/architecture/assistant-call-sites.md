@@ -13,7 +13,7 @@ without it the call is text in, text out, with no tools, and nothing inside the 
 | Assistant | One-shot run with a readable folder | Prompt into an agent session |
 |---|---|---|
 | Claude Code | `--tools Read,Grep,Glob,Agent`: it may start subagents (probe: two Explore subagents at once) | `ParallelWork`: subagents with the Agent tool; for a list, "use a workflow" |
-| Codex | read-only sandbox, `--ephemeral`, `-c agents.enabled=false`; reads run as parallel tool calls (probe) | an explicit request to start subagents (Codex starts them only when asked) |
+| Codex | read-only sandbox; since 7.16.0 the run keeps its session and is asked to start subagents for independent parts, and the session is deleted when the run ends (`codex delete --force`); without a folder `--ephemeral`, subagents off | an explicit request to start subagents (Codex starts them only when asked) |
 | Antigravity | `read_file` allowed; `-p` starts `invoke_subagent` subagents (probe) | its `invoke_subagent` mechanism |
 | Copilot CLI | not changed (Boris: "skip copilot agent") | not changed |
 
@@ -22,8 +22,10 @@ without it the call is text in, text out, with no tools, and nothing inside the 
   for `work: parts|items`. A plain send (an answer, a follow-up) is pasted as written.
 - Codex in one-shot runs (probe, codex 0.172): `--ephemeral` keeps no session, so a subagent cannot start ("no rollout"). Without it,
   two subagents ran at the same time (children 45.7-56.0 s and 49.5-67.2 s), `codex delete --force <id>` removed the session and its
-  children, and `resume --last` skips such sessions unless `--include-non-interactive`. Turning it on writes a session to
-  `~/.codex/sessions` for the run's length: Boris's decision.
+  children, and `resume --last` skips such sessions unless `--include-non-interactive`. Boris chose (2026-11-27) to keep the session
+  for the run and delete it afterwards (7.16.0, `KeptSessions` in `CLICompletion.swift`): it is noted under Application Support while
+  the run lasts, deleted after an answer, an error, a timeout or a stop, and a crash's leftovers are deleted at the next launch. Live
+  on the app's command line: three independent modules, four `collab_tool_call` (`wait`) items, the session gone after the delete.
 
 ## Changed
 
@@ -50,9 +52,10 @@ without it the call is text in, text out, with no tools, and nothing inside the 
 | Prototype thin-screen repairs | each prompt holds the site with the previous repair | `PrototypeAI.swift:901`, `:913` |
 | Parts of one prototype file | a part continues where the last one ended | `PrototypeAI.swift` (`fileInParts`) |
 
-Open for Boris: Codex subagents in one-shot runs (above); UI Studio screens prepared side by side in the background (requests are
-independent, only the saves need order); QA run branches side by side for web and API apps (never for a native attach); X-Ray Analyze
-book stage beside naming (needs a snapshot merge); Insight "Explore all" siblings side by side (needs one pipeline per node).
+Boris's answers (2026-11-27): Codex subagents in one-shot runs, yes (7.16.0, above). Side by side: UI Studio screens (requests
+together, saves in list order), QA run branches for web and API apps (one at a time for native runs and for scenarios with a baseline
+or state/data conditions), the X-Ray Analyze book stage beside naming, Insight "Explore all" siblings (5 sections per node as today).
+The data-dependent sites in the table above stay in order.
 
 ## Call sites: X-Ray, Book, Workspace
 

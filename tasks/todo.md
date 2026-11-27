@@ -251,6 +251,33 @@ Decide all (`FeatureAI.swift:1302-1327`), QA reviews (`QARunModel.swift:535`, `:
 intake request facts (accepted facts reach the attachments' context, `FeatureIngest.swift:110-113`), prototype thin-screen repairs
 (each prompt holds the site with the previous repair, `PrototypeAI.swift:901`).
 
+## Phase 8: Boris's answers to the open decisions (2026-11-27)
+
+Boris: Codex one-shot calls start subagents and the session is deleted afterwards; UI Studio screens, QA run branches (web and API
+apps), the X-Ray Analyze book stage and Insight "Explore all" siblings run side by side; the data-dependent sites stay in order.
+One PR per change, one release at the end (memory: one final release for the batch).
+
+- [x] A. Codex one-shot subagents (`feat/codex-one-shot-subagents`, PR #462 merged 04b306e1, 7.16.0). With a readable folder: no `--ephemeral`, no
+      `agents.enabled=false`, the instructions ask for subagents where parts are independent. The run reports Codex's
+      `thread.started` id (`CompletionSink.onSession`, only when `CompletionLaunch.keepsSession`); a marker file
+      (`Application Support/MarkView/assistant-sessions/`, tool + id, our pid) lives until `codex delete --force <id>` succeeds or the
+      rollout is gone; the delete runs after every end (answer, error, timeout, cancel) in an awaited detached task; markers of dead
+      processes are swept at launch. The AI panel's Codex activity and answered-model readers skip `source: exec` rollouts. Fixture:
+      `assistant-cli-timeout.py` emits `thread.started` and records `delete`; tests for answer, cancel, timeout, no folder, the sweep.
+      Live (real codex 0.172, the app's own command line): three independent modules, 30 s, four `collab_tool_call` (`wait`)
+      items in the stream, the session stored before `KeptSessions.delete` and gone after; through `CLICompletion.run` two runs
+      (8 s and 29 s) left no rollout and an empty note folder.
+- [ ] B. UI Studio background screens: requests side by side, saves in order (DEC-014 / REQ-021 say "one at a time": update
+      them through the MarkView tools).
+- [ ] C. QA run branches side by side for web and API apps. Boris (2026-11-27): one at a time for native (launch and attach) and
+      for a scenario with a baseline or selected branches with a state or data condition; one Stop gives one "QA interrupted" bug
+      per run naming the interrupted branches; `QAFinding.branch` (optional) in the same PR so a bug links the right video.
+- [ ] D. X-Ray Analyze: the book stage beside naming, each stage applying its own fields to the live snapshot; one
+      `SideBySide.Slots(limit: 4)` per Analyze (today's peak) instead of 8.
+- [ ] E. Insight "Explore all": siblings side by side, 3 node pipelines at once across depths; Boris (2026-11-27): sections stay
+      at 5 per node (up to 15 processes).
+- [ ] Release once after the last PR; records, lessons, memory; report with the PR links.
+
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
 Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot

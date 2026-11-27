@@ -106,6 +106,11 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   PR #460), the per-file limit: a run that analyzes it can time out whatever changed (main 9477785d). Time the file locally against
   the old content with the same compiler log before blaming a change. [A: PR #460 main run, 2026-11-27]
 
+- 2026-11-27: to see whether Codex started subagents, read the `collab_tool_call` items of its `--json` stream (`wait` while it waits
+  on them); watching `~/.codex/sessions` during the run showed nothing even for the parent in 8-30 s runs, so the rollout is not a
+  live signal. [A: PR #462, 2026-11-27]
+- 2026-11-27: two hosted tests of one suite share the fixture's folder; a test that counts files or log lines there must count only
+  what it left (a baseline taken at its start), whatever order XCTest runs the methods in. [A: PR #462, 2026-11-27]
 - 2026-11-26: a tool added to a CLI run changes its output stream; replay a recorded stream of that tool through the provider's
   parser before shipping. Why: Claude's parser treated every tool input except the known read tools as the streamed answer, so the
   `Agent` tool's subagent task would have reached `answerDelta`; the red run showed it live. [A: ClaudeStreamParser, 2026-11-26]
