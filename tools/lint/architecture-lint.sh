@@ -792,7 +792,7 @@ if composition.is_file():
     source = "\n".join(line.split("//", 1)[0] for line in source.splitlines())
     close = re.search(r"(?ms)^    func close\(\)\s*\{\s*\n(.*?)^    \}", source)
     expected = ["tabs.shutdown()", "project.close()", "polling.stopAll()", "codeXRay.close()", "flow.close()",
-                "browser.close()", "toolTabs.close()", "gitClient.close()", "taskBag.cancelAll()", "connections.removeAll()"]
+                "browser.close()", "toolTabs.close()", "terminals.stopAll()", "gitClient.close()", "taskBag.cancelAll()", "connections.removeAll()"]
     statements = [line.strip() for line in close.group(1).splitlines() if line.strip()] if close else []
     if statements != expected:
         violations.append(("window-shutdown-order", f"{rel(composition)}: close() must stop each window part once in the required order"))

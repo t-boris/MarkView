@@ -9,7 +9,9 @@ protocol WindowSessionWindow: WindowSessionHost {
     var theme: WindowTheme { get }
     var taskBag: TaskBag { get }
     var projectOperations: ProjectOperationsStore? { get }
-    /// How the window asks the person before it closes over a running project operation (`AR-22`).
+    /// The assistants running in the window's AI panel, by title: closing the window stops them, so it asks first (BUG-137).
+    var runningAssistantTitles: [String] { get }
+    /// How the window asks the person before it closes over a running project operation (`AR-22`) or running assistants.
     var prompts: any UserPrompts { get }
     /// Fires when anything the saved session records changes: the tabs, the panels, the theme, the interface state, the project.
     var sessionChanges: AnyPublisher<Void, Never> { get }
@@ -30,7 +32,7 @@ final class WindowSessionController {
         weak var workspace: (any WindowSessionWindow)?
         var restoring = true
         var subscriptions = Set<AnyCancellable>()
-        var closeDelegate: ProjectOperationWindowCloseDelegate?
+        var closeDelegate: WindowCloseDelegate?
         init(window: NSWindow, workspace: any WindowSessionWindow) {
             self.window = window
             self.workspace = workspace
@@ -123,7 +125,7 @@ final class WindowSessionController {
         if !order.contains(id) { order.append(id) }
         let entry = Entry(window: window, workspace: workspace)
         entries[id] = entry
-        let closeDelegate = ProjectOperationWindowCloseDelegate(previous: window.delegate, workspace: workspace)
+        let closeDelegate = WindowCloseDelegate(previous: window.delegate, workspace: workspace)
         entry.closeDelegate = closeDelegate
         window.delegate = closeDelegate
         // Native restoration otherwise races us and creates extra empty windows.
@@ -269,10 +271,10 @@ private final class MainThreadWindowDelegate: @unchecked Sendable {
     }
 }
 
-/// Intercepts the close button while a project's subprocesses are alive, while
+/// Intercepts the close button while assistants run in the window or a project's subprocesses are alive, while
 /// forwarding other window delegate messages to SwiftUI's original delegate on the main thread.
 @MainActor
-final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDelegate {
+final class WindowCloseDelegate: NSObject, NSWindowDelegate {
     private let previous: NSWindowDelegate?
     private nonisolated let forwarding: MainThreadWindowDelegate
     weak var workspace: (any WindowSessionWindow)?
@@ -295,7 +297,17 @@ final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         let originalAllows = previous?.windowShouldClose?(sender) ?? true
         guard originalAllows else { return false }
-        guard !closeAfterStop, let workspace, let store = workspace.projectOperations else { return true }
+        guard !closeAfterStop, let workspace else { return true }
+        // Closing ends the window's terminals; assistants still working are stopped only when the person says so (BUG-137).
+        let assistants = workspace.runningAssistantTitles
+        if !assistants.isEmpty {
+            let stop = UserPrompt(
+                title: "Stop the running agents and close this window?",
+                detail: assistants.joined(separator: "\n"),
+                buttons: ["Keep working", "Stop agents and close"])
+            guard workspace.prompts.confirm(stop, proceedingWith: 1) else { return false }
+        }
+        guard let store = workspace.projectOperations else { return true }
         let active = store.runs.values.filter(\.isActive)
         guard !active.isEmpty else { return true }
         let stop = UserPrompt(

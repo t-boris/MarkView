@@ -97,7 +97,7 @@ final class EditorHostTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: folder) }
         let workspace = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: folder.appendingPathComponent("recent.json"))
         let previous = WindowDelegateProbe()
-        let delegate = ProjectOperationWindowCloseDelegate(previous: previous, workspace: workspace)
+        let delegate = WindowCloseDelegate(previous: previous, workspace: workspace)
         let selector = #selector(NSWindowDelegate.windowDidResize(_:))
         XCTAssertTrue(delegate.responds(to: selector))
         XCTAssertTrue((delegate.forwardingTarget(for: selector) as AnyObject?) === previous)

@@ -56,6 +56,7 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
     var fileOperations: FileOperationsController { composition.fileOperations }
     var translator: DocumentTranslator { composition.translator }
     var terminals: AITerminalsController { composition.terminals }
+    var runningAssistantTitles: [String] { terminals.runningAssistants.map(\.title) }
     var browser: BrowserHost { composition.browser }
     var codeXRay: CodeAndXRayCoordinator { composition.codeXRay }
     var insight: InsightCoordinator { composition.insight }
