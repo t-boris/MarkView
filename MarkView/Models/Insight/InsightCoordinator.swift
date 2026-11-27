@@ -210,7 +210,8 @@ final class InsightCoordinator {
         run("expand", session) { await $0.expandCustom(topic: topic) }
     }
 
-    /// "🤿×N Explore all topics": every deep-dive topic of the current node, one after the other.
+    /// "🤿×N Explore all topics": every deep-dive topic of the current node, `CLICompletion.sideBySide` nodes side by side, while
+    /// the view stays on that node. Closing the tab or the folder stops the walk (`InsightSession.cancel`).
     func didRequestInsightExploreAll(depth: Int) {
         guard let session = activeSession("didRequestInsightExploreAll") else { return }
         run("explore", session) { await $0.expandAllTopicsOnCurrentNode(depth: depth) }

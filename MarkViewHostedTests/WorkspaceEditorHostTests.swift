@@ -1795,10 +1795,12 @@ extension EditorHostTests {
             ])
         }
 
-        func node(_ title: String, parent: InsightNode?, buffer: String, scope: NodeScope = .folderRoot) -> InsightNode {
+        func node(_ title: String, parent: InsightNode?, buffer: String, scope: NodeScope = .folderRoot,
+                  status: InsightNode.Status = .ready) -> InsightNode {
             let node = InsightNode(parentId: parent?.id, level: parent == nil ? 0 : 1, title: title, scope: scope)
             node.skeleton = skeleton(title: title)
             node.sectionStates = ["s1": SectionState(buffer: buffer, status: buffer.isEmpty ? .pending : .ready)]
+            node.status = status
             return node
         }
 
@@ -1863,8 +1865,10 @@ extension EditorHostTests {
         let child = node("Auth", parent: root, buffer: "<p>auth</p>", scope: .topic(label: "Auth", hint: "h", files: [URL(fileURLWithPath: "/tmp/a.md")]))
         root.children = [child.id]
         let empty = node("Unfinished", parent: root, buffer: "")
-        let snapshot = InsightTreeSnapshot(rootId: root.id, folderPath: "/tmp/notes", nodes: [root, child, empty])
-        check(Set(snapshot.nodes?.map(\.nodeId) ?? []) == [root.id, child.id], "a node whose skeleton has no content yet is not saved")
+        let streaming = node("Half written", parent: root, buffer: "<p>half</p>", status: .streamingContent)
+        let snapshot = InsightTreeSnapshot(rootId: root.id, folderPath: "/tmp/notes", nodes: [root, child, empty, streaming])
+        check(Set(snapshot.nodes?.map(\.nodeId) ?? []) == [root.id, child.id],
+              "a node whose skeleton has no content yet, or that is still generating (it would come back ready, half written), is not saved")
         let data = try snapshot.encoded()
         let decoded = try XCTUnwrap(InsightTreeSnapshot.decode(data), "the snapshot encodes and decodes")
         let restored = decoded.restoredNodes(rootTitle: "ignored") ?? []

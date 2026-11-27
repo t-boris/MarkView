@@ -716,7 +716,7 @@ struct EditorView: NSViewRepresentable {
 
             // Error forwarding. Use the session's lastErrorRetryable flag
             // (Decision 11 §3) — non-retryable errors (noAPIKey, parse failures, 4xx,
-            // retry rate limit) must NOT show a [Retry] affordance in JS.
+            // a response over the size cap) must NOT show a [Retry] affordance in JS.
             session.$lastError
                 .compactMap { $0 }
                 .receive(on: DispatchQueue.main)
