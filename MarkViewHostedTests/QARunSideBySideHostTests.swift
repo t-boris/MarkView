@@ -356,6 +356,40 @@ extension EditorHostTests {
         for branch in stopped {
             XCTAssertTrue(drafts.first?.body.contains(QABugDrafts.code(branch)) == true, "the bug names the interrupted branch \(branch)")
         }
+        // The Stop cancels the run, not the filing of what it found (BUG-133).
+        let written = await sink.written
+        XCTAssertEqual(written.map(\.key), keys, "the bug of the Stop is filed")
+        XCTAssertTrue(written.first?.title.hasPrefix(QAOutcome.interrupted.bugTitlePrefix ?? "-") == true)
+        XCTAssertEqual(run.filedBugIDs, ["BUG-1"])
+        XCTAssertTrue(run.notice?.contains("Filed bug: BUG-1.") == true, "the notice names the filed bug: \(run.notice ?? "none")")
+    }
+
+    /// The window going to another project stops the run and files none of its bugs: the window's filer would put them into the
+    /// project it opens. The notice says so.
+    @MainActor func testQAProjectChangeDuringARunFilesNoBugs() async throws {
+        let restore = ParallelFixture.keepSettings()
+        defer { restore() }
+        let root = try ParallelFixture.folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let run = ParallelFixture.quietRun()
+        defer { run.stop() }
+        let sink = ParallelBugSink()
+        run.bugFiler = QABugFiler(sink: sink)
+        let assistant = ParallelAssistant(pause: 400)
+        _ = try XCTUnwrap(ParallelFixture.start(run, ParallelFixture.scenario(branches: 5), root: root, assistant: assistant))
+
+        let inFlight = await ParallelFixture.eventually { assistant.waiting == 3 }
+        XCTAssertTrue(inFlight, "three branches wait for the assistant at once")
+        run.releaseSessions()
+        let ended = await ParallelFixture.eventually(20) { run.phase == .finished }
+        XCTAssertTrue(ended, "a project change ends the run")
+        XCTAssertEqual(run.record?.results.prefix(3).map(\.verdict.interruption), Array(repeating: .stoppedByUser, count: 3))
+        let lookedUp = await sink.lookedUp
+        let written = await sink.written
+        XCTAssertTrue(lookedUp.isEmpty && written.isEmpty, "nothing is filed into the other project")
+        XCTAssertTrue(run.filedBugIDs.isEmpty)
+        XCTAssertTrue(run.notice?.contains("Its bug was not filed: the window opened another project during the run.") == true,
+                      "the notice says why: \(run.notice ?? "none")")
     }
 
     @MainActor func testQAConfirmationsAreAskedOneAtATime() async throws {
