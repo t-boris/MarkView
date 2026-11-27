@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Exercise analyzer failure handling without requiring SourceKit or changing the baseline."""
 import os
-import importlib.util
 import pathlib
 import shutil
 import subprocess
@@ -13,9 +12,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 CHECK = ROOT / "tools/lint/swiftlint-unused-import-ratchet.py"
 SOURCE = "Packages/MarkViewCore/Sources/MarkViewCore/AnyCodable.swift"
 sys.dont_write_bytecode = True
-SPEC = importlib.util.spec_from_file_location("unused_import_changes", ROOT / "tools/ci/unused-import-changes.py")
-CHANGES = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(CHANGES)
 
 
 class RatchetTests(unittest.TestCase):
@@ -71,40 +67,8 @@ print('Done analyzing! Found 0 violations in ' + ('0' if mode == 'zero' else '1'
                 self.assertNotEqual(self.run_check("ok").returncode, 0)
 
 
-class CompilerSelectionTests(unittest.TestCase):
-    def test_compiler_entries_include_existing_app_and_package_sources_only(self):
-        with tempfile.TemporaryDirectory(prefix="compiler log with spaces ") as folder:
-            root = pathlib.Path(folder)
-            app = root / "MarkView/Views/File With Space.swift"
-            core = root / "Packages/MarkViewCore/Sources/MarkViewCore/Model.swift"
-            test = root / "MarkViewHostedTests/Fixture.swift"
-            for path in (app, core, test):
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.touch()
-            log = "\n".join([
-                f"SwiftCompile normal arm64 {app} (in target 'MarkView' from project 'MarkView')",
-                f"SwiftCompile normal arm64 {core} (in target 'MarkViewCore' from project 'MarkViewCore')",
-                f"SwiftCompile normal arm64 {test} (in target 'MarkViewHostedTests' from project 'MarkView')",
-                "SwiftCompile normal arm64 Compiling\\ One.swift,\\ Two.swift (in target 'MarkView' from project 'MarkView')",
-                f"SwiftCompile normal arm64 {root}/MarkView/Missing.swift (in target 'MarkView' from project 'MarkView')",
-                f"SwiftCompile normal arm64 {app} (in target 'MarkView' from project 'MarkView')",
-            ])
-            self.assertEqual(CHANGES.compiled_sources(log, root), {
-                "MarkView/Views/File With Space.swift", "Packages/MarkViewCore/Sources/MarkViewCore/Model.swift"
-            })
-
-    def test_bounded_selection_never_hides_the_changed_files(self):
-        selected, limited = CHANGES.select_sources(["changed.swift"], {"changed.swift", "dependent.swift"}, maximum=2)
-        self.assertEqual(selected, ["changed.swift", "dependent.swift"])
-        self.assertFalse(limited)
-        selected, limited = CHANGES.select_sources(["changed.swift"], {"dependent.swift", "other.swift"}, maximum=2)
-        self.assertEqual(selected, ["changed.swift"])
-        self.assertTrue(limited)
-        selected, limited = CHANGES.select_sources(["a.swift", "b.swift", "c.swift"], {"dependent.swift"}, maximum=2)
-        self.assertEqual(selected, ["a.swift", "b.swift", "c.swift"])
-        self.assertTrue(limited)
-
-    def test_recompiled_unchanged_file_diagnostic_fails_the_real_wrapper(self):
+class ChangedSourcesTests(unittest.TestCase):
+    def test_the_real_wrapper_analyzes_the_changed_files_only(self):
         with tempfile.TemporaryDirectory(prefix="unused-import-integration-") as folder:
             root = pathlib.Path(folder)
             for relative in ("tools/ci/unused-import-changes.py", "tools/lint/swiftlint-unused-import-ratchet.py"):
@@ -137,23 +101,26 @@ class CompilerSelectionTests(unittest.TestCase):
             fake.write_text('''#!/usr/bin/env python3
 import json, os, sys
 path = sys.argv[-1]
-diagnostics = [{'file': path, 'rule_id': 'unused_import'}] if path.endswith('Dependent.swift') and os.environ.get('FAKE_DEPENDENT_WARNING') else []
+with open(os.environ['FAKE_ANALYZED'], 'a') as analyzed:
+    analyzed.write(os.path.basename(path) + '\\n')
+warn = os.environ.get('FAKE_WARNING', '')
+diagnostics = [{'file': path, 'rule_id': 'unused_import'}] if warn and path.endswith(warn) else []
 print(json.dumps(diagnostics))
 print('Done analyzing! Found 0 violations in 1 file.', file=sys.stderr)
 ''')
             fake.chmod(0o755)
-            env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ["PATH"])
+            analyzed = root / "analyzed.txt"
+            env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ["PATH"], FAKE_ANALYZED=str(analyzed))
             cmd = ["python3", str(root / "tools/ci/unused-import-changes.py"), "--base", base, "--compiler-log", str(log)]
             clean = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
             self.assertEqual(clean.returncode, 0, clean.stderr)
-            self.assertIn("2 changed or compiler-selected", clean.stdout)
-            warning = subprocess.run(cmd, cwd=root, env=dict(env, FAKE_DEPENDENT_WARNING="1"), capture_output=True, text=True)
-            self.assertNotEqual(warning.returncode, 0)
-            self.assertIn("Dependent.swift: unused_import: 1 exceeds 0", warning.stderr)
-            log.write_text("build log without compiler entries\n")
-            missing = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
-            self.assertNotEqual(missing.returncode, 0)
-            self.assertIn("no app/package SwiftCompile source entries", missing.stderr)
+            self.assertIn("Analyzing 1 changed app/package Swift files", clean.stdout)
+            self.assertEqual(analyzed.read_text().split(), ["Changed.swift"], "a recompiled dependant is not analyzed")
+            dependant = subprocess.run(cmd, cwd=root, env=dict(env, FAKE_WARNING="Dependent.swift"), capture_output=True, text=True)
+            self.assertEqual(dependant.returncode, 0, dependant.stderr)
+            changed_warning = subprocess.run(cmd, cwd=root, env=dict(env, FAKE_WARNING="Changed.swift"), capture_output=True, text=True)
+            self.assertNotEqual(changed_warning.returncode, 0)
+            self.assertIn("Changed.swift: unused_import: 1 exceeds 0", changed_warning.stderr)
 
 
 if __name__ == "__main__":

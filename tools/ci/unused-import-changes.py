@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Check changed and bounded recompiled sources against the unused-import baseline."""
+"""Check the changed app and package sources against the unused-import baseline.
+
+Only the changed files: analyzing the files Xcode recompiled because of them (up to 120) did not fit the CI step's 35 minutes
+(Boris, 2026-11-27). The full audit (`swiftlint-unused-import-ratchet.py --all`) covers the rest."""
 import argparse
 import os
 import pathlib
@@ -9,35 +12,6 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PREFIXES = ("MarkView/", "Packages/MarkViewCore/Sources/")
 BASELINE = ROOT / "tools/lint/swiftlint-unused-import-allowlist.txt"
-MAX_COMPILED = 120
-
-
-def compiled_sources(log_text, root=ROOT):
-    """Read per-primary-file Xcode entries; batch summary lines are not source paths."""
-    found = set()
-    for line in log_text.splitlines():
-        parts = line.split(" ", 3)
-        if len(parts) != 4 or parts[:2] != ["SwiftCompile", "normal"]:
-            continue
-        path, marker, _ = parts[3].rpartition(" (in target ")
-        if not marker or not path.endswith(".swift"):
-            continue
-        try:
-            relative = pathlib.Path(path).resolve().relative_to(root.resolve()).as_posix()
-        except ValueError:
-            continue
-        if relative.startswith(PREFIXES) and (root / relative).is_file():
-            found.add(relative)
-    return found
-
-
-def select_sources(changed, compiled, maximum=MAX_COMPILED):
-    """Include compiler-selected dependants only when the bounded run can cover them all."""
-    changed = set(changed)
-    combined = changed | compiled
-    if len(combined) > max(maximum, len(changed)):
-        return sorted(changed), True
-    return sorted(combined), False
 
 
 def main():
@@ -70,15 +44,7 @@ def main():
     log = pathlib.Path(args.compiler_log)
     if not log.is_file():
         sys.exit(f"Compiler log does not exist: {log}")
-    compiled = compiled_sources(log.read_text(errors="replace"))
-    if not compiled:
-        sys.exit("Compiler log contains no app/package SwiftCompile source entries")
-    selected, limited = select_sources(selected, compiled)
-    if limited:
-        print(f"Coverage limited: {len(compiled)} compiled files exceed the bounded analysis budget; "
-              "only changed sources will be analyzed", flush=True)
-    else:
-        print(f"Analyzing {len(selected)} changed or compiler-selected app/package Swift files", flush=True)
+    print(f"Analyzing {len(selected)} changed app/package Swift files", flush=True)
     return subprocess.call([str(ROOT / "tools/lint/swiftlint-unused-import-ratchet.py"), "--compiler-log", str(log),
                             "--files", *selected], cwd=ROOT)
 
