@@ -378,11 +378,22 @@ One release at the end (7.21.4 or later).
       app version 7.21.8), https://github.com/t-boris/MarkView/releases/tag/v7.21.8; copy at `build/MarkView-7.21.8.dmg`.
       It carries 7.21.3-7.21.8 (BUG-131, 136, 134, 137, 138 step 1, 139). Not installed: install only when Boris says.
 - [x] Statuses: BUG-131, 134, 136, 137, 139 in-review; BUG-138 in-progress (step 1 merged); no bug in backlog. Worktrees removed.
+- [x] BUG-138, step 2, PR #479 merged (28218475, 7.21.9): `WorkspaceWindow` kept its NSWindow in a strong `@State`, which lives in
+      the window's own view graph, so window, graph and `WorkspaceManager` held one another; the view keeps a `WeakWindowRef`.
+      The SwiftUI holders `leaks --traceTree` listed (focused values, menu items) were parts of that graph. App probe, same
+      script: main 7.21.8 keeps 2 windows / 2 workspaces / 4 open files of the closed project, 7.21.9 keeps 1 / 1 / 0. New
+      hosted test `testAClosedWorkspaceWindowLetsGoOfItsView` (real `ContentView`; red on 7.21.8's view). The app probe refuses a
+      copy with the installed app's bundle id (one did restore Boris's broker-fabric window and wrote two settings; restored
+      with his approval). BUG-138 in-review.
+- [x] Release v7.21.9 published 2026-11-27 from origin/main 28218475 (Latest, notarized, codesign ok, `spctl` accepts the DMG,
+      app version 7.21.9), https://github.com/t-boris/MarkView/releases/tag/v7.21.9; copy at `build/MarkView-7.21.9.dmg`;
+      `Build & Release` of the merge commit passed. Not installed.
 
 Review (2026-11-27):
 - CI: the unused-import step now takes about a minute (55 s on PR #474) instead of timing out at 35 minutes.
-- BUG-138 is only partly fixed: the hosted test proves the three holders are gone, but in the real app SwiftUI still keeps a
-  closed window (same count as main in the app probe). Boris chose to release step 1 and keep investigating.
+- BUG-138 step 1 left the real app's holder; step 2 (7.21.9) found it: the view's own strong `@State` window. Closed windows and
+  their project files are freed in the app probe. Seen on the way, not changed: a window closed before its session `attach`
+  task starts is still taken by `attach` (and can come back to the front); no way to close that fast in the app.
 - I pushed PR #477 without reading PR #476's failed CI first (lesson added); the failure is the shared-preferences race of a
   CI pair, not the change.
 - Not hand-checked in the installed app: the close question of BUG-137, Antigravity's model menu, a closed window's memory, a

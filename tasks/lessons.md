@@ -553,6 +553,17 @@ named to Boris) before the next push, even when it looks unrelated. Adding a hos
 parts, so two tests that share a setting can start running at the same time in a CI pair: a new failure next to a new test
 is first checked for that.
 
+## A view's @State that holds its own window is a loop (2026-11-27)
+
+BUG-138: `@State private var hostWindow: NSWindow?` in the window's root view kept the closed window, its whole SwiftUI view
+graph and the `WorkspaceManager` the graph owns alive (window -> hosting view -> graph -> state -> window). `leaks --traceTree`
+showed dozens of SwiftUI "holders" (focused values, menu items, captured views) that were all parts of that one graph, and
+`leaks` reported 0 leaks because its conservative scan reaches the loop from type-metadata caches. What found it: count objects
+with `heap` in the app probe, change one suspect in a scratch build, count again, and compare with a build of main. A view keeps
+its window weakly (`WeakWindowRef`). In a hosted test of the real `ContentView`, close the window only after its session has
+taken it (`window.delegate is WindowCloseDelegate`): closed earlier, the session's `attach` takes the closed window, brings it
+to the front again and `NSApp` keeps it in its open windows.
+
 ## A probe copy never keeps the installed app's bundle id (2026-11-27)
 
 For BUG-138 I copied a fresh Debug build as `app-now.app` and skipped the README's `PlistBuddy ... com.markview.MarkViewProbe`
