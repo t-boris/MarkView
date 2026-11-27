@@ -106,4 +106,64 @@ final class SideBySideTests: XCTestCase {
         let outputs = try await SideBySide.map([Int](), limit: 3, work: { $0 })
         XCTAssertTrue(outputs.isEmpty)
     }
+
+    /// Runs started one by one at different times never exceed the shared limit, and the waiting ones get their slot in the order
+    /// they asked.
+    func testSlotsBoundRunsStartedAtDifferentTimesAndServeThemInOrder() async throws {
+        let gauge = Gauge()
+        let slots = SideBySide.Slots(limit: 2)
+        var order: [Int] = []
+        var runs: [Task<Int, any Error>] = []
+        for item in 0..<6 {
+            runs.append(Task { @MainActor in
+                try await slots.run {
+                    gauge.begin(item)
+                    order.append(item)
+                    defer { gauge.end() }
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                    return item
+                }
+            })
+            // Each start comes later than the one before, as when a map is zoomed step by step.
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        var outputs: [Int] = []
+        for run in runs { outputs.append(try await run.value) }
+        XCTAssertEqual(outputs, Array(0..<6))
+        XCTAssertEqual(gauge.peak, 2, "two at once, never more")
+        XCTAssertEqual(order, Array(0..<6), "the waiting runs start in the order they asked for a slot")
+    }
+
+    /// A run that throws frees its slot; a caller cancelled while it waits gets `CancellationError` and takes no slot.
+    func testSlotsAreFreedOnErrorsAndCancelledWaitersLeave() async throws {
+        let slots = SideBySide.Slots(limit: 1)
+        do {
+            _ = try await slots.run { () async throws -> Int in throw Failed() }
+            XCTFail("the error is rethrown")
+        } catch {
+            XCTAssertTrue(error is Failed)
+        }
+        let gauge = Gauge()
+        let holder = Task { @MainActor in
+            try await slots.run {
+                gauge.begin(0)
+                defer { gauge.end() }
+                try await Task.sleep(nanoseconds: 150_000_000)
+            }
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let waiter = Task { @MainActor in try await slots.run { gauge.begin(1); gauge.end() } }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        waiter.cancel()
+        do {
+            try await waiter.value
+            XCTFail("a cancelled waiter does not run")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        try await holder.value
+        XCTAssertEqual(gauge.started, [0], "the cancelled waiter never ran")
+        let after = try await slots.run { 7 }
+        XCTAssertEqual(after, 7, "the slot came back after the error, the run and the cancelled wait")
+    }
 }

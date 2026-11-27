@@ -139,6 +139,26 @@ extension ControlToolRunner {
         return .init(text: text)
     }
 
+    /// The text pasted for a send: a goal in the agent's own form (with its request to run independent parts at the same time), a
+    /// task with that request when `work` names its shape, or the text as it was sent (an answer, a follow-up, a menu choice).
+    static func agentPrompt(_ text: String, goal: Bool, work: ParallelWork?, tool: CLITool?) throws -> String {
+        if goal {
+            guard let tool else { throw Invalid(message: "A goal needs an agent terminal; this one is a shell.") }
+            return (work ?? .parts).ask(HandoffPrompt.goal(text, tool: tool), tool: tool)
+        }
+        return work.map { $0.ask(text, tool: tool) } ?? text
+    }
+
+    /// The `work` argument of a send: "parts", "items" or none.
+    static func parallelWork(_ args: [String: Any]) throws -> ParallelWork? {
+        switch args["work"] as? String {
+        case nil: return nil
+        case "parts": return .parts
+        case "items": return .items
+        case let other?: throw Invalid(message: "work is \"parts\" or \"items\", not \"\(other)\".")
+        }
+    }
+
     static func agentSend(_ target: Target, _ args: [String: Any], caller: Caller) async throws -> Reply {
         let session = try terminal(target, args, caller: caller, forInput: true)
         let workspace = target.workspace
@@ -151,13 +171,7 @@ extension ControlToolRunner {
         if args["force"] as? Bool != true, isWorking(session, in: workspace) {
             throw Invalid(message: "“\(session.title)” is working (\(state(of: session, in: workspace))). Wait for it with markview_agent_wait, or pass force: true to send this as a follow-up.")
         }
-        var prompt = text
-        if args["goal"] as? Bool == true {
-            guard let tool = session.profile.tool else {
-                throw Invalid(message: "A goal needs an agent terminal; this one is a shell.")
-            }
-            prompt = ParallelWork.parts.ask(HandoffPrompt.goal(text, tool: tool), tool: tool)
-        }
+        let prompt = try agentPrompt(text, goal: args["goal"] as? Bool == true, work: parallelWork(args), tool: session.profile.tool)
         session.pasteWhenReady(prompt, submit: args["submit"] as? Bool ?? true)
         lastSent[session.id] = Date()
         let id = ControlAgentTools.shortID(session.id.uuidString)

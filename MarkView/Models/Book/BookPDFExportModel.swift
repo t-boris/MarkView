@@ -1,7 +1,15 @@
 import AppKit
 import Combine
+import MarkViewCore
 import UniformTypeIdentifiers
 import NaturalLanguage
+
+/// How far each chapter of an export has come, for the one progress bar while the chapters are rewritten side by side.
+@MainActor
+private final class ChapterProgress {
+    var fractions: [Double]
+    init(count: Int) { fractions = Array(repeating: 0, count: count) }
+}
 
 @MainActor
 final class BookPDFExportModel: ObservableObject {
@@ -98,14 +106,22 @@ final class BookPDFExportModel: ObservableObject {
                 let originalWords = try await renderer.proseWords()
                 let transformationCount = prepared.html.count
                 if options.needsAI {
-                    for (index, chapter) in prepared.html.enumerated() {
-                        try Task.checkCancellation()
+                    // No chapter reads another's answer: the chapters are rewritten side by side, and every passage call of the book
+                    // holds one of the export's slots, so `CLICompletion.sideBySide` calls run in all however short the chapters are.
+                    let slots = SideBySide.Slots(limit: CLICompletion.sideBySide)
+                    let chapterTexts = prepared.html
+                    let board = ChapterProgress(count: transformationCount)
+                    let project = project, database = database
+                    _ = try await SideBySide.map(Array(chapterTexts.indices), limit: CLICompletion.sideBySide, work: { @MainActor [self] index in
+                        let chapter = chapterTexts[index]
                         try await BookPDFAssistant.rewriteChapter(renderer: renderer, id: chapter.id, html: chapter.text, language: options.language,
-                            reduction: options.reduction, project: project, usage: { [database] in $0.record(in: database) }) { message, fraction in
+                            reduction: options.reduction, project: project, slots: slots,
+                            usage: { $0.record(in: database) }) { message, fraction in
+                                board.fractions[index] = fraction
                                 status = "Chapter \(index + 1) of \(transformationCount) · " + message
-                                progress = 0.1 + 0.55 * (Double(index) + fraction) / Double(transformationCount)
+                                progress = 0.1 + 0.55 * board.fractions.reduce(0, +) / Double(transformationCount)
                             }
-                    }
+                    })
                 }
                 var renderedOptions = options
                 if let title = try await coverTitle { renderedOptions.title = title }

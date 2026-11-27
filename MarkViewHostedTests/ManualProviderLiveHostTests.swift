@@ -57,7 +57,7 @@ final class ManualProviderLiveHostTests: XCTestCase {
             let originalWords = try await renderer.proseWords()
             for chapter in prepared.html {
                 try await BookPDFAssistant.rewriteChapter(renderer: renderer, id: chapter.id, html: chapter.text, language: language, reduction: reduction,
-                    project: nil, tool: provider)
+                    project: nil, tool: provider, slots: SideBySide.Slots(limit: CLICompletion.sideBySide))
             }
             let words = try await renderer.proseWords()
             let ratio = Double(words) / Double(originalWords)

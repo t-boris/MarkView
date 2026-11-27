@@ -686,6 +686,50 @@ extension EditorHostTests {
     }
 }
 
+extension EditorHostTests {
+    /// Files chosen on the Sources panel start one job each; their fact extractions share the assistant's slots, so no more than
+    /// `CLICompletion.sideBySide` ask at once, and each file still gets its own facts.
+    @MainActor func testSourcesAddedTogetherShareTheFactSlots() async throws {
+        let suiteName = "feature-sources-host-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-sources-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = try (1...5).map { n -> URL in
+            let url = root.appendingPathComponent("note-\(n).txt")
+            try "Note \(n) says the import takes \(n) minutes.\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let store = FeatureStore(settings: Settings(defaults))
+        store.setup(root: root)
+        store.reloadSync()
+        defer { store.reset() }
+        let slug = try XCTUnwrap(store.createFeature(title: "Imports", idea: "Import the old data"))
+        let assistant = AttachmentAssistant()
+        AIAssistantRunner.setTestRunner { request, _, _ in try await assistant.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+
+        // What the Sources panel does for the files chosen in its open panel.
+        for url in files {
+            XCTAssertTrue(store.assistant.start("ingest:" + url.path) { await $0.ingest(.file(url), into: slug) })
+        }
+        for _ in 0..<1000 where files.contains(where: { store.jobs.isRunning("ingest:" + $0.path) }) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        let calls = await assistant.calls, peak = await assistant.peak
+        XCTAssertEqual(calls, files.count, "one fact extraction per file")
+        XCTAssertEqual(peak, CLICompletion.sideBySide, "never more than CLICompletion.sideBySide at once")
+        let sources = try XCTUnwrap(store.feature(slug)).list(.source)
+        XCTAssertEqual(Set(sources.map(\.title)), Set(files.map(\.lastPathComponent)))
+        for source in sources {
+            let facts = (source.front["facts"]?.list ?? []).compactMap { $0["text"]?.string }
+            XCTAssertEqual(facts, ["A fact from \(source.title)"], "\(source.id) holds its own file's facts")
+        }
+    }
+}
+
 /// The assistant's side of applying settlements: names the requirements and the overview a decision changes, then holds every
 /// rewrite until all of them are with it (or a few seconds have passed), so an apply that waits for some rewrites before it starts
 /// others never has them all in flight.

@@ -548,7 +548,8 @@ extension PDFExportHostTests {
         let passages = BookPDFTransform.prepare(html).chunks.count
         XCTAssertGreaterThan(passages, 3, "the chapter is more passages than run at once")
         var steps: [String] = []
-        let result = try await BookPDFAssistant.rewrite(html, language: "German", reduction: 0, project: nil) { message, _ in steps.append(message) }
+        let result = try await BookPDFAssistant.rewrite(html, language: "German", reduction: 0, project: nil,
+                                                        slots: SideBySide.Slots(limit: CLICompletion.sideBySide)) { message, _ in steps.append(message) }
         XCTAssertEqual(result, texts.map { "<p>\($0.uppercased())</p>" }.joined(), "every passage comes back translated, in its place")
         XCTAssertEqual(gauge.calls, passages, "one call per passage")
         XCTAssertGreaterThan(gauge.peak, 1, "the passages are with the assistant at the same time")
@@ -581,7 +582,9 @@ extension PDFExportHostTests {
         XCTAssertEqual(before.count, paragraphs.count, "each paragraph is a passage")
         var steps: [String] = []
         try await BookPDFAssistant.rewriteChapter(renderer: renderer, id: chapter.id, html: html, language: "document", reduction: 50,
-                                                  project: nil) { message, _ in steps.append(message) }
+                                                  project: nil, slots: SideBySide.Slots(limit: CLICompletion.sideBySide)) { message, _ in
+            steps.append(message)
+        }
         let after = try await renderer.prosePassages(chapter.id)
         let expected = paragraphs.map { paragraph in
             paragraph.split(separator: " ").enumerated().filter { $0.offset.isMultiple(of: 2) }.map(\.element).joined(separator: " ")
@@ -647,5 +650,58 @@ extension PDFExportHostTests {
         XCTAssertEqual(model.savedURL, output)
         XCTAssertTrue(times.startedBeforeTheLastPassageEnded("title"), "the title is with the assistant while a chapter still is")
         XCTAssertTrue(times.startedBeforeTheLastPassageEnded("labels"), "the labels are with the assistant while a chapter still is")
+    }
+
+    /// Counts the passage calls of an export with the assistant at once.
+    final class PassageGauge: @unchecked Sendable { // unchecked Sendable: every field is read and written under `lock`.
+        private let lock = NSLock()
+        private var running = 0
+        private(set) var peak = 0
+        private(set) var calls = 0
+        func begin() { lock.lock(); running += 1; calls += 1; peak = max(peak, running); lock.unlock() }
+        func end() { lock.lock(); running -= 1; lock.unlock() }
+    }
+
+    /// Short chapters of one passage each are translated side by side: the export's slots keep `CLICompletion.sideBySide` passage
+    /// calls going across chapters instead of one chapter at a time.
+    @MainActor func testBookExportRewritesShortChaptersSideBySide() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("book-chapters-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = try (1...4).map { n -> URL in
+            let url = folder.appendingPathComponent(String(format: "%02d-chapter.md", n))
+            try "# Chapter \(n)\n\nChapter \(n) is short enough to be one passage.\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let gauge = PassageGauge()
+        AIAssistantRunner.setTestRunner { request, _, _ in
+            switch request.label {
+            case "pdf-book:cover-title":
+                return try CLICompletion.Result(text: "", structured: ["text": "NOTES"], inputTokens: 1, outputTokens: 1, costUSD: nil)
+            case "pdf-book:labels":
+                let labels = ["contents": "CONTENTS", "book": "BOOK", "edition": "EDITION"]
+                return try CLICompletion.Result(text: "", structured: labels, inputTokens: 1, outputTokens: 1, costUSD: nil)
+            default:
+                gauge.begin()
+                defer { gauge.end() }
+                try await Task.sleep(nanoseconds: 250_000_000)
+                let text = request.prompt.uppercased()
+                return try CLICompletion.Result(text: text, structured: ["text": text], inputTokens: 1, outputTokens: 1, costUSD: nil)
+            }
+        }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let model = BookPDFExportModel(project: folder, drafts: [:], database: nil)
+        model.add(files)
+        for _ in 0..<500 where model.isBusy || model.chapters.count < files.count { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(model.chapters.count, files.count)
+        model.options.title = "Notes"
+        model.options.language = "Klingon"
+        let output = folder.appendingPathComponent("book.pdf")
+        model.export(to: output)
+        for _ in 0..<6000 where model.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(model.error)
+        XCTAssertEqual(model.savedURL, output)
+        XCTAssertEqual(gauge.calls, files.count, "one passage per chapter")
+        XCTAssertEqual(gauge.peak, CLICompletion.sideBySide, "the chapters' passages run CLICompletion.sideBySide at a time across chapters")
     }
 }
