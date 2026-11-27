@@ -11,8 +11,10 @@ struct CopilotProvider: AssistantProvider, AssistantACPSupport {
     let authStatusArgs: [String] = []
     let loginCommand = "login"
     let fullAccessArgs = ["--allow-all"]
-    /// /fleet works in the interactive CLI (not over ACP); the Cockpit step runs the interactive CLI (2026-11-24 research).
-    let cockpitDelegation: String? = "the /fleet command of this interactive session"
+    /// /fleet only tells the agent to split the work into todos and run the independent ones as parallel subagents; no setting turns it
+    /// on, and it does not work over ACP (`copilot help parallel-work`, Copilot CLI 1.0.114, 2026-11-26).
+    let parallelWork: AssistantParallelWork? = AssistantParallelWork(
+        mechanism: "parallel subagents, as /fleet does (split the work into todos and run the independent ones as subagents)")
     let continueArgs = ["--continue"]
     let terminalIcon = "airplane"
     var usage: (any AssistantUsageSupport)? { CopilotUsage() }

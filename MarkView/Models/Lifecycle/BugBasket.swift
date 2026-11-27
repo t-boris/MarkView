@@ -154,7 +154,7 @@ enum BatchFixPrompt {
                 + "If there are any other uncommitted changes, or a branch with the planned name already exists, describe what you found, "
                 + "ask me how to proceed and change nothing until I answer.",
             "Create and check out the branch from the current commit, and tell me its name.",
-            "For each bug in turn: reproduce it, find the root cause, fix it and verify the fix.",
+            "For each bug: reproduce it, find the root cause, fix it and verify the fix.",
             "For each bug you fixed, make exactly one commit on that branch with its fix; the commit message starts with the bug id. "
                 + "Do not commit anything for a bug you could not fix.",
             "Only after a bug's commit exists, add the branch name to its report (front matter branch: <branch name>). Do not write status: fixed in the file; "

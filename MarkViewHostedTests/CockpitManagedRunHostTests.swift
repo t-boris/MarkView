@@ -86,8 +86,29 @@ final class CockpitManagedRunHostTests: XCTestCase {
     func testDelegationIsKeptOnlyForAgentsWhoseProfileSupportsIt() {
         let plan = managedPlan(done(), work: [work("A", agent: "Codex", delegate: true), work("B", agent: "Cline", delegate: true)])
         XCTAssertEqual(plan.steps.filter { $0.kind == .work }.map(\.delegate), [true, nil])
-        XCTAssertNotNil(CLITool.allCases.first { $0.displayName == "Claude Code" }?.provider.cockpitDelegation)
-        XCTAssertNil(CLITool.allCases.first { $0.displayName == "Cline" }?.provider.cockpitDelegation)
+        // The review, the fixes and the re-verification are lists of independent checks: their agent delegates when it can (Codex
+        // here), never when it cannot (Claude Code is left out of the delegation set of this plan).
+        XCTAssertEqual(plan.steps.first { $0.kind == .fix }?.delegate, true)
+        XCTAssertNil(plan.steps.first { $0.kind == .review }?.delegate)
+        XCTAssertNil(plan.steps.first { $0.kind == .reverify }?.delegate)
+        XCTAssertNotNil(CLITool.allCases.first { $0.displayName == "Claude Code" }?.provider.parallelWork)
+        XCTAssertNil(CLITool.allCases.first { $0.displayName == "Cline" }?.provider.parallelWork)
+    }
+
+    func testAPlainPlanDelegatesAMarkedStepOnlyWhenThePersonAllowsIt() throws {
+        let claude = work("A", agent: "Claude Code", delegate: true), cline = work("B", agent: "Cline", delegate: true)
+        let unmarked = work("C", agent: "Codex")
+        var plan = CockpitPlan(goal: "Review", controls: CockpitControls(), scenarios: [], steps: [claude, cline, unmarked],
+                               successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        XCTAssertNil(plan.feature)
+        XCTAssertNil(plan.delegation(forStep: claude.id.uuidString), "the switch is off in a plan made outside Build (DEC-033)")
+        plan.controls.allowDelegation = true
+        let mechanism = try XCTUnwrap(CLITool(rawValue: "claude")?.provider.parallelWork?.mechanism)
+        XCTAssertEqual(plan.delegation(forStep: claude.id.uuidString), mechanism)
+        XCTAssertTrue(mechanism.contains("the Agent tool"))
+        XCTAssertNil(plan.delegation(forStep: cline.id.uuidString), "Cline has no mechanism")
+        XCTAssertNil(plan.delegation(forStep: unmarked.id.uuidString), "a step the planner did not mark does not delegate")
+        XCTAssertNil(plan.delegation(forStep: UUID().uuidString))
     }
 
     func testPlansWithoutManagedFieldsSaveAsBefore() throws {
@@ -214,17 +235,17 @@ final class CockpitManagedRunHostTests: XCTestCase {
         var state = CockpitManagedState()
         var reviewed = CockpitHostResult(passed: true, detail: "Reviewed", build: "",
                                          findings: [CockpitReportedFinding(title: "Gap", detail: "", basis: .criterion, reference: "AC 1")])
-        CockpitManagedRun.absorb(&reviewed, step: review, revision: "r1", managed: &state, delegationAllowed: false)
+        CockpitManagedRun.absorb(&reviewed, step: review, revision: "r1", managed: &state)
         XCTAssertTrue(reviewed.passed)
         XCTAssertEqual(state.findings.first?.revision, "r1")
         XCTAssertEqual(state.revisions[review.id.uuidString], "r1")
-        let step = plan.steps.first { $0.kind == .work }!
+        // Every plan, managed or not, judges what a step says it delegated.
         var outstanding = CockpitHostResult(passed: true, detail: "Done", build: "", delegates: [CockpitDelegatedWork(work: "Tests", outcome: .outstanding)])
-        CockpitManagedRun.absorb(&outstanding, step: step, revision: "r1", managed: &state, delegationAllowed: true)
+        CockpitManagedRun.checkDelegates(&outstanding, allowed: true)
         XCTAssertFalse(outstanding.passed)
         XCTAssertTrue(outstanding.detail.contains("still outstanding"))
         var unasked = CockpitHostResult(passed: true, detail: "Done", build: "", delegates: [CockpitDelegatedWork(work: "Docs", outcome: .finished)])
-        CockpitManagedRun.absorb(&unasked, step: step, revision: "r1", managed: &state, delegationAllowed: false)
+        CockpitManagedRun.checkDelegates(&unasked, allowed: false)
         XCTAssertFalse(unasked.passed, "a step that may not delegate cannot succeed with delegated work")
         // The MCP tool reads the same report from the agent's call.
         let report = ProjectToolRunner.cockpitReport(["findings": [["title": "T", "detail": "D", "basis": "rule", "reference": "R"]],
@@ -240,16 +261,16 @@ final class CockpitManagedRunHostTests: XCTestCase {
         var state = CockpitManagedState()
         state.addFindings([CockpitReportedFinding(title: "Gap", detail: "", basis: .criterion, reference: "AC 1")], revision: "r1")
         var fixed = CockpitHostResult(passed: true, detail: "Fixed", build: "", findingChecks: [CockpitFindingCheck(id: "R1", fixed: true, evidence: "Test added")])
-        CockpitManagedRun.absorb(&fixed, step: fix, revision: "r2", managed: &state, delegationAllowed: false)
+        CockpitManagedRun.absorb(&fixed, step: fix, revision: "r2", managed: &state)
         XCTAssertEqual(state.findings[0].state, .fixed)
         XCTAssertNil(state.findings[0].verifiedRevision, "the implementer's own fix does not count until it is verified")
         var unchecked = CockpitHostResult(passed: true, detail: "Tests pass", build: "")
-        CockpitManagedRun.absorb(&unchecked, step: reverify, revision: "r2", managed: &state, delegationAllowed: false)
+        CockpitManagedRun.absorb(&unchecked, step: reverify, revision: "r2", managed: &state)
         XCTAssertFalse(unchecked.passed)
         XCTAssertTrue(unchecked.detail.contains("R1"))
         XCTAssertNil(state.revisions[reverify.id.uuidString])
         var checked = CockpitHostResult(passed: true, detail: "Tests pass", build: "", findingChecks: [CockpitFindingCheck(id: "R1", fixed: true, evidence: "Verified")])
-        CockpitManagedRun.absorb(&checked, step: reverify, revision: "r2", managed: &state, delegationAllowed: false)
+        CockpitManagedRun.absorb(&checked, step: reverify, revision: "r2", managed: &state)
         XCTAssertTrue(checked.passed)
         XCTAssertEqual(state.findings[0].verifiedRevision, "r2")
         XCTAssertTrue(state.blockingFindings(at: "r2").isEmpty)

@@ -724,9 +724,13 @@ extension WorkspaceManager: CodeXRayHost {
 
     func startRecursiveInsight(at target: URL?, title: String?) { insight.start(at: target, title: title) }
 
-    func fixInPullRequest(_ number: Int?, prompt: String) async -> String? { await flow.fixInPullRequest(number, prompt: prompt) }
+    func fixInPullRequest(_ number: Int?, prompt: String, work: ParallelWork) async -> String? {
+        await flow.fixInPullRequest(number, prompt: prompt, work: work)
+    }
 
-    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? { terminals.sendToAssistant(prompt, submit: submit) }
+    func sendToAssistant(_ prompt: String, submit: Bool, work: ParallelWork) -> TerminalSession? {
+        terminals.sendToAssistant(prompt, submit: submit, work: work)
+    }
 
     /// Bring the X-Ray tab of `scope` to the front, opening it when it is not there yet.
     func showXRayTab(scope: String, root: URL) {

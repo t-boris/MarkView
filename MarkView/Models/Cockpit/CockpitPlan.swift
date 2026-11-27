@@ -268,6 +268,14 @@ struct CockpitPlan: Codable, Equatable {
         return CockpitText.firstLine(goal)
     }
 
+    /// How the agent of step `id` hands independent parts of the step to subagents of its own, in the words it is told: in every plan,
+    /// managed or not, when the step is marked for delegation, the person allowed delegation and the agent has a mechanism (DEC-013,
+    /// DEC-033); nil otherwise.
+    func delegation(forStep id: String) -> String? {
+        guard controls.allowDelegation, let step = steps.first(where: { $0.id.uuidString == id }), step.delegate == true else { return nil }
+        return CLITool.allCases.first { $0.displayName == step.agent }?.provider.parallelWork?.mechanism
+    }
+
     /// Earlier steps are skipped, so their QA must not appear as production work in this approval.
     func selectingStart(_ index: Int) -> CockpitPlan? {
         guard steps.indices.contains(index) else { return nil }

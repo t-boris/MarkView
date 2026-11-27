@@ -26,10 +26,10 @@ protocol CodeXRayHost: AnyObject {
     var operationsPresenter: (any ProjectOperationsPresenter)? { get }
     var projectOperations: ProjectOperationsStore? { get }
     func startRecursiveInsight(at target: URL?, title: String?)
-    /// Type `prompt` at the assistant's prompt; `submit` presses Enter.
-    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession?
+    /// Type work at the assistant's prompt, with the request to run its independent `work` in parallel; `submit` presses Enter.
+    func sendToAssistant(_ prompt: String, submit: Bool, work: ParallelWork) -> TerminalSession?
     /// Send a fix request for a pull request's code to the assistant, after checking its branch out. Returns an error to show.
-    func fixInPullRequest(_ number: Int?, prompt: String) async -> String?
+    func fixInPullRequest(_ number: Int?, prompt: String, work: ParallelWork) async -> String?
     /// The branch checked out, empty when there is none.
     var gitBranch: String { get }
     /// Who a saved answer is written for.
@@ -556,7 +556,7 @@ final class CodeAndXRayCoordinator: ObservableObject {
             }
         case .prTasksToTerminal:
             // Typed at the assistant's prompt, not sent: check the list and press Enter.
-            if let text = architecture.review.prTasksText() { _ = host?.sendToAssistant(text, submit: false) }
+            if let text = architecture.review.prTasksText() { _ = host?.sendToAssistant(text, submit: false, work: .items) }
         case .copyPRTasks:
             if let text = architecture.review.prTasksText() {
                 NSPasteboard.general.clearContents()
@@ -569,9 +569,9 @@ final class CodeAndXRayCoordinator: ObservableObject {
             guard GitHubClient.mergeMethods.contains(method) else { return }
             architecture.review.prAction(op, body: body, method: method, root: root)
         case .prFindingFix(let finding):
-            fixInPullRequest(prompt: architecture.review.findingFixPrompt(path: finding.path, index: finding.index), architecture: architecture)
+            fixInPullRequest(prompt: architecture.review.findingFixPrompt(path: finding.path, index: finding.index), work: .parts, architecture: architecture)
         case .prFixAll:
-            fixInPullRequest(prompt: architecture.review.prTasksText(), architecture: architecture)
+            fixInPullRequest(prompt: architecture.review.prTasksText(), work: .items, architecture: architecture)
         case .prFindingExplain(let finding):
             architecture.review.explainFinding(path: finding.path, index: finding.index, db: db)
         case .prFindingComment(let finding):
@@ -687,11 +687,11 @@ final class CodeAndXRayCoordinator: ObservableObject {
     }
 
     /// Send a fix request to the pull request's branch; the error, if any, is shown in an alert.
-    private func fixInPullRequest(prompt: String?, architecture: ArchitectureStore) {
+    private func fixInPullRequest(prompt: String?, work: ParallelWork, architecture: ArchitectureStore) {
         guard let prompt else { return }
         let number = architecture.review.shownPRNumber
         tasks.store(Task { [weak self] in
-            if let error = await self?.host?.fixInPullRequest(number, prompt: prompt) {
+            if let error = await self?.host?.fixInPullRequest(number, prompt: prompt, work: work) {
                 self?.prompts.inform("Cannot fix in the pull request", error)
             }
         }, for: "fixInPullRequest")

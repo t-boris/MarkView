@@ -373,7 +373,7 @@ final class FeatureFlowCoordinator: ObservableObject {
         let block = slug.map { features.lifecycle.handoffBlock(.feature, [$0]) } ?? ""
         guard let session = assistants.sendToAssistant(submit: true, to: terminal, promptFor: { session in
             guard let tool = session.profile.tool else { return nil }
-            let prompt = HandoffPrompt.feature(path, tool: tool, done: done)
+            let prompt = ParallelWork.parts.ask(HandoffPrompt.feature(path, tool: tool, done: done), tool: tool)
             return block.isEmpty ? prompt : prompt + "\n\n" + block
         }) else { return }
         guard let slug else { return }
@@ -395,7 +395,7 @@ final class FeatureFlowCoordinator: ObservableObject {
             return
         }
         let prompt = ConflictPrompt.make(files: files, operation: gitClient.operationInProgress, branch: gitClient.branch)
-        assistants.sendToAssistant(prompt, submit: true)
+        assistants.sendToAssistant(prompt, submit: true, work: files.count > 1 ? .items : .parts)
     }
 
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
@@ -412,7 +412,7 @@ final class FeatureFlowCoordinator: ObservableObject {
         // Build instructions for the actual receiving terminal after routing picks it, and mark the report
         // fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003, REQ-006).
         guard let session = assistants.sendToAssistant(submit: true, to: terminal, promptFor: { receiving in
-            let base = HandoffPrompt.bug(path, tool: receiving.profile.tool)
+            let base = ParallelWork.parts.ask(HandoffPrompt.bug(path, tool: receiving.profile.tool), tool: receiving.profile.tool)
             return block.isEmpty ? base : base + "\n\n" + block
         }), let key else { return }
         features.lifecycle.startByHandoff(.bug, key, tool: session.profile.tool?.displayName ?? "AI assistant", actor: .human(features.lifecycleActor))
@@ -432,7 +432,7 @@ final class FeatureFlowCoordinator: ObservableObject {
         }, send: { startable in
             let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
             session = assistants.sendToAssistant(submit: true, to: nil) { receiving in
-                let base = BatchFixPrompt.make(startable, tool: receiving.profile.tool)
+                let base = ParallelWork.items.ask(BatchFixPrompt.make(startable, tool: receiving.profile.tool), tool: receiving.profile.tool)
                 return block.isEmpty ? base : base + "\n\n" + block
             }
             return session != nil
@@ -543,8 +543,8 @@ final class FeatureFlowCoordinator: ObservableObject {
     }
 
     /// Send a fix request for a pull request's code to the AI terminal, after checking its branch out when needed. Returns an error to
-    /// show.
-    func fixInPullRequest(_ number: Int?, prompt: String) async -> String? {
+    /// show. `work`: one finding is a task with parts, every finding a list of items.
+    func fixInPullRequest(_ number: Int?, prompt: String, work: ParallelWork) async -> String? {
         var prompt = prompt
         if let number, gitHub.client != nil {
             if !(await isCheckedOut(number)), let error = await checkoutPullRequest(number) { return error }
@@ -552,7 +552,7 @@ final class FeatureFlowCoordinator: ObservableObject {
             // Without the GitHub integration the branch is not checked out for the AI.
             prompt += "\n\nNote: this is pull request #\(number); its branch may not be the one checked out here."
         }
-        assistants.sendToAssistant(prompt, submit: true)
+        assistants.sendToAssistant(prompt, submit: true, work: work)
         return nil
     }
 
@@ -575,7 +575,7 @@ final class FeatureFlowCoordinator: ObservableObject {
             prompt += "\n\nComments:\n" + comments.map { "- \($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n")
         }
         prompt += "\n\nYou are on branch \(branch). Investigate, implement the change, and summarise what you did."
-        assistants.sendToAssistant(prompt, submit: true)
+        assistants.sendToAssistant(prompt, submit: true, work: .parts)
         return nil
     }
 
@@ -589,7 +589,7 @@ final class FeatureFlowCoordinator: ObservableObject {
                 prompt += "\nNote: the run was on branch \(run.headBranch); the working copy is on \(self.gitClient.branch)."
             }
             prompt += "\nFind the cause in this repository and fix it."
-            self.assistants.sendToAssistant(prompt, submit: true)
+            self.assistants.sendToAssistant(prompt, submit: true, work: .parts)
         }, for: "fixRunWithAI")
     }
 }

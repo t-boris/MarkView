@@ -58,10 +58,12 @@ enum CockpitPlanning {
         implementation plan when it has issues). MarkView adds the rest itself from the Definition of Done the person reviewed: the branch
         \(feature.branch), the tests, an independent review, fixes and their re-verification, the version, the pull request, CI, merge,
         release and the final verification. Do not plan those steps. Use successCriteria for the feature's acceptance criteria.
-        Set delegate to true on a step only when its agent is listed with a delegation mechanism and the step has independent parts that
-        its own subagents can do within the same assignment; otherwise false.
         """
     }
+
+    /// What the planner is told about delegation in every plan whose controls allow it (DEC-033).
+    static let delegationRule = "Set delegate to true on a step only when its agent is listed with a delegation mechanism and the step has "
+        + "independent parts that its own subagents can do within the same assignment; otherwise false."
 
     static var schema: [String: Any] {
         let string: [String: Any] = ["type": "string"]

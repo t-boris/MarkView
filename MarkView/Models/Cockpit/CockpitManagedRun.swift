@@ -239,8 +239,12 @@ enum CockpitManagedRun {
         func add(_ kind: CockpitStepKind, _ itemID: String?, title: String, agent: String, assignment: String, condition: String,
                  recovery: CockpitStepRecovery? = nil) {
             let asks = itemID.map { mode($0) == .ask } ?? false
-            steps.append(CockpitStep(title: title, agent: agent, assignment: assignment + standingText, completionCondition: condition,
-                                     isPrerequisite: true, kind: kind, doneItem: itemID, asksFirst: asks ? true : nil, recovery: recovery))
+            var step = CockpitStep(title: title, agent: agent, assignment: assignment + standingText, completionCondition: condition,
+                                   isPrerequisite: true, kind: kind, doneItem: itemID, asksFirst: asks ? true : nil, recovery: recovery)
+            // The review, the fixes of its findings and their re-verification are lists of independent checks or fixes: their agent
+            // may run them in parallel with its own subagents when it has a mechanism and delegation is allowed.
+            if [.review, .fix, .reverify].contains(kind), delegation.contains(agent) { step.delegate = true }
+            steps.append(step)
         }
         let branch = feature.branch
         if mode("branch") != .skip {
@@ -415,13 +419,11 @@ enum CockpitManagedRun {
 
     // MARK: Reports of a step
 
-    /// What a managed step's report changes in the run: findings of a review, checks of a fix or re-verification, the revision it
-    /// passed at. Delegated work left outstanding fails the step (REQ-002).
-    static func absorb(_ result: inout CockpitHostResult, step: CockpitStep, revision: String?, managed: inout CockpitManagedState,
-                       delegationAllowed: Bool) {
-        let kind = step.kind ?? .work
+    /// What a step's report says it delegated, judged in every plan: delegation the step was not allowed, or delegated work left
+    /// outstanding, fails it (REQ-002).
+    static func checkDelegates(_ result: inout CockpitHostResult, allowed: Bool) {
         let delegated = result.delegates ?? []
-        if !delegated.isEmpty, !delegationAllowed {
+        if !delegated.isEmpty, !allowed {
             result.passed = false
             result.detail += "\n\nThe step delegated work although delegation was not allowed for it:\n" + delegated.map { "- " + $0.work }.joined(separator: "\n")
         }
@@ -430,6 +432,12 @@ enum CockpitManagedRun {
             result.passed = false
             result.detail += "\n\nDelegated work is still outstanding, so the step cannot succeed:\n" + outstanding.map { "- " + $0.work }.joined(separator: "\n")
         }
+    }
+
+    /// What a managed step's report changes in the run: findings of a review, checks of a fix or re-verification, the revision it
+    /// passed at.
+    static func absorb(_ result: inout CockpitHostResult, step: CockpitStep, revision: String?, managed: inout CockpitManagedState) {
+        let kind = step.kind ?? .work
         let revision = revision ?? ""
         if kind == .review, let reported = result.findings { managed.addFindings(reported, revision: revision) }
         if kind == .fix || kind == .reverify, let checks = result.findingChecks {

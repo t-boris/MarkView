@@ -156,7 +156,7 @@ extension ControlToolRunner {
             guard let tool = session.profile.tool else {
                 throw Invalid(message: "A goal needs an agent terminal; this one is a shell.")
             }
-            prompt = HandoffPrompt.goal(text, tool: tool)
+            prompt = ParallelWork.parts.ask(HandoffPrompt.goal(text, tool: tool), tool: tool)
         }
         session.pasteWhenReady(prompt, submit: args["submit"] as? Bool ?? true)
         lastSent[session.id] = Date()
