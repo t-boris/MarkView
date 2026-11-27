@@ -276,8 +276,10 @@ One PR per change, one release at the end (memory: one final release for the bat
       per run naming the interrupted branches; `QAFinding.branch` (optional) in the same PR so a bug links the right video.
 - [ ] D. X-Ray Analyze: the book stage beside naming, each stage applying its own fields to the live snapshot; one
       `SideBySide.Slots(limit: 4)` per Analyze (today's peak) instead of 8.
-- [ ] E. Insight "Explore all": siblings side by side, 3 node pipelines at once across depths; Boris (2026-11-27): sections stay
-      at 5 per node (up to 15 processes).
+- [x] E. Insight "Explore all": siblings side by side, 3 node pipelines at once across depths; Boris (2026-11-27): sections stay
+      at 5 per node (up to 15 processes). PR #465 merged 2aee9349, 7.18.0: one `runPipeline` (five copies and the uncalled
+      `retryCurrent` deleted), own breadcrumbs per page, ready-only snapshots, and `cancel()` now stops the walk (it went on after
+      the tab closed: a bug found while reading). Not tested: the 50 MB eviction guard (needs >50 MB of buffers).
 - [ ] Release once after the last PR; records, lessons, memory; report with the PR links.
 
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)

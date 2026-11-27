@@ -96,7 +96,7 @@ All three JS files are plain globals loaded by `index.html`. They rely on `state
 | `SemanticDBError` | enum (`SemanticDatabase.swift`) | `openFailed` / `prepareFailed` / `executeFailed` wrapping `sqlite3_errmsg` |
 | `StructuralIndexer` | `@unchecked Sendable` class (`StructuralIndexer.swift`) | `indexAll()`; private `scanTree` (utility queue), `writeModules`, `writeChangedDocs` (`await` on the database actor, 50 documents per chunk); `progress` callback |
 | `GraphRAG` | `@MainActor`, `ObservableObject` with no `@Published` (`GraphRAG.swift`) | `classifyContent`, `buildSkeleton`, `buildSectionPrompt`, `static catalog(of:relativeTo:)`, `contentTypeAddendum`, private `escapeXMLEnvelopeBreakout` |
-| `InsightSession` | `@MainActor final class`, `ObservableObject` (`InsightSession.swift`) | Published: `rootNodeId`, `currentNodeId`, `nodes`, `lastError`, `lastErrorRetryable`, `currentNodeSections`, `skeleton`, `skeletonReady`, `allSectionsReady`, `statusMessage`, `contentType`, `cachedNodeHTML`, plus the v1 shims `streamingBuffer` / `isStreaming`. API: `generateRoot`, `expand`, `expandCustom`, `expandAllTopicsOnCurrentNode`, `navigateTo`, `up`, `retryCurrent`, `retrySection`, `regenerateRoot`, `cancel`, `snapshot()` (an `InsightViewSnapshot`), `breadcrumbs`, `nonisolated static sanitizeForLog` |
+| `InsightSession` | `@MainActor final class`, `ObservableObject` (`InsightSession.swift`) | Published: `rootNodeId`, `currentNodeId`, `nodes`, `lastError`, `lastErrorRetryable`, `currentNodeSections`, `skeleton`, `skeletonReady`, `allSectionsReady`, `statusMessage`, `contentType`, `cachedNodeHTML`, plus the v1 shims `streamingBuffer` / `isStreaming`. API: `generateRoot`, `expand`, `expandCustom`, `expandAllTopicsOnCurrentNode`, `navigateTo`, `up`, `retrySection`, `regenerateRoot`, `cancel`, `snapshot()` (an `InsightViewSnapshot`), `breadcrumbs`, `nonisolated static sanitizeForLog` |
 | `InsightCoordinator` | `@MainActor final class` (`InsightCoordinator.swift`) | Per window. `start(at:title:)`, `close(_:)`, `cancelSessions()`, the `didRequestInsight*` / `didReceiveInsightIframeReady` handlers, `exportArchive(sessionId:)`. Owns the `GraphRAG` over `project.database`. Its tasks live in the window's `TaskBag` |
 | `InsightHost` | `@MainActor` protocol (`InsightCoordinator.swift`) | What the coordinator needs of its window: `insightSessions`, `activeInsightSession`, `showInsightTab`, `removeInsightTab`. `WorkspaceManager` conforms |
 | `InsightHTMLTemplate` | `enum` (`InsightHTMLTemplate.swift`) | `html(skeleton:sectionStates:breadcrumbs:libRefMode:cache:)`, `escape` |
@@ -348,8 +348,7 @@ stateDiagram-v2
     generatingSkeleton --> failed: handleStreamError
     streamingContent --> failed: 10 MB cap / error
     ready --> failed: final HTML > 2 MB
-    ready --> pending: retryCurrent / regenerateNode
-    failed --> pending: retryCurrent
+    ready --> pending: regenerateNode
 ```
 
 User actions (the coordinator answers each iframe message and runs the session method as a task of the window's `TaskBag`, keyed by
@@ -363,11 +362,16 @@ action and session):
     and runs Phase 1 → 2 → cache.
 - **Custom deep dive** — `expandCustom(topic:)`: the child has `scope.topic(label: t, hint: t, files: [])`, where empty files means
   all files. Text selected in the iframe triggers it as well (`markview-insight-srcdoc.js`).
-- **Explore all** — `expandAllTopicsOnCurrentNode(depth:)`: expands topics one after another, depth clamped to 1-3. It navigates back
-  to the parent before each expand and awaits `activeTask.value`.
-- **Navigate / Up** — `navigateTo` cancels any in-flight generation, publishes the node's state, and reads the cached HTML. A
+- **Explore all** — `expandAllTopicsOnCurrentNode(depth:)`, depth clamped to 1-3 (since 7.18.0): the walk runs on `exploreTask`
+  (a new walk replaces the one going). Each level creates its children first, reusing a child with the same label and hint, then
+  runs them side by side: at most `CLICompletion.sideBySide` node pipelines at once over the whole walk, through one
+  `SideBySide.Slots`. A child's subtree starts after its own pipeline ends, since its topics are its skeleton. The view stays on
+  the start page, whose status line counts the nodes running, done and failed. Each node runs `runPipeline` on a task of its own
+  (kept in `pipelines`), writes its page with its own breadcrumbs, and fails alone at the 10 MB cap; the 50 MB eviction skips
+  nodes that are generating or queued and their ancestors; a snapshot keeps only ready nodes. `cancel()` stops the walk and every
+  pipeline, so closing the tab or folder and Regenerate end it.
+- **Navigate / Up** — `navigateTo` cancels the generation started by hand (`activeTask`; an explore-all walk goes on), publishes the node's state, and reads the cached HTML. A
   breadcrumb click reaches it through `didRequestInsightBreadcrumb`, which accepts only a UUID that is a member of the session.
-- **Retry the node** — `retryCurrent`: limited to 3 per 60 s per node (sliding window), then non-retryable.
 - **Retry one section** — `retrySection`: one `AIOperation ... ask(name: "insight-section-retry")` that does not run inside
   `activeTask`.
 - **Regenerate** — `regenerateRoot`:
@@ -747,7 +751,7 @@ Closed since the earlier version of this document (each verified in the code at 
 - **Section**: a typed part of a node. Its HTML streams in Phase 2.
 - **Deep dive (🤿)**: a child node generated for a topic (`InsightDeepDiveTopic`),
   a custom topic, or selected text.
-- **Explore all**: expanding every topic on a page one after another, up to depth 3.
+- **Explore all**: expanding every topic on a page, up to depth 3, three nodes side by side.
 - **Catalog mode**: prompts that list files instead of inlining them, with read-only
   CLI access to the folder.
 - **Community**: a `<community>` envelope of at most 200 KB that groups `<file>`
