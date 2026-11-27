@@ -120,7 +120,18 @@ struct CockpitPlanScreen: View {
         guard plan.controls.parallelSteps else { return "off" }
         let groups = plan.parallelGroups
         guard !groups.isEmpty else { return "on, no steps run together" }
-        return groups.map { "steps " + $0.map { "\($0 + 1)" }.joined(separator: ", ") + " together" }.joined(separator: "; ")
+        return groups.map { group -> String in
+            let numbers = group.map { String($0 + 1) }.joined(separator: ", ")
+            return "steps \(numbers) together"
+        }.joined(separator: "; ")
+    }
+
+    /// The approval bar's line about time, delegation and parallel steps, built in typed steps (one long `+` chain does not
+    /// type-check in time on CI's compiler).
+    static func limitsSummary(_ plan: CockpitPlan) -> String {
+        let time: String = plan.controls.timeLimitMinutes.map { CockpitFormat.duration(Double($0) * 60) + " of agent work in total" } ?? "none"
+        let delegation = plan.controls.allowDelegation ? "allowed where the agent supports it" : "off"
+        return "Time limit: \(time) · Delegation: \(delegation) · Parallel steps: \(groupSummary(plan))"
     }
 
     private func applyPreferredStartStep() {
@@ -486,10 +497,7 @@ struct CockpitPlanScreen: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(general, id: \.message) { Label($0.message, systemImage: "exclamationmark.triangle.fill").uiFont(size: 12).foregroundColor(palette.orange) }
             if session.planNeedsRecheck { Label("Re-check the steps against the new goal or controls first.", systemImage: "arrow.triangle.2.circlepath").uiFont(size: 12).foregroundColor(palette.orange) }
-            Text("Time limit: " + (plan.controls.timeLimitMinutes.map { CockpitFormat.duration(Double($0) * 60) + " of agent work in total" } ?? "none")
-                 + " · Delegation: " + (plan.controls.allowDelegation ? "allowed where the agent supports it" : "off")
-                 + " · Parallel steps: " + Self.groupSummary(plan))
-                .uiFont(size: 11).foregroundColor(palette.textDim)
+            Text(Self.limitsSummary(plan)).uiFont(size: 11).foregroundColor(palette.textDim)
             startNotes
             HStack(spacing: 12) {
                 if approved { CockpitChip(text: "Approved", icon: "checkmark.seal.fill", tint: palette.green) }
