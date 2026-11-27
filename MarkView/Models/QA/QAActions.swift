@@ -138,6 +138,7 @@ enum QAStepPrompt {
 
         Rules:
         - Use only elements you were shown. Never invent a reference.
+        - An element with the role clickable opens with a mouse click although it is no button or link, such as a row of a table or a card: click it as a person would. Answer blocked with elementNotFound only when nothing you were shown leads there.
         - For a check, do not change anything: look, scroll if needed, then answer done or notMet.
         - To sign in, type the placeholders {{username}} and {{password}} where the credentials go. Never type, guess or write a real password.
         - Do not repeat an action that already had its effect. If the previous action did not change the page, try another way or answer blocked.

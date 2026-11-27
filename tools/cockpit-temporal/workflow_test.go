@@ -10,6 +10,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 )
 
 func TestApprovalAndPrerequisiteRetry(t *testing.T) {
@@ -415,9 +416,67 @@ func TestFailedPrerequisiteBoundedRecoveryExhaustedKeepsDependentPaused(t *testi
 	}
 }
 
-func TestFailedNonPrerequisiteStepCanBeRetried(t *testing.T) {
+func TestFailedNonPrerequisiteStepIsRecordedAndTheRunGoesOn(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	var sequence []string
+	env.RegisterActivityWithOptions(func(_ context.Context, task StepTask) (Result, error) {
+		sequence = append(sequence, task.Step.ID)
+		if task.ContinuesAfterFailure != (task.Step.ID != "gate") {
+			t.Errorf("the host must learn before step %s whether a failure stops the run", task.Step.ID)
+		}
+		if task.Step.ID == "qa" {
+			// A host that claims the run goes on is not trusted: the workflow decides.
+			return Result{Passed: false, Detail: "QA blocked at n3", NeededInput: "Open application A"}, nil
+		}
+		if task.Step.ID == "gate" {
+			return Result{Passed: false, Detail: "CI is red", ContinuedAfterFailure: true}, nil
+		}
+		if task.Step.ID == "fix" && (len(task.PriorResults) != 1 || task.PriorResults[0].Result.Passed || task.PriorResults[0].Result.Detail != "QA blocked at n3") {
+			t.Error("the next step did not receive the failed step's result")
+		}
+		return Result{Passed: true, Detail: "Fixed"}, nil
+	}, activity.RegisterOptions{Name: "cockpit.run-step"})
+
+	plan := Plan{Fingerprint: "fp-nonpre", Steps: []Step{
+		{ID: "qa", Title: "Discovery QA", Agent: "Codex", Assignment: "Run QA", CompletionCondition: "Every branch reported"},
+		{ID: "fix", Title: "Fix what QA found", Agent: "Codex", Assignment: "Fix", CompletionCondition: "Fixed"},
+		{ID: "gate", Title: "CI", Agent: "Codex", Assignment: "Check CI", CompletionCondition: "Green", Prerequisite: true},
+	}}
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-nonpre", Step: 0}) }, time.Second)
+	pausedAtGate := false
+	env.RegisterDelayedCallback(func() {
+		var paused State
+		if value, err := env.QueryWorkflow("state"); err == nil && value.Get(&paused) == nil {
+			pausedAtGate = paused.Status == "paused" && paused.Current == 2
+		}
+		env.SignalWorkflow("control", "stop")
+	}, 2*time.Second)
+
+	env.ExecuteWorkflow(Execute, plan)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := env.GetWorkflowResult(&state); err != nil {
+		t.Fatal(err)
+	}
+	if !pausedAtGate || state.Status != "stopped" || state.Current != 2 || len(sequence) != 3 || sequence[0] != "qa" || sequence[1] != "fix" || sequence[2] != "gate" {
+		t.Fatalf("a failed step that is not a prerequisite must not stop the run, a failed prerequisite must: %+v, sequence %v", state, sequence)
+	}
+	if len(state.Results) != 3 || state.Results[0].Result.Passed || state.Results[0].Result.NeededInput != "Open application A" ||
+		!state.Results[0].Result.ContinuedAfterFailure || !state.Results[1].Result.Passed || state.Results[2].Result.ContinuedAfterFailure {
+		t.Fatalf("the failure must stay in the results, marked as gone past: %+v", state.Results)
+	}
+	if state.Reason != "CI is red" {
+		t.Fatalf("the run pauses on the prerequisite with its reason: %+v", state)
+	}
+}
+
+func TestRunStartedBeforeTheChangeStillPausesOnAFailedStep(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.OnGetVersion(nonPrerequisiteFailureContinues, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	var calls atomic.Int32
 	env.RegisterActivityWithOptions(func(_ context.Context, _ StepTask) (Result, error) {
 		if calls.Add(1) == 1 {
@@ -426,11 +485,17 @@ func TestFailedNonPrerequisiteStepCanBeRetried(t *testing.T) {
 		return Result{Passed: true, Detail: "Fixed"}, nil
 	}, activity.RegisterOptions{Name: "cockpit.run-step"})
 
-	plan := Plan{Fingerprint: "fp-nonpre", Steps: []Step{
+	plan := Plan{Fingerprint: "fp-old", Steps: []Step{
 		{ID: "work", Title: "Work", Agent: "Codex", Assignment: "Do work", CompletionCondition: "Done", Prerequisite: false},
 	}}
-	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-nonpre", Step: 0}) }, time.Second)
-	env.RegisterDelayedCallback(func() { env.SignalWorkflow("control", "retry") }, 2*time.Second)
+	env.RegisterDelayedCallback(func() { env.SignalWorkflow("approve", Start{Fingerprint: "fp-old", Step: 0}) }, time.Second)
+	env.RegisterDelayedCallback(func() {
+		var paused State
+		if value, err := env.QueryWorkflow("state"); err != nil || value.Get(&paused) != nil || paused.Status != "paused" || paused.NeededInput != "Confirm retry" {
+			t.Errorf("a run of the earlier version pauses on the failed step: %+v %v", paused, err)
+		}
+		env.SignalWorkflow("control", "retry")
+	}, 2*time.Second)
 
 	env.ExecuteWorkflow(Execute, plan)
 	if err := env.GetWorkflowError(); err != nil {
@@ -441,6 +506,6 @@ func TestFailedNonPrerequisiteStepCanBeRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.Status != "finished" || calls.Load() != 2 {
-		t.Fatalf("expected non-prerequisite step retry to succeed: %+v, calls %d", state, calls.Load())
+		t.Fatalf("the retried step of an earlier run must pass: %+v, calls %d", state, calls.Load())
 	}
 }

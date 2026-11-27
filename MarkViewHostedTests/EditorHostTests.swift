@@ -3095,3 +3095,127 @@ extension EditorHostTests {
         XCTAssertNotNil(failed(plan(fixing: false), needed: nil), "even an agent that gave no reason leaves a specific request")
     }
 }
+
+// BUG-130: a failed step that is not a prerequisite is recorded and the run goes on, when the workflow says so; QA's failure leads its result.
+extension EditorHostTests {
+    private func regularStep(_ title: String, prerequisite: Bool = false) -> CockpitStep {
+        CockpitStep(title: title, agent: "Codex", assignment: title, completionCondition: "\(title) is done", isPrerequisite: prerequisite)
+    }
+
+    private func startedRun(_ steps: [CockpitStep]) -> CockpitRun {
+        let plan = CockpitPlan(goal: "Finish the features", controls: CockpitControls(), scenarios: [], steps: steps, successCriteria: ["Every feature is done"],
+                               unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        var run = CockpitRun(plan: plan)
+        XCTAssertTrue(run.start(approval: CockpitApproval(plan: plan, productionConfirmed: false)!, at: 0))
+        return run
+    }
+
+    func testCockpitRunGoesOnPastAFailedRegularStepWhenTheWorkflowSaysSo() {
+        let qa = regularStep("Discovery QA"), fix = regularStep("Fix what QA found"), gate = regularStep("CI is green", prerequisite: true)
+        var run = startedRun([qa, fix, gate])
+        let before = run
+        XCTAssertTrue(run.completeCurrent(passed: false, detail: "QA scenario, run r1: Main line: blocked\nThe agent's report", build: "",
+                                          neededInput: "QA did not pass.", continuedAfterFailure: true))
+        XCTAssertEqual(run.status, .running, "a failed regular step does not pause the run")
+        XCTAssertEqual(run.currentIndex, 1)
+        XCTAssertEqual(run.steps[0].status, .failed)
+        XCTAssertEqual(run.steps[1].status, .running)
+        XCTAssertEqual(run.results.last?.continuedAfterFailure, true, "the result says the run went on past it")
+        XCTAssertEqual(run.results.last?.neededInput, "QA did not pass.", "what QA asked for stays in the result")
+        XCTAssertNil(run.neededInput, "nothing waits for the person")
+        let texts = (run.events ?? []).suffix(2).map(\.text)
+        XCTAssertTrue(texts.first?.hasSuffix("The run goes on with step 2.") == true && texts.last == "Step 2 of 3: Fix what QA found", "\(texts)")
+        XCTAssertEqual(CockpitRunPhase(run: run, coordinator: nil), .running)
+        let notice = CockpitNotice.transition(from: before, to: run)
+        XCTAssertEqual(notice?.kind, .stepFailed, "the failure is announced as it happens")
+        XCTAssertTrue(notice?.body.contains("Discovery QA: QA scenario, run r1: Main line: blocked") == true && notice?.body.hasSuffix("The run goes on.") == true,
+                      notice?.body ?? "nil")
+
+        XCTAssertTrue(run.completeCurrent(passed: true, detail: "Fixed", build: ""))
+        XCTAssertTrue(run.completeCurrent(passed: false, detail: "CI is red", build: "", continuedAfterFailure: true))
+        XCTAssertEqual(run.status, .paused, "a prerequisite pauses whatever the answer says")
+        XCTAssertTrue(run.isPausedOnFailedPrerequisite)
+        XCTAssertNil(run.results.last?.continuedAfterFailure)
+        XCTAssertEqual(CockpitRunPhase(run: run, coordinator: nil), .needsYou)
+
+        var earlier = startedRun([qa, fix])
+        XCTAssertTrue(earlier.completeCurrent(passed: false, detail: "Blocked", build: "", neededInput: "Open application A"))
+        XCTAssertEqual(earlier.status, .paused, "a run whose workflow pauses on every failure (started before this change) pauses here too")
+        XCTAssertEqual(earlier.failedStepNeededInput, "Open application A")
+        XCTAssertEqual(CockpitRunPhase(run: earlier, coordinator: nil), .needsYou)
+    }
+
+    func testCockpitRunThatWentOnPastFailuresFinishesWithFailuresNotSuccess() {
+        let qa = regularStep("Discovery QA"), fix = regularStep("Fix what QA found")
+        var run = startedRun([qa, fix])
+        XCTAssertTrue(run.completeCurrent(passed: false, detail: "Blocked at n3", build: "", continuedAfterFailure: true))
+        let running = run
+        XCTAssertTrue(run.completeCurrent(passed: true, detail: "Fixed", build: ""))
+        XCTAssertEqual(run.status, .finished)
+        XCTAssertEqual(run.failedStepTitles, ["Step 1: Discovery QA"])
+        XCTAssertEqual(run.events?.last?.text, "Finished; 1 step failed: Step 1: Discovery QA.")
+        let phase = CockpitRunPhase(run: run, coordinator: nil)
+        XCTAssertEqual(phase, .finishedWithFailures, "a run that went on past a failure is not shown as a success")
+        XCTAssertTrue(phase.isFinished && !phase.needsAttention)
+        XCTAssertEqual(phase.title, "Finished with failures")
+        XCTAssertEqual(CockpitRunPhase(run: run, coordinator: "finished"), .finishedWithFailures, "the live coordinator's status reads the same")
+        let finished = CockpitNotice.transition(from: running, to: run)
+        XCTAssertEqual(finished?.kind, .finished)
+        XCTAssertEqual(finished?.title, "Cockpit run finished with failures")
+        XCTAssertTrue(finished?.body.hasSuffix("1 step failed") == true, finished?.body ?? "nil")
+
+        var lastFails = startedRun([fix, qa])
+        XCTAssertTrue(lastFails.completeCurrent(passed: true, detail: "Fixed", build: ""))
+        let beforeLast = lastFails
+        XCTAssertTrue(lastFails.completeCurrent(passed: false, detail: "Blocked at n3", build: "", continuedAfterFailure: true))
+        XCTAssertEqual(lastFails.status, .finished, "a failed last step that is not a prerequisite ends the run")
+        XCTAssertEqual(CockpitNotice.transition(from: beforeLast, to: lastFails)?.body, "Discovery QA: Blocked at n3 The run finished.")
+
+        var clean = startedRun([fix])
+        XCTAssertTrue(clean.completeCurrent(passed: true, detail: "Fixed", build: ""))
+        XCTAssertEqual(clean.events?.last?.text, "Every step passed.")
+        XCTAssertEqual(CockpitRunPhase(run: clean, coordinator: nil), .finished)
+    }
+
+    func testCockpitQAResultLeadsWithWhereAndWhyQAStoppedAndTheBugsItFiled() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let scenario = QAScenario(
+            id: "scenario", title: "Package publication", goal: "A vendor is invited and a package is published", appKind: .web,
+            apps: [QAApp(id: "admin", name: "Admin")],
+            targets: [QATarget(id: "development", kind: .development, name: "Development", locations: ["admin": QALocation(url: "https://admin.dev.example.com")])],
+            actors: [QAActor(id: "lead", name: "Lead", app: "admin")],
+            nodes: [
+                QANode(id: "n1", kind: .action, title: "Submit two applications", detail: "Submit", actor: "lead"),
+                QANode(id: "n2", kind: .action, title: "Approve the first application", detail: "Approve", actor: "lead"),
+                QANode(id: "n3", kind: .check, title: "Check the invitation", detail: "Check", actor: "lead"),
+                QANode(id: "f1", kind: .failure, title: "Sending fails", detail: "Fail", actor: "lead"),
+                QANode(id: "c1", kind: .check, title: "Error is shown", detail: "Error", actor: "lead"),
+            ],
+            edges: [QAEdge(from: "n1", to: "n2"), QAEdge(from: "n2", to: "n3"), QAEdge(from: "n1", to: "f1"), QAEdge(from: "f1", to: "c1")],
+            start: "n1", created: now, updated: now)
+        var record = QARunRecord(id: "20261125-234853-977e", scenarioID: "scenario", targetID: "development", targetKind: .development,
+                                 selected: ["n1>n2>n3", "n1>f1>c1"], startedAt: now, finishedAt: now)
+        record.record(QACheckResult(branch: "n1>n2>n3", verdict: QACheckVerdict(outcome: .blocked, reason: "There is no element to open application A.",
+                                                                                 node: "n3", blockReason: .elementNotFound), startedAt: now, finishedAt: now))
+
+        let summary = CockpitQAReport.summary(scenarioID: "scenario", record: record)
+        XCTAssertEqual(summary, "QA scenario, run 20261125-234853-977e: n1>n2>n3: blocked; n1>f1>c1: uncovered")
+        let failures = CockpitQAReport.failures(record: record, scenario: scenario)
+        XCTAssertEqual(failures, ["Main line: blocked at step \u{201C}Check the invitation\u{201D} (n3), an element was not found: There is no element to open application A.",
+                                  "Sending fails: not run."])
+        let detail = CockpitQAReport.detail(summary: summary, failures: failures, filed: ["BUG-717", "BUG-718"], agentDetail: "Ready for the QA runner.\nLong report")
+        XCTAssertTrue(detail.hasPrefix(summary + "\n" + failures[0]), "the step's first line is QA's outcome, not the agent's report:\n\(detail)")
+        XCTAssertTrue(detail.contains("Bugs filed by QA: BUG-717, BUG-718.") && detail.hasSuffix("The agent's report before QA:\nReady for the QA runner.\nLong report"), detail)
+        XCTAssertEqual(CockpitQAReport.neededInput(failures: failures, filed: ["BUG-717"]),
+                       "QA did not pass. " + failures.joined(separator: " ") + " Bugs filed: BUG-717.")
+
+        var passing = QARunRecord(id: "r2", scenarioID: "scenario", targetID: "development", targetKind: .development, selected: ["n1>n2>n3"], startedAt: now)
+        passing.record(QACheckResult(branch: "n1>n2>n3", verdict: QACheckVerdict(outcome: .passed, reason: "All checks held"), startedAt: now, finishedAt: now))
+        XCTAssertTrue(CockpitQAReport.failures(record: passing, scenario: scenario).isEmpty)
+        XCTAssertNil(CockpitQAReport.neededInput(failures: [], filed: ["BUG-1"]), "a QA run that passed asks nothing")
+        XCTAssertEqual(CockpitQAReport.detail(summary: "QA scenario, run r2: n1>n2>n3: passed", failures: [], filed: [], agentDetail: "  "),
+                       "QA scenario, run r2: n1>n2>n3: passed")
+        XCTAssertEqual(CockpitQAReport.failures(record: record, scenario: nil).first?.hasPrefix("n1>n2>n3: blocked at step n3, an element was not found"), true,
+                       "without the scenario the branch and the step keep their ids")
+    }
+}

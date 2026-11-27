@@ -341,6 +341,34 @@ final class CockpitRuntimeIntegrationHostTests: XCTestCase {
               savedPrereqRun.notes?.contains(where: { $0.kind == .stepResponse && $0.text == "Use disposable prod account" }) == true else {
             throw CockpitFixtureFailure("respond-and-retry did not unblock prerequisite and run dependent step: status=\(prereqExec.state?.status ?? "nil"), tasks=\(finalPrereqTasks.count)")
         }
+        // BUG-130: through the packaged workflow, a failed step that is not a prerequisite is recorded and the next step runs and sees
+        // it; the host's answer never decides it (the workflow tells the host before the step and overwrites the flag after it).
+        let discoveryStep = CockpitStep(title: "Discovery QA", agent: "Codex", assignment: "Run QA", completionCondition: "QA passes")
+        let fixStep = CockpitStep(title: "Fix what QA found", agent: "Codex", assignment: "Fix", completionCondition: "Fixed")
+        let discoveryPlan = CockpitPlan(goal: "Discover and fix", controls: CockpitControls(), scenarios: [], steps: [discoveryStep, fixStep],
+                                        successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        let discoveryEvents = Events()
+        let discovery = CockpitExecution(root: root, service: service) { task in
+            await discoveryEvents.add(task)
+            if task.step.id == discoveryStep.id.uuidString {
+                return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "QA scenario, run r1: Main line: blocked", build: "",
+                                                                 progress: CockpitProgress(passNumber: 1, activity: "QA finished", scenarioCoverage: [], bugs: ["BUG-717"],
+                                                                                           fixes: [], latestChange: "", blockers: [], buildLogPath: nil), neededInput: "QA did not pass."), error: "")
+            }
+            return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Fixed", build: "d1"), error: "")
+        }
+        try await discovery.start(plan: discoveryPlan, approval: try XCTUnwrap(CockpitApproval(plan: discoveryPlan, productionConfirmed: false)), step: 0)
+        for _ in 0..<150 where !(discovery.state?.status == "finished" || discovery.state?.status == "paused") { try await Task.sleep(nanoseconds: 100_000_000) }
+        let discoveryTasks = await discoveryEvents.tasks
+        let discoveryRun = try CockpitRunStore.load(try XCTUnwrap(discovery.runID), root: root)
+        guard discovery.state?.status == "finished", discoveryTasks.count == 2,
+              discoveryTasks[0].continuesAfterFailure == true, discoveryTasks[1].continuesAfterFailure == true,
+              discoveryTasks[1].priorResults.last?.result.passed == false, discoveryTasks[1].priorResults.last?.result.continuedAfterFailure == true,
+              discoveryTasks[1].priorResults.last?.result.progress?.bugs == ["BUG-717"],
+              discoveryRun.status == .finished, discoveryRun.steps.map(\.status) == [.failed, .passed],
+              discoveryRun.results.first?.continuedAfterFailure == true, discoveryRun.failedStepTitles == ["Step 1: Discovery QA"] else {
+            throw CockpitFixtureFailure("a failed regular step did not let the run go on: status=\(discovery.state?.status ?? "nil"), tasks=\(discoveryTasks.count)")
+        }
         worker.stop(); bridge.stop(); service.stop()
         for _ in 0..<300 where AgentProcesses.count != 0 { try await Task.sleep(nanoseconds: 100_000_000) }
         guard AgentProcesses.count == 0 else { throw CockpitFixtureFailure("local helper processes did not stop") }

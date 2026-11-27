@@ -11,6 +11,9 @@ import (
 
 const maxStepRecoveryAttempts = 3
 
+// nonPrerequisiteFailureContinues is the change id of the rule that only a failed prerequisite pauses the run.
+const nonPrerequisiteFailureContinues = "non-prerequisite-failure-continues"
+
 // StepRecovery describes a bounded recovery attempt authorized by the approved plan when a prerequisite fails.
 type StepRecovery struct {
 	Assignment  string `json:"assignment"`
@@ -55,6 +58,8 @@ type Result struct {
 	Interrupted     bool      `json:"interrupted,omitempty"`
 	NeededInput     string    `json:"neededInput,omitempty"`
 	RecoveryAttempt int       `json:"recoveryAttempt,omitempty"`
+	// ContinuedAfterFailure marks a failed step after which the run went on to the next step (a step that is not a prerequisite).
+	ContinuedAfterFailure bool `json:"continuedAfterFailure,omitempty"`
 }
 type Progress struct {
 	PassNumber       int               `json:"passNumber"`
@@ -86,6 +91,9 @@ type StepTask struct {
 	PriorResults    []Entry  `json:"priorResults"`
 	IsFinalStep     bool     `json:"isFinalStep"`
 	RecoveryAttempt int      `json:"recoveryAttempt,omitempty"`
+	// ContinuesAfterFailure tells the host, before the step runs, that the run goes on if this step fails, so the run record
+	// follows the workflow's decision instead of making its own.
+	ContinuesAfterFailure bool `json:"continuesAfterFailure,omitempty"`
 }
 type State struct {
 	Status             string  `json:"status"`
@@ -147,6 +155,9 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 	if err := workflow.SetQueryHandler(ctx, "state", func() (State, error) { return state, nil }); err != nil {
 		return state, err
 	}
+	// A failed step that is not a prerequisite is recorded and the run goes on (BUG-130). A run started before this change keeps
+	// pausing on every failed step, so that its history replays as it was written.
+	failureGatesOnlyPrerequisites := workflow.GetVersion(ctx, nonPrerequisiteFailureContinues, workflow.DefaultVersion, 1) == 1
 	starts := workflow.GetSignalChannel(ctx, "approve")
 	controls := workflow.GetSignalChannel(ctx, "control")
 	revisions := workflow.GetSignalChannel(ctx, "replan")
@@ -284,14 +295,16 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 			return state, nil
 		}
 		step := plan.Steps[state.Current]
+		continuesAfterFailure := failureGatesOnlyPrerequisites && !step.Prerequisite
 		result, err, interruption := runActivity(StepTask{
-			Step:            step,
-			PlanFingerprint: plan.Fingerprint,
-			Goal:            plan.Goal,
-			Controls:        plan.Controls,
-			SuccessCriteria: plan.SuccessCriteria,
-			PriorResults:    append([]Entry{}, state.Results...),
-			IsFinalStep:     state.Current == len(plan.Steps)-1,
+			Step:                  step,
+			PlanFingerprint:       plan.Fingerprint,
+			Goal:                  plan.Goal,
+			Controls:              plan.Controls,
+			SuccessCriteria:       plan.SuccessCriteria,
+			PriorResults:          append([]Entry{}, state.Results...),
+			IsFinalStep:           state.Current == len(plan.Steps)-1,
+			ContinuesAfterFailure: continuesAfterFailure,
 		})
 		if interruption == "stop" {
 			state.Status = "stopped"
@@ -304,12 +317,14 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 			// The activity may have changed the world before failing. Never repeat it here.
 			return waitStoppedAfterInterruption(err.Error())
 		}
+		// The workflow decides, never the host's answer: only a step that is not a prerequisite lets the run go on after failing.
+		result.ContinuedAfterFailure = !result.Passed && continuesAfterFailure
 		state.Results = append(state.Results, Entry{StepID: step.ID, PlanFingerprint: plan.Fingerprint, Result: result})
 		var revision Revision
 		for revisions.ReceiveAsync(&revision) {
 			acceptRevision(revision)
 		}
-		if !result.Passed {
+		if !result.Passed && !result.ContinuedAfterFailure {
 			pauseReason := result.Detail
 			pauseNeeded := strings.TrimSpace(result.NeededInput)
 			if step.Prerequisite && step.Recovery != nil && strings.TrimSpace(step.Recovery.Assignment) != "" && recoveryAttempts < step.Recovery.MaxAttempts && pending == nil {

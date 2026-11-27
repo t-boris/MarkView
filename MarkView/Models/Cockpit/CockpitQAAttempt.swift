@@ -83,15 +83,19 @@ final class CockpitQAAttempt {
                 try Task.checkCancellation()
                 guard let record = qa.run.record else { return failure("QA ended without a saved result.") }
                 let passed = !record.lines.isEmpty && record.lines.allSatisfy { $0.outcome == .passed }
+                let filed = qa.run.filedBugIDs
                 finalProgress.activity = "QA \(scenarioID) finished"
                 finalProgress.scenarioCoverage = record.lines.map { "\(scenarioID)/\($0.branch): \($0.outcome?.rawValue ?? "uncovered")" }
                 finalProgress.blockers += record.lines.filter { $0.outcome != .passed }.map { "\($0.branch): \($0.reason ?? "not passed")" }
+                finalProgress.bugs += filed.filter { !finalProgress.bugs.contains($0) }
                 try await self.onProgress(finalProgress.activity, finalProgress.scenarioCoverage, finalProgress.blockers)
-                let summary = "QA \(scenarioID), run \(record.id): \(record.lines.map { "\($0.branch): \($0.outcome?.rawValue ?? "uncovered")" }.joined(separator: "; "))"
+                let summary = CockpitQAReport.summary(scenarioID: scenarioID, record: record)
+                let failures = CockpitQAReport.failures(record: record, scenario: current)
                 let result = CockpitResult(plan: plan, build: previous.result.build, outcome: summary, qaRunID: record.id, scenarioID: scenarioID)
                 try await Task.detached { try CockpitResults.save(result, root: self.root) }.value
-                return CockpitHostReply(result: CockpitHostResult(passed: passed, detail: previous.result.detail + "\n" + summary, build: previous.result.build,
-                                                                 scenarioID: scenarioID, qaRunID: record.id, progress: finalProgress), error: "")
+                return CockpitHostReply(result: CockpitHostResult(passed: passed, detail: CockpitQAReport.detail(summary: summary, failures: failures, filed: filed, agentDetail: previous.result.detail),
+                                                                 build: previous.result.build, scenarioID: scenarioID, qaRunID: record.id, progress: finalProgress,
+                                                                 neededInput: passed ? previous.result.neededInput : CockpitQAReport.neededInput(failures: failures, filed: filed)), error: "")
             } onCancel: {
                 Task { @MainActor [weak self] in
                     if let id = self?.activeQAID, qa.run.activeRunID == id { qa.run.stop() }
@@ -108,5 +112,41 @@ final class CockpitQAAttempt {
 
     private func failure(_ message: String) -> CockpitHostReply {
         CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: message)
+    }
+}
+
+/// What a finished QA run puts into its Cockpit step's result (BUG-130): the outcome of each branch first, then where and why each
+/// branch that did not pass stopped, and the bugs the run filed, so the timeline, the notice and the next steps read them first.
+enum CockpitQAReport {
+    static func summary(scenarioID: String, record: QARunRecord) -> String {
+        "QA \(scenarioID), run \(record.id): " + record.lines.map { "\($0.branch): \($0.outcome?.rawValue ?? "uncovered")" }.joined(separator: "; ")
+    }
+
+    /// One sentence for each selected branch that did not pass, in the order of the run; empty when every branch passed.
+    static func failures(record: QARunRecord, scenario: QAScenario?) -> [String] {
+        record.selected.compactMap { id in
+            let verdict = record.results.first { $0.branch == id }?.verdict
+            if verdict?.outcome == .passed { return nil }
+            let branch = QABranch(nodes: id.split(separator: ">").map(String.init))
+            var text = scenario.map { scenario in branch.nodes.allSatisfy { scenario.node($0) != nil } ? scenario.label(of: branch) : id } ?? id
+            guard let verdict else { return text + ": not run." }
+            text += ": " + verdict.outcome.rawValue
+            if let node = verdict.node { text += " at step " + (scenario?.node(node).map { "\u{201C}\($0.title)\u{201D} (\(node))" } ?? node) }
+            if let reason = verdict.blockReason { text += ", " + QABugDrafts.words(reason) }
+            let why = verdict.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text + (why.isEmpty ? "." : ": " + why)
+        }
+    }
+
+    static func detail(summary: String, failures: [String], filed: [String], agentDetail: String) -> String {
+        let head = [summary] + failures + (filed.isEmpty ? [] : ["Bugs filed by QA: " + filed.joined(separator: ", ") + "."])
+        let agent = agentDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return head.joined(separator: "\n") + (agent.isEmpty ? "" : "\n\nThe agent's report before QA:\n" + agent)
+    }
+
+    /// What the step asks of the person when QA did not pass: where and why it stopped, and what QA filed.
+    static func neededInput(failures: [String], filed: [String]) -> String? {
+        guard !failures.isEmpty else { return nil }
+        return "QA did not pass. " + failures.joined(separator: " ") + (filed.isEmpty ? "" : " Bugs filed: " + filed.joined(separator: ", ") + ".")
     }
 }

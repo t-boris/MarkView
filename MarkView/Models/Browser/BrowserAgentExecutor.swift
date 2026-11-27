@@ -427,7 +427,20 @@ enum BrowserAgentExecutor {
         const onScreen = el => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
         // A file field is often hidden behind a styled label; the label is what a person clicks to open the file chooser.
         const fileLabels = [...document.querySelectorAll('label')].filter(l => l.control && l.control.type === 'file' && visible(l));
-        const candidates = [...document.querySelectorAll(sel)].filter(visible).concat(fileLabels);
+        // What opens with a mouse click without being a control (a row or a card with a script's click handler, which leaves no
+        // onclick attribute): the outermost element with a pointer cursor that is no control, not inside one and not a label (BUG-130).
+        const cursors = new Map();
+        const cursor = el => { if (!cursors.has(el)) cursors.set(el, getComputedStyle(el).cursor); return cursors.get(el); };
+        const pointerOnly = [];
+        const everything = document.body ? document.body.getElementsByTagName('*') : [];
+        for (let i = 0; i < everything.length && i < 5000 && pointerOnly.length < 150; i++) {
+          const el = everything[i];
+          if (el.tagName === 'LABEL' || cursor(el) !== 'pointer' || (el.parentElement && cursor(el.parentElement) === 'pointer')) continue;
+          if (el.matches(sel) || el.closest(sel) || !visible(el)) continue;
+          pointerOnly.push(el);
+        }
+        const pointerSet = new Set(pointerOnly);
+        const candidates = [...document.querySelectorAll(sel)].filter(visible).concat(fileLabels).concat(pointerOnly);
         candidates.sort((a,b) => Number(onScreen(b)) - Number(onScreen(a)));
         for (const el of candidates) {
           if (out.length >= 300) break;
@@ -435,7 +448,8 @@ enum BrowserAgentExecutor {
           let ref = el.getAttribute('data-mv-ref');
           if (!ref) { ref = 'e' + (++n); el.setAttribute('data-mv-ref', ref); }
           const tag = el.tagName.toLowerCase();
-          const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ? 'input:' + (el.type || 'text') : tag);
+          const role = pointerSet.has(el) ? 'clickable'
+            : el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ? 'input:' + (el.type || 'text') : tag);
           const name = (el.getAttribute('aria-label') || el.innerText || el.placeholder || el.title || el.name || '').trim().replace(/\s+/g, ' ').slice(0, 80);
           let extra = '';
           if (tag === 'a') extra += ' -> ' + el.getAttribute('href');

@@ -15,6 +15,8 @@ struct CockpitHostResult: Codable, Equatable, Sendable {
     var neededInput: String? = nil
     /// Set to 1...N when this result came from an authorized bounded prerequisite recovery attempt.
     var recoveryAttempt: Int? = nil
+    /// True on a failed step after which the run went on: the workflow decided it, the record follows (BUG-130).
+    var continuedAfterFailure: Bool? = nil
     /// A managed run's step report (`CockpitManagedRun.absorb`): confirmed review findings, checks of findings, delegated work.
     var findings: [CockpitReportedFinding]? = nil
     var findingChecks: [CockpitFindingCheck]? = nil
@@ -30,6 +32,8 @@ struct CockpitHostTask: Codable, Equatable, Sendable {
     var priorResults: [CockpitHostEntry]
     var isFinalStep: Bool? = nil
     var recoveryAttempt: Int? = nil
+    /// Whether the run goes on when this step fails, as the workflow decided before the step began: a step that is not a prerequisite.
+    var continuesAfterFailure: Bool? = nil
 }
 struct CockpitHostReply: Codable, Sendable { var result: CockpitHostResult; var error: String }
 

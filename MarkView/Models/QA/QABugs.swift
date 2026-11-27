@@ -165,7 +165,7 @@ enum QABugDrafts {
         return String(String.UnicodeScalarView(text.unicodeScalars.map { blank.contains($0) ? "_" : $0 }))
     }
 
-    private static func words(_ reason: QABlockReason) -> String {
+    static func words(_ reason: QABlockReason) -> String {
         switch reason {
         case .baselineNotEstablished: return "the baseline could not be established"
         case .launchFailed: return "the application could not be launched"

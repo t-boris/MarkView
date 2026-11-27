@@ -99,6 +99,8 @@ final class QARunModel: ObservableObject {
     /// What the run waits for the person to say yes or no to.
     @Published private(set) var question: QAConfirmation?
     @Published private(set) var notice: String?
+    /// The bug reports this run filed or found filed already, in the order of its checks and findings; final once the run has finished.
+    @Published private(set) var filedBugIDs: [String] = []
     @Published private(set) var costUSD: Double?
     /// Screens waiting for, or in, the review.
     @Published private(set) var reviewing = 0
@@ -340,6 +342,7 @@ final class QARunModel: ObservableObject {
         videos = [:]
         record = nil
         notice = nil
+        filedBugIDs = []
         costUSD = nil
         question = nil
         currentBranch = nil
@@ -479,14 +482,15 @@ final class QARunModel: ObservableObject {
                                             runFolder: QAStore.runFolder(root, runID: runID), now: Date())
         guard !candidates.isEmpty else { return }
         let results = await filer.file(candidates)
-        var created: [String] = [], already = 0, failures: [String] = []
+        var created: [String] = [], already = 0, failures: [String] = [], ids: [String] = []
         for result in results {
             switch result.status {
-            case .created(let id): created.append(id)
-            case .alreadyFiled: already += 1
+            case .created(let id): created.append(id); ids.append(id)
+            case .alreadyFiled(let id): already += 1; ids.append(id)
             case .failed(let message): failures.append(message)
             }
         }
+        filedBugIDs = ids.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
         var parts: [String] = []
         if !created.isEmpty { parts.append("Filed \(created.count == 1 ? "bug" : "bugs"): " + created.joined(separator: ", ") + ".") }
         if already > 0 { parts.append("\(already) already filed.") }

@@ -178,7 +178,7 @@ enum QAReview {
         if let evidence = input.evidence {
             let summary = evidence.summary
             if summary.isEmpty {
-                lines.append("Measured from the structure of the page: nothing was flagged (no tiny text, weak contrast, clipped content, small click targets, sideways scrolling, unnamed controls or skipped headings).")
+                lines.append("Measured from the structure of the page: nothing was flagged (no tiny text, weak contrast, clipped content, small click targets, sideways scrolling, unnamed controls, mouse-only controls or skipped headings).")
             } else {
                 lines += ["Measured from the structure of the page (hints; confirm them on the screenshot):", summary]
             }

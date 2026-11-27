@@ -113,9 +113,11 @@ final class CockpitExecution: ObservableObject {
                 if let blocked = await self?.stepBegan(task) {
                     return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: blocked)
                 }
-                let reply = await handler(task)
+                var reply = await handler(task)
                 await self?.stepEnded()
                 guard reply.error.isEmpty else { return reply }
+                // The workflow said before the step whether the run goes on after its failure; the record follows it (BUG-130).
+                if !reply.result.passed, task.continuesAfterFailure == true { reply.result.continuedAfterFailure = true }
                 guard let self, let stepID = UUID(uuidString: task.step.id) else {
                     return CockpitHostReply(result: reply.result, error: "The step result could not be saved.")
                 }
@@ -201,7 +203,8 @@ final class CockpitExecution: ObservableObject {
               let index = next.currentIndex, next.steps.indices.contains(index), next.steps[index].stepID == stepID,
               next.completeCurrent(passed: result.passed, detail: result.detail, build: result.build,
                                    scenarioID: result.scenarioID, qaRunID: result.qaRunID, progress: result.progress,
-                                   neededInput: result.neededInput, recoveryAttempt: recoveryAttempt ?? result.recoveryAttempt) else { throw Failure.unavailable }
+                                   neededInput: result.neededInput, recoveryAttempt: recoveryAttempt ?? result.recoveryAttempt,
+                                   continuedAfterFailure: result.continuedAfterFailure == true) else { throw Failure.unavailable }
         try await save(next)
         record = next
     }
@@ -464,7 +467,8 @@ final class CockpitExecution: ObservableObject {
             guard let index = next.currentIndex, next.steps[index].stepID.uuidString == entry.stepID,
                   next.completeCurrent(passed: entry.result.passed, detail: entry.result.detail, build: entry.result.build,
                                        scenarioID: entry.result.scenarioID, qaRunID: entry.result.qaRunID, progress: entry.result.progress,
-                                       neededInput: entry.result.neededInput, recoveryAttempt: entry.result.recoveryAttempt) else { throw Failure.unavailable }
+                                       neededInput: entry.result.neededInput, recoveryAttempt: entry.result.recoveryAttempt,
+                                       continuedAfterFailure: entry.result.continuedAfterFailure == true) else { throw Failure.unavailable }
         }
         if state.fingerprint != (try CockpitTemporalPlan(next.plan).fingerprint) {
             guard next.applyRevision(fingerprint: state.fingerprint) else { throw Failure.unavailable }

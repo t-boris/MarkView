@@ -21,7 +21,7 @@ struct CockpitManagedAttention: View {
         VStack(spacing: 8) {
             if let delegates = run.managed?.delegates, !delegates.isEmpty { delegatesBanner(delegates) }
             if live, phase == .needsYou, let step = failedStep { failedBanner(step) }
-            if phase == .interrupted || (!live && phase != .finished && phase != .running) { continueBanner }
+            if phase == .interrupted || (!live && !phase.isFinished && phase != .running) { continueBanner }
             if let blocker = session.startBlocker { banner(icon: "hand.raised.fill", tint: palette.orange, title: blocker) {} }
         }
     }
