@@ -120,6 +120,11 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
         return []
     }
 
+    /// The AI panel's terminals that run an assistant now, local or paired with another computer (not a plain shell).
+    var runningAssistants: [TerminalSession] {
+        sessions.filter { $0.isRunning && $0.profile.tool != nil }
+    }
+
     /// True when at least one local terminal session for `tool` is currently running in this window.
     func hasRunningSession(for tool: CLITool) -> Bool {
         sessions.contains { !$0.isRemote && $0.profile.tool == tool && $0.isRunning }
@@ -440,7 +445,8 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     // MARK: - Closing
 
-    /// End every terminal of the window (the folder closes or another opens).
+    /// End every terminal of the window (the window or its folder closes, or another folder opens). The folder's saved AI
+    /// terminals stay, so they come back, continuing their sessions, when the folder opens again.
     func stopAll() {
         policyObservations.removeAll()
         sessions.forEach { $0.terminate() }

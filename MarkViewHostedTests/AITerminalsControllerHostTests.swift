@@ -574,3 +574,83 @@ extension EditorHostTests {
     }
 
 }
+
+extension EditorHostTests {
+    /// Closing a window with an assistant at work in its AI panel asks first (BUG-137): "Keep working" keeps the window and the
+    /// assistant, "Stop agents and close" lets it close, and the close ends every terminal of the window, the assistant's process
+    /// included. A window with only a shell closes without a question.
+    @MainActor func testClosingAWindowAsksBeforeStoppingItsAgents() async throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent("mv-close-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = Settings.standard
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        let pathKey = Setting.cliPath(claude.rawValue)
+        let savedKey = Setting.aiTerminals(folder: String(ContentHash.of(root.standardizedFileURL.path).prefix(12)))
+        let oldPath = settings.stored(pathKey), oldSaved = settings.stored(savedKey)
+        let restoreTools = overrideMCPTools(false, for: [claude])
+        let oldSocketDirectory = getenv("MARKVIEW_SOCKET_DIR").map { String(cString: $0) }
+        setenv("MARKVIEW_SOCKET_DIR", root.path, 1)
+        defer {
+            settings.set(oldPath, for: pathKey)
+            settings.set(oldSaved, for: savedKey)
+            restoreTools()
+            if let oldSocketDirectory { setenv("MARKVIEW_SOCKET_DIR", oldSocketDirectory, 1) }
+            else { unsetenv("MARKVIEW_SOCKET_DIR") }
+        }
+        // A stand-in for the assistant: past its update step it writes its process id and waits, as an agent at work does.
+        let pidFile = root.appendingPathComponent("agent.pid")
+        let fake = root.appendingPathComponent("claude")
+        try ("#!/bin/sh\n[ \"$1\" = update ] && exit 0\necho $$ > '" + pidFile.path + "'\nexec sleep 300\n")
+            .write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        settings.set(fake.path, for: pathKey)
+
+        let prompts = TerminalPolicyPrompts()
+        let window = WorkspaceManager(prompts: prompts, recentFilesURL: root.appendingPathComponent("recent.json"))
+        defer {
+            AgentToolServer.unregister(window.browser.controlID)
+            window.composition.close()
+            if AgentToolServer.socketPath?.hasPrefix(root.path + "/") == true { AgentToolServer.shutdown() }
+        }
+        window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
+        let host = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 300, height: 200),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        host.isReleasedWhenClosed = false
+        let delegate = WindowCloseDelegate(previous: nil, workspace: window)
+        let shell = try XCTUnwrap(window.terminals.openAITerminal(.shell))
+        shell.start()
+        for _ in 0..<500 where !shell.isRunning { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(shell.isRunning)
+        XCTAssertTrue(delegate.windowShouldClose(host), "a shell alone closes with the window")
+        XCTAssertTrue(prompts.asked.isEmpty)
+
+        let agent = try XCTUnwrap(window.terminals.openAITerminal(TerminalProfile(claude)))
+        agent.start()
+        var pid: pid_t = 0
+        for _ in 0..<1500 where pid == 0 {
+            pid = (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+            if pid == 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        XCTAssertGreaterThan(pid, 0, "the stand-in assistant started")
+        prompts.answers = [0]
+        XCTAssertFalse(delegate.windowShouldClose(host), "Keep working keeps the window")
+        XCTAssertEqual(prompts.asked.last?.title, "Stop the running agents and close this window?")
+        XCTAssertEqual(prompts.asked.last?.detail, agent.title)
+        XCTAssertEqual(prompts.asked.last?.buttons, ["Keep working", "Stop agents and close"])
+        XCTAssertEqual(kill(pid, 0), 0, "the assistant keeps working")
+        prompts.answers = [1]
+        XCTAssertTrue(delegate.windowShouldClose(host))
+
+        // What the window's close runs once it may close (`WindowSessionController`'s willClose handler).
+        window.windowWillClose()
+        XCTAssertTrue(window.terminals.sessions.isEmpty)
+        XCTAssertFalse(agent.isRunning)
+        XCTAssertFalse(shell.isRunning)
+        for _ in 0..<1000 where kill(pid, 0) == 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotEqual(kill(pid, 0), 0, "the assistant's process ended with the window")
+        XCTAssertEqual(settings.stored(savedKey)?["profiles"] as? [String], ["shell", "claude"],
+                       "the folder's AI terminals come back when it opens again")
+        withExtendedLifetime(host) {}
+    }
+}

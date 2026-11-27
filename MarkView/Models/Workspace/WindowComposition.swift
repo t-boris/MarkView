@@ -150,6 +150,8 @@ final class WindowComposition {
         browser.close()
         // The answers and records the tools started (Discussions, UI Studio) stop too.
         toolTabs.close()
+        // Its terminals end, the assistants among them included: the close asked first when any was running (BUG-137).
+        terminals.stopAll()
         // So do the looks and the operations of the Git client.
         gitClient.close()
         // What the window's own commands started (the folder's setup, wikilinks, translations) ends with it.
