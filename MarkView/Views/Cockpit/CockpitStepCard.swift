@@ -17,7 +17,8 @@ struct CockpitStepCard: View {
     private var inGroup: Bool { group.count > 1 }
     private var groupText: String {
         let others = group.filter { $0 != index }.map { "\($0 + 1)" }
-        return "Runs at the same time as step" + (others.count == 1 ? " " : "s ") + others.joined(separator: " and ")
+        let noun = others.count == 1 ? "step" : "steps"
+        return "Runs at the same time as \(noun) \(others.joined(separator: " and "))"
     }
 
     private enum Kind {

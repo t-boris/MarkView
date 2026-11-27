@@ -233,9 +233,10 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                 let notes = CockpitStepAudit.limits(of: after, controls: audit.controls, changes: audit.changes)
                 if !found.isEmpty {
                     finalized.result.passed = false
-                    finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n")
-                        + "Cockpit control violation, found by comparing the project before and after "
-                        + (group == nil ? "the step" : "the steps that ran at the same time") + ":\n" + found.map { "- " + $0 }.joined(separator: "\n")
+                    let separator = finalized.result.detail.isEmpty ? "" : "\n\n"
+                    let compared = group == nil ? "the step" : "the steps that ran at the same time"
+                    let list = found.map { "- \($0)" }.joined(separator: "\n")
+                    finalized.result.detail += "\(separator)Cockpit control violation, found by comparing the project before and after \(compared):\n\(list)"
                 }
                 if !notes.isEmpty {
                     finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n") + notes.joined(separator: "\n")
