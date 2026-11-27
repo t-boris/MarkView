@@ -23,6 +23,13 @@ case "$WORK" in
     *) echo "PROBE_WORK must be an absolute scratch path" >&2; exit 2 ;;
 esac
 [ -f "$SCRIPT" ] || { echo "Probe script not found: $SCRIPT" >&2; exit 2; }
+# A copy that kept the installed app's bundle id shares its preferences: it reads the person's windows and recent projects,
+# opens their projects and writes its own folders into their settings (2026-11-27). Only a copy with an id of its own runs.
+[ -f "$APP/Contents/Info.plist" ] || { echo "No app at $APP (see README.md)" >&2; exit 2; }
+BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist")
+case "$BUNDLE_ID" in
+    com.markview.MarkView) echo "$APP has the installed app's bundle id; give the copy its own (README.md: com.markview.MarkViewProbe)" >&2; exit 2 ;;
+esac
 mkdir -p "$WORK"
 [ -f "$WORK/mvprobe.dylib" ] && [ "$WORK/mvprobe.dylib" -nt "$HERE/mvprobe.m" ] || \
     clang -dynamiclib -fobjc-arc -arch arm64 -framework AppKit -framework QuartzCore -o "$WORK/mvprobe.dylib" "$HERE/mvprobe.m"

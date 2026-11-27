@@ -231,8 +231,10 @@ private struct WorkspaceWindow: View {
     /// Project Cycle Time summary, opened from the top bar (DEC-002, DEC-006).
     @State private var showCycleTime = false
     /// NSWindow hosting this view — lets open-URL notifications target only the
-    /// active window instead of racing across all ContentView instances.
-    @State private var hostWindow: NSWindow?
+    /// active window instead of racing across all ContentView instances. Held weakly: this state lives in the window's own
+    /// view graph, so a strong reference kept a closed window, its view graph and its workspace alive (BUG-138).
+    @State private var hostWindowRef = WeakWindowRef()
+    private var hostWindow: NSWindow? { hostWindowRef.window }
     /// Finder name of the open folder, for the window title; nil without a folder.
     @State private var workspaceFolderName: String?
     /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
@@ -419,7 +421,7 @@ private struct WorkspaceWindow: View {
             Task { @MainActor in DDESettingsWindow.show(workspace: workspaceManager) }
         })
         .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
-        .background(WindowAccessor(window: $hostWindow))
+        .background(WindowAccessor(window: $hostWindowRef))
         .onChange(of: fileTree.rootNode?.url) { _ in updateWindowIdentity() }
         .task(id: fileTree.rootNode?.url) {
             await changeReview.open(fileTree.rootNode?.url)
@@ -438,8 +440,8 @@ private struct WorkspaceWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .openInActiveWindow)) { _ in
             drainPendingOpens(trigger: "request")
         }
-        .onChange(of: hostWindow) { window in
-            if let window { workspaceManager.theme.attach(window) }
+        .onChange(of: hostWindowRef) { ref in
+            if let window = ref.window { workspaceManager.theme.attach(window) }
             updateWindowIdentity()
             attachWindowSession()
         }
@@ -1214,17 +1216,23 @@ private struct RecentProjectRow: View {
     }
 }
 
+/// A window seen by the view it hosts, without keeping it alive (BUG-138).
+private struct WeakWindowRef: Equatable {
+    weak var window: NSWindow?
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.window === rhs.window }
+}
+
 private struct WindowAccessor: NSViewRepresentable {
-    @Binding var window: NSWindow?
+    @Binding var window: WeakWindowRef
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { self.window = view.window }
+        DispatchQueue.main.async { self.window = WeakWindowRef(window: view.window) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { self.window = nsView.window }
+        DispatchQueue.main.async { self.window = WeakWindowRef(window: nsView.window) }
     }
 }
 
