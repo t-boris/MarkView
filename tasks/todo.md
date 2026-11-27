@@ -93,8 +93,10 @@ agent create the parallel calls itself"); probes on 2026-11-26 decided each CLI:
 - Release: v7.11.0/v7.12.0 not published. The `markview-notary` profile left the login keychain between 21:30 (v7.10.1 notarized)
   and 21:40 ("No Keychain password item found"); Boris must store it again, then `./release.sh --publish` from a clean origin/main
   worktree publishes 7.12.0 (it contains 7.11.0).
-- Copilot (open, quota): its subagent tool is `task` (with `read_agent`/`write_agent` for background agents, all marked `safe` in
-  its session records), but no recorded session ever ran it, so how its subagents obey `--available-tools` and ACP permission
+- Copilot (open, quota; every offered model answers "exceeded your monthly quota", checked again with six low-cost ones): the
+  one-shot profile disables its parallel tools `task`, `read_agent`, `write_agent`, `list_agents`, `run_dynamic_workflow` and
+  `dynamic_workflows_manage` (its "Disabled tools" notice, printed before any model call; all marked `safe` in its session
+  records), but no recorded session ever ran them, so how its subagents obey `--available-tools` and ACP permission
   requests is unknown; add `task` to the ACP one-shot profile only after a live run once the monthly quota resets.
 - CI: PR #453's build job failed on a new warning (unused `addTaskUnlessCancelled` result) and an unused import in `SideBySide.swift`;
   fixed in PR #454 (ba250238, 7.10.1). PR #452's build job timed out in the unused-import step (107 recompiled files, 35 min); the
