@@ -82,7 +82,6 @@ final class CockpitSession: ObservableObject {
     private var loadedTerminalStatus: String?
     private struct ReviewedExecution { var plan: CockpitPlan; var productionConfirmed: Bool }
     private var reviewedExecutions: [String: ReviewedExecution] = [:]
-    private var reportingStep: (id: UUID, fingerprint: String)?
     private var task: Task<Void, Never>?
 
     init(root: URL, workspace: any CockpitWindow) {
@@ -138,8 +137,10 @@ final class CockpitSession: ObservableObject {
         PollingScheduler.app.every(60, key: key, pausesWhenHidden: false) { [weak self, weak execution] in
             guard let self, let execution, let record = execution.record else { PollingScheduler.app.stop(key: key); return }
             let now = Date()
-            if record.isSilent(now: now, activity: execution.lastSignal), let quiet = record.quietSeconds(now: now, activity: execution.lastSignal),
-               let notice = CockpitNotice.silence(of: record, minutes: Int(quiet / 60)), !self.watching {
+            // In a group each member is quiet on its own; the warning names the quietest one (REQ-004).
+            if record.isSilent(now: now, activity: execution.lastSignal, stepActivity: execution.stepActivity),
+               let quiet = record.quietestStep(now: now, activity: execution.lastSignal, stepActivity: execution.stepActivity),
+               let notice = CockpitNotice.silence(of: record, minutes: Int(quiet.seconds / 60), step: quiet.index), !self.watching {
                 self.notifier.send(notice, root: self.root, runID: record.id)
             }
         }
@@ -181,6 +182,7 @@ final class CockpitSession: ObservableObject {
         guard var edited = plan else { return }
         change(&edited)
         edited.normalizeScenarios()
+        edited.normalizeGroups()
         if edited != plan { plan = edited; persistDraft() }
     }
 
@@ -191,6 +193,9 @@ final class CockpitSession: ObservableObject {
         if current.goal != goal || current.controls.affectsSteps(comparedTo: controls) { planNeedsRecheck = true }
         current.goal = goal
         current.controls = controls
+        // With "Parallel steps" off no step runs beside another: the groups go, and a managed run reviews once (REQ-007).
+        if !controls.parallelSteps, current.feature != nil { CockpitManagedRun.keepOneReview(&current.steps) }
+        current.normalizeGroups()
         plan = current
         persistDraft()
     }
@@ -298,45 +303,16 @@ final class CockpitSession: ObservableObject {
 
     private func begin(plan: CockpitPlan, approval: CockpitApproval, index: Int, recovering: CockpitRun?, productionConfirmed: Bool,
                        started: ((UUID) -> Void)?) {
-        guard let workspace else { startingExecution = false; CockpitAdmission.release(root: root, owner: self); return }
-        let attempt = CockpitAgentAttempt(assistants: workspace.assistants, root: root,
-            onFixCycle: { [weak self] count in self?.execution?.noteFixCycles(fromGate: count) },
-            onGate: { [weak self] tool, refusal in self?.execution?.noteGate(tool: tool, refusal: refusal) },
-            askSupervisor: { [root] prompt, tool, model in
-                let supervising = AIOperation<CLICompletion.Request, CockpitSupervisor.Answer>(
-                    name: "cockpit-supervisor",
-                    parse: { result in
-                        guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
-                        return answer
-                    })
-                return try await supervising.execute(CLICompletion.Request(project: root, prompt: prompt,
-                    systemPrompt: CockpitSupervisor.systemPrompt, jsonSchema: CockpitSupervisor.schema, readableFolder: root,
-                    timeout: CockpitSupervisor.timeoutSeconds, toolOverride: tool, model: model, effort: "medium", label: "cockpit-supervisor")).output
-            },
-            onExchange: { [weak self] exchange in
-                // task: records one exchange on the execution, which owns its own end
-                Task { await self?.execution?.recordExchange(exchange) }
-            },
-            liveCuts: { [weak self] in self?.execution?.liveCuts ?? CockpitLiveSwitches() },
-            liveNotes: { [weak self] in self?.execution?.liveNotes ?? [] },
-            onProgress: { [weak self] progress in
-                guard let self else { throw CancellationError() }
-                try await self.publishProgress(progress)
-            },
-            onSurvivors: { [weak self] survivors in
-                guard let execution = self?.execution else { return }
-                // task: one save on the execution, which owns its own end
-                Task { await execution.updateManaged({ $0.delegates = survivors },
-                                                      event: survivors.isEmpty ? nil : "\(survivors.count) process(es) of the step are still running.") }
-            })
+        guard workspace != nil else { startingExecution = false; CockpitAdmission.release(root: root, owner: self); return }
         guard let fingerprint = try? CockpitTemporalPlan(plan).fingerprint else {
             startingExecution = false; CockpitAdmission.release(root: root, owner: self); return
         }
         reviewedExecutions = [fingerprint: ReviewedExecution(plan: plan, productionConfirmed: productionConfirmed)]
         pendingPlan = nil
+        let audits = CockpitGroupAudit(root: root)
         let execution = CockpitExecution(root: root, service: .forProject(root)) { [weak self] task in
             guard let self else { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "The cockpit was closed.") }
-            return await self.perform(task, attempt: attempt)
+            return await self.perform(task, audits: audits)
         }
         loadedTerminalStatus = nil
         executionChange = execution.objectWillChange.sink { [weak self, weak execution] _ in
@@ -392,18 +368,62 @@ final class CockpitSession: ObservableObject {
         }
     }
 
-    private func perform(_ task: CockpitHostTask, attempt: CockpitAgentAttempt) async -> CockpitHostReply {
-        guard let reviewed = reviewedExecutions[task.planFingerprint], let workspace else {
+    /// One agent attempt per step: its own terminal, one-use ticket and watchdog, so the members of a group never share them (REQ-004).
+    /// Fix cycles, gate calls and progress are counted for the step they come from.
+    private func makeAttempt(for task: CockpitHostTask, assistants: any AssistantProviding) -> CockpitAgentAttempt {
+        let stepID = UUID(uuidString: task.step.id), fingerprint = task.planFingerprint
+        return CockpitAgentAttempt(assistants: assistants, root: root,
+            onFixCycle: { [weak self] count in if let stepID { self?.execution?.noteFixCycles(fromGate: count, stepID: stepID) } },
+            onGate: { [weak self] tool, refusal in self?.execution?.noteGate(tool: tool, refusal: refusal, stepID: stepID) },
+            askSupervisor: { [root] prompt, tool, model in
+                let supervising = AIOperation<CLICompletion.Request, CockpitSupervisor.Answer>(
+                    name: "cockpit-supervisor",
+                    parse: { result in
+                        guard let answer = CockpitSupervisor.parse(result.structured) else { throw CockpitSupervisor.Failure.unusable }
+                        return answer
+                    })
+                return try await supervising.execute(CLICompletion.Request(project: root, prompt: prompt,
+                    systemPrompt: CockpitSupervisor.systemPrompt, jsonSchema: CockpitSupervisor.schema, readableFolder: root,
+                    timeout: CockpitSupervisor.timeoutSeconds, toolOverride: tool, model: model, effort: "medium", label: "cockpit-supervisor")).output
+            },
+            onExchange: { [weak self] exchange in
+                // task: records one exchange on the execution, which owns its own end
+                Task { await self?.execution?.recordExchange(exchange) }
+            },
+            liveCuts: { [weak self] in self?.execution?.liveCuts ?? CockpitLiveSwitches() },
+            liveNotes: { [weak self] in self?.execution?.liveNotes ?? [] },
+            onProgress: { [weak self] progress in
+                guard let self, let stepID else { throw CancellationError() }
+                try await self.publishProgress(progress, stepID: stepID, fingerprint: fingerprint)
+            },
+            onSurvivors: { [weak self] survivors in
+                guard let execution = self?.execution else { return }
+                let step = task.step.id
+                // task: one save on the execution, which owns its own end; each step replaces only its own processes
+                Task { await execution.updateManaged({ $0.setDelegates(survivors, of: step, group: task.groupMembers) },
+                                                      event: survivors.isEmpty ? nil : "\(survivors.count) process(es) of the step are still running.") }
+            })
+    }
+
+    private func perform(_ task: CockpitHostTask, audits: CockpitGroupAudit) async -> CockpitHostReply {
+        guard let reviewed = reviewedExecutions[task.planFingerprint], let workspace, let stepID = UUID(uuidString: task.step.id) else {
             return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "The step's approved plan is unavailable.")
         }
-        reportingStep = UUID(uuidString: task.step.id).map { ($0, task.planFingerprint) }
-        if var progress = currentProgress {
+        let group = audits.member(for: task)
+        // A member that ends without reaching its group's "after" picture gives it up, so the rest of the group does not wait for it.
+        defer { group?.abandon() }
+        // A step on its own carries on the run's progress; a group's members start from their own.
+        let base = group == nil ? currentProgress : CockpitProgress(passNumber: 1, activity: task.step.title, scenarioCoverage: [], bugs: [], fixes: [],
+                                                                     latestChange: "", blockers: [], buildLogPath: nil)
+        if var progress = base {
             progress.activity = task.step.title
             progress.blockers = []
             progress.criteriaResults = nil
-            do { try await publishProgress(progress) }
+            do { try await publishProgress(progress, stepID: stepID, fingerprint: task.planFingerprint) }
             catch { return CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: "Progress could not be saved.") }
         }
+        let attempt = makeAttempt(for: task, assistants: workspace.assistants)
+        attempt.group = group
         // The runtime does not carry the model (it only knows the fields it declares), so it comes from the approved plan by the step's id.
         attempt.stepModel = reviewed.plan.steps.first { $0.id.uuidString == task.step.id }?.chosenModel
         attempt.planOutline = reviewed.plan.steps.map { "\($0.title) (\($0.agent))" }
@@ -411,38 +431,46 @@ final class CockpitSession: ObservableObject {
         attempt.supervisorModel = reviewed.plan.controls.supervisorModel
         let managedStep = reviewed.plan.feature != nil ? reviewed.plan.steps.first { $0.id.uuidString == task.step.id } : nil
         attempt.delegation = reviewed.plan.delegation(forStep: task.step.id)
-        attempt.managedBrief = nil
-        attempt.changes = .fixBugsControl
         if let feature = reviewed.plan.feature, let step = managedStep {
             if let early = await managedGate(step: step, feature: feature) { return early }
             attempt.managedBrief = Self.managedBrief(step, branch: feature.branch, repairing: task.recoveryAttempt != nil)
             attempt.changes = CockpitManagedRun.changeRule(for: step.kind ?? .work, recoveryAttempt: task.recoveryAttempt)
             markImplementationStarted(feature: feature, agent: step.agent)
         }
+        // The members of a group change nothing, whatever the controls say (REQ-005).
+        if group != nil { attempt.changes = .group }
         var result = await attempt.run(task)
         if result.error.isEmpty { CockpitManagedRun.checkDelegates(&result.result, allowed: attempt.delegation != nil) }
         if let step = managedStep, result.error.isEmpty {
             let revision = await CockpitDeliveryProbe.head(root: root)
-            var state = execution?.record?.managed ?? CockpitManagedState()
-            CockpitManagedRun.absorb(&result.result, step: step, revision: revision, managed: &state)
-            let findings = state.findings.count - (execution?.record?.managed?.findings.count ?? 0)
-            await execution?.updateManaged({ $0 = state }, event: findings > 0 ? "The review reported \(findings) finding(s)." : nil)
+            // Read and changed in one save: two reviews of a group that end together each add their own findings (REQ-008).
+            var absorbed = result.result
+            var reported = 0
+            await execution?.updateManaged({ state in
+                let before = state.findings.count
+                CockpitManagedRun.absorb(&absorbed, step: step, revision: revision, managed: &state)
+                reported = state.findings.count - before
+            })
+            if reported > 0 { await execution?.updateManaged({ _ in }, event: "The review reported \(reported) finding(s).") }
+            result.result = absorbed
         }
         guard result.error.isEmpty, result.result.passed, task.recoveryAttempt == nil, let id = task.step.qaScenarioID, !id.isEmpty else { return result }
+        let fingerprint = task.planFingerprint
         let qa = CockpitQAAttempt(workspace: workspace, root: root, plan: reviewed.plan, productionConfirmed: reviewed.productionConfirmed) { [weak self] activity, coverage, blockers in
             guard let self, var progress = self.currentProgress else { return }
             progress.activity = activity
             progress.scenarioCoverage = progress.scenarioCoverage.filter { !$0.hasPrefix(id + "/") } + coverage
             progress.blockers = blockers
-            try await self.publishProgress(progress)
+            try await self.publishProgress(progress, stepID: stepID, fingerprint: fingerprint)
         }
         return await qa.run(scenarioID: id, previous: result)
     }
 
-    private func publishProgress(_ progress: CockpitProgress) async throws {
+    /// The latest report of any running step is the run's current progress; it is saved with the step it comes from.
+    private func publishProgress(_ progress: CockpitProgress, stepID: UUID, fingerprint: String) async throws {
         currentProgress = progress
-        guard let step = reportingStep, let execution else { throw CockpitExecution.Failure.unavailable }
-        try await execution.saveProgress(progress, stepID: step.id, planFingerprint: step.fingerprint)
+        guard let execution else { throw CockpitExecution.Failure.unavailable }
+        try await execution.saveProgress(progress, stepID: stepID, planFingerprint: fingerprint)
     }
 
     func applyRevision(at index: Int, reviewed: CockpitPlan, productionConfirmed: Bool) {
@@ -533,8 +561,9 @@ final class CockpitSession: ObservableObject {
     }
 
     func prepareRecovery(_ run: CockpitRun, usePending: Bool = false) {
-        guard execution?.isActive != true, (run.status == .paused || run.status == .stopped), let index = run.currentIndex,
-              run.steps.indices.contains(index), run.steps[index].status == .interrupted else { return }
+        // In a group any member may be the one that was interrupted.
+        guard execution?.isActive != true, (run.status == .paused || run.status == .stopped), run.currentIndex != nil,
+              run.currentMembers.contains(where: { run.steps[$0].status == .interrupted }) else { return }
         guard let selected = usePending ? run.pendingRevision?.plan : run.plan else { return }
         loadingRecovery = true
         let root = root
@@ -646,6 +675,8 @@ final class CockpitSession: ObservableObject {
                 var prompt = feature.map { CockpitPlanning.managedPrompt(feature: $0) + "\n" } ?? ""
                 prompt += "Goal: \(goal)\nAvailable agents and their models: \(offered.joined(separator: "; "))\nControls (MarkView enforces them while the plan runs): \(settings)\n"
                 if controls.allowDelegation { prompt += CockpitPlanning.delegationRule + "\n" }
+                // A managed run's implementation steps write, so only a plain plan is told about groups (DEC-002).
+                if controls.parallelSteps, feature == nil { prompt += CockpitPlanning.groupRule + "\n" }
                 prompt += "Existing QA scenarios and targets (JSON): \(String(decoding: scenarioData, as: UTF8.self))\n"
                 prompt += "Available project actions include the MarkView MCP project, browser and control tools and the user's agent terminal. Check project capabilities before asserting an action is available.\n"
                 if refining, var previous {
@@ -672,10 +703,13 @@ final class CockpitSession: ObservableObject {
                     guard !work.isEmpty else { throw CockpitPlanning.ParseError.invalid(plan.unavailableOutcomes.isEmpty ? ["The planner proposed no implementation steps."] : plan.unavailableOutcomes) }
                     let implementer = work.first?.agent ?? choices[0].name
                     let reviewer = choices.first { $0.name != implementer }?.name ?? implementer
+                    // A second agent reviews at the same time when the switch is on and one is left (REQ-008).
+                    let secondReviewer = controls.parallelSteps ? choices.first { $0.name != implementer && $0.name != reviewer }?.name : nil
                     // With the switch off no step is marked: the planner was not told about delegation either.
                     let delegation = controls.allowDelegation ? Set(choices.filter { $0.delegation != nil }.map(\.name)) : []
                     let composed = CockpitManagedRun.compose(work: work, criteria: plan.successCriteria, feature: feature,
-                                                             implementer: implementer, reviewer: reviewer, delegation: delegation)
+                                                             implementer: implementer, reviewer: reviewer, secondReviewer: secondReviewer,
+                                                             delegation: delegation)
                     plan.steps = composed.steps
                     plan.successCriteria = composed.criteria
                     plan.feature = feature
@@ -1082,7 +1116,8 @@ extension CockpitSession {
             let latest = (try? await Task.detached { try CockpitRunStore.load(run.id, root: root) }.value) ?? run
             guard let approval = latest.approval, approval.permits(latest.plan) else { self.startBlocker = "The run's approval no longer holds."; return }
             let delivery = await CockpitDeliveryProbe.probe(root: root, branch: feature.branch)
-            let (index, skipped) = CockpitManagedRun.firstUnsupported(plan: latest.plan, results: latest.results,
+            // A review that passed while its group still ran is evidence too (REQ-006).
+            let (index, skipped) = CockpitManagedRun.firstUnsupported(plan: latest.plan, results: latest.allResults,
                                                                        managed: latest.managed ?? CockpitManagedState(), delivery: delivery)
             guard latest.plan.steps.indices.contains(index) else {
                 self.startBlocker = "Current evidence supports every step of this run, so there is nothing left to run."

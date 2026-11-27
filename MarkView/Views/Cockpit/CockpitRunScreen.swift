@@ -75,13 +75,18 @@ struct CockpitRunScreen: View {
     }
 
     private func clockLine(_ run: CockpitRun, phase: CockpitRunPhase, now: Date) -> String {
-        guard let began = run.began else { return "Step \(position(run)) of \(run.steps.count)" }
+        guard let began = run.began else { return "\(position(run)) of \(run.steps.count)" }
         let end = phase == .running ? now : (run.lastKnownActivity ?? began)
         let state = phase == .running ? "running for" : "ran for"
-        return "Step \(position(run)) of \(run.steps.count) · started \(CockpitFormat.moment(began, now: now)) · \(state) \(CockpitFormat.duration(end.timeIntervalSince(began)))"
+        return "\(position(run)) of \(run.steps.count) · started \(CockpitFormat.moment(began, now: now)) · \(state) \(CockpitFormat.duration(end.timeIntervalSince(began)))"
     }
 
-    private func position(_ run: CockpitRun) -> Int { (run.currentIndex ?? max(0, run.steps.count - 1)) + 1 }
+    /// Where the run stands: its step, or the steps of the group that runs now (REQ-004).
+    private func position(_ run: CockpitRun) -> String {
+        let members = run.currentMembers
+        if members.count > 1 { return "Steps \(members.lowerBound + 1)–\(members.upperBound)" }
+        return "Step \((run.currentIndex ?? max(0, run.steps.count - 1)) + 1)"
+    }
 
     private func usageLine(_ run: CockpitRun) -> String {
         let seconds = isLive ? (execution?.usedSeconds ?? run.activeSeconds ?? 0) : (run.activeSeconds ?? 0)
@@ -112,7 +117,8 @@ struct CockpitRunScreen: View {
                     }
                 }
             }
-            if activeNow, phase == .running, let quiet = run.quietSeconds(now: now, activity: execution?.lastSignal), run.isSilent(now: now, activity: execution?.lastSignal) {
+            if activeNow, phase == .running, let quiet = run.quietSeconds(now: now, activity: execution?.lastSignal, stepActivity: execution?.stepActivity ?? [:]),
+               run.isSilent(now: now, activity: execution?.lastSignal, stepActivity: execution?.stepActivity ?? [:]) {
                 banner(icon: "moon.zzz.fill", tint: palette.orange, title: "No report for \(CockpitFormat.duration(quiet))",
                        detail: "The agent may be waiting for an answer or a permission in its terminal, which MarkView cannot see.") {
                     Button("Show agent terminal") { session.showAgentTerminal() }
@@ -141,7 +147,8 @@ struct CockpitRunScreen: View {
     }
 
     private func failedStepBanner(_ run: CockpitRun) -> some View {
-        let index = run.currentIndex
+        // In a group, the first member that failed.
+        let index = run.currentMembers.first { run.steps[$0].status == .failed } ?? run.currentIndex
         let step = index.flatMap { run.plan.steps.indices.contains($0) ? run.plan.steps[$0] : nil }
         let isPrereq = step?.isPrerequisite == true
         let liveNeeded = isLive ? execution?.state?.neededInput?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
@@ -276,7 +283,8 @@ struct CockpitRunScreen: View {
         let phase = phase(run)
         let cuts = (isLive ? execution?.liveCuts : nil) ?? run.switches ?? CockpitLiveSwitches()
         let readings = CockpitReadings(run: run, live: activeNow, now: now, usedSeconds: isLive ? execution?.usedSeconds : nil,
-                                       usedFixCycles: isLive ? execution?.usedFixCycles : nil, cuts: cuts, activity: isLive ? execution?.lastSignal : nil)
+                                       usedFixCycles: isLive ? execution?.usedFixCycles : nil, cuts: cuts, activity: isLive ? execution?.lastSignal : nil,
+                                       stepActivity: isLive ? execution?.stepActivity ?? [:] : [:])
         let notes = isLive ? (execution?.liveNotes ?? run.notes ?? []) : (run.notes ?? [])
         let signal = isLive ? (execution?.lastSignal ?? run.lastSignal) : run.lastSignal
         return VStack(alignment: .leading, spacing: 12) {
@@ -321,7 +329,8 @@ struct CockpitRunScreen: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(run.plan.steps.enumerated()), id: \.element.id) { index, plan in
                 let record = run.steps.indices.contains(index) ? run.steps[index] : nil
-                let result = run.results.last { $0.stepID == plan.id }
+                // A member that ended before the rest of its group shows its result at once.
+                let result = run.allResults.last { $0.stepID == plan.id }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         Image(systemName: (record?.status ?? .waiting).icon).foregroundColor((record?.status ?? .waiting).tint(palette))

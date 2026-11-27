@@ -121,6 +121,8 @@ struct CockpitProcessRecord: Codable, Equatable, Hashable, Sendable {
     /// When the process started (seconds since 1970), so a reused process id is not taken for it.
     var started: Double
     var command: String
+    /// The step whose agent left the process (`CockpitStep.id.uuidString`); absent in records saved before steps ran together.
+    var step: String? = nil
 }
 
 /// What a managed run keeps besides the Cockpit's own record.
@@ -134,6 +136,13 @@ struct CockpitManagedState: Codable, Equatable {
     var revisions: [String: String] = [:]
     /// The feature was recorded as started when the first step of the run began (REQ-001).
     var implementationStarted = false
+
+    /// The processes step `step` left behind when it ended. They replace the recorded ones, except those of the other members of its
+    /// group (`group`), which ended or end on their own.
+    mutating func setDelegates(_ survivors: [CockpitProcessRecord], of step: String, group: [String]?) {
+        let others = group.map { members in delegates.filter { $0.step.map { $0 != step && members.contains($0) } ?? false } } ?? []
+        delegates = others + survivors.map { var record = $0; record.step = step; return record }
+    }
 
     func decision(for stepID: UUID) -> CockpitGateDecision? { decisions.last { $0.stepID == stepID } }
 
@@ -227,12 +236,24 @@ enum CockpitManagedRun {
 
     // MARK: Composing the plan
 
+    /// The label of a managed run's group of reviews.
+    static let reviewGroup = "review"
+
+    /// A managed plan whose "Parallel steps" switch went off reviews once (REQ-007): the second review goes, and so does every label.
+    static func keepOneReview(_ steps: inout [CockpitStep]) {
+        let reviews = steps.indices.filter { steps[$0].kind == .review }
+        for index in reviews.dropFirst().reversed() where steps[index].groupLabel == reviewGroup { steps.remove(at: index) }
+        for index in steps.indices { steps[index].parallelGroup = nil }
+    }
+
     /// The plan of a managed run: the branch, the planner's implementation steps, then tests, an independent review, fixes and their
     /// re-verification, the version, the pull request, CI, merge, release, the other checklist items and a final verification. An item
     /// set to Skip adds nothing; an item set to Ask me waits for the person; the Require items the agents keep throughout (records,
     /// issues, commits) become instructions of every step and success criteria.
+    /// `secondReviewer`, an agent that is neither the implementer nor `reviewer`, reviews at the same time as `reviewer` (REQ-008):
+    /// nil keeps a single review.
     static func compose(work: [CockpitStep], criteria: [String], feature: CockpitFeatureContext, implementer: String, reviewer: String,
-                        delegation: Set<String>) -> (steps: [CockpitStep], criteria: [String]) {
+                        secondReviewer: String? = nil, delegation: Set<String>) -> (steps: [CockpitStep], criteria: [String]) {
         let done = feature.done
         func mode(_ id: String) -> DoneMode { done.mode(of: id) ?? .skip }
         func item(_ id: String) -> DoneItem? { done.items.first { $0.id == id } }
@@ -257,6 +278,8 @@ enum CockpitManagedRun {
         }
         for var step in work {
             step.kind = .work
+            // Implementation steps write, so none runs beside another (DEC-002).
+            step.parallelGroup = nil
             step.assignment += standingText
             if step.delegate == true, !delegation.contains(step.agent) { step.delegate = nil }
             steps.append(step)
@@ -267,14 +290,19 @@ enum CockpitManagedRun {
                 assignment: (item("tests")?.instruction ?? "") + " Report the commands you ran and their results as evidence.",
                 condition: "The project's automated tests and build pass at the current revision, with the commands and results reported.")
         }
-        add(.review, nil, title: "Independent review", agent: reviewer,
-            assignment: "Review the changes on \(branch) against origin/main for \(feature): its acceptance criteria and the project's mandatory rules "
-                + "(AGENTS.md, CLAUDE.md, the project workflow). Do not change files. Report each confirmed violation in findings, naming the "
-                + "violated acceptance criterion or rule (basis \"criterion\" or \"rule\") in its own words. Report passed when the review is complete, "
-                + "whether or not it found violations.",
-            condition: "Every change was reviewed and every confirmed violation is reported as a finding.")
+        let reviewers = [reviewer] + [secondReviewer].compactMap { $0 }.filter { $0 != reviewer && $0 != implementer }
+        for (number, agent) in reviewers.enumerated() {
+            add(.review, nil, title: number == 0 ? "Independent review" : "Second independent review", agent: agent,
+                assignment: "Review the changes on \(branch) against origin/main for \(feature): its acceptance criteria and the project's mandatory rules "
+                    + "(AGENTS.md, CLAUDE.md, the project workflow). Do not change files. Report each confirmed violation in findings, naming the "
+                    + "violated acceptance criterion or rule (basis \"criterion\" or \"rule\") in its own words. Report passed when the review is complete, "
+                    + "whether or not it found violations.",
+                condition: "Every change was reviewed and every confirmed violation is reported as a finding.")
+            // The reviews run at the same time: each examines the same revision and neither changes files (REQ-008).
+            if reviewers.count > 1 { steps[steps.count - 1].parallelGroup = Self.reviewGroup }
+        }
         add(.fix, nil, title: "Fix the review findings", agent: implementer,
-            assignment: "Fix every open review finding listed in the prior results and the run's findings. For each, report a findingChecks entry "
+            assignment: "Fix every open review finding listed in the prior results and the run's findings, from every review. For each, report a findingChecks entry "
                 + "with its id, whether it is fixed and the evidence. If there are none, report passed and say so.",
             condition: "Every open finding is fixed, with evidence, or reported as not fixed.")
         add(.reverify, nil, title: "Verify the changes again", agent: reviewer,

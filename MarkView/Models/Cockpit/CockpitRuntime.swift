@@ -10,6 +10,8 @@ struct CockpitEndpoint: Codable { var address: String; var tls: CockpitTLSFiles 
 struct CockpitTemporalStep: Codable {
     var id: String; var title: String; var agent: String; var assignment: String; var completionCondition: String
     var prerequisite: Bool; var qaScenarioID: String?; var recovery: CockpitStepRecovery? = nil
+    /// The label of the group the step runs at the same time with, sent only for a group the plan allows (`CockpitPlan.group`).
+    var group: String? = nil
 }
 struct CockpitTemporalPlan: Codable {
     var fingerprint: String
@@ -26,10 +28,11 @@ struct CockpitTemporalPlan: Codable {
         goal = plan.goal
         controls = String(decoding: try encoder.encode(plan.controls), as: UTF8.self)
         successCriteria = plan.successCriteria
-        steps = plan.steps.map {
-            CockpitTemporalStep(id: $0.id.uuidString, title: $0.title, agent: $0.agent, assignment: $0.assignment,
-                                completionCondition: $0.completionCondition, prerequisite: $0.isPrerequisite,
-                                qaScenarioID: $0.qaScenarioID, recovery: $0.recovery)
+        steps = plan.steps.enumerated().map { index, step in
+            CockpitTemporalStep(id: step.id.uuidString, title: step.title, agent: step.agent, assignment: step.assignment,
+                                completionCondition: step.completionCondition, prerequisite: step.isPrerequisite,
+                                qaScenarioID: step.qaScenarioID, recovery: step.recovery,
+                                group: plan.group(containing: index).count > 1 ? step.groupLabel : nil)
         }
         initialResults = try prior.map { result in
             let oldFingerprint = try CockpitTemporalPlan(result.plan).fingerprint
@@ -41,7 +44,11 @@ struct CockpitTemporalPlan: Codable {
         }
     }
 }
-struct CockpitTemporalApproval: Codable { var fingerprint: String; var step: Int }
+struct CockpitTemporalApproval: Codable {
+    var fingerprint: String; var step: Int
+    /// The members of the starting group that already passed before an interruption and do not run again (REQ-006).
+    var kept: [String]? = nil
+}
 struct CockpitTemporalRevision: Codable { var expectedFingerprint: String; var plan: CockpitTemporalPlan; var step: Int }
 struct CockpitTemporalRequest: Codable {
     var address: String

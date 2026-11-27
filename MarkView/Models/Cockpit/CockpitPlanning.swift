@@ -65,6 +65,12 @@ enum CockpitPlanning {
     static let delegationRule = "Set delegate to true on a step only when its agent is listed with a delegation mechanism and the step has "
         + "independent parts that its own subagents can do within the same assignment; otherwise false."
 
+    /// What the planner of a plain plan is told about steps that run at the same time when "Parallel steps" is on (REQ-001, REQ-007).
+    static let groupRule = "Steps that only inspect and do not need each other's results (reviews, analyses, reading checks) may run at the "
+        + "same time: give 2 to \(CockpitPlan.groupLimit) adjacent such steps the same group label. A step in a group changes no files, builds "
+        + "nothing, runs no tests and no QA scenario, has no recovery, is not a prerequisite and is never the plan's last step; MarkView fails "
+        + "every step of a group when the project changed. Leave group empty on every other step."
+
     static var schema: [String: Any] {
         let string: [String: Any] = ["type": "string"]
         let strings: [String: Any] = ["type": "array", "items": string]
@@ -73,7 +79,8 @@ enum CockpitPlanning {
         ]]
         let step: [String: Any] = ["type": "object", "required": ["title", "agent", "model", "assignment", "completionCondition", "isPrerequisite", "qaScenarioID"], "properties": [
             "title": string, "agent": string, "model": string, "assignment": string, "completionCondition": string,
-            "isPrerequisite": ["type": "boolean"], "qaScenarioID": string, "delegate": ["type": "boolean"], "recovery": recovery
+            "isPrerequisite": ["type": "boolean"], "qaScenarioID": string, "delegate": ["type": "boolean"], "recovery": recovery,
+            "group": string
         ]]
         return ["type": "object", "required": ["title", "scenarios", "steps", "successCriteria", "unavailableOutcomes", "alternatives"], "properties": [
             "title": string, "scenarios": strings, "steps": ["type": "array", "items": step], "successCriteria": strings,
@@ -123,6 +130,8 @@ enum CockpitPlanning {
             // A CI prerequisite is repaired and checked again whatever the planner wrote (BUG-129); with fixing off a repair would be
             // refused, so none is promised and the plan screen says so instead.
             if step.recovery == nil, controls.fixBugs, step.verifiesCI { step.recovery = .ciRepair(branch: nil) }
+            // A group label counts only while the switch is on; groups that may not run together are dropped below.
+            if controls.parallelSteps { step.parallelGroup = raw["group"] as? String }
             steps.append(step)
         }
         guard Set(steps.compactMap(\.qaScenarioID)) == Set(scenarios), Set(scenarios).count == scenarios.count else {
@@ -131,8 +140,9 @@ enum CockpitPlanning {
         guard scenarios.isEmpty || steps.last?.qaScenarioID == nil else {
             throw ParseError.invalid(["QA must be followed by a final verification step."])
         }
-        let plan = CockpitPlan(goal: goal, title: cleanTitle(object["title"]), controls: controls, scenarios: scenarios, steps: steps, successCriteria: criteria,
+        var plan = CockpitPlan(goal: goal, title: cleanTitle(object["title"]), controls: controls, scenarios: scenarios, steps: steps, successCriteria: criteria,
                                unavailableOutcomes: unavailable, alternatives: alternatives, productionQA: nil)
+        plan.normalizeGroups()
         // An infeasible goal still needs an honest explanation and alternatives. It is not an
         // approvable execution plan: CockpitApproval continues to reject its missing steps.
         let problems = plan.problems

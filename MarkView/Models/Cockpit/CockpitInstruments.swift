@@ -76,9 +76,10 @@ struct CockpitReadings: Equatable {
     static let cautionShare = 0.7
 
     /// `live`: the run is going now (its clock runs and silence can be told); a saved run is read as it ended.
-    /// `usedSeconds`, `usedFixCycles`, `cuts` and `activity` are the live values the execution keeps ahead of the saved record.
+    /// `usedSeconds`, `usedFixCycles`, `cuts`, `activity` and `stepActivity` (each running step's last tool call) are the live values
+    /// the execution keeps ahead of the saved record.
     init(run: CockpitRun, live: Bool, now: Date, usedSeconds: Double? = nil, usedFixCycles: Int? = nil,
-         cuts: CockpitLiveSwitches? = nil, activity: Date? = nil) {
+         cuts: CockpitLiveSwitches? = nil, activity: Date? = nil, stepActivity: [UUID: Date] = [:]) {
         let controls = run.plan.controls
         let steps = run.steps
         let done = steps.filter { $0.status == .passed || $0.status == .skipped }.count
@@ -115,11 +116,11 @@ struct CockpitReadings: Equatable {
         let refusals = (run.events ?? []).filter { $0.kind == .refusal && $0.at >= since }.count
         let failed = steps.filter { $0.status == .failed || $0.status == .interrupted }.count
         let unanswered = (run.exchanges ?? []).filter { $0.failed && $0.asked >= since }.count
-        let silent = live && run.isSilent(now: now, activity: activity)
+        let silent = live && run.isSilent(now: now, activity: activity, stepActivity: stepActivity)
         let score = refusals + failed + unanswered + (silent ? 1 : 0)
         wind = Wind(refusals: refusals, failedSteps: failed, unanswered: unanswered, silent: silent, score: score, band: Self.windBand(score))
 
-        let quiet = live ? run.quietSeconds(now: now, activity: activity) : nil
+        let quiet = live ? run.quietSeconds(now: now, activity: activity, stepActivity: stepActivity) : nil
         let pulseBand: PulseBand
         if let quiet {
             pulseBand = silent ? .silent : (quiet >= CockpitRun.silenceThreshold / 4 ? .caution : .ok)

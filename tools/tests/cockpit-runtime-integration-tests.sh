@@ -13,4 +13,5 @@ else
 fi
 MARKVIEW_SOCKET_DIR="$socket_dir" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$socket_dir" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
-  -only-testing:MarkViewHostedTests/CockpitRuntimeIntegrationHostTests/testPackagedCockpitRuntime test
+  -only-testing:MarkViewHostedTests/CockpitRuntimeIntegrationHostTests/testPackagedCockpitRuntime \
+  -only-testing:MarkViewHostedTests/CockpitRuntimeIntegrationHostTests/testGroupMembersRunTogetherThroughThePackagedRuntime test

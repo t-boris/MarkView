@@ -47,6 +47,9 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     /// verification step may not (BUG-132), and every step of a plan made outside Build follows Fix bugs. The session sets it before
     /// each step.
     var changes: CockpitStepAudit.ChangeRule = .fixBugsControl
+    /// The group the step runs in, when it runs at the same time as other steps: the project is pictured once before the group and
+    /// once after its last member (REQ-005). nil for a step on its own.
+    var group: CockpitGroupAudit.Member?
     /// Told, when a step has ended and its terminal's group was stopped, which of the processes it started are still alive.
     private let onSurvivors: ([CockpitProcessRecord]) -> Void
     private let delegates = CockpitDelegateWatch()
@@ -76,8 +79,9 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
             terminal.terminateCockpitStep()
             return Self.failure("The agent terminal is not in the cockpit's project.")
         }
-        // Before the agent starts, so nothing it does can be missing from the "before" picture.
-        let before = await Self.snapshot(of: root)
+        // Before the agent starts, so nothing it does can be missing from the "before" picture; a group's is taken before its first member.
+        let before: CockpitStepAudit.Snapshot
+        if let group { before = await group.before() } else { before = await Self.snapshot(of: root) }
         guard !Task.isCancelled else {
             terminal.terminateCockpitStep()
             return Self.failure("The step was interrupted.")
@@ -137,6 +141,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                     You cannot start or drive other agents through MarkView during a step.
                     \(self.delegation.map { "You may hand independent parts of this assignment to \($0). They stay within this assignment, its controls and your permissions. Wait for each to finish, or stop it, before you report, and list every delegated piece in delegates with its outcome: delegated work left outstanding fails the step, and MarkView checks which processes of this terminal are still running when the step ends." } ?? "Do not delegate any of this assignment: do not start subagents, agent teams, fleets, workflows or other agents. MarkView checks which processes of this terminal are still running when the step ends.")
                     \(self.managedBrief ?? "")
+                    \(self.group == nil ? "" : "This step runs at the same time as other steps of the plan, in the same checkout. Do not change source files, do not commit and do not create scenarios: MarkView compares the project before the group and after its last step and fails every step of the group if anything changed. Report what needs changing instead.")
                     \(CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()).supervisor
                         ? "When you need a decision you cannot make from the assignment and the controls, call markview_cockpit_ask with ticket \(ticket.uuidString) and your question: the supervisor answers at once. Nobody else will be asked and nothing waits for a person, so do not print a question into the terminal and wait for it. If the answer says the matter is outside the plan, do not act on it: record it as a blocker."
                         : "There is no supervisor in this run and nobody to ask: decide conservatively inside the controls, say what you decided in your step report, or record a blocker.")
@@ -173,7 +178,11 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                 }
             }
         } onCancel: {
-            Task { @MainActor [weak self] in self?.cancel(reason: "The step was interrupted.") }
+            Task { @MainActor [weak self] in
+                self?.cancel(reason: "The step was interrupted.")
+                // A member that already ended and waits for the rest of its group stops waiting: its result is not used.
+                self?.group?.abandon()
+            }
         }
     }
 
@@ -210,20 +219,23 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
         let base = reported
         let seen = delegates.stop()
         let survivorsSeen = onSurvivors
+        let group = self.group
         // The next Temporal step must not start while this terminal's process group is still stopping. The "after" picture is
-        // taken only then, so the agent cannot still be changing files.
+        // taken only then, so the agent cannot still be changing files; a group's only when every member has ended.
         terminationTask = Task {
             await reaping?.value
             await exited?.wait()
             var finalized = base
-            if let audit {
-                let after = await Self.snapshot(of: root)
+            var after: CockpitStepAudit.Snapshot?
+            if audit == nil { group?.abandon() } else if let group { after = await group.after() } else { after = await Self.snapshot(of: root) }
+            if let audit, let after {
                 let found = CockpitStepAudit.violations(before: audit.before, after: after, controls: audit.controls, changes: audit.changes)
                 let notes = CockpitStepAudit.limits(of: after, controls: audit.controls, changes: audit.changes)
                 if !found.isEmpty {
                     finalized.result.passed = false
                     finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n")
-                        + "Cockpit control violation, found by comparing the project before and after the step:\n" + found.map { "- " + $0 }.joined(separator: "\n")
+                        + "Cockpit control violation, found by comparing the project before and after "
+                        + (group == nil ? "the step" : "the steps that ran at the same time") + ":\n" + found.map { "- " + $0 }.joined(separator: "\n")
                 }
                 if !notes.isEmpty {
                     finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n") + notes.joined(separator: "\n")
@@ -268,7 +280,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     }
 
     /// The git-changed files with their content hashes (UI Studio's revision probe), and the QA scenarios that exist.
-    private static func snapshot(of root: URL) async -> CockpitStepAudit.Snapshot {
+    fileprivate static func snapshot(of root: URL) async -> CockpitStepAudit.Snapshot {
         let (_, working) = await StudioRevisionProbe.compute(root: root)
         let scenarios = await Task.detached { Set(QAStore.loadScenarios(root).scenarios.map(\.id)) }.value
         return CockpitStepAudit.Snapshot(isGitRepository: working.gitRoot != nil, head: working.head,
@@ -277,5 +289,82 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
 
     private static func failure(_ message: String) -> CockpitHostReply {
         CockpitHostReply(result: CockpitHostResult(passed: false, detail: "", build: ""), error: message)
+    }
+}
+
+/// The project as it was before a group of steps that run at the same time and as it is after the last of them ended (REQ-005). A
+/// member that writes cannot be told from the others while they overlap, so every member is compared over the whole group. Each member
+/// reaches `after()` once or gives up with `abandon()` (it ended without a result to audit, or it was cancelled), so no member waits for
+/// one that will not come.
+@MainActor
+final class CockpitGroupAudit {
+    private struct Pass {
+        var before: Task<CockpitStepAudit.Snapshot, Never>?
+        var remaining: Set<String>
+        var waiting: [String: CheckedContinuation<CockpitStepAudit.Snapshot?, Never>] = [:]
+    }
+
+    private let root: URL
+    private var passes: [String: Pass] = [:]
+
+    init(root: URL) { self.root = root.standardizedFileURL }
+
+    /// One member's view of its group's pass: the members the workflow started together under one plan.
+    @MainActor
+    struct Member {
+        fileprivate let audit: CockpitGroupAudit
+        fileprivate let key: String
+        fileprivate let id: String
+        func before() async -> CockpitStepAudit.Snapshot { await audit.before(key) }
+        func after() async -> CockpitStepAudit.Snapshot? { await audit.after(key, member: id) }
+        func abandon() { audit.abandon(key, member: id) }
+    }
+
+    /// The member `task` is in its group's pass, or nil when the step runs on its own.
+    func member(for task: CockpitHostTask) -> Member? {
+        guard let members = task.groupMembers, members.contains(task.step.id) else { return nil }
+        let key = task.planFingerprint + "/" + members.joined(separator: ",")
+        if passes[key] == nil { passes[key] = Pass(remaining: Set(members)) }
+        return Member(audit: self, key: key, id: task.step.id)
+    }
+
+    private func before(_ key: String) async -> CockpitStepAudit.Snapshot {
+        let root = root
+        if passes[key]?.before == nil {
+            passes[key]?.before = Task { await CockpitAgentAttempt.snapshot(of: root) }
+        }
+        if let picture = passes[key]?.before { return await picture.value }
+        return await CockpitAgentAttempt.snapshot(of: root)
+    }
+
+    private func after(_ key: String, member: String) async -> CockpitStepAudit.Snapshot? {
+        guard passes[key]?.remaining.contains(member) == true else { return nil }
+        return await withCheckedContinuation { continuation in
+            passes[key]?.waiting[member] = continuation
+            passes[key]?.remaining.remove(member)
+            closeIfDone(key)
+        }
+    }
+
+    private func abandon(_ key: String, member: String) {
+        guard var pass = passes[key] else { return }
+        pass.remaining.remove(member)
+        let waiter = pass.waiting.removeValue(forKey: member)
+        passes[key] = pass
+        waiter?.resume(returning: nil)
+        closeIfDone(key)
+    }
+
+    /// When no member is still working, the "after" picture is taken once and handed to every member that waits for it.
+    private func closeIfDone(_ key: String) {
+        guard let pass = passes[key], pass.remaining.isEmpty else { return }
+        passes[key] = nil
+        guard !pass.waiting.isEmpty else { return }
+        let root = root
+        // task: takes the one "after" picture and resumes the waiting members; it ends when they are resumed
+        Task { @MainActor in
+            let picture = await CockpitAgentAttempt.snapshot(of: root)
+            for waiter in pass.waiting.values { waiter.resume(returning: picture) }
+        }
     }
 }

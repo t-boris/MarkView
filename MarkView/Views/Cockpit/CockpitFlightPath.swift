@@ -266,7 +266,8 @@ struct CockpitFlightPath: View {
 
     private func waypoint(_ index: Int, _ plan: CockpitStep) -> some View {
         let status = run.steps.indices.contains(index) ? run.steps[index].status : .waiting
-        let current = run.currentIndex == index
+        // Every member of a running group is flown at once (REQ-004).
+        let current = run.currentMembers.contains(index)
         let selected = selectedStepID == plan.id.uuidString
         let color = status.tint(palette)
         let last = index == run.plan.steps.count - 1
@@ -314,7 +315,8 @@ struct CockpitFlightPath: View {
     }
 }
 
-/// Who is flying the current step: its agent and model, how long it has worked and when it last showed it was alive.
+/// Who is flying the current step, or each member of the current group: its agent and model, how long it has worked and when the run
+/// last showed it was alive.
 struct CockpitFlightStrip: View {
     @Environment(\.palette) private var palette
     let run: CockpitRun
@@ -327,24 +329,19 @@ struct CockpitFlightStrip: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: "cpu").foregroundColor(palette.accent)
-            if let index = run.currentIndex, run.plan.steps.indices.contains(index), run.steps.indices.contains(index) {
-                let plan = run.plan.steps[index], record = run.steps[index]
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Text("Step \(index + 1) of \(run.steps.count) · \(plan.title)").uiFont(size: 12, weight: .semibold).lineLimit(1)
-                        CockpitChip(text: "\(plan.agent) · \(plan.chosenModel ?? "default model")", icon: "cpu")
+            let members = run.currentMembers.filter { run.plan.steps.indices.contains($0) && run.steps.indices.contains($0) }
+            if !members.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    if members.count > 1 {
+                        Text("\(members.count) steps run at the same time").uiFont(size: 11).foregroundColor(palette.textDim)
                     }
-                    HStack(spacing: 12) {
-                        if record.status == .running, let started = record.startedAt {
-                            Text("Working for \(CockpitFormat.duration(now.timeIntervalSince(started)))").uiFont(size: 11)
-                        }
-                        if let signal = lastSignal {
-                            Text("Last sign of life \(CockpitFormat.duration(now.timeIntervalSince(signal))) ago").uiFont(size: 11).foregroundColor(palette.textDim)
-                        }
+                    ForEach(members, id: \.self) { index in member(index) }
+                    if let signal = lastSignal {
+                        Text("Last sign of life \(CockpitFormat.duration(now.timeIntervalSince(signal))) ago").uiFont(size: 11).foregroundColor(palette.textDim)
                     }
                 }
                 Spacer(minLength: 8)
-                if activeNow && record.status == .running {
+                if activeNow && members.contains(where: { run.steps[$0].status == .running }) {
                     Button("Show agent terminal", action: showTerminal).buttonStyle(.bordered).controlSize(.small)
                 }
             } else {
@@ -353,5 +350,21 @@ struct CockpitFlightStrip: View {
             }
         }
         .cockpitCard(padding: 10)
+    }
+
+    private func member(_ index: Int) -> some View {
+        let plan = run.plan.steps[index], record = run.steps[index]
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text("Step \(index + 1) of \(run.steps.count) · \(plan.title)").uiFont(size: 12, weight: .semibold).lineLimit(1)
+                CockpitChip(text: "\(plan.agent) · \(plan.chosenModel ?? "default model")", icon: "cpu")
+            }
+            if record.status == .running, let started = record.startedAt {
+                Text("Working for \(CockpitFormat.duration(now.timeIntervalSince(started)))").uiFont(size: 11)
+            } else if run.isAtGroup, record.status == .passed || record.status == .failed {
+                Text(record.status == .passed ? "Ended: passed; waiting for the rest of the group" : "Ended: failed; waiting for the rest of the group")
+                    .uiFont(size: 11).foregroundColor(record.status == .passed ? palette.green : palette.red)
+            }
+        }
     }
 }

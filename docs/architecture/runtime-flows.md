@@ -93,6 +93,15 @@ Every one-shot AI feature (X-Ray, Insight, features and bugs, Explain, translati
 
 Details: [ai-assistants §6](./modules/ai-assistants-and-dictation.md#62-one-shot-completion-via-claudecodex).
 
+### Cockpit steps
+
+A Cockpit run is a Temporal workflow (`tools/cockpit-temporal/workflow.go`) that calls the app for each step over a private socket
+(`CockpitHostBridge`); the app runs the step's agent in a terminal of its own (`CockpitAgentAttempt`) and saves the result in the run
+record (`CockpitExecution`, `CockpitRun`). Adjacent steps with one group label (`CockpitPlan.group(containing:)`, 2 to
+`CLICompletion.sideBySide` steps that only inspect) start together and the workflow goes on when all of them have ended; their results
+join the record in plan order, the run's time grows by the group's wall-clock time, and `CockpitGroupAudit` compares the project
+before the group with the project after its last member, failing every member when anything changed.
+
 ## 6. X-Ray (architecture map)
 
 1. `ArchitectureScanner` runs off the main thread: `git ls-files`, language heuristics, import edges, git metrics and co-change.
