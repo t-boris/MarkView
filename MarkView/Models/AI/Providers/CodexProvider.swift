@@ -251,7 +251,10 @@ private struct CodexMCPConfigAdapter: AssistantMCPConfigAdapter {
 extension CodexProvider: AssistantCompletionSupport {
     func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
         // Explicitly disable web search when `allowWeb` is false so user config.toml cannot bypass repository opt-out.
-        var arguments = (request.allowWeb ? ["--search"] : ["-c", "web_search=\"disabled\""]) + ["exec"]
+        // Subagent tools are off: an `--ephemeral` run keeps no rollout for a child to load, so every spawn fails and costs a turn
+        // (codex 0.172). Codex runs independent reads as parallel tool calls of its own.
+        var arguments = (request.allowWeb ? ["--search"] : ["-c", "web_search=\"disabled\""])
+            + ["-c", "agents.enabled=false", "exec"]
             + request.images.flatMap { ["-i", $0.path] } + ["--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                      "--json", "--color", "never", "-C", request.workDir.path]
         arguments += modelArgs(request.model)

@@ -9,8 +9,8 @@ Checked against the code at `ac3001ba` (2026-11-15) for the rows changed in this
 
 | Tool | Invocation | Auth | Access granted |
 |---|---|---|---|
-| Claude Code (`claude`) | `-p`, stream-json output, prompt on stdin; system prompt and schema passed as args | CLI's own login (`claude auth status`) | Read-only: `Read,Grep,Glob` only with a readable folder; `WebSearch,WebFetch` only with `allowWeb` |
-| Codex (`codex`) | `exec --sandbox read-only --json`, `--output-schema <tmp file>` | CLI's own login | Read-only sandbox |
+| Claude Code (`claude`) | `-p`, stream-json output, prompt on stdin; system prompt and schema passed as args | CLI's own login (`claude auth status`) | Read-only: `Read,Grep,Glob,Agent` only with a readable folder (subagents get the same tools); `WebSearch,WebFetch` only with `allowWeb` |
+| Codex (`codex`) | `exec --sandbox read-only --json`, `--output-schema <tmp file>` | CLI's own login | Read-only sandbox, subagent tools off (`-c agents.enabled=false`) |
 | Cline (`cline --acp`) | ACP JSON-RPC over stdio, Plan mode | CLI's own login | Permission requests: reads inside the project and searches allowed, everything else refused |
 | GitHub Copilot CLI (`--acp`) | ACP JSON-RPC over stdio | CLI's own login | Limited to its `view/grep/glob` tools |
 | Antigravity (`agy`) | one-shot requests in print mode with stream-json output through `CLICompletion` (`AntigravityProvider`); terminals use its interactive mode | CLI's own login | not re-checked; terminals pass `--dangerously-skip-permissions` |
