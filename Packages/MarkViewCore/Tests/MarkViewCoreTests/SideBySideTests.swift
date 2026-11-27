@@ -112,26 +112,33 @@ final class SideBySideTests: XCTestCase {
     func testSlotsBoundRunsStartedAtDifferentTimesAndServeThemInOrder() async throws {
         let gauge = Gauge()
         let slots = SideBySide.Slots(limit: 2)
-        var order: [Int] = []
+        // Each run holds its slot until the test ends it, so no timing of the machine decides what runs together.
+        let gates = (0..<6).map { _ in AsyncStream.makeStream(of: Void.self) }
         var runs: [Task<Int, any Error>] = []
         for item in 0..<6 {
+            let gate = gates[item].stream
             runs.append(Task { @MainActor in
                 try await slots.run {
                     gauge.begin(item)
-                    order.append(item)
                     defer { gauge.end() }
-                    try await Task.sleep(nanoseconds: 20_000_000)
+                    for await _ in gate { break }
                     return item
                 }
             })
             // Each start comes later than the one before, as when a map is zoomed step by step.
             try await Task.sleep(nanoseconds: 2_000_000)
         }
+        // The runs end one by one, and every end lets exactly the next waiting run in.
+        for item in 0..<6 {
+            let admitted = min(item + 2, 6)
+            while gauge.started.count < admitted { await Task.yield() }
+            XCTAssertEqual(gauge.started, Array(0..<admitted), "the waiting runs start in the order they asked for a slot")
+            gates[item].continuation.finish()
+        }
         var outputs: [Int] = []
         for run in runs { outputs.append(try await run.value) }
         XCTAssertEqual(outputs, Array(0..<6))
         XCTAssertEqual(gauge.peak, 2, "two at once, never more")
-        XCTAssertEqual(order, Array(0..<6), "the waiting runs start in the order they asked for a slot")
     }
 
     /// A run that throws frees its slot; a caller cancelled while it waits gets `CancellationError` and takes no slot.
@@ -144,15 +151,18 @@ final class SideBySideTests: XCTestCase {
             XCTAssertTrue(error is Failed)
         }
         let gauge = Gauge()
+        // The holder keeps the only slot until the test lets it go, so the waiter cannot get it before it is cancelled.
+        let (hold, release) = AsyncStream.makeStream(of: Void.self)
         let holder = Task { @MainActor in
             try await slots.run {
                 gauge.begin(0)
                 defer { gauge.end() }
-                try await Task.sleep(nanoseconds: 150_000_000)
+                for await _ in hold { break }
             }
         }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        while gauge.started.isEmpty { await Task.yield() }
         let waiter = Task { @MainActor in try await slots.run { gauge.begin(1); gauge.end() } }
+        // Usually the waiter is in the queue by now; cancelled before it asked, it leaves the same way.
         try await Task.sleep(nanoseconds: 20_000_000)
         waiter.cancel()
         do {
@@ -161,6 +171,7 @@ final class SideBySideTests: XCTestCase {
         } catch {
             XCTAssertTrue(error is CancellationError)
         }
+        release.finish()
         try await holder.value
         XCTAssertEqual(gauge.started, [0], "the cancelled waiter never ran")
         let after = try await slots.run { 7 }
