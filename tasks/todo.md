@@ -90,9 +90,13 @@ agent create the parallel calls itself"); probes on 2026-11-26 decided each CLI:
 - Phase 4: PR #456 merged as 1bc1ec99 (7.12.0): every new Cockpit plan starts with "Delegation to subagents" on
   (`CockpitControls.newPlan`; DEC-038 proposed, extends DEC-033); unreadable controls keep the restrictive default. Evidence: the
   real-window routing test asserts it and fails with the old default; 21 Cockpit managed-run hosted tests.
-- Release: v7.11.0/v7.12.0 not published. The `markview-notary` profile left the login keychain between 21:30 (v7.10.1 notarized)
-  and 21:40 ("No Keychain password item found"); Boris must store it again, then `./release.sh --publish` from a clean origin/main
-  worktree publishes 7.12.0 (it contains 7.11.0).
+- Release: v7.12.0 published 2026-11-27 (contains 7.11.0) after Boris restored the `markview-notary` profile; notarized, codesign
+  and spctl accepted; DMG copied to build/. Not installed.
+- Boris 2026-11-27: skip the Copilot CLI agent; accept DEC-038; Copilot Cockpit must be optimal too. Its agent calls inside a step
+  are covered (planner and supervisor one-shot runs can start subagents, step agents delegate by default); its steps still run one
+  at a time. Boris chose "spec first, then build": feature `cockpit-runs-independent-plan-steps-side-by-side` (REQ-001..006,
+  DEC-001..003, Q-001 blocking, Q-002), status draft, awaiting his review. Found on the way: BUG-132 (with Fix bugs on, a
+  verification step's source changes are not audited).
 - Copilot (open, quota; every offered model answers "exceeded your monthly quota", checked again with six low-cost ones): the
   one-shot profile disables its parallel tools `task`, `read_agent`, `write_agent`, `list_agents`, `run_dynamic_workflow` and
   `dynamic_workflows_manage` (its "Disabled tools" notice, printed before any model call; all marked `safe` in its session
