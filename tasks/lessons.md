@@ -91,6 +91,12 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   Why: a grep of the xcodebuild output for warnings missed an unused `addTaskUnlessCancelled` result and an unused import in a new
   Core file, so the build job of PR #453 and main failed and needed 7.10.1. [A: SideBySide, 2026-11-26]
 
+- 2026-11-26: a tool added to a CLI run changes its output stream; replay a recorded stream of that tool through the provider's
+  parser before shipping. Why: Claude's parser treated every tool input except the known read tools as the streamed answer, so the
+  `Agent` tool's subagent task would have reached `answerDelta`; the red run showed it live. [A: ClaudeStreamParser, 2026-11-26]
+- 2026-11-26: write source code through a quoted heredoc (`<<'EOF'`). Why: an unquoted heredoc turned Swift's `$0` into `/bin/zsh`
+  and cost a hosted build. [A: shell, 2026-11-26]
+
 ## 4. Testing: harnesses, real data, evidence
 
 - A new check is evidence only if it fails without the fix: show it red on origin/main or under a deliberate mutation, in the same run as green; run a suspect check ten times.

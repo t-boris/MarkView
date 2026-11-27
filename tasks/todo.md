@@ -45,18 +45,18 @@ Phase 2 (PR 2): one-shot runs, where MarkView runs the independent calls itself.
 - [x] One release at the end, minor bump.
 Phase 3 (PR 3): a one-shot run that may read files can hand independent reads to the CLI's own subagents (the goal's "or let the
 agent create the parallel calls itself"); probes on 2026-11-26 decided each CLI:
-- [ ] Claude: `Agent` joins Read/Grep/Glob when the run may read files (probe: two Explore subagents at once, only the session's
+- [x] Claude: `Agent` joins Read/Grep/Glob when the run may read files (probe: two Explore subagents at once, only the session's
       tools, a schema answer still arrives); the stream parser keeps the Agent tool's input out of the answer and still shows the
       subagents' reads.
-- [ ] Codex: subagent tools off in one-shot runs (`-c agents.enabled=false`): an `--ephemeral` exec has no rollout for a child to
+- [x] Codex: subagent tools off in one-shot runs (`-c agents.enabled=false`): an `--ephemeral` exec has no rollout for a child to
       load ("collab spawn failed ... no rollout", v1 and v2), so every spawn fails and costs a turn; Codex already runs independent
       reads as parallel tool calls (probe: both `cat`s started before either ended). Dropping `--ephemeral` would store document
       contents in `~/.codex/sessions` and make `resume --last` in the AI panel open a one-shot run.
-- [ ] Antigravity: no change; print mode already starts `invoke_subagent` subagents side by side and the deny list holds inside
+- [x] Antigravity: no change; print mode already starts `invoke_subagent` subagents side by side and the deny list holds inside
       them (probe: a subagent's `write_file` was denied, no file written).
-- [ ] Copilot: unchanged (`--available-tools view grep glob` leaves out its subagent tool); the quota is exhausted for every model, so
+- [x] Copilot: unchanged (`--available-tools view grep glob` leaves out its subagent tool); the quota is exhausted for every model, so
       adding it cannot be verified; after the quota resets. Cline: no mechanism.
-- [ ] Tests: hosted launch and parser tests (a recorded Claude stream with two subagents); one live run of the app's own path per
+- [x] Tests: hosted launch and parser tests (a recorded Claude stream with two subagents); one live run of the app's own path per
       changed CLI. Minor bump, one release.
 
 ## Review (2026-11-26)
@@ -75,11 +75,18 @@ agent create the parallel calls itself"); probes on 2026-11-26 decided each CLI:
 - Evidence for phase 2: Core tests (157), new hosted tests that fail with the limit set to 1, 37 hosted tests of the touched files,
   4 gui suites, `book-pdf-live` with Claude (translation 227 → 195 words, 50% shortening 227 → 126), and one live X-Ray run on a
   fixture through a temporary uncommitted hosted check (3 scenarios traced together, +12 s → +21/22/24 s).
-- Open for Boris: (1) read-only subagents in one-shot runs. Probe: `claude -p --tools Read,Grep,Glob,Agent` started two subagents
+- Open for Boris (1) was decided by phase 3 (the goal asks for it): read-only subagents in one-shot runs. Probe: `claude -p --tools Read,Grep,Glob,Agent` started two subagents
   at once, each had only Agent/Glob/Grep/Read and could not write a file, so it stays read-only; not switched on because the heavy
   runs (X-Ray code analysis) are already split by MarkView and need exact `file:line` evidence that subagent summaries may lose, and
   every run would spend more tokens. (2) DEC-033: plans made outside Build keep "Delegation to subagents" off by default.
 - Found on the way: BUG-131 (a Markdown attachment's copy is read as a second source with the same id), recorded, not fixed.
+- Phase 3: PR #455 merged as f915a9a5 (7.11.0): Claude one-shot runs with a folder get `Read,Grep,Glob,Agent`; the stream parser keeps
+  the Agent tool's input out of the answer (before, a subagent's task reached `answerDelta` and the answer counter); Codex one-shot
+  runs turn subagent tools off (`-c agents.enabled=false`). Evidence: a hosted test (tools, Codex flag, a recorded two-subagent
+  stream through the parser) that fails with the old parser filter; live through `CLICompletion.run` on a three-file fixture
+  (temporary hosted check, not committed): Claude asked for subagents 14 s, not asked 7 s, Codex 8 s with three `cat`s started
+  together and no spawn attempt; in the red run the streamed answer showed "Starting three subagents in parallel" and their tasks.
+  Antigravity unchanged (already starts subagents under its deny list, verified); Copilot unchanged and not run (quota).
 - CI: PR #453's build job failed on a new warning (unused `addTaskUnlessCancelled` result) and an unused import in `SideBySide.swift`;
   fixed in PR #454 (ba250238, 7.10.1). PR #452's build job timed out in the unused-import step (107 recompiled files, 35 min); the
   same check run locally over every changed source of both PRs finds nothing.
