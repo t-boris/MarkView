@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import os
 #if canImport(MarkViewCore)
 import MarkViewCore
 #endif
@@ -238,14 +239,37 @@ enum CLICompletion {
             workDir: workDir, scratchDirectory: scratchDirectory))
         defer { launch.schemaFile.map { try? FileManager.default.removeItem(at: $0) } }
 
+        // The session a run keeps (`CompletionLaunch.keepsSession`) is written down while the CLI runs and deleted when it ends.
+        let session = OSAllocatedUnfairLock<String?>(initialState: nil)
+        var sink = CompletionSink(onDelta: onDelta, onActivity: onActivity)
+        if launch.keepsSession {
+            sink.onSession = { id in
+                guard KeptSessions.valid(id) else { return }
+                session.withLock { $0 = id }
+                KeptSessions.open(id, tool: tool)
+            }
+        }
         let invocation = Invocation(tool: tool, executable: toolPath, arguments: launch.arguments,
                                     workDir: workDir, input: launch.input, timeout: request.timeout,
-                                    parser: completion.makeParser(), sink: CompletionSink(onDelta: onDelta, onActivity: onActivity))
-        let raw = try await withTaskCancellationHandler {
-            try await invocation.start()
-        } onCancel: {
-            invocation.cancel()
+                                    parser: completion.makeParser(), sink: sink)
+        // The delete runs to its end also when the run was cancelled: a detached task does not inherit the cancellation, and the
+        // run waits for it in place.
+        func deleteSession() async {
+            guard let id = session.withLock({ $0 }) else { return }
+            await Task.detached { await KeptSessions.delete(id, tool: tool, executable: toolPath) }.value
         }
+        let raw: CompletionOutput
+        do {
+            raw = try await withTaskCancellationHandler {
+                try await invocation.start()
+            } onCancel: {
+                invocation.cancel()
+            }
+        } catch {
+            await deleteSession()
+            throw error
+        }
+        await deleteSession()
 
         var structured = raw.structured
         if request.jsonSchema != nil && structured == nil {
@@ -286,6 +310,69 @@ enum CLICompletion {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("markview-cli", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+// MARK: - Sessions kept by a run
+
+/// The sessions one-shot runs keep on disk while they run (Codex keeps one so its subagents can load it). Each is written down as a
+/// file `<Application Support>/MarkView/assistant-sessions/<tool>/<id>` holding the pid of the MarkView that runs it, and deleted with
+/// the CLI's own command when the run ends. A MarkView that quit without ending its runs (a crash) leaves files whose process is
+/// gone; the next launch deletes those sessions (`deleteLeftovers`).
+enum KeptSessions {
+    static var folder: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MarkView/assistant-sessions", isDirectory: true)
+    }
+
+    /// An id as CLIs write them (a UUID): never a path.
+    static func valid(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+    }
+
+    static func open(_ id: String, tool: CLITool) {
+        do {
+            try AtomicFile.write(String(getpid()), to: file(id, tool: tool))
+        } catch {
+            AppLog.app.error("[KeptSessions] cannot note session of \(tool.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Deletes session `id` with the CLI's own command; the note goes once the session is no longer stored.
+    static func delete(_ id: String, tool: CLITool, executable: String) async {
+        guard let completion = tool.provider.completion, let arguments = completion.deleteSessionArguments(id) else { return }
+        let result = await Subprocess.run(SubprocessSpec(
+            executable: executable, arguments: arguments, cwd: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+            environment: ["PATH": CLIToolLocator.subprocessPath(toolPath: executable)], timeout: 30))
+        if result.succeeded || !completion.storesSession(id) {
+            try? FileManager.default.removeItem(at: file(id, tool: tool))
+        } else {
+            AppLog.app.error("[KeptSessions] \(tool.rawValue, privacy: .public) kept its session after the delete (exit \(result.exitCode, privacy: .public))")
+        }
+    }
+
+    /// Deletes the sessions noted by a MarkView whose process is gone.
+    static func deleteLeftovers() async {
+        let fm = FileManager.default
+        for toolFolder in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+            guard let tool = CLITool(rawValue: toolFolder.lastPathComponent) else { continue }
+            for note in (try? fm.contentsOfDirectory(at: toolFolder, includingPropertiesForKeys: nil)) ?? [] {
+                let id = note.lastPathComponent
+                guard valid(id), let pid = (try? String(contentsOf: note, encoding: .utf8)).flatMap({ Int32($0) }),
+                      !running(pid) else { continue }
+                guard let executable = CLIToolLocator.resolve(tool) else { continue }
+                await delete(id, tool: tool, executable: executable)
+            }
+        }
+    }
+
+    private static func file(_ id: String, tool: CLITool) -> URL {
+        folder.appendingPathComponent(tool.rawValue, isDirectory: true).appendingPathComponent(id)
+    }
+
+    /// The process exists (`EPERM`: it does, under another user).
+    private static func running(_ pid: Int32) -> Bool {
+        pid > 0 && (kill(pid, 0) == 0 || errno == EPERM)
     }
 }
 

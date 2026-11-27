@@ -8,19 +8,21 @@ fi
 fixture_source=Tests/Fixtures/assistant-cli-timeout.py
 fixture_name=timeout.py
 test_class=CLICompletionTimeoutHostTests
-test_method=testCompletionDeadlinesAndCancellation
+test_methods=(testCompletionDeadlinesAndCancellation testCodexSessionsOfRunsThatReadFilesAreDeletedHoweverTheyEnd)
 if (( $# == 1 )) && [[ "$1" == "--continuation" ]]; then
     fixture_source=Tests/Fixtures/assistant-acp-continuation.py
     fixture_name=continuation.py
     test_class=ACPContinuationHostTests
-    test_method=testContinuationsAndPermissions
+    test_methods=(testContinuationsAndPermissions)
 fi
 if (( $# == 1 )) && [[ "$1" == "--extension" ]]; then
     fixture_source=Tests/Fixtures/assistant-provider-extension.py
     fixture_name=extension.py
     test_class=AssistantExtensionHostTests
-    test_method=testProviderExtension
+    test_methods=(testProviderExtension)
 fi
+selectors=()
+for test_method in "${test_methods[@]}"; do selectors+=(-only-testing:MarkViewHostedTests/"$test_class"/"$test_method"); done
 scratch=$(mktemp -d /tmp/mvcli-test-XXXXXX)
 mkdir -p "$scratch/home" "$scratch/scratch"
 cp "$fixture_source" "$scratch/$fixture_name"
@@ -56,7 +58,9 @@ export TEST_RUNNER_MARKVIEW_CLI_TEST_FIXTURE="$scratch/$fixture_name"
 derived="${MARKVIEW_HOSTED_TEST_DERIVED_DATA:-${TMPDIR:-/tmp}/MarkViewHostedTestsDerived}"
 MARKVIEW_SOCKET_DIR="$scratch" TEST_RUNNER_MARKVIEW_SOCKET_DIR="$scratch" xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration HostedTests \
   -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -test-timeouts-enabled YES \
-  -only-testing:MarkViewHostedTests/"$test_class"/"$test_method" test 2>&1 | tee "$scratch/test.log"
-grep -F "Test Case '-[MarkViewHostedTests.$test_class $test_method]' passed" "$scratch/test.log" >/dev/null || {
-    echo "The $test_class test did not run successfully" >&2; exit 1;
-}
+  "${selectors[@]}" test 2>&1 | tee "$scratch/test.log"
+for test_method in "${test_methods[@]}"; do
+    grep -F "Test Case '-[MarkViewHostedTests.$test_class $test_method]' passed" "$scratch/test.log" >/dev/null || {
+        echo "The $test_class $test_method test did not run successfully" >&2; exit 1;
+    }
+done
