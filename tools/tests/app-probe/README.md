@@ -42,6 +42,8 @@ Use an absolute scratch path for `PROBE_WORK` and a single name containing only 
 | `cmdkey <char>` | presses ⌘<char> in the picked window (menu and `.keyboardShortcut` equivalents) |
 | `sheet on` / `sheet off` | with `on`, the steps that follow (`snap`, `ax`, `clicklabel`, `click`) act on the sheet attached to the window they would act on, so a SwiftUI `.sheet` can be looked at and dismissed with its own button; `off` returns to the window |
 | `windows` | every window: class, title, visibility, sheets, modal window |
+| `close` | closes the picked window as its close button does (`performClose:`, so the window's own close checks run), then posts one empty event: the probe's app gets no events of its own, and the last one, which names the window, would otherwise keep it alive as `NSApp.currentEvent` |
+| `fds <text>` | how many of the app's open file descriptors have a path containing `<text>` (a project folder a closed window still watches) |
 | `quit` | exit |
 
 A step with too few arguments (a bare `wait`, `snap`, `click 5`) is a script error: the probe logs `script error at step N` and exits with status 2.
