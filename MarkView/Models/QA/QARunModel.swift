@@ -150,6 +150,9 @@ final class QARunModel: ObservableObject {
     /// True when the run lets its branches run side by side: a player's tile and every line of the feed then name their branch.
     private var sideBySide = false
     private var pausedBranches: Set<String> = []
+    /// True once the window has gone to another project during the run: the window's filer now files into that project, so the
+    /// run's bugs are not filed (`releaseSessions`).
+    private var projectLeft = false
 
     /// Where the bugs of a run are filed (REQ-007). Set by the window that owns the project's bug reports; without it nothing is filed.
     var bugFiler: QABugFiler?
@@ -303,7 +306,9 @@ final class QARunModel: ObservableObject {
             await self?.consumer?.value
             self?.finishReviewQueues()
             await self?.reviewer?.value
-            await self?.finishRun()
+            // Stop cancels this task to end the checks in progress, but what the run found is still saved and its bugs filed
+            // (BUG-133): the finish runs in a task of its own, which that cancellation does not reach.
+            await Task { [weak self] in await self?.finishRun() }.value
         }
     }
 
@@ -335,8 +340,10 @@ final class QARunModel: ObservableObject {
         return branch.nodes.compactMap { scenario.node($0) }
     }
 
-    /// Called on project changes; wait for the active runner before closing its players.
+    /// Called on project changes; wait for the active runner before closing its players. A run in progress is stopped and files
+    /// no bugs: they belong to its project, not to the one the window opens.
     func releaseSessions() {
+        if isRunning { projectLeft = true }
         stop()
         let task = runTask, old = sessions
         sessions = QARunSessions()
@@ -371,6 +378,7 @@ final class QARunModel: ObservableObject {
         record = nil
         notice = nil
         filedBugIDs = []
+        projectLeft = false
         costUSD = nil
         question = nil
         players = []
@@ -553,6 +561,11 @@ final class QARunModel: ObservableObject {
         let candidates = QABugDrafts.drafts(run: record, scenario: scenario, findings: record.findings, videos: recordings,
                                             runFolder: QAStore.runFolder(root, runID: runID), now: Date())
         guard !candidates.isEmpty else { return }
+        guard !projectLeft else {
+            let count = candidates.count == 1 ? "Its bug was" : "Its \(candidates.count) bugs were"
+            notice = ([notice, "\(count) not filed: the window opened another project during the run."]).compactMap { $0 }.joined(separator: " ")
+            return
+        }
         let results = await filer.file(candidates)
         var created: [String] = [], already = 0, failures: [String] = [], ids: [String] = []
         for result in results {
