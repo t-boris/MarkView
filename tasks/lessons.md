@@ -76,6 +76,9 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 - The CI compiler is not the local one: three or more `+` operands with a ternary, `??` or closure fail "unable to type-check" on CI only; use `+=`, interpolation, a named closure
   with `-> String`, typed steps in hot loops. Push early so CI compiles the branch; compare a long CI step with earlier runs before calling it a hang.
   [A: GitHub's compiler, 2026-10-25 | The CI compiler is not the local, 2026-11-04]
+  2026-11-27: before committing, grep the added lines for that pattern (`git diff -U0 | grep '^+'`, two or more ` + ` with `?`, `??` or a
+  closure) and rewrite every hit; the local `-warn-long-expression-type-checking=100` does not report them (CI has Xcode 26.6, local 27.2).
+  Why: PR #458 merged with such a chain and turned main red (build, hosted-build, cockpit, backdrop); fixed in 7.13.1.
 - A change to a file in a `.github/workflows/*.yml` `paths:` runs every `bash tools/tests/...` line of that workflow before merge (a failing step hides the rest); a new tool also
   updates the tool-count tests and classification table. Why: PR #400 merged with two other workflows red. [A: Cockpit gate, 2026-11-14]
 - A file that gains a dependency breaks every standalone suite that compiles it, far from the cause: `grep -l <file> tools/tests/*.sh`, run each, add the file or a stub to its

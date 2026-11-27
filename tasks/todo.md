@@ -154,7 +154,10 @@ Branch `feat/cockpit-parallel-steps` (worktree `../MarkView-parallel-steps`), on
   members, the two reviews of a managed run with real agents, and an app restart in the middle of a group.
 - Delivered 2026-11-27: PR #458 merged (20624bec); v7.13.0 released from origin/main (also carries 7.12.1, BUG-132): notarized,
   stapled, `spctl` accepted, Latest; copy in `build/MarkView-7.13.0.dmg`. Not installed. Feature status in-review. PR #457's
-  `hosted-tests (3)` failed on `testPrototypeAuditInHeadlessChrome` (headless Chrome, unrelated to the change); failed job rerun.
+  `hosted-tests (3)` failed on `testPrototypeAuditInHeadlessChrome` (headless Chrome, unrelated); the rerun passed, BUG-132 done.
+- 7.13.1 (PR #459, cd49f263): #458's `+` chains with ternaries/closures did not type-check on CI's Xcode 26.6 (main red: build,
+  hosted-build, cockpit, backdrop); rewritten in typed steps, texts unchanged; on #459 hosted-build, cockpit, backdrop and every
+  hosted shard pass. Released as v7.13.1.
 
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
