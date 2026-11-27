@@ -1,7 +1,5 @@
-import Foundation
-
 // What an assistant driven over the Agent Client Protocol (`<cli> --acp`, `ACPAssistant`) brings besides its provider:
-// how it is started and what its probe checks (its account's models: `ACPModelListing`). Foundation only.
+// how it is started and what its probe checks (its account's models: `ACPModelListing`). Plain Swift, no imports.
 
 /// How one ACP assistant is started and what it needs around the protocol.
 struct ACPLaunchProfile: Sendable {
