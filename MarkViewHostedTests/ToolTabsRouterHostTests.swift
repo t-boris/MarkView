@@ -8,12 +8,15 @@ import XCTest
 @MainActor
 private final class RoutingAssistant: AssistantPrompting {
     var assistantIsBusy = false
+    /// The receiving terminal: a Claude Code session that is never started.
+    let session: TerminalSession
     private(set) var prompts: [(text: String, submit: Bool)] = []
-    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? {
+    init(root: URL) { session = TerminalSession(directory: root, profile: .assistant(CLITool(rawValue: "claude")!)) }
+    func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
+        guard let prompt = promptFor(terminal ?? session) else { return nil }
         prompts.append((prompt, submit))
         return nil
     }
-    func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? { nil }
 }
 
 private final class DiscussionRunnerSpy: @unchecked Sendable {
@@ -247,13 +250,15 @@ extension EditorHostTests {
         let window = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: root.appendingPathComponent("recent.json"))
         defer { window.composition.close() }
         window.project.fileTree.rootNode = FileNode(url: root, isDirectory: true)
-        let assistant = RoutingAssistant()
+        let assistant = RoutingAssistant(root: root)
         let host = DeploymentsHost(project: window.project, assistants: assistant, showTab: {})
         defer { host.close() }
         host.analyzeWithAI()
         XCTAssertEqual(assistant.prompts.count, 1)
         XCTAssertTrue(assistant.prompts[0].submit)
         XCTAssertTrue(assistant.prompts[0].text.contains(root.lastPathComponent))
+        // The request to work in parallel is written for the receiving Claude Code terminal.
+        XCTAssertTrue(assistant.prompts[0].text.hasSuffix(try XCTUnwrap(ParallelWork.parts.request(for: CLITool(rawValue: "claude")!.provider))))
         assistant.assistantIsBusy = true
         host.analyzeWithAI()
         XCTAssertEqual(assistant.prompts.count, 1)
@@ -271,6 +276,7 @@ extension EditorHostTests {
         host.askAssistant(prod, question: "Is it up?")
         XCTAssertEqual(assistant.prompts.count, 2)
         XCTAssertTrue(assistant.prompts[1].text.contains("Is it up?"))
+        XCTAssertTrue(assistant.prompts[1].text.hasSuffix(try XCTUnwrap(ParallelWork.parts.request(for: CLITool(rawValue: "claude")!.provider))))
 
         let polling = PollingScheduler()
         host.store.polling = polling

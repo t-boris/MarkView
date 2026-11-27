@@ -32,6 +32,48 @@ struct AgentLaunchCapabilities: Equatable, Sendable {
     var remoteWork: Bool = false
 }
 
+/// How an assistant runs the independent parts of one task at the same time inside one interactive session: subagents, workflows
+/// or fleets of its own. They run under the session's launch profile, so they keep its permissions.
+struct AssistantParallelWork: Equatable, Sendable {
+    /// The mechanism as a noun phrase the agent is told ("subagents started with the Agent tool"): in a Cockpit step, to the planner,
+    /// and in every request `ParallelWork` makes.
+    let mechanism: String
+    /// The mechanism for a list of independent items, when the assistant has a stronger one for it (Claude Code starts a dynamic
+    /// workflow only when the prompt asks for one in words); nil = `mechanism`.
+    var itemsMechanism: String? = nil
+}
+
+/// The shape of the work a prompt hands to an agent session, which decides how its assistant is asked to run the work in parallel.
+/// Every prompt MarkView sends into an agent session names its shape, and the request is written for the terminal that receives it.
+enum ParallelWork: Sendable {
+    /// One task whose parts may be independent of each other (a feature, a bug, a failed CI run): the agent decides what to split.
+    case parts
+    /// A list of independent items of one kind (a batch of bugs, conflicted files, review findings, places to look into).
+    case items
+
+    /// `prompt` followed by the request to run its independent work in parallel, written for `tool`; `prompt` unchanged when the
+    /// terminal runs no assistant or the assistant has no mechanism (Cline).
+    func ask(_ prompt: String, tool: CLITool?) -> String {
+        guard let request = tool.flatMap({ request(for: $0.provider) }) else { return prompt }
+        return prompt + (prompt.contains("\n") ? "\n\n" : " ") + request
+    }
+
+    /// The request in the words of `provider`'s mechanism; nil when it has none.
+    func request(for provider: any AssistantProvider) -> String? {
+        guard let work = provider.parallelWork else { return nil }
+        let rules = "Keep work that depends on other work in order, never give the same file to two of them, run every git command that "
+            + "changes the repository (branch, commit, merge) yourself, and wait for each one and check its result before you report."
+        switch self {
+        case .parts:
+            return "Where parts of this work are independent of each other, do them at the same time with \(work.mechanism) instead of one "
+                + "after another. " + rules
+        case .items:
+            return "Work on the independent items at the same time with \(work.itemsMechanism ?? work.mechanism), one per item or per group "
+                + "of items that touch the same files. " + rules
+        }
+    }
+}
+
 protocol AssistantProvider: Sendable {
     // MARK: Identity
 
@@ -120,12 +162,11 @@ protocol AssistantProvider: Sendable {
     /// CLIs that have no goal command.
     func goalPrompt(_ objective: String, closing: String) -> String
 
-    // MARK: Cockpit
+    // MARK: Parallel work
 
-    /// How the CLI hands independent work to subagents of its own inside one interactive terminal session, in words the step's
-    /// agent is told (agent-aware-implementation-runs REQ-002); nil when it has no such mechanism. The subagents run under the
-    /// session's own launch profile, so they keep its permissions.
-    var cockpitDelegation: String? { get }
+    /// How the CLI runs independent work at the same time inside one interactive terminal session (agent-aware-implementation-runs
+    /// REQ-002, and every prompt sent into an agent session); nil when it has no such mechanism.
+    var parallelWork: AssistantParallelWork? { get }
 
     // MARK: Usage
 
@@ -178,13 +219,13 @@ extension AssistantProvider {
             backgroundImages: false,
             backgroundStructuredOutput: true,
             backgroundReportsCostUSD: false,
-            interactiveDelegation: cockpitDelegation != nil,
+            interactiveDelegation: parallelWork != nil,
             remoteWork: remote != nil
         )
     }
     var fixesBugsAsGoal: Bool { false }
     func goalPrompt(_ objective: String, closing: String) -> String { objective + " " + closing }
-    var cockpitDelegation: String? { nil }
+    var parallelWork: AssistantParallelWork? { nil }
     var usage: (any AssistantUsageSupport)? { nil }
     func loginState(stdout: String, stderr: String) -> Bool? { nil }
     func additionalFolderArgs(_ folders: [URL]) -> [String] { [] }

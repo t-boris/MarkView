@@ -9,8 +9,11 @@ struct AntigravityProvider: AssistantProvider {
     let authStatusArgs: [String] = []
     let loginCommand = ""
     let fullAccessArgs = ["--dangerously-skip-permissions"]
-    /// Workflows with parallel()/pipeline() run subagents under the session (2026-11-24 research).
-    let cockpitDelegation: String? = "a /run-workflow with parallel() or pipeline() subagents of this session"
+    /// The agent starts concurrent subagents with its `invoke_subagent` tool (built-ins research, browser, self); `/run-workflow`
+    /// asks the person to approve its script unless the permission preset allows it, so it is not asked for (docs and agy 1.5.18,
+    /// 2026-11-26).
+    let parallelWork: AssistantParallelWork? = AssistantParallelWork(
+        mechanism: "subagents started with the invoke_subagent tool (its self subagent for work like the session's own)")
     let continueArgs = ["--continue"]
     let terminalIcon = "wand.and.stars"
     let canSearchWeb = true

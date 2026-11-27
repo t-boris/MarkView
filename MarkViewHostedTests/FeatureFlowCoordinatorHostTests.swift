@@ -18,11 +18,6 @@ private final class FeatureFlowAssistantSpy: AssistantProviding, AssistantPrompt
     func liveModelReported(_ model: String, terminalID: UUID) {}
     func openAITerminal(_ profile: TerminalProfile, resuming: Bool, model: String?) -> TerminalSession? { nil }
     func showAIConsole() {}
-    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? {
-        guard sends else { return nil }
-        sent.append((prompt, submit, session))
-        return session
-    }
     func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
         guard sends else { return nil }
         let target = terminal ?? session
@@ -225,9 +220,11 @@ extension EditorHostTests {
         XCTAssertTrue(window.project.fileTree.rootNode?.children?.contains(where: { $0.name == "tracked.md" }) == true)
         let log = root.appendingPathComponent("fixture-gh.log")
         let before = try String(contentsOf: log, encoding: .utf8).components(separatedBy: "pr checkout 5").count
-        let sameBranch = await flow.fixInPullRequest(5, prompt: "Fix the fixture.")
+        let sameBranch = await flow.fixInPullRequest(5, prompt: "Fix the fixture.", work: .parts)
         XCTAssertNil(sameBranch)
-        XCTAssertEqual(assistant.sent.last?.prompt, "Fix the fixture.")
+        // The spy's terminal runs Claude Code: the request to work in parallel follows the prompt, in Claude Code's words.
+        XCTAssertEqual(assistant.sent.last?.prompt, ParallelWork.parts.ask("Fix the fixture.", tool: CLITool(rawValue: "claude")))
+        XCTAssertNotEqual(assistant.sent.last?.prompt, "Fix the fixture.")
         let after = try String(contentsOf: log, encoding: .utf8).components(separatedBy: "pr checkout 5").count
         XCTAssertEqual(after, before, "A pull request already checked out is not checked out again")
         try "modified\n".write(to: tracked, atomically: true, encoding: .utf8)
@@ -237,9 +234,9 @@ extension EditorHostTests {
         XCTAssertFalse((try String(contentsOf: log, encoding: .utf8)).contains("pr checkout 6"))
         _ = try await git(["checkout", "--", "tracked.md"])
         try "untracked\n".write(to: root.appendingPathComponent("new.md"), atomically: true, encoding: .utf8)
-        let untracked = await flow.fixInPullRequest(7, prompt: "Fix the other fixture.")
+        let untracked = await flow.fixInPullRequest(7, prompt: "Fix the other fixture.", work: .parts)
         XCTAssertNil(untracked)
-        XCTAssertEqual(assistant.sent.last?.prompt, "Fix the other fixture.")
+        XCTAssertEqual(assistant.sent.last?.prompt, ParallelWork.parts.ask("Fix the other fixture.", tool: CLITool(rawValue: "claude")))
         let secondBranch = try await git(["branch", "--show-current"])
         XCTAssertEqual(secondBranch, "pr-7")
         let failure = await flow.checkoutPullRequest(8)
@@ -257,7 +254,8 @@ extension EditorHostTests {
         let runPrompt = try XCTUnwrap(assistant.sent.last?.prompt)
         XCTAssertTrue(runPrompt.contains("fixture build failed"))
         XCTAssertTrue(runPrompt.contains("the run was on branch other; the working copy is on pr-7"))
-        XCTAssertTrue(runPrompt.hasSuffix("Find the cause in this repository and fix it."))
+        XCTAssertTrue(runPrompt.contains("\nFind the cause in this repository and fix it.\n\n"))
+        XCTAssertTrue(runPrompt.hasSuffix(try XCTUnwrap(ParallelWork.parts.request(for: CLITool(rawValue: "claude")!.provider))))
 
         let block = root.appendingPathComponent("block-log")
         try Data().write(to: block)
@@ -442,6 +440,13 @@ extension EditorHostTests {
         let conflict = try XCTUnwrap(assistant.sent.last)
         for text in ["src/a.swift", "src/b.swift", "merge", "feature"] { XCTAssertTrue(conflict.prompt.contains(text)) }
         XCTAssertTrue(conflict.submit)
+        // Two conflicted files are a list of items: the Claude Code terminal is asked for a workflow over them.
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        XCTAssertTrue(conflict.prompt.hasSuffix(try XCTUnwrap(ParallelWork.items.request(for: claude.provider))))
+        git.repoStatus = GitRepoStatus.parse("u UU N... 100644 100644 100644 100644 aaaa bbbb cccc src/a.swift\0")
+        flow.resolveConflictsWithAI()
+        XCTAssertTrue(try XCTUnwrap(assistant.sent.last).prompt.hasSuffix(try XCTUnwrap(ParallelWork.parts.request(for: claude.provider))),
+                      "one file is one task, not a list")
 
         flow.features.setup(root: root)
         let first = try flow.features.createBug(BugReportDraft(title: "First bug", body: "First", provenance: "Test"))
@@ -450,17 +455,17 @@ extension EditorHostTests {
         let secondReport = try XCTUnwrap(flow.features.bug(at: second.url))
         flow.bugBatch.toggle(firstReport)
         flow.fixBasketWithAI()
-        XCTAssertEqual(assistant.sent.count, 1, "One bug is not a batch")
+        XCTAssertEqual(assistant.sent.count, 2, "One bug is not a batch")
         flow.bugBatch.toggle(secondReport)
         XCTAssertEqual(flow.bugBatch.eligible.count, 2)
         assistant.assistantIsBusy = true
         flow.fixBasketWithAI()
-        XCTAssertEqual(assistant.sent.count, 1)
+        XCTAssertEqual(assistant.sent.count, 2)
         XCTAssertEqual(flow.bugBatch.eligible.count, 2)
         assistant.assistantIsBusy = false
         assistant.sends = false
         flow.fixBasketWithAI()
-        XCTAssertEqual(assistant.sent.count, 1)
+        XCTAssertEqual(assistant.sent.count, 2)
         XCTAssertEqual(flow.bugBatch.eligible.count, 2)
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, first.id), "open")
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, second.id), "open")
@@ -471,7 +476,7 @@ extension EditorHostTests {
         XCTAssertFalse(flow.features.lifecycle.canStartByHandoff(.bug, third.id))
         assistant.sends = true
         flow.fixBasketWithAI()
-        XCTAssertEqual(assistant.sent.count, 2)
+        XCTAssertEqual(assistant.sent.count, 3)
         let sent = try XCTUnwrap(assistant.sent.last)
         XCTAssertTrue(sent.prompt.contains(first.id))
         XCTAssertTrue(sent.prompt.contains(second.id))
@@ -769,12 +774,14 @@ extension EditorHostTests {
         XCTAssertEqual(assistant.sent.count, beforeClosed + 1)
         XCTAssertTrue(assistant.sent.last?.terminal === otherTerminal)
 
-        let result = await flow.fixInPullRequest(14, prompt: "Please fix.")
+        let result = await flow.fixInPullRequest(14, prompt: "Please fix.", work: .parts)
         XCTAssertNil(result)
-        XCTAssertEqual(assistant.sent.last?.prompt, "Please fix.\n\nNote: this is pull request #14; its branch may not be the one checked out here.")
-        let plain = await flow.fixInPullRequest(nil, prompt: "Review it.")
+        XCTAssertEqual(assistant.sent.last?.prompt, ParallelWork.parts.ask("Please fix.\n\nNote: this is pull request #14; its branch may not be the one checked out here.",
+                                                                          tool: CLITool(rawValue: "claude")))
+        let plain = await flow.fixInPullRequest(nil, prompt: "Review it.", work: .items)
         XCTAssertNil(plain)
-        XCTAssertEqual(assistant.sent.last?.prompt, "Review it.")
+        XCTAssertEqual(assistant.sent.last?.prompt, ParallelWork.items.ask("Review it.", tool: CLITool(rawValue: "claude")))
+        XCTAssertTrue(assistant.sent.last?.prompt.contains("use a workflow") == true)
     }
 
     @MainActor func testRealFeatureFlowLocalBranches() async throws {
@@ -1029,11 +1036,6 @@ extension EditorHostTests {
             func liveModelReported(_ model: String, terminalID: UUID) {}
             func openAITerminal(_ profile: TerminalProfile, resuming: Bool, model: String?) -> TerminalSession? { nil }
             func showAIConsole() {}
-            func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession? {
-                guard sends else { return nil }
-                sent.append((prompt, submit, target))
-                return target
-            }
             func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
                 guard sends else { return nil }
                 let chosen = terminal ?? target
@@ -1061,6 +1063,9 @@ extension EditorHostTests {
 
         // Case 1: Project default is Claude (fixesBugsAsGoal == true), but normal routing picks an open Codex terminal.
         // Neither single nor batch Fix with AI may send Claude's `/goal` syntax into Codex.
+        // The request to run independent work in parallel is written for the receiving assistant too: a single bug is a task with
+        // parts, a basket a list of items.
+        func request(_ work: ParallelWork, _ tool: CLITool) throws -> String { try XCTUnwrap(work.request(for: tool.provider)) }
         AssistantChoice(project: root).setTool(claude.rawValue)
         spy.target = codexTerminal
         let bug1 = try flow.features.createBug(BugReportDraft(title: "Single codex recipient", body: "Detail", provenance: "Test"))
@@ -1070,6 +1075,8 @@ extension EditorHostTests {
         XCTAssertTrue(sentSingleCodex.terminal === codexTerminal)
         XCTAssertFalse(sentSingleCodex.prompt.hasPrefix("/goal "), "Codex recipient must not receive Claude /goal syntax")
         XCTAssertTrue(sentSingleCodex.prompt.hasPrefix("Fix the bug described in "))
+        XCTAssertTrue(sentSingleCodex.prompt.contains(try request(.parts, codex)))
+        XCTAssertFalse(sentSingleCodex.prompt.contains(try request(.parts, claude)))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug1.id), "fixing")
 
         let bug2 = try flow.features.createBug(BugReportDraft(title: "Batch codex one", body: "Detail", provenance: "Test"))
@@ -1082,6 +1089,8 @@ extension EditorHostTests {
         XCTAssertTrue(sentBatchCodex.terminal === codexTerminal)
         XCTAssertFalse(sentBatchCodex.prompt.hasPrefix("/goal "), "Batch Codex recipient must not receive Claude /goal syntax")
         XCTAssertTrue(sentBatchCodex.prompt.hasPrefix("Fix this batch of 2 bug reports"))
+        XCTAssertTrue(sentBatchCodex.prompt.contains(try request(.items, codex)))
+        XCTAssertFalse(sentBatchCodex.prompt.contains("in turn"))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug2.id), "fixing")
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug3.id), "fixing")
 
@@ -1094,6 +1103,8 @@ extension EditorHostTests {
         let sentSingleClaude = try XCTUnwrap(spy.sent.last)
         XCTAssertTrue(sentSingleClaude.terminal === claudeTerminal)
         XCTAssertTrue(sentSingleClaude.prompt.hasPrefix("/goal fix the bug described in "))
+        // One line: the request is part of the goal, not a second prompt.
+        XCTAssertTrue(sentSingleClaude.prompt.components(separatedBy: "\n\n")[0].contains(try request(.parts, claude)))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug4.id), "fixing")
 
         let bug5 = try flow.features.createBug(BugReportDraft(title: "Batch claude one", body: "Detail", provenance: "Test"))
@@ -1112,6 +1123,8 @@ extension EditorHostTests {
         let sentBatchClaude = try XCTUnwrap(spy.sent.last)
         XCTAssertTrue(sentBatchClaude.terminal === claudeTerminal)
         XCTAssertTrue(sentBatchClaude.prompt.hasPrefix("/goal fix this batch of 2 bugs"))
+        XCTAssertTrue(sentBatchClaude.prompt.contains(try request(.items, claude)))
+        XCTAssertTrue(sentBatchClaude.prompt.contains("use a workflow"))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug5.id), "fixing")
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug6.id), "fixing")
         XCTAssertTrue(flow.bugBatch.basket.isEmpty)
@@ -1122,6 +1135,7 @@ extension EditorHostTests {
         let sentExplicit = try XCTUnwrap(spy.sent.last)
         XCTAssertTrue(sentExplicit.terminal === copilotTerminal)
         XCTAssertFalse(sentExplicit.prompt.hasPrefix("/goal "))
+        XCTAssertTrue(sentExplicit.prompt.contains(try request(.parts, copilot)))
         XCTAssertEqual(flow.features.lifecycle.storedStatus(.bug, bug7.id), "fixing")
     }
 

@@ -9,8 +9,11 @@ struct ClaudeProvider: AssistantProvider {
     let authStatusArgs = ["auth", "status"]
     let loginCommand = "auth login"
     let fullAccessArgs = ["--dangerously-skip-permissions"]
-    /// Subagents (the Task tool) and Agent Teams run inside the interactive session the Cockpit terminal is (2026-11-24 research).
-    let cockpitDelegation: String? = "subagents through your Task tool (or an agent team), inside this session"
+    /// Subagents start with the Agent tool (it was called Task before 2.1.63); a dynamic workflow starts only when the prompt asks for
+    /// one in words, never in `-p`, and without approval under bypass permissions (docs and Claude Code 2.1.332, 2026-11-26).
+    let parallelWork: AssistantParallelWork? = AssistantParallelWork(
+        mechanism: "subagents started with the Agent tool",
+        itemsMechanism: "a workflow (use a workflow for them; when workflows are not available, subagents started with the Agent tool)")
     let continueArgs = ["--continue"]
     let defaultXRayModel = "sonnet"
     let terminalIcon = "sparkle"

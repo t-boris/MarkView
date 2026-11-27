@@ -25,11 +25,17 @@ protocol AssistantProviding: AnyObject {
 protocol AssistantPrompting: AnyObject {
     /// Whether an assistant terminal is in the middle of an answer.
     var assistantIsBusy: Bool { get }
-    /// Types `prompt` at the assistant's input line; `submit` presses Enter. Nil when no assistant could take it.
-    @discardableResult
-    func sendToAssistant(_ prompt: String, submit: Bool) -> TerminalSession?
-    /// Builds the prompt only after the receiving terminal is chosen (`terminal`, else the usual one); nil when no terminal could be
+    /// Types a prompt at the assistant's input line; `submit` presses Enter. Builds the prompt only after the receiving terminal is chosen (`terminal`, else the usual one); nil when no terminal could be
     /// opened or `promptFor` gave none.
     @discardableResult
     func sendToAssistant(submit: Bool, to terminal: TerminalSession?, promptFor: (TerminalSession) -> String?) -> TerminalSession?
+}
+
+extension AssistantPrompting {
+    /// Types work for the assistant: `prompt` with the request to run its independent `work` in parallel, written for the assistant of
+    /// the terminal that receives it (`terminal`, else the usual one).
+    @discardableResult
+    func sendToAssistant(_ prompt: String, submit: Bool, work: ParallelWork, to terminal: TerminalSession? = nil) -> TerminalSession? {
+        sendToAssistant(submit: submit, to: terminal) { work.ask(prompt, tool: $0.profile.tool) }
+    }
 }

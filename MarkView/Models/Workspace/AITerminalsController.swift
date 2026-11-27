@@ -379,18 +379,9 @@ final class AITerminalsController: ObservableObject, AssistantProviding, RemoteA
 
     // MARK: - Prompts
 
-    /// Send a prompt to an assistant (prompt buttons, AI Tools menu, graph edits,
-    /// documentation): the shown terminal when it runs one, else an open assistant
-    /// terminal, else a new one with the toolbar's assistant. Pasted as one block;
-    /// `submit` presses Enter.
-    /// Returns the terminal session the prompt went to.
-    @discardableResult
-    func sendToAssistant(_ prompt: String, submit: Bool = true) -> TerminalSession? {
-        sendToAssistant(submit: submit) { _ in prompt }
-    }
-
-    /// Build a backend-specific prompt only after choosing the actual receiving terminal.
-    /// `terminal`: the one to send to (an agent driving the window names it); else the usual choice.
+    /// Send a prompt to an assistant: `terminal` (an agent driving the window names it), else the shown terminal when it runs one,
+    /// else an open assistant terminal, else a new one with the toolbar's assistant. The prompt is built for the receiving terminal
+    /// only after it is chosen, and pasted as one block; `submit` presses Enter. Returns the terminal session the prompt went to.
     @discardableResult
     func sendToAssistant(submit: Bool = true, to terminal: TerminalSession? = nil, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
         host?.showAIConsole()

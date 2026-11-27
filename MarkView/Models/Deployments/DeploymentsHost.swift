@@ -54,7 +54,7 @@ final class DeploymentsHost {
         guard let root = project.root else { return }
         guard !assistants.assistantIsBusy else { store.lastError = "The assistant is still working."; return }
         let prompt = DeploymentPrompt.analyze(project: root.lastPathComponent, existing: store.environments.map(\.name), hasMCP: true)
-        assistants.sendToAssistant(prompt, submit: true)
+        assistants.sendToAssistant(prompt, submit: true, work: .parts)
     }
 
     /// Deployments → "Ask the AI": a question about one environment goes to the assistant with what MarkView
@@ -63,6 +63,6 @@ final class DeploymentsHost {
         guard let env = store.environment(id) else { return }
         guard !assistants.assistantIsBusy else { store.lastError = "The assistant is still working."; return }
         let prompt = DeploymentPrompt.ask(environment: env.name, id: env.id, question: question, report: store.report(for: id), logTitle: logTitle, log: log)
-        assistants.sendToAssistant(prompt, submit: true)
+        assistants.sendToAssistant(prompt, submit: true, work: .parts)
     }
 }

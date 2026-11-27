@@ -410,23 +410,21 @@ final class CockpitSession: ObservableObject {
         attempt.supervisorTool = CLITool.allCases.first { $0.displayName == reviewed.plan.controls.supervisorAgent }
         attempt.supervisorModel = reviewed.plan.controls.supervisorModel
         let managedStep = reviewed.plan.feature != nil ? reviewed.plan.steps.first { $0.id.uuidString == task.step.id } : nil
-        attempt.delegation = nil
+        attempt.delegation = reviewed.plan.delegation(forStep: task.step.id)
         attempt.managedBrief = nil
         attempt.changesAllowed = false
         if let feature = reviewed.plan.feature, let step = managedStep {
             if let early = await managedGate(step: step, feature: feature) { return early }
-            attempt.delegation = step.delegate == true && reviewed.plan.controls.allowDelegation
-                ? CLITool.allCases.first { $0.displayName == step.agent }?.provider.cockpitDelegation : nil
             attempt.managedBrief = Self.managedBrief(step, branch: feature.branch, repairing: task.recoveryAttempt != nil)
             attempt.changesAllowed = CockpitManagedRun.changesAllowed(for: step.kind ?? .work, recoveryAttempt: task.recoveryAttempt)
             markImplementationStarted(feature: feature, agent: step.agent)
         }
         var result = await attempt.run(task)
+        if result.error.isEmpty { CockpitManagedRun.checkDelegates(&result.result, allowed: attempt.delegation != nil) }
         if let step = managedStep, result.error.isEmpty {
             let revision = await CockpitDeliveryProbe.head(root: root)
             var state = execution?.record?.managed ?? CockpitManagedState()
-            CockpitManagedRun.absorb(&result.result, step: step, revision: revision, managed: &state,
-                                     delegationAllowed: attempt.delegation != nil)
+            CockpitManagedRun.absorb(&result.result, step: step, revision: revision, managed: &state)
             let findings = state.findings.count - (execution?.record?.managed?.findings.count ?? 0)
             await execution?.updateManaged({ $0 = state }, event: findings > 0 ? "The review reported \(findings) finding(s)." : nil)
         }
@@ -642,11 +640,12 @@ final class CockpitSession: ObservableObject {
                     let ids = choice.models.map(\.id).filter { !$0.isEmpty }
                     var parts: [String] = []
                     if !ids.isEmpty { parts.append("models: " + ids.joined(separator: ", ")) }
-                    if feature != nil { parts.append(choice.delegation.map { "delegation: " + $0 } ?? "delegation: none") }
+                    if controls.allowDelegation { parts.append(choice.delegation.map { "delegation: " + $0 } ?? "delegation: none") }
                     return parts.isEmpty ? choice.name : "\(choice.name) (\(parts.joined(separator: "; ")))"
                 }
                 var prompt = feature.map { CockpitPlanning.managedPrompt(feature: $0) + "\n" } ?? ""
                 prompt += "Goal: \(goal)\nAvailable agents and their models: \(offered.joined(separator: "; "))\nControls (MarkView enforces them while the plan runs): \(settings)\n"
+                if controls.allowDelegation { prompt += CockpitPlanning.delegationRule + "\n" }
                 prompt += "Existing QA scenarios and targets (JSON): \(String(decoding: scenarioData, as: UTF8.self))\n"
                 prompt += "Available project actions include the MarkView MCP project, browser and control tools and the user's agent terminal. Check project capabilities before asserting an action is available.\n"
                 if refining, var previous {
@@ -673,7 +672,8 @@ final class CockpitSession: ObservableObject {
                     guard !work.isEmpty else { throw CockpitPlanning.ParseError.invalid(plan.unavailableOutcomes.isEmpty ? ["The planner proposed no implementation steps."] : plan.unavailableOutcomes) }
                     let implementer = work.first?.agent ?? choices[0].name
                     let reviewer = choices.first { $0.name != implementer }?.name ?? implementer
-                    let delegation = Set(choices.filter { $0.delegation != nil }.map(\.name))
+                    // With the switch off no step is marked: the planner was not told about delegation either.
+                    let delegation = controls.allowDelegation ? Set(choices.filter { $0.delegation != nil }.map(\.name)) : []
                     let composed = CockpitManagedRun.compose(work: work, criteria: plan.successCriteria, feature: feature,
                                                              implementer: implementer, reviewer: reviewer, delegation: delegation)
                     plan.steps = composed.steps
@@ -724,7 +724,7 @@ struct CockpitAgentChoice: Identifiable, Equatable {
     var id: String { tool.displayName }
     var name: String { tool.displayName }
     /// How the agent delegates to subagents of its own within a step; nil when it cannot (REQ-002).
-    var delegation: String? { tool.provider.cockpitDelegation }
+    var delegation: String? { tool.provider.parallelWork?.mechanism }
     /// The arguments its terminal is started with: the permissions every step and delegate of it has (REQ-004 warning).
     var permissions: [String] { tool.fullAccessArgs }
 
