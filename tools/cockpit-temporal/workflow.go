@@ -14,6 +14,12 @@ const maxStepRecoveryAttempts = 3
 // nonPrerequisiteFailureContinues is the change id of the rule that only a failed prerequisite pauses the run.
 const nonPrerequisiteFailureContinues = "non-prerequisite-failure-continues"
 
+// parallelStepGroups is the change id of the rule that the members of a step group run at the same time.
+const parallelStepGroups = "parallel-step-groups"
+
+// maxGroupMembers is the most steps one group runs at the same time; the app allows no more (CockpitPlan.groupLimit).
+const maxGroupMembers = 3
+
 // StepRecovery describes a bounded recovery attempt authorized by the approved plan when a prerequisite fails.
 type StepRecovery struct {
 	Assignment  string `json:"assignment"`
@@ -38,10 +44,14 @@ type Step struct {
 	Prerequisite        bool          `json:"prerequisite"`
 	QAScenarioID        string        `json:"qaScenarioID,omitempty"`
 	Recovery            *StepRecovery `json:"recovery,omitempty"`
+	// Group labels the adjacent steps that run at the same time; empty for a step that runs on its own.
+	Group string `json:"group,omitempty"`
 }
 type Start struct {
 	Fingerprint string `json:"fingerprint"`
 	Step        int    `json:"step"`
+	// Kept names the members of the starting group that passed before an interruption: they do not run again.
+	Kept []string `json:"kept,omitempty"`
 }
 type Revision struct {
 	ExpectedFingerprint string `json:"expectedFingerprint"`
@@ -94,6 +104,8 @@ type StepTask struct {
 	// ContinuesAfterFailure tells the host, before the step runs, that the run goes on if this step fails, so the run record
 	// follows the workflow's decision instead of making its own.
 	ContinuesAfterFailure bool `json:"continuesAfterFailure,omitempty"`
+	// GroupMembers lists the steps started together with this one, this one included, in plan order; empty when it runs alone.
+	GroupMembers []string `json:"groupMembers,omitempty"`
 }
 type State struct {
 	Status             string  `json:"status"`
@@ -123,6 +135,32 @@ func validatePlan(plan Plan) error {
 		seen[step.ID] = true
 	}
 	return nil
+}
+
+// groupEnd returns the index after the last step that starts together with step current: the end of its group when the
+// group may run at once (2 to maxGroupMembers adjacent steps with the same label, none with a recovery or a QA scenario,
+// the plan's last step not among them), or current+1. A run that reaches a group inside it runs the members from there on.
+func groupEnd(steps []Step, current int) int {
+	if current < 0 || current >= len(steps) || steps[current].Group == "" {
+		return current + 1
+	}
+	label := steps[current].Group
+	start, end := current, current+1
+	for start > 0 && steps[start-1].Group == label {
+		start--
+	}
+	for end < len(steps) && steps[end].Group == label {
+		end++
+	}
+	if end-start < 2 || end-start > maxGroupMembers || end >= len(steps) {
+		return current + 1
+	}
+	for _, step := range steps[start:end] {
+		if step.Recovery != nil || step.QAScenarioID != "" {
+			return current + 1
+		}
+	}
+	return end
 }
 
 func hasPassedPrerequisite(results []Entry, stepID string) bool {
@@ -158,12 +196,17 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 	// A failed step that is not a prerequisite is recorded and the run goes on (BUG-130). A run started before this change keeps
 	// pausing on every failed step, so that its history replays as it was written.
 	failureGatesOnlyPrerequisites := workflow.GetVersion(ctx, nonPrerequisiteFailureContinues, workflow.DefaultVersion, 1) == 1
+	// The members of a group start together (cockpit-runs-independent-plan-steps-side-by-side). A run started before this change
+	// runs every step on its own, so that its history replays as it was written.
+	runsGroups := workflow.GetVersion(ctx, parallelStepGroups, workflow.DefaultVersion, 1) == 1
 	starts := workflow.GetSignalChannel(ctx, "approve")
 	controls := workflow.GetSignalChannel(ctx, "control")
 	revisions := workflow.GetSignalChannel(ctx, "replan")
 	var pending *Revision
 	failedPrerequisite := false
 	recoveryAttempts := 0
+	// The members of the group at Current that passed in its current pass: a retry runs only the others. Nil outside a group.
+	var groupPassed map[string]bool
 	acceptRevision := func(revision Revision) {
 		if revision.ExpectedFingerprint != plan.Fingerprint || revision.Plan.Fingerprint == plan.Fingerprint || validatePlan(revision.Plan) != nil || revision.Step < 0 || revision.Step >= len(revision.Plan.Steps) {
 			return
@@ -185,6 +228,7 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 		state.RecoveryAttempts = 0
 		failedPrerequisite = false
 		recoveryAttempts = 0
+		groupPassed = nil
 		pending = nil
 	}
 	for state.Status == "awaiting-approval" {
@@ -195,6 +239,16 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 			if start.Fingerprint == plan.Fingerprint && start.Step >= 0 && start.Step < len(plan.Steps) {
 				state.Current = start.Step
 				state.Status = "running"
+				if runsGroups && len(start.Kept) > 0 {
+					groupPassed = map[string]bool{}
+					for _, step := range plan.Steps[start.Step:groupEnd(plan.Steps, start.Step)] {
+						for _, id := range start.Kept {
+							if id == step.ID {
+								groupPassed[id] = true
+							}
+						}
+					}
+				}
 			}
 		})
 		selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
@@ -255,6 +309,120 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 			}
 		}
 	}
+	// runGroup starts every step of indices at once and waits until each has ended. Stop or pause cancels them all; an activity
+	// error cancels the others, and the group returns the first error.
+	runGroup := func(indices []int) ([]Result, error, string) {
+		type member struct {
+			future workflow.Future
+			cancel workflow.CancelFunc
+			done   bool
+			result Result
+		}
+		ids := make([]string, len(indices))
+		for k, index := range indices {
+			ids[k] = plan.Steps[index].ID
+		}
+		prior := append([]Entry{}, state.Results...)
+		members := make([]*member, len(indices))
+		for k, index := range indices {
+			step := plan.Steps[index]
+			activityCtx, cancel := workflow.WithCancel(ctx)
+			members[k] = &member{cancel: cancel, future: workflow.ExecuteActivity(activityCtx, "cockpit.run-step", StepTask{
+				Step:                  step,
+				PlanFingerprint:       plan.Fingerprint,
+				Goal:                  plan.Goal,
+				Controls:              plan.Controls,
+				SuccessCriteria:       plan.SuccessCriteria,
+				PriorResults:          append([]Entry{}, prior...),
+				ContinuesAfterFailure: failureGatesOnlyPrerequisites && !step.Prerequisite,
+				GroupMembers:          ids,
+			})}
+		}
+		cancelAll := func() {
+			for _, m := range members {
+				if !m.done {
+					m.cancel()
+				}
+			}
+		}
+		var firstErr error
+		interruption := ""
+		remaining := len(members)
+		for remaining > 0 {
+			selector := workflow.NewSelector(ctx)
+			for _, m := range members {
+				if m.done {
+					continue
+				}
+				m := m
+				selector.AddFuture(m.future, func(f workflow.Future) {
+					err := f.Get(ctx, &m.result)
+					m.done = true
+					remaining--
+					if err != nil && firstErr == nil && interruption == "" {
+						firstErr = err
+						cancelAll()
+					}
+				})
+			}
+			selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
+				var command string
+				channel.Receive(ctx, &command)
+				if command == "stop" || (command == "pause" && interruption == "") {
+					interruption = command
+					cancelAll()
+				}
+			})
+			selector.AddReceive(revisions, func(channel workflow.ReceiveChannel, _ bool) {
+				var revision Revision
+				channel.Receive(ctx, &revision)
+				acceptRevision(revision)
+			})
+			selector.Select(ctx)
+		}
+		results := make([]Result, len(members))
+		for k, m := range members {
+			m.cancel()
+			results[k] = m.result
+		}
+		return results, firstErr, interruption
+	}
+	// waitAfterFailure holds the run paused on a failed step until the person retries, stops or an approved revision arrives;
+	// it reports whether the run was stopped.
+	waitAfterFailure := func(reason string, needed string) bool {
+		var command string
+		state.Status = "paused"
+		state.Reason = reason
+		state.NeededInput = needed
+		for state.Status == "paused" {
+			if pending != nil {
+				applyRevision()
+				break
+			}
+			selector := workflow.NewSelector(ctx)
+			selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
+				channel.Receive(ctx, &command)
+				if command == "stop" {
+					state.Status = "stopped"
+				}
+				if command == "retry" {
+					state.Status = "running"
+					state.Reason = ""
+					state.NeededInput = ""
+					state.RecoveryAttempts = 0
+					failedPrerequisite = false
+					recoveryAttempts = 0
+				}
+			})
+			selector.AddReceive(revisions, func(channel workflow.ReceiveChannel, _ bool) {
+				var revision Revision
+				channel.Receive(ctx, &revision)
+				acceptRevision(revision)
+			})
+			selector.Select(ctx)
+		}
+		return state.Status == "stopped"
+	}
 	for state.Current < len(plan.Steps) {
 		// Commands are applied only at a step boundary.
 		var command string
@@ -294,6 +462,75 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 		if state.Status == "stopped" {
 			return state, nil
 		}
+		if end := groupEnd(plan.Steps, state.Current); runsGroups && end-state.Current > 1 {
+			if groupPassed == nil {
+				groupPassed = map[string]bool{}
+			}
+			var indices []int
+			for index := state.Current; index < end; index++ {
+				if !groupPassed[plan.Steps[index].ID] {
+					indices = append(indices, index)
+				}
+			}
+			var results []Result
+			if len(indices) > 0 {
+				var err error
+				var interruption string
+				results, err, interruption = runGroup(indices)
+				if interruption == "stop" {
+					state.Status = "stopped"
+					return state, nil
+				}
+				if interruption == "pause" {
+					return waitStoppedAfterInterruption("The agents were interrupted; detached background processes may still be running.")
+				}
+				if err != nil {
+					return waitStoppedAfterInterruption(err.Error())
+				}
+			}
+			// The results go in plan order whatever order the members ended in; only a failed prerequisite pauses the run.
+			pauseReason, pauseNeeded, failed := "", "", false
+			for k, index := range indices {
+				step := plan.Steps[index]
+				result := results[k]
+				result.ContinuedAfterFailure = !result.Passed && failureGatesOnlyPrerequisites && !step.Prerequisite
+				state.Results = append(state.Results, Entry{StepID: step.ID, PlanFingerprint: plan.Fingerprint, Result: result})
+				if result.Passed {
+					groupPassed[step.ID] = true
+				} else if !result.ContinuedAfterFailure && !failed {
+					failed = true
+					pauseReason = result.Detail
+					pauseNeeded = strings.TrimSpace(result.NeededInput)
+				}
+			}
+			var revision Revision
+			for revisions.ReceiveAsync(&revision) {
+				acceptRevision(revision)
+			}
+			if failed {
+				failedPrerequisite = true
+				if pending != nil && revisionBypassesPrerequisite(*pending, state.Results) {
+					pending = nil
+					state.PendingFingerprint = ""
+				}
+				if waitAfterFailure(pauseReason, pauseNeeded) {
+					return state, nil
+				}
+				continue
+			}
+			failedPrerequisite = false
+			recoveryAttempts = 0
+			state.RecoveryAttempts = 0
+			state.NeededInput = ""
+			groupPassed = nil
+			if pending != nil {
+				applyRevision()
+				continue
+			}
+			state.Current = end
+			continue
+		}
+		groupPassed = nil
 		step := plan.Steps[state.Current]
 		continuesAfterFailure := failureGatesOnlyPrerequisites && !step.Prerequisite
 		result, err, interruption := runActivity(StepTask{
@@ -383,37 +620,7 @@ func Execute(ctx workflow.Context, plan Plan) (State, error) {
 				pending = nil
 				state.PendingFingerprint = ""
 			}
-			state.Status = "paused"
-			state.Reason = pauseReason
-			state.NeededInput = pauseNeeded
-			for state.Status == "paused" {
-				if pending != nil {
-					applyRevision()
-					break
-				}
-				selector := workflow.NewSelector(ctx)
-				selector.AddReceive(controls, func(channel workflow.ReceiveChannel, _ bool) {
-					channel.Receive(ctx, &command)
-					if command == "stop" {
-						state.Status = "stopped"
-					}
-					if command == "retry" {
-						state.Status = "running"
-						state.Reason = ""
-						state.NeededInput = ""
-						state.RecoveryAttempts = 0
-						failedPrerequisite = false
-						recoveryAttempts = 0
-					}
-				})
-				selector.AddReceive(revisions, func(channel workflow.ReceiveChannel, _ bool) {
-					var revision Revision
-					channel.Receive(ctx, &revision)
-					acceptRevision(revision)
-				})
-				selector.Select(ctx)
-			}
-			if state.Status == "stopped" {
+			if waitAfterFailure(pauseReason, pauseNeeded) {
 				return state, nil
 			}
 			continue

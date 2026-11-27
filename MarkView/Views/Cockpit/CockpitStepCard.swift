@@ -12,6 +12,13 @@ struct CockpitStepCard: View {
     private var step: CockpitStep { plan.steps[index] }
     private var expanded: Bool { expandedID == step.id }
     private var isLast: Bool { index == plan.steps.count - 1 }
+    /// The steps this one runs at the same time as, itself included; one step when it runs on its own (REQ-002).
+    private var group: Range<Int> { plan.group(containing: index) }
+    private var inGroup: Bool { group.count > 1 }
+    private var groupText: String {
+        let others = group.filter { $0 != index }.map { "\($0 + 1)" }
+        return "Runs at the same time as step" + (others.count == 1 ? " " : "s ") + others.joined(separator: " and ")
+    }
 
     private enum Kind {
         case prerequisite, work, qa, verification
@@ -82,6 +89,10 @@ struct CockpitStepCard: View {
             if expanded { editor } else { summary }
         }
         .cockpitCard(outline: problems.isEmpty ? (expanded ? palette.accent : nil) : palette.red)
+        .overlay(alignment: .leading) {
+            // The members of a group share a bar at their left edge, so they read as one block of the plan.
+            if inGroup { RoundedRectangle(cornerRadius: 2).fill(palette.blue).frame(width: 3).padding(.vertical, 6) }
+        }
         .contentShape(Rectangle())
         .onTapGesture { if !expanded { expandedID = step.id } }
     }
@@ -108,6 +119,10 @@ struct CockpitStepCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 CockpitChip(text: kind.title, icon: kind.icon)
+                if inGroup {
+                    CockpitChip(text: groupText, icon: "arrow.triangle.branch", tint: palette.blue)
+                        .help("These steps only inspect the project and start together; the run goes on when all of them have ended.")
+                }
                 if step.isPrerequisite, let recovery = step.recovery, recovery.isConfigured {
                     CockpitChip(text: "Auto-recovery ×\(recovery.boundedAttempts)", icon: "arrow.triangle.2.circlepath", tint: palette.blue)
                         .help("If this prerequisite fails, Cockpit attempts recovery up to \(recovery.boundedAttempts) time(s): \(recovery.assignment)")
@@ -225,6 +240,10 @@ struct CockpitStepCard: View {
                 Button { session.editPlan { $0.moveStep(at: index, by: -1) } } label: { Label("Up", systemImage: "arrow.up") }.disabled(index == 0)
                 Button { session.editPlan { $0.moveStep(at: index, by: 1) } } label: { Label("Down", systemImage: "arrow.down") }.disabled(isLast)
                 Button { session.editPlan { $0.duplicateStep(at: index) } } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
+                if inGroup {
+                    Button { session.editPlan { $0.ungroupStep(step.id) } } label: { Label("Run on its own", systemImage: "arrow.down.to.line") }
+                        .help("Take this step out of its group: it then runs after the steps it ran with")
+                }
                 Spacer()
                 Button(role: .destructive) { remove() } label: { Label("Delete", systemImage: "trash") }
             }.buttonStyle(.borderless).uiFont(size: 12)

@@ -68,6 +68,26 @@ struct CockpitRun: Codable, Equatable {
     private(set) var neededInput: String? = nil
     /// Bounded recovery attempts already run for the current prerequisite failure; absent when none have run.
     private(set) var recoveryAttempts: Int? = nil
+    /// The results of the members of the running group that have ended while others still run. They join `results` in plan order
+    /// when the last member ends, as the workflow records them (REQ-003); after an interruption the passed ones are kept (REQ-006).
+    /// Absent outside a group and in older runs.
+    private(set) var groupResults: [StepResult]? = nil
+    /// The last sign of life of each step that ran in a group (`CockpitStep.id.uuidString`): what its own quiet time counts from
+    /// (REQ-004). Absent in older runs and in runs without groups.
+    private(set) var stepSignals: [String: Date]? = nil
+
+    /// The steps running now, or that the run stands at: the members of the current group from `currentIndex`, or the current step.
+    var currentMembers: Range<Int> {
+        guard let index = currentIndex, steps.indices.contains(index) else { return 0..<0 }
+        let members = plan.members(from: index)
+        return members.upperBound <= steps.count ? members : index..<(index + 1)
+    }
+
+    /// Whether the run stands at a group of steps that run at the same time.
+    var isAtGroup: Bool { currentMembers.count > 1 }
+
+    /// Every result of the run, with those of group members that ended before the rest of their group: what evidence reads.
+    var allResults: [StepResult] { results + (groupResults ?? []) }
 
     /// Extracts the specific blocker or needed input for the failure banner: explicit `neededInput` first,
     /// then reported progress blockers, then a `"Blocker:"` clause in `detail`.
@@ -92,9 +112,9 @@ struct CockpitRun: Codable, Equatable {
         return nil
     }
 
-    /// What input or decision the currently failed step needs from the person, if known.
+    /// What input or decision the currently failed step needs from the person, if known. In a group, the first member that failed.
     var failedStepNeededInput: String? {
-        let index = currentIndex
+        let index = isAtGroup ? currentMembers.first { steps[$0].status == .failed } ?? currentIndex : currentIndex
         let stepID = index.flatMap { steps.indices.contains($0) ? steps[$0].stepID : nil }
         let lastResult = stepID.flatMap { id in results.last { $0.stepID == id && !$0.passed } }
         let progress = index.flatMap { steps.indices.contains($0) ? steps[$0].progress : nil } ?? lastResult?.progress
@@ -103,9 +123,8 @@ struct CockpitRun: Codable, Equatable {
 
     /// True when the run is paused specifically because a prerequisite step failed.
     var isPausedOnFailedPrerequisite: Bool {
-        guard status == .paused, let index = currentIndex,
-              steps.indices.contains(index), plan.steps.indices.contains(index) else { return false }
-        return steps[index].status == .failed && plan.steps[index].isPrerequisite
+        guard status == .paused, currentIndex != nil else { return false }
+        return currentMembers.contains { plan.steps.indices.contains($0) && steps[$0].status == .failed && plan.steps[$0].isPrerequisite }
     }
 
     /// True when a prerequisite step with `stepID` has a passing non-recovery result in this run.
@@ -139,11 +158,31 @@ struct CockpitRun: Codable, Equatable {
     /// Adds one event to the timeline. `signal` marks it as a sign that the agent is alive.
     private mutating func log(_ kind: CockpitRunEvent.Kind, stepID: String?, _ text: String = "", at now: Date, signal: Bool = false) {
         events = CockpitRunEvent.appending(CockpitRunEvent(at: now, kind: kind, stepID: stepID, text: text), to: events ?? [])
-        if signal { lastSignal = now }
+        if signal { noteSignal(of: stepID, at: now) }
+    }
+
+    /// A sign of life of the run, and of the step it belongs to when that step runs in a group.
+    private mutating func noteSignal(of stepID: String?, at now: Date) {
+        lastSignal = now
+        guard let stepID, isAtGroup, currentMembers.contains(where: { steps[$0].stepID.uuidString == stepID }) else { return }
+        var signals = stepSignals ?? [:]
+        signals[stepID] = now
+        stepSignals = signals
     }
 
     private mutating func log(_ kind: CockpitRunEvent.Kind, step index: Int?, _ text: String = "", at now: Date, signal: Bool = false) {
         log(kind, stepID: index.flatMap { steps.indices.contains($0) ? steps[$0].stepID.uuidString : nil }, text, at: now, signal: signal)
+    }
+
+    /// The steps that start when the run reaches step `index` begin now: `index` and the rest of its group (REQ-003). A member that
+    /// already passed (kept after an interruption) does not run again.
+    private mutating func beginMembers(from index: Int, at now: Date) {
+        guard steps.indices.contains(index) else { return }
+        stepSignals = nil
+        for member in plan.members(from: index) where steps.indices.contains(member) && steps[member].status != .passed {
+            steps[member].status = .running
+            began(member, at: now)
+        }
     }
 
     /// Step `index` begins now.
@@ -160,10 +199,52 @@ struct CockpitRun: Codable, Equatable {
               approval.permits(plan), steps.indices.contains(index) else { return false }
         self.approval = approval
         for i in steps.indices { steps[i] = StepRecord(stepID: plan.steps[i].id, status: i < index ? .skipped : .waiting) }
-        currentIndex = index; steps[index].status = .running; waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running
+        currentIndex = index; waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running; groupResults = nil
         startedAt = now
         log(.started, step: nil, index == 0 ? "The run was approved and started." : "The run was approved and started at step \(index + 1).", at: now)
-        began(index, at: now)
+        beginMembers(from: index, at: now)
+        return true
+    }
+
+    /// Step `stepID` of the running steps ended. A step on its own is `completeCurrent`. A member of a group is recorded at once, and
+    /// when it was the last one running the group ends: the members' results join the run in plan order, a failed prerequisite pauses
+    /// the run (Retry runs the failed members again), and otherwise the run goes on after the group (REQ-003).
+    mutating func complete(stepID: UUID, passed: Bool, detail: String, build: String, scenarioID: String? = nil, qaRunID: String? = nil,
+                           progress: CockpitProgress? = nil, neededInput: String? = nil, recoveryAttempt: Int? = nil,
+                           continuedAfterFailure: Bool = false, now: Date = Date()) -> Bool {
+        guard status == .running, let first = currentIndex, steps.indices.contains(first) else { return false }
+        guard isAtGroup else {
+            guard steps[first].stepID == stepID else { return false }
+            return completeCurrent(passed: passed, detail: detail, build: build, scenarioID: scenarioID, qaRunID: qaRunID, progress: progress,
+                                   neededInput: neededInput, recoveryAttempt: recoveryAttempt, continuedAfterFailure: continuedAfterFailure, now: now)
+        }
+        let members = currentMembers
+        guard recoveryAttempt == nil, let index = members.first(where: { steps[$0].stepID == stepID }), steps[index].status == .running else { return false }
+        let needed = neededInput?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let goesOn = !passed && continuedAfterFailure && !plan.steps[index].isPrerequisite
+        groupResults = (groupResults ?? []) + [StepResult(plan: plan, stepID: stepID, passed: passed, detail: detail, build: build,
+            scenarioID: scenarioID, qaRunID: qaRunID, progress: progress, neededInput: (needed?.isEmpty ?? true) ? nil : needed,
+            continuedAfterFailure: goesOn ? true : nil)]
+        steps[index].status = passed ? .passed : .failed
+        steps[index].detail = detail
+        steps[index].endedAt = now
+        log(passed ? .stepPassed : .stepFailed, step: index, CockpitText.firstLine(detail), at: now, signal: true)
+        guard !members.contains(where: { steps[$0].status == .running }) else { return true }
+        let ended = (groupResults ?? []).sorted { a, b in
+            (plan.steps.firstIndex { $0.id == a.stepID } ?? 0) < (plan.steps.firstIndex { $0.id == b.stepID } ?? 0)
+        }
+        results.append(contentsOf: ended)
+        groupResults = nil
+        stepSignals = nil
+        if let failed = members.first(where: { steps[$0].status == .failed && plan.steps[$0].isPrerequisite }) {
+            status = .paused
+            waitingReason = steps[failed].detail
+            self.neededInput = ended.last { $0.stepID == steps[failed].stepID }?.neededInput
+            return true
+        }
+        recoveryAttempts = nil
+        self.neededInput = nil
+        advance(after: members.upperBound - 1, at: now)
         return true
     }
 
@@ -241,8 +322,8 @@ struct CockpitRun: Codable, Equatable {
     /// The step after `index` begins, or the run finishes and says which steps failed on the way.
     private mutating func advance(after index: Int, at now: Date) {
         if index + 1 < steps.count {
-            currentIndex = index + 1; steps[index + 1].status = .running
-            began(index + 1, at: now)
+            currentIndex = index + 1
+            beginMembers(from: index + 1, at: now)
             return
         }
         currentIndex = nil; status = .finished
@@ -259,25 +340,26 @@ struct CockpitRun: Codable, Equatable {
     }
 
     mutating func retryPrerequisite() -> Bool {
-        guard status == .paused, let index = currentIndex, steps.indices.contains(index),
-              plan.steps[index].isPrerequisite, steps[index].status == .failed,
-              approval?.permits(plan) == true else { return false }
-        steps[index].status = .running; waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running
-        return true
+        guard status == .paused, currentIndex != nil, approval?.permits(plan) == true,
+              currentMembers.contains(where: { plan.steps[$0].isPrerequisite && steps[$0].status == .failed }) else { return false }
+        return retryFailedStep()
     }
 
-    /// Retries any failed step on which the run paused (prerequisite or regular).
+    /// Retries the failed step on which the run paused (prerequisite or regular); in a group, every member that failed, as the
+    /// workflow runs them again (REQ-003).
     mutating func retryFailedStep() -> Bool {
-        guard status == .paused, let index = currentIndex, steps.indices.contains(index),
-              steps[index].status == .failed, approval?.permits(plan) == true else { return false }
-        steps[index].status = .running; waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running
+        guard status == .paused, currentIndex != nil, approval?.permits(plan) == true else { return false }
+        let failed = currentMembers.filter { steps[$0].status == .failed }
+        guard !failed.isEmpty else { return false }
+        for index in failed { steps[index].status = .running }
+        waitingReason = ""; neededInput = nil; recoveryAttempts = nil; status = .running
         return true
     }
 
     /// Pausing requests a safe boundary; an in-flight agent must actually stop before its executor calls this.
     mutating func pauseAtBoundary(reason: String, now: Date = Date()) {
         guard status == .running else { return }
-        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .running { steps[index].status = .waiting }
+        for index in currentMembers where steps[index].status == .running { steps[index].status = .waiting }
         status = .paused; waitingReason = reason
         log(.paused, step: currentIndex, reason.isEmpty ? "The run was paused." : reason, at: now)
     }
@@ -285,7 +367,8 @@ struct CockpitRun: Codable, Equatable {
     mutating func resumeAtBoundary(now: Date = Date()) -> Bool {
         guard status == .paused, let index = currentIndex, steps.indices.contains(index),
               steps[index].status == .waiting, approval?.permits(plan) == true else { return false }
-        steps[index].status = .running; status = .running; waitingReason = ""
+        for member in currentMembers where steps[member].status == .waiting { steps[member].status = .running }
+        status = .running; waitingReason = ""
         log(.resumed, step: index, "The run was resumed.", at: now, signal: true)
         return true
     }
@@ -294,7 +377,7 @@ struct CockpitRun: Codable, Equatable {
     mutating func stop(now: Date = Date()) {
         if status != .stopped { log(.stopped, step: currentIndex, "The run was stopped.", at: now) }
         status = .stopped
-        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .interrupted { return }
+        if currentMembers.contains(where: { steps[$0].status == .interrupted }) { return }
         waitingReason = ""
     }
 
@@ -324,10 +407,15 @@ struct CockpitRun: Codable, Equatable {
         log(.note, step: currentIndex, prefix + CockpitSupervisor.clip(note.text, to: 120), at: note.at)
     }
 
-    /// The gate refused a tool call of the step's agent. A refusal is also a sign that the agent is working.
-    mutating func noteRefusal(_ text: String, now: Date = Date()) {
+    /// The gate refused a tool call of the step's agent. A refusal is also a sign that the agent is working. `stepID` names the step
+    /// whose agent it was, which matters while a group runs; nil is the current step.
+    mutating func noteRefusal(_ text: String, stepID: UUID? = nil, now: Date = Date()) {
         guard status == .running else { return }
-        log(.refusal, step: currentIndex, text, at: now, signal: true)
+        if let stepID, let index = currentMembers.first(where: { steps[$0].stepID == stepID }) {
+            log(.refusal, step: index, text, at: now, signal: true)
+        } else {
+            log(.refusal, step: currentIndex, text, at: now, signal: true)
+        }
     }
 
     /// The coordinator paused or resumed the run (the person's Pause, a limit). The run's own status follows only at a step's end,
@@ -339,10 +427,13 @@ struct CockpitRun: Codable, Equatable {
             log(.paused, step: currentIndex, reason.isEmpty ? "The run was paused." : reason, at: now)
             return
         }
-        // Retrying a failed prerequisite begins it again now, not when its result arrives.
-        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .failed {
-            steps[index].startedAt = now; steps[index].endedAt = nil
-            log(.resumed, step: index, "Retrying the step.", at: now, signal: true)
+        // Retrying a failed prerequisite begins it again now, not when its result arrives; in a group, every member that failed.
+        let failed = currentMembers.filter { steps[$0].status == .failed }
+        if !failed.isEmpty {
+            for index in failed {
+                steps[index].startedAt = now; steps[index].endedAt = nil
+                log(.resumed, step: index, failed.count > 1 ? "Retrying the step with the other failed members of its group." : "Retrying the step.", at: now, signal: true)
+            }
         } else {
             log(.resumed, step: currentIndex, "The run was resumed.", at: now, signal: true)
         }
@@ -364,11 +455,11 @@ struct CockpitRun: Codable, Equatable {
     }
 
     mutating func recordProgress(_ progress: CockpitProgress, stepID: UUID, now: Date = Date()) -> Bool {
-        guard status == .running, let index = currentIndex, steps.indices.contains(index), steps[index].stepID == stepID,
-              steps[index].status == .running else { return false }
+        guard status == .running, currentIndex != nil,
+              let index = currentMembers.first(where: { steps[$0].stepID == stepID }), steps[index].status == .running else { return false }
         let before = steps[index].progress
         steps[index].progress = progress
-        lastSignal = now
+        noteSignal(of: stepID.uuidString, at: now)
         if before?.activity != progress.activity || before?.passNumber != progress.passNumber {
             log(.report, step: index, "Pass \(progress.passNumber): \(progress.activity)", at: now, signal: true)
         }
@@ -379,26 +470,55 @@ struct CockpitRun: Codable, Equatable {
     }
 
     /// The user explicitly chose a starting point after reviewing an interrupted step's known evidence.
+    /// In a group, every interrupted member leaves a partial result; when the run continues at the same group of the same plan, the
+    /// members that passed before the interruption are kept and do not run again (REQ-006).
     mutating func continueAfterInterruption(plan newPlan: CockpitPlan, approval: CockpitApproval, at index: Int, now: Date = Date()) -> Bool {
-        guard (status == .paused || status == .stopped), let oldIndex = currentIndex, steps.indices.contains(oldIndex), steps[oldIndex].status == .interrupted,
+        let interrupted = currentMembers.filter { steps[$0].status == .interrupted }
+        guard (status == .paused || status == .stopped), let oldIndex = currentIndex, steps.indices.contains(oldIndex), !interrupted.isEmpty,
               approval.permits(newPlan), newPlan.steps.indices.contains(index) else { return false }
-        let partial = steps[oldIndex]
-        results.append(StepResult(plan: plan, stepID: partial.stepID, passed: false,
-                                  detail: "Interrupted; effects may be incomplete. " + partial.detail, build: "",
-                                  progress: partial.progress, interrupted: true))
+        let kept = newPlan == plan ? Set(currentMembers.filter { steps[$0].status == .passed }.map { steps[$0].stepID }) : []
+        recordInterruptedMembers()
+        let before = steps
         plan = newPlan
         self.approval = approval
-        steps = newPlan.steps.enumerated().map { StepRecord(stepID: $0.element.id, status: $0.offset < index ? .skipped : .waiting) }
+        steps = newPlan.steps.enumerated().map { offset, step in
+            if offset >= index, kept.contains(step.id), let old = before.first(where: { $0.stepID == step.id }), newPlan.members(from: index).contains(offset) {
+                return StepRecord(stepID: step.id, status: .passed, detail: old.detail, progress: old.progress, startedAt: old.startedAt, endedAt: old.endedAt)
+            }
+            return StepRecord(stepID: step.id, status: offset < index ? .skipped : .waiting)
+        }
         currentIndex = index
-        steps[index].status = .running
         status = .running
         waitingReason = ""
         neededInput = nil
         recoveryAttempts = nil
         pendingRevision = nil
         log(.recovered, step: index, "Continuing from step \(index + 1) after an interruption.", at: now)
-        began(index, at: now)
+        beginMembers(from: index, at: now)
         return true
+    }
+
+    /// The members of the current group that were kept from before an interruption: they passed and do not run again.
+    var keptMembers: [String] {
+        guard isAtGroup, status == .running else { return [] }
+        return currentMembers.filter { steps[$0].status == .passed }.map { steps[$0].stepID.uuidString }
+    }
+
+    /// The results of an interrupted step or group join the run: the members that ended first, then a partial result for each member
+    /// that was interrupted, in plan order.
+    private mutating func recordInterruptedMembers() {
+        let ended = groupResults ?? []
+        groupResults = nil
+        for index in currentMembers {
+            if let result = ended.first(where: { $0.stepID == steps[index].stepID }) {
+                results.append(result)
+            } else if steps[index].status == .interrupted {
+                let partial = steps[index]
+                results.append(StepResult(plan: plan, stepID: partial.stepID, passed: false,
+                                          detail: "Interrupted; effects may be incomplete. " + partial.detail, build: "",
+                                          progress: partial.progress, interrupted: true))
+            }
+        }
     }
 
     /// A managed run (`plan.feature`) changes its own state: a decision, a finding, an external completion, a process. The timeline
@@ -419,33 +539,27 @@ struct CockpitRun: Codable, Equatable {
     mutating func continueManaged(at index: Int, now: Date = Date()) -> Bool {
         guard plan.feature != nil, status == .paused || status == .stopped, let approval, approval.permits(plan),
               steps.indices.contains(index) else { return false }
-        if let oldIndex = currentIndex, steps.indices.contains(oldIndex), steps[oldIndex].status == .interrupted {
-            let partial = steps[oldIndex]
-            results.append(StepResult(plan: plan, stepID: partial.stepID, passed: false,
-                                      detail: "Interrupted; effects may be incomplete. " + partial.detail, build: "",
-                                      progress: partial.progress, interrupted: true))
-        }
+        if currentIndex != nil { recordInterruptedMembers() }
         let before = steps
         steps = plan.steps.enumerated().map { offset, step in
             if offset < index { return StepRecord(stepID: step.id, status: before[offset].status == .passed ? .passed : .skipped, detail: before[offset].detail) }
             return StepRecord(stepID: step.id)
         }
         currentIndex = index
-        steps[index].status = .running
         status = .running
         waitingReason = ""
         neededInput = nil
         recoveryAttempts = nil
         pendingRevision = nil
         log(.recovered, step: index, "Continuing from step \(index + 1), the first step current evidence does not support.", at: now)
-        began(index, at: now)
+        beginMembers(from: index, at: now)
         return true
     }
 
     /// The person ends a saved run that no longer runs anywhere (its worker ended with the app), so the project is free for a new one.
     mutating func end(now: Date = Date()) {
         guard isUnfinished else { return }
-        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .running { steps[index].status = .interrupted }
+        for index in currentMembers where steps[index].status == .running { steps[index].status = .interrupted }
         status = .stopped
         log(.stopped, step: currentIndex, "Ended by you.", at: now)
     }
@@ -471,14 +585,14 @@ struct CockpitRun: Codable, Equatable {
         approval = revision.approval
         steps = plan.steps.enumerated().map { StepRecord(stepID: $0.element.id, status: $0.offset < revision.step ? .skipped : .waiting) }
         currentIndex = revision.step
-        steps[revision.step].status = .running
         status = .running
         waitingReason = ""
         neededInput = nil
         recoveryAttempts = nil
         pendingRevision = nil
+        groupResults = nil
         log(.revised, step: revision.step, "The approved changes were applied from step \(revision.step + 1).", at: now)
-        began(revision.step, at: now)
+        beginMembers(from: revision.step, at: now)
         return true
     }
 
@@ -487,7 +601,7 @@ struct CockpitRun: Codable, Equatable {
     /// `reason` replaces the standard text when the step was stopped on purpose, for example because a limit was reached.
     mutating func prepareAfterRestart(reason: String? = nil, now: Date = Date()) {
         guard status == .running else { return }
-        if let index = currentIndex, steps.indices.contains(index), steps[index].status == .running {
+        for index in currentMembers where steps[index].status == .running {
             steps[index].status = .interrupted
             steps[index].endedAt = now
         }
@@ -528,15 +642,31 @@ extension CockpitRun {
 
     /// How long the running step's agent has been quiet: since its last sign of life, or since the step began when it has shown none.
     /// nil when no step is running. `activity` is a sign of life that was too small to save (a MarkView tool call).
-    func quietSeconds(now: Date, activity: Date? = nil) -> TimeInterval? {
-        guard status == .running, let index = currentIndex, steps.indices.contains(index), steps[index].status == .running else { return nil }
-        guard let since = [lastSignal, activity, steps[index].startedAt].compactMap({ $0 }).max() else { return nil }
-        return max(0, now.timeIntervalSince(since))
+    /// While a group runs, each member is quiet since its own last sign of life (`stepActivity`: its MarkView tool calls), and the run
+    /// is as quiet as its quietest member (REQ-004).
+    func quietSeconds(now: Date, activity: Date? = nil, stepActivity: [UUID: Date] = [:]) -> TimeInterval? {
+        quietestStep(now: now, activity: activity, stepActivity: stepActivity)?.seconds
     }
 
-    /// Whether the silence warning is due: the step has been quiet longer than the threshold.
-    func isSilent(now: Date, activity: Date? = nil, threshold: TimeInterval = CockpitRun.silenceThreshold) -> Bool {
-        (quietSeconds(now: now, activity: activity) ?? 0) >= threshold
+    /// The running step that has been quiet the longest, and for how long.
+    func quietestStep(now: Date, activity: Date? = nil, stepActivity: [UUID: Date] = [:]) -> (index: Int, seconds: TimeInterval)? {
+        guard status == .running, currentIndex != nil else { return nil }
+        let group = isAtGroup
+        var quietest: (index: Int, seconds: TimeInterval)?
+        for index in currentMembers where steps[index].status == .running {
+            let id = steps[index].stepID
+            let signs = group ? [stepSignals?[id.uuidString], stepActivity[id], steps[index].startedAt]
+                : [lastSignal, activity, stepActivity[id], steps[index].startedAt]
+            guard let since = signs.compactMap({ $0 }).max() else { continue }
+            let seconds = max(0, now.timeIntervalSince(since))
+            if seconds > (quietest?.seconds ?? -1) { quietest = (index, seconds) }
+        }
+        return quietest
+    }
+
+    /// Whether the silence warning is due: a running step has been quiet longer than the threshold.
+    func isSilent(now: Date, activity: Date? = nil, stepActivity: [UUID: Date] = [:], threshold: TimeInterval = CockpitRun.silenceThreshold) -> Bool {
+        (quietSeconds(now: now, activity: activity, stepActivity: stepActivity) ?? 0) >= threshold
     }
 }
 
@@ -556,8 +686,9 @@ struct CockpitNotice: Equatable {
         func notice(_ kind: Kind, _ title: String, _ body: String) -> CockpitNotice {
             CockpitNotice(kind: kind, title: title, body: String(body.prefix(200)), key: "\(after.id.uuidString)/\(kind.rawValue)/\(after.results.count)")
         }
-        // A step that failed while the run goes on is announced as it happens (REQ-008, BUG-130).
-        if let last = after.results.last, last.continuedAfterFailure == true, after.results.count > (before?.results.count ?? 0),
+        // A step that failed while the run goes on is announced as it happens (REQ-008, BUG-130); a group adds several results at once.
+        if after.results.count > (before?.results.count ?? 0),
+           let last = after.results.dropFirst(before?.results.count ?? 0).first(where: { $0.continuedAfterFailure == true }),
            let index = after.plan.steps.firstIndex(where: { $0.id == last.stepID }) {
             let goesOn = after.status == .finished ? "The run finished." : "The run goes on."
             return notice(.stepFailed, "A Cockpit step failed", "\(after.plan.steps[index].title): \(CockpitText.firstLine(last.detail)) \(goesOn)")
@@ -568,7 +699,7 @@ struct CockpitNotice: Equatable {
             return notice(.finished, failed.isEmpty ? "Cockpit run finished" : "Cockpit run finished with failures",
                           failed.isEmpty ? name : "\(name): \(failed.count) \(failed.count == 1 ? "step" : "steps") failed")
         case .paused where before?.status == .running || before == nil:
-            if let index = after.currentIndex, after.steps.indices.contains(index), after.steps[index].status == .failed {
+            if let index = after.currentMembers.first(where: { after.steps[$0].status == .failed }) {
                 return notice(.stepFailed, "A Cockpit step failed", "\(after.plan.steps[index].title): \(CockpitText.firstLine(after.steps[index].detail))")
             }
             return notice(limitReached ? .limit : .paused, limitReached ? "A Cockpit limit was reached" : "Cockpit run paused", CockpitText.firstLine(after.waitingReason).isEmpty ? name : CockpitText.firstLine(after.waitingReason))
@@ -579,9 +710,9 @@ struct CockpitNotice: Equatable {
         }
     }
 
-    /// The warning for a step that has shown no sign of life for `minutes`.
-    static func silence(of run: CockpitRun, minutes: Int) -> CockpitNotice? {
-        guard run.status == .running, let index = run.currentIndex, run.plan.steps.indices.contains(index) else { return nil }
+    /// The warning for a step that has shown no sign of life for `minutes`: `step`, or the current step.
+    static func silence(of run: CockpitRun, minutes: Int, step: Int? = nil) -> CockpitNotice? {
+        guard run.status == .running, let index = step ?? run.currentIndex, run.plan.steps.indices.contains(index) else { return nil }
         return CockpitNotice(kind: .silent, title: "A Cockpit step has gone quiet",
                              body: "\(run.plan.steps[index].title): no report for \(minutes) min. It may be waiting for an answer in its terminal.",
                              key: "\(run.id.uuidString)/silent/\(run.plan.steps[index].id.uuidString)/\(run.results.count)")

@@ -415,6 +415,78 @@ final class CockpitRuntimeIntegrationHostTests: XCTestCase {
         guard AgentProcesses.count == 0 else { throw CockpitFixtureFailure("restarted helper processes did not stop") }
         print("Cockpit packaged runtime integration checks passed")
     }
+
+    /// Steps that run at the same time (cockpit-runs-independent-plan-steps-side-by-side REQ-003, REQ-004, DEC-003), through the packaged
+    /// runtime and the app's execution: the members of a group start before either ends, their results are saved in plan order whatever
+    /// order they end in, and the run's time grows by the group's wall-clock time, not by the sum of its members.
+    @MainActor func testGroupMembersRunTogetherThroughThePackagedRuntime() async throws {
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "amd64"
+        #endif
+        let path = ProcessInfo.processInfo.environment["MARKVIEW_TEST_RUNTIME"]
+            ?? Bundle.main.resourceURL?.appendingPathComponent("Cockpit/" + architecture).path
+        let runtime = try XCTUnwrap(path, "The packaged runtime path is unavailable")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cockpit-group-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { if AgentProcesses.count == 0 { try? FileManager.default.removeItem(at: root) } }
+        let service = CockpitService(root: root, bundled: URL(fileURLWithPath: runtime))
+        func step(_ title: String, group: String? = nil) -> CockpitStep {
+            var step = CockpitStep(title: title, agent: "Codex", assignment: "Inspect \(title)", completionCondition: "\(title) inspected")
+            step.parallelGroup = group
+            return step
+        }
+        let (first, slow, quick, last) = (step("First"), step("Slow", group: "checks"), step("Quick", group: "checks"), step("Last"))
+        var controls = CockpitControls()
+        controls.parallelSteps = true
+        let plan = CockpitPlan(goal: "Inspect", controls: controls, scenarios: [], steps: [first, slow, quick, last], successCriteria: ["Inspected"],
+                               unavailableOutcomes: [], alternatives: [], productionQA: nil)
+        XCTAssertEqual(plan.parallelGroups, [1..<3])
+        let spans = Spans()
+        let slowID = slow.id.uuidString, quickID = quick.id.uuidString
+        let execution = CockpitExecution(root: root, service: service) { task in
+            await spans.began(task)
+            if task.step.id == slowID { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            if task.step.id == quickID { try? await Task.sleep(nanoseconds: 1_200_000_000) }
+            await spans.ended(task.step.id)
+            return CockpitHostReply(result: CockpitHostResult(passed: true, detail: "Inspected \(task.step.title)", build: ""), error: "")
+        }
+        defer { execution.shutdown(); service.stop() }
+        let approval = try XCTUnwrap(CockpitApproval(plan: plan, productionConfirmed: false))
+        try await execution.start(plan: plan, approval: approval, step: 0)
+        for _ in 0..<300 where execution.state?.status != "finished" { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertEqual(execution.state?.status, "finished")
+        let runID = try XCTUnwrap(execution.runID)
+        let saved = try CockpitRunStore.load(runID, root: root)
+        XCTAssertEqual(saved.status, .finished)
+        XCTAssertEqual(saved.results.map(\.stepID), [first.id, slow.id, quick.id, last.id], "the group's results are saved in plan order")
+        XCTAssertTrue(saved.steps.allSatisfy { $0.status == .passed })
+
+        let began = await spans.begins, ended = await spans.ends, tasks = await spans.tasks
+        let slowBegan = try XCTUnwrap(began[slowID]), quickBegan = try XCTUnwrap(began[quickID])
+        let slowEnded = try XCTUnwrap(ended[slowID]), quickEnded = try XCTUnwrap(ended[quickID])
+        XCTAssertTrue(slowBegan < quickEnded && quickBegan < slowEnded, "both members ran at the same time")
+        XCTAssertTrue(quickEnded < slowEnded, "the quick member ended first, yet its result comes second")
+        XCTAssertTrue(try XCTUnwrap(began[last.id.uuidString]) >= slowEnded, "the next step starts after every member has ended")
+        let memberTasks = tasks.filter { $0.step.id == slowID || $0.step.id == quickID }
+        XCTAssertEqual(memberTasks.count, 2)
+        XCTAssertTrue(memberTasks.allSatisfy { $0.groupMembers == [slowID, quickID] && $0.step.group == "checks" })
+        XCTAssertTrue(memberTasks.allSatisfy { $0.priorResults.map(\.stepID) == [first.id.uuidString] },
+                      "each member receives the results recorded before the group")
+        let seconds = try XCTUnwrap(saved.activeSeconds)
+        XCTAssertGreaterThanOrEqual(seconds, 2.0, "the slow member's time counts")
+        XCTAssertLessThan(seconds, 3.0, "the group counts by the clock, not as 2 s + 1.2 s")
+    }
+}
+
+/// When each host task of a run began and ended, by step id.
+private actor Spans {
+    private(set) var tasks: [CockpitHostTask] = []
+    private(set) var begins: [String: Date] = [:]
+    private(set) var ends: [String: Date] = [:]
+    func began(_ task: CockpitHostTask) { tasks.append(task); begins[task.step.id] = Date() }
+    func ended(_ id: String) { ends[id] = Date() }
 }
 
 /// The execution a managed fixture's host handler reads its run from.

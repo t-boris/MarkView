@@ -106,6 +106,53 @@ agent create the parallel calls itself"); probes on 2026-11-26 decided each CLI:
   fixed in PR #454 (ba250238, 7.10.1). PR #452's build job timed out in the unused-import step (107 recompiled files, 35 min); the
   same check run locally over every changed source of both PRs finds nothing.
 
+## Phase 5: Cockpit runs independent plan steps side by side (2026-11-27)
+
+Boris approved the spec `cockpit-runs-independent-plan-steps-side-by-side` (REQ-001..008, DEC-001..003; Q-001: a "Parallel steps"
+switch, on by default; Q-002: a managed run reviews with two agents at once, in this feature). BUG-132 went first (PR #457, 7.12.1).
+Branch `feat/cockpit-parallel-steps` (worktree `../MarkView-parallel-steps`), one PR, minor bump, one release for the batch.
+
+- [x] Model: `CockpitStep.parallelGroup` and `CockpitControls.parallelSteps` (both left out of the JSON when empty/off, so old plans
+      keep their fingerprints; `newPlan` turns the switch on, `affectsSteps` counts it); `CockpitPlan.group(containing:)`,
+      `members(from:)`, `parallelGroups`, `normalizeGroups()` (plain plan: 2 to `CLICompletion.sideBySide` adjacent members, no
+      prerequisite, recovery, QA scenario or last step; managed: reviews only), called by parse and every edit; `ungroupStep` moves the
+      step after its group; duplicate inserts the copy after the group.
+- [x] Planner: schema `group`, `CockpitPlanning.groupRule` in the prompt only with the switch on and only for a plain plan, parse keeps
+      a label only with the switch on.
+- [x] Managed compose: with the switch on and a second reviewer (an agent that is neither the implementer nor the reviewer), two
+      review steps in group "review"; findings absorbed inside one save; `keepOneReview` when the switch goes off.
+- [x] Workflow (Go): `Step.Group`, `StepTask.GroupMembers`, `Start.Kept`; behind `GetVersion("parallel-step-groups")` a valid group
+      runs its members from `Current` to the group's end at once, results in plan order at the end, stop/pause cancels all, an
+      activity error cancels the rest, a failed prerequisite member pauses and Retry runs the failed members again; `group_test.go`.
+- [x] Record (`CockpitRun`): `currentMembers`, `complete(stepID:)`; a member's result waits in `groupResults` until the group ends,
+      then all are appended in plan order; pause/retry/restart/continue (keeps the members that passed, `keptMembers`) for groups;
+      refusals and signals name their step (`stepSignals`, `quietestStep`).
+- [x] Execution: a clock, meter and time-limit watch per running step; a group adds its wall-clock time (`busySince`, DEC-003);
+      results saved by step id; the reconciliation skips member results saved before the group ended; per-step activity.
+- [x] Session: one `CockpitAgentAttempt` per task (`makeAttempt`); progress, fix cycles, gate calls and surviving processes routed by
+      step; `CockpitGroupAudit`: one "before" picture for the group and the "after" picture when every member has ended or given up,
+      members held to `ChangeRule.group` whatever Fix bugs says (REQ-005).
+- [x] Views: the "Parallel steps" guardrail, controls and approval summaries; group bar, chip and "Run on its own" on the step card;
+      "Start from" offers only a group's first member; run header, flight path, flight strip, run list and failure banners show every
+      running member.
+- [x] Tests: Go workflow (`group_test.go`), hosted `CockpitParallelStepsHostTests` (12) and
+      `CockpitRuntimeIntegrationHostTests/testGroupMembersRunTogetherThroughThePackagedRuntime` (added to
+      `cockpit-runtime-integration-tests.sh`); docs, build, lint, suites.
+- [ ] PR, merge, release with 7.12.1, statuses.
+
+## Review (Phase 5)
+
+- Version 7.13.0 (minor). Clean Debug build: 0 warnings (`build-warnings.sh` with the app and package logs). `architecture-lint.sh`
+  passes, SwiftLint 49 of baseline 49.
+- Go: `go vet`, `gofmt -l` clean, `go test -count=1 .` passes; with groups switched off five group tests fail (red check).
+- Hosted: the 12 new tests, every Cockpit test of `EditorHostTests` (16), `CockpitManagedRunHostTests` (22) and the runtime
+  integration suite (2 tests, 85 s) pass; `swift test` 157 tests; `run.sh --tier pure` 9 suites.
+- The end-to-end test drives the packaged runtime and `CockpitExecution`: the two members overlap, the quick one ends first and its
+  result is still second, the next step starts after both, each member gets only the results from before the group, and the run's
+  time is under 3 s for members of 2 s and 1.2 s.
+- Not checked in the app by hand: the plan screen (switch, group bar, "Run on its own", "Start from"), the run screen with two
+  members, the two reviews of a managed run with real agents, and an app restart in the middle of a group.
+
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
 Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot

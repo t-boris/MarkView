@@ -38,17 +38,26 @@ enum CockpitStepAudit {
         case allowed
         /// A managed run's verification step: it may not, whatever Fix bugs says (BUG-132).
         case forbidden
+        /// A step that runs at the same time as other steps: it may change nothing, source, commits or scenarios, whatever the controls
+        /// say (cockpit-runs-independent-plan-steps-side-by-side REQ-005).
+        case group
 
         /// Whether the step's source changes and commits are looked for.
         func checksSources(_ controls: CockpitControls) -> Bool {
             switch self {
             case .fixBugsControl: !controls.fixBugs
             case .allowed: false
-            case .forbidden: true
+            case .forbidden, .group: true
             }
         }
 
-        var reason: String { self == .forbidden ? "This step only checks the change" : "Fix bugs is off" }
+        var reason: String {
+            switch self {
+            case .forbidden: "This step only checks the change"
+            case .group: "This step runs at the same time as other steps"
+            case .fixBugsControl, .allowed: "Fix bugs is off"
+            }
+        }
     }
 
     /// What the step did that its controls forbid; empty when nothing was found. Source changes are looked for when `changes`
@@ -66,10 +75,10 @@ enum CockpitStepAudit {
                 found.append("\(changes.reason), but a commit was made (\(was.prefix(7)) to \(now.prefix(7))).")
             }
         }
-        if !controls.createScenarios {
+        if !controls.createScenarios || changes == .group {
             let created = after.scenarios.subtracting(before.scenarios).sorted()
             if !created.isEmpty {
-                found.append("Create scenarios is off, but the step created scenario(s): \(created.joined(separator: ", ")).")
+                found.append("\(changes == .group ? changes.reason : "Create scenarios is off"), but the step created scenario(s): \(created.joined(separator: ", ")).")
             }
         }
         return found

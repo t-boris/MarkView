@@ -11,8 +11,9 @@ struct CockpitManagedAttention: View {
     let phase: CockpitRunPhase
     @Environment(\.palette) private var palette
 
+    /// The step the run paused on; in a group, the first member that failed.
     private var failedStep: CockpitStep? {
-        guard let index = run.currentIndex, run.steps.indices.contains(index), run.steps[index].status == .failed,
+        guard let index = run.currentMembers.first(where: { run.steps[$0].status == .failed }),
               run.plan.steps.indices.contains(index) else { return nil }
         return run.plan.steps[index]
     }

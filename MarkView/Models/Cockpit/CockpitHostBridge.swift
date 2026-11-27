@@ -7,6 +7,7 @@ import MarkViewCore
 struct CockpitHostStep: Codable, Equatable, Sendable {
     var id: String; var title: String = ""; var agent: String; var assignment: String; var completionCondition: String = ""
     var prerequisite: Bool; var qaScenarioID: String? = nil; var recovery: CockpitStepRecovery? = nil
+    var group: String? = nil
 }
 struct CockpitHostResult: Codable, Equatable, Sendable {
     var passed: Bool; var detail: String; var build: String; var scenarioID: String? = nil; var qaRunID: String? = nil
@@ -34,6 +35,8 @@ struct CockpitHostTask: Codable, Equatable, Sendable {
     var recoveryAttempt: Int? = nil
     /// Whether the run goes on when this step fails, as the workflow decided before the step began: a step that is not a prerequisite.
     var continuesAfterFailure: Bool? = nil
+    /// The steps the workflow started together with this one, this one included, in plan order; nil for a step that runs on its own.
+    var groupMembers: [String]? = nil
 }
 struct CockpitHostReply: Codable, Sendable { var result: CockpitHostResult; var error: String }
 

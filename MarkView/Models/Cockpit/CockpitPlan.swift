@@ -55,14 +55,19 @@ struct CockpitControls: Codable, Equatable {
     /// A new plan starts with it on (`newPlan`); controls that cannot be read and plans saved before it existed have it off and
     /// encode as before.
     var allowDelegation = false
+    /// Whether adjacent independent steps that only inspect may run at the same time, as the planner groups them
+    /// (cockpit-runs-independent-plan-steps-side-by-side REQ-007). On in a new plan, off in controls that cannot be read and in plans
+    /// saved before it existed, which encode as before.
+    var parallelSteps = false
 
     init() {}
 
     /// The controls a new plan starts with, a feature draft's or a goal of the person's own: delegation on where the agent supports
-    /// it (DEC-033, DEC-038); the person can switch it off before approving.
+    /// it (DEC-033, DEC-038) and independent steps side by side (REQ-007); the person can switch either off before approving.
     static var newPlan: CockpitControls {
         var controls = CockpitControls()
         controls.allowDelegation = true
+        controls.parallelSteps = true
         return controls
     }
 
@@ -84,6 +89,7 @@ struct CockpitControls: Codable, Equatable {
         deployment = try container.decodeIfPresent(String.self, forKey: .deployment) ?? "Disabled"
         supervisor = try container.decodeIfPresent(Bool.self, forKey: .supervisor) ?? true
         allowDelegation = try container.decodeIfPresent(Bool.self, forKey: .allowDelegation) ?? false
+        parallelSteps = try container.decodeIfPresent(Bool.self, forKey: .parallelSteps) ?? false
         supervisorAgent = Self.chosen(try container.decodeIfPresent(String.self, forKey: .supervisorAgent))
         supervisorModel = Self.chosen(try container.decodeIfPresent(String.self, forKey: .supervisorModel))
         if let minutes = try container.decodeIfPresent(Int.self, forKey: .timeLimitMinutes) {
@@ -100,6 +106,7 @@ struct CockpitControls: Codable, Equatable {
 
     private enum Key: String, CodingKey {
         case createScenarios, checks, fileBugs, fixBugs, build, deployment, supervisor, supervisorAgent, supervisorModel, timeLimitMinutes, fixCycleLimit, allowDelegation
+        case parallelSteps
         /// Only read, from runs saved with a free-text time limit.
         case timeLimit
     }
@@ -118,6 +125,7 @@ struct CockpitControls: Codable, Equatable {
         try container.encodeIfPresent(timeLimitMinutes, forKey: .timeLimitMinutes)
         try container.encodeIfPresent(fixCycleLimit, forKey: .fixCycleLimit)
         if allowDelegation { try container.encode(true, forKey: .allowDelegation) }
+        if parallelSteps { try container.encode(true, forKey: .parallelSteps) }
     }
 
     /// An empty choice is no choice: the same value everywhere, so a plan that never chose encodes exactly as before.
@@ -131,6 +139,7 @@ struct CockpitControls: Codable, Equatable {
     func affectsSteps(comparedTo other: CockpitControls) -> Bool {
         createScenarios != other.createScenarios || checks != other.checks || fileBugs != other.fileBugs
             || fixBugs != other.fixBugs || build != other.build || deployment != other.deployment || allowDelegation != other.allowDelegation
+            || parallelSteps != other.parallelSteps
     }
 
     /// "90", "90 min", "2h", "1h30m", "1.5 hours": the minutes they name, or nil when the text is not just an amount of time.
@@ -238,6 +247,16 @@ struct CockpitStep: Codable, Equatable, Identifiable {
     var delegate: Bool? = nil
     /// Optional bounded recovery authorized for a failed prerequisite; nil when none is configured (omitted from JSON).
     var recovery: CockpitStepRecovery? = nil
+    /// The label of the steps this one runs at the same time with: adjacent steps with the same label form one group
+    /// (`CockpitPlan.group(containing:)`). nil for a step that runs on its own, and in plans saved before groups existed, whose
+    /// JSON keeps no key.
+    var parallelGroup: String? = nil
+
+    /// `parallelGroup` with an empty label read as none.
+    var groupLabel: String? {
+        guard let value = parallelGroup?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
 
     /// `model` with an empty choice read as no choice.
     var chosenModel: String? {
@@ -411,6 +430,7 @@ struct CockpitPlan: Codable, Equatable {
         guard steps.indices.contains(index), steps.indices.contains(target), offset != 0 else { return false }
         steps.swapAt(index, target)
         normalizeScenarios()
+        normalizeGroups()
         return true
     }
 
@@ -418,9 +438,11 @@ struct CockpitPlan: Codable, Equatable {
     mutating func insertStep(_ step: CockpitStep, at index: Int) {
         steps.insert(step, at: min(max(0, index), steps.count))
         normalizeScenarios()
+        normalizeGroups()
     }
 
-    /// A copy of the step just after it, with its own identifier. The copy runs no QA scenario: a scenario is run by one step.
+    /// A copy of the step just after it, or just after its group, with its own identifier. The copy runs no QA scenario (a scenario is
+    /// run by one step) and runs on its own, so the group it came from stays as it was.
     @discardableResult mutating func duplicateStep(at index: Int) -> UUID? {
         guard steps.indices.contains(index) else { return nil }
         var copy = steps[index]
@@ -428,8 +450,10 @@ struct CockpitPlan: Codable, Equatable {
         copy.qaScenarioID = nil
         copy.isPrerequisite = false
         copy.recovery = nil
-        steps.insert(copy, at: index + 1)
+        copy.parallelGroup = nil
+        steps.insert(copy, at: group(containing: index).upperBound)
         normalizeScenarios()
+        normalizeGroups()
         return copy.id
     }
 
@@ -437,7 +461,20 @@ struct CockpitPlan: Codable, Equatable {
         guard steps.indices.contains(index) else { return false }
         steps.remove(at: index)
         normalizeScenarios()
+        normalizeGroups()
         return true
+    }
+
+    /// The person takes a step out of its group (REQ-002): it runs on its own, just after the members it ran with, so they stay
+    /// adjacent; a group left with one member is no longer a group.
+    mutating func ungroupStep(_ id: UUID) {
+        guard let index = steps.firstIndex(where: { $0.id == id }), steps[index].groupLabel != nil else { return }
+        let end = group(containing: index).upperBound
+        var step = steps.remove(at: index)
+        step.parallelGroup = nil
+        steps.insert(step, at: end - 1)
+        normalizeScenarios()
+        normalizeGroups()
     }
 
     /// Sets a step's agent. The model belongs to an agent, so it is cleared when the agent changes.
@@ -452,6 +489,73 @@ struct CockpitPlan: Codable, Equatable {
         guard let index = steps.firstIndex(where: { $0.id == id }) else { return }
         let value = model?.trimmingCharacters(in: .whitespacesAndNewlines)
         steps[index].model = (value?.isEmpty ?? true) ? nil : value
+    }
+}
+
+// MARK: Steps that run at the same time
+
+extension CockpitPlan {
+    /// The most steps one group runs at the same time, as many as the side-by-side one-shot runs (`CLICompletion.sideBySide`).
+    static let groupLimit = CLICompletion.sideBySide
+
+    /// The steps that run at the same time as step `index`, its own group (DEC-001): the adjacent steps with its label when they may run
+    /// together, or `index` alone. Out of range gives an empty range.
+    func group(containing index: Int) -> Range<Int> {
+        guard steps.indices.contains(index) else { return index..<index }
+        guard controls.parallelSteps, let label = steps[index].groupLabel else { return index..<(index + 1) }
+        var start = index, end = index + 1
+        while start > 0, steps[start - 1].groupLabel == label { start -= 1 }
+        while end < steps.count, steps[end].groupLabel == label { end += 1 }
+        return mayRunTogether(start..<end) ? start..<end : index..<(index + 1)
+    }
+
+    /// Every group of the plan, in plan order: what the approval covers of the steps that run together.
+    var parallelGroups: [Range<Int>] {
+        var groups: [Range<Int>] = []
+        var index = 0
+        while index < steps.count {
+            let whole = group(containing: index)
+            if whole.count > 1 { groups.append(whole) }
+            index = max(whole.upperBound, index + 1)
+        }
+        return groups
+    }
+
+    /// The steps that start together when the run reaches step `index`: from `index` to the end of its group. A run that starts or
+    /// continues inside a group runs the members from there on; the workflow starts the same ones.
+    func members(from index: Int) -> Range<Int> {
+        let whole = group(containing: index)
+        return whole.isEmpty ? whole : index..<whole.upperBound
+    }
+
+    /// Whether the steps in `range` may run at the same time (DEC-002): 2 to `groupLimit` adjacent steps that only inspect and are not
+    /// the plan's last step. In a plain plan they are no prerequisites; in a managed run only its reviews run together (REQ-008).
+    /// None has a recovery or runs a QA scenario: one window has one QA model and one browser.
+    func mayRunTogether(_ range: Range<Int>) -> Bool {
+        guard (2...Self.groupLimit).contains(range.count), range.lowerBound >= 0, range.upperBound < steps.count else { return false }
+        return range.allSatisfy { index in
+            let step = steps[index]
+            guard step.recovery == nil, step.qaScenarioID == nil else { return false }
+            return feature == nil ? !step.isPrerequisite && step.kind == nil : step.kind == .review
+        }
+    }
+
+    /// Keeps only the groups that may run together and removes every label when the switch is off (REQ-001, REQ-007): a plan never
+    /// carries a group that would not run as one. Called after planning and after every edit.
+    mutating func normalizeGroups() {
+        var index = 0
+        while index < steps.count {
+            guard controls.parallelSteps, let label = steps[index].groupLabel else {
+                steps[index].parallelGroup = nil
+                index += 1
+                continue
+            }
+            var end = index + 1
+            while end < steps.count, steps[end].groupLabel == label { end += 1 }
+            let keep = mayRunTogether(index..<end)
+            for member in index..<end { steps[member].parallelGroup = keep ? label : nil }
+            index = end
+        }
     }
 }
 

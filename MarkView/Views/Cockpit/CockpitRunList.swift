@@ -8,7 +8,7 @@ enum CockpitRunPhase: Equatable {
 
     /// `coordinator` is the live runtime's status when this run is the one running now.
     init(run: CockpitRun, coordinator: String?) {
-        let failed = run.currentIndex.map { run.steps.indices.contains($0) && run.steps[$0].status == .failed } ?? false
+        let failed = run.currentMembers.contains { run.steps[$0].status == .failed }
         let interrupted = run.steps.contains { $0.status == .interrupted }
         switch coordinator ?? run.status.rawValue {
         case "running": self = .running
@@ -150,7 +150,11 @@ struct CockpitRunList: View {
 
     private func detail(_ run: CockpitRun, phase: CockpitRunPhase) -> String {
         let total = run.steps.count
-        let position = run.currentIndex.map { "Step \($0 + 1) of \(total)" } ?? (phase.isFinished ? "\(total) of \(total) steps" : "\(total) steps")
+        // A group's members are all where the run stands (REQ-004).
+        let members = run.currentMembers
+        let position = run.currentIndex.map { index in
+            members.count > 1 ? "Steps \(members.lowerBound + 1)–\(members.upperBound) of \(total), together" : "Step \(index + 1) of \(total)"
+        } ?? (phase.isFinished ? "\(total) of \(total) steps" : "\(total) steps")
         guard let began = run.began else { return position }
         let end = phase == .running ? Date() : (run.lastKnownActivity ?? began)
         return position + " · " + CockpitFormat.duration(end.timeIntervalSince(began))

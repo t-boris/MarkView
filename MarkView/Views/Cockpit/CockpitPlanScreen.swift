@@ -52,7 +52,11 @@ struct CockpitPlanScreen: View {
         .onChange(of: session.recoveryRun?.id) { id in if id != nil { startingStep = -1 } }
         .onChange(of: session.qaTargets) { _ in productionConfirmed = false }
         .onChange(of: startingStep) { _ in productionConfirmed = false }
-        .onChange(of: session.plan) { _ in productionConfirmed = false }
+        .onChange(of: session.plan) { plan in
+            productionConfirmed = false
+            // A run starts at a group's first member, never inside it (REQ-002).
+            if let plan, startingStep > 0 { startingStep = plan.group(containing: startingStep).lowerBound }
+        }
         .alert(reviewingRevision ? "Approve these changes?" : "Approve this plan?", isPresented: $approving) {
             Button(reviewingRevision ? "Approve changes" : (session.draft != nil ? "Approve" : "Approve and start")) {
                 if let reviewedPlan, (try? session.preparedPlan(startingAt: reviewedStep)) == reviewedPlan {
@@ -107,14 +111,23 @@ struct CockpitPlanScreen: View {
         if !byAgent.isEmpty { parts.append(byAgent.map { "\($0.key) ×\($0.value.count)" }.joined(separator: ", ")) }
         if !plan.scenarios.isEmpty { parts.append("\(plan.scenarios.count) QA scenario\(plan.scenarios.count == 1 ? "" : "s")") }
         if let minutes = plan.controls.timeLimitMinutes { parts.append("\(CockpitFormat.duration(Double(minutes) * 60)) limit") }
+        if !plan.parallelGroups.isEmpty { parts.append(Self.groupSummary(plan)) }
         return parts.joined(separator: " · ")
+    }
+
+    /// Which steps run at the same time, as the approval covers them (REQ-002, REQ-007).
+    static func groupSummary(_ plan: CockpitPlan) -> String {
+        guard plan.controls.parallelSteps else { return "off" }
+        let groups = plan.parallelGroups
+        guard !groups.isEmpty else { return "on, no steps run together" }
+        return groups.map { "steps " + $0.map { "\($0 + 1)" }.joined(separator: ", ") + " together" }.joined(separator: "; ")
     }
 
     private func applyPreferredStartStep() {
         guard let preferred = session.preferredStartStep else { return }
         session.preferredStartStep = nil
-        if let count = session.plan?.steps.count, count > 0 {
-            startingStep = min(max(0, preferred), count - 1)
+        if let plan = session.plan, !plan.steps.isEmpty {
+            startingStep = plan.group(containing: min(max(0, preferred), plan.steps.count - 1)).lowerBound
         } else {
             startingStep = 0
         }
@@ -122,7 +135,8 @@ struct CockpitPlanScreen: View {
 
     private func liveRunBanner(_ run: CockpitRun) -> some View {
         let phase = CockpitRunPhase(run: run, coordinator: session.execution?.state?.status)
-        let currentTitle = run.currentIndex.flatMap { run.plan.steps.indices.contains($0) ? "Step \($0 + 1): \(run.plan.steps[$0].title)" : nil }
+        let members = run.currentMembers.filter { run.plan.steps.indices.contains($0) }
+        let currentTitle = members.isEmpty ? nil : members.map { "Step \($0 + 1): \(run.plan.steps[$0].title)" }.joined(separator: " · ")
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: phase.icon).foregroundColor(phase.tint(palette))
             VStack(alignment: .leading, spacing: 3) {
@@ -229,6 +243,7 @@ struct CockpitPlanScreen: View {
         parts.append("Deployment: \(controls.deployment)")
         parts.append(controls.timeLimitMinutes.map { "\(CockpitFormat.duration(Double($0) * 60)) limit" } ?? "No time limit")
         if controls.allowDelegation { parts.append("Delegation allowed") }
+        if controls.parallelSteps { parts.append("Parallel steps") }
         return parts.joined(separator: " · ")
     }
 
@@ -268,6 +283,9 @@ struct CockpitPlanScreen: View {
             }
             control("Delegation to subagents", note: "Where the agent supports it", tint: palette.blue) {
                 Toggle("Delegation to subagents", isOn: $session.controls.allowDelegation)
+            }
+            control("Parallel steps", note: "Steps that only inspect run together", tint: palette.blue) {
+                Toggle("Parallel steps", isOn: $session.controls.parallelSteps)
             }
             control("Time limit, minutes", note: "Enforced", tint: palette.green) {
                 TextField("none", value: $session.controls.timeLimitMinutes, format: .number).textFieldStyle(.roundedBorder).frame(width: 90).accessibilityLabel("Time limit, minutes")
@@ -469,7 +487,8 @@ struct CockpitPlanScreen: View {
             ForEach(general, id: \.message) { Label($0.message, systemImage: "exclamationmark.triangle.fill").uiFont(size: 12).foregroundColor(palette.orange) }
             if session.planNeedsRecheck { Label("Re-check the steps against the new goal or controls first.", systemImage: "arrow.triangle.2.circlepath").uiFont(size: 12).foregroundColor(palette.orange) }
             Text("Time limit: " + (plan.controls.timeLimitMinutes.map { CockpitFormat.duration(Double($0) * 60) + " of agent work in total" } ?? "none")
-                 + " · Delegation: " + (plan.controls.allowDelegation ? "allowed where the agent supports it" : "off"))
+                 + " · Delegation: " + (plan.controls.allowDelegation ? "allowed where the agent supports it" : "off")
+                 + " · Parallel steps: " + Self.groupSummary(plan))
                 .uiFont(size: 11).foregroundColor(palette.textDim)
             startNotes
             HStack(spacing: 12) {
@@ -546,7 +565,10 @@ struct CockpitPlanScreen: View {
                 if !plan.steps.isEmpty {
                     Picker("Start from", selection: $startingStep) {
                         if session.recoveryRun != nil { Text("Choose a step").tag(-1) }
-                        ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in Text("\(index + 1). \(step.title)").tag(index) }
+                        // A group starts at its first member, never inside it (REQ-002).
+                        ForEach(Array(plan.steps.enumerated()).filter { plan.group(containing: $0.offset).lowerBound == $0.offset }, id: \.element.id) { index, step in
+                            Text("\(index + 1). \(step.title)").tag(index)
+                        }
                     }.fixedSize().accessibilityLabel("Start from step")
                 }
                 Spacer()

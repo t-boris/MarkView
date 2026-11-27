@@ -898,7 +898,8 @@
         "MarkView/Models/Cockpit/CockpitDelegateWatch.swift",
         "MarkView/Models/Cockpit/CockpitDraftStore.swift",
         "MarkView/Models/Lifecycle/ImplementationLaunch.swift",
-        "MarkViewHostedTests/CockpitManagedRunHostTests.swift"
+        "MarkViewHostedTests/CockpitManagedRunHostTests.swift",
+        "MarkViewHostedTests/CockpitParallelStepsHostTests.swift"
       ]
     },
     {
