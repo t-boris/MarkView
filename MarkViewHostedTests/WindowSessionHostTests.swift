@@ -219,6 +219,12 @@ private enum WindowSessionChecks {
 
 }
 
+/// A window that never takes the key focus. The test host is never active: there, a closed key window can stay `NSApp`'s key
+/// window, as no other window takes the focus, and stay alive for that reason alone (seen while finding BUG-138's holder).
+private final class UnfocusedWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+}
+
 extension EditorHostTests {
     func testWindowSessionPersistence() async throws { try await WindowSessionChecks.run() }
 
@@ -260,8 +266,8 @@ extension EditorHostTests {
         weak var closedWindow: NSWindow?
         weak var closedWorkspace: AnyObject?
         do {
-            let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 900, height: 600),
-                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            let window = UnfocusedWindow(contentRect: NSRect(x: -30000, y: -30000, width: 900, height: 600),
+                                         styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.alphaValue = 0
             let hosting = NSHostingView(rootView: ContentView())
@@ -282,8 +288,24 @@ extension EditorHostTests {
             closedWorkspace = workspace
             window.close()
         }
-        for _ in 0..<300 where closedWindow != nil || closedWorkspace != nil { try await Task.sleep(nanoseconds: 10_000_000) }
-        XCTAssertNil(closedWindow, "the closed window is still alive")
+        // The app's event loop takes the window's events; the test host runs none, and a waiting event, or the last one taken,
+        // holds the window it names (seen while finding BUG-138's holder). Take them, ending with an event of no window.
+        for _ in 0..<500 where closedWindow != nil || closedWorkspace != nil {
+            while NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
+            if let empty = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                                              windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+                NSApp.postEvent(empty, atStart: false)
+                _ = NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true)
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let seenBy = closedWindow.map { window in
+            [NSApp.keyWindow === window ? "the key window" : nil, NSApp.mainWindow === window ? "the main window" : nil,
+             NSApp.currentEvent?.window === window ? "the current event" : nil,
+             NSApp.windows.contains(window) ? "NSApp.windows" : nil, window.isVisible ? "visible" : nil]
+                .compactMap { $0 }.joined(separator: ", ")
+        } ?? ""
+        XCTAssertNil(closedWindow, "the closed window is still alive (\(seenBy))")
         XCTAssertNil(closedWorkspace, "the closed window's workspace is still alive")
     }
 }
