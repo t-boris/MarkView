@@ -78,6 +78,7 @@ extension EditorHostTests {
         }
         XCTAssertEqual(studio.root, first)
         XCTAssertEqual(cockpit.root, first)
+        XCTAssertTrue(cockpit.controls.allowDelegation, "a new plan lets its steps delegate where the agent supports it (DEC-038)")
         let cockpitIndex = try XCTUnwrap(window.tabs.openTabs.firstIndex { $0.kind.toolID == .cockpit })
         window.tabs.closeTab(at: cockpitIndex)
         router.open(.cockpit)
@@ -98,6 +99,7 @@ extension EditorHostTests {
         router.open(.cockpit)
         guard case .cockpit(let renewed)? = window.tabs.activeTab?.kind else { XCTFail("Cockpit did not renew"); return }
         XCTAssertFalse(renewed === cockpit)
+        XCTAssertTrue(renewed.controls.allowDelegation)
         await studio.close()
     }
 

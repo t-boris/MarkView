@@ -101,7 +101,8 @@ final class CockpitManagedRunHostTests: XCTestCase {
         var plan = CockpitPlan(goal: "Review", controls: CockpitControls(), scenarios: [], steps: [claude, cline, unmarked],
                                successCriteria: ["Done"], unavailableOutcomes: [], alternatives: [], productionQA: nil)
         XCTAssertNil(plan.feature)
-        XCTAssertNil(plan.delegation(forStep: claude.id.uuidString), "the switch is off in a plan made outside Build (DEC-033)")
+        XCTAssertNil(plan.delegation(forStep: claude.id.uuidString), "with the switch off a marked step does not delegate")
+        XCTAssertFalse(CockpitControls(storedJSON: "").allowDelegation, "controls that cannot be read keep delegation off")
         plan.controls.allowDelegation = true
         let mechanism = try XCTUnwrap(CLITool(rawValue: "claude")?.provider.parallelWork?.mechanism)
         XCTAssertEqual(plan.delegation(forStep: claude.id.uuidString), mechanism)
