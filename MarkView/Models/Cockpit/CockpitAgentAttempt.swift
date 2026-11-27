@@ -13,7 +13,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     private var progress: CockpitProgress?
     /// The project as it was when the step began, the controls it is held to, and whether it may change source whatever fixing says;
     /// compared when the step ends.
-    private var audited: (before: CockpitStepAudit.Snapshot, controls: CockpitControls, changesAllowed: Bool)?
+    private var audited: (before: CockpitStepAudit.Snapshot, controls: CockpitControls, changes: CockpitStepAudit.ChangeRule)?
     private var watchdog: CockpitChild?
     private var watchdogTask: Task<Void, Never>?
     private var watchdogExited: CockpitExitSignal?
@@ -43,9 +43,10 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
     var delegation: String?
     /// Extra lines of a managed run's step: what to report and how to treat an interrupted attempt's changes.
     var managedBrief: String?
-    /// The step about to run writes or delivers a managed run's change, so it may change source and commit (DEC-036). The session sets
-    /// it before each step; false for every step of a plan made outside Build.
-    var changesAllowed = false
+    /// Who decides whether the step about to run may change source and commit: a managed run's writing step may (DEC-036), its
+    /// verification step may not (BUG-132), and every step of a plan made outside Build follows Fix bugs. The session sets it before
+    /// each step.
+    var changes: CockpitStepAudit.ChangeRule = .fixBugsControl
     /// Told, when a step has ended and its terminal's group was stopped, which of the processes it started are still alive.
     private let onSurvivors: ([CockpitProcessRecord]) -> Void
     private let delegates = CockpitDelegateWatch()
@@ -82,7 +83,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
             return Self.failure("The step was interrupted.")
         }
         // The file audit holds the step to the controls with the cuts in force when it begins; a cut made during the step is the gate's.
-        audited = (before, CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()), changesAllowed)
+        audited = (before, CockpitControls(storedJSON: task.controls).narrowed(by: liveCuts()), changes)
         session = terminal
         progress = nil
         // One attempt object serves every step of the run: what a step asked the supervisor is not carried into the next.
@@ -217,8 +218,8 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
             var finalized = base
             if let audit {
                 let after = await Self.snapshot(of: root)
-                let found = CockpitStepAudit.violations(before: audit.before, after: after, controls: audit.controls, changesAllowed: audit.changesAllowed)
-                let notes = CockpitStepAudit.limits(of: after, controls: audit.controls, changesAllowed: audit.changesAllowed)
+                let found = CockpitStepAudit.violations(before: audit.before, after: after, controls: audit.controls, changes: audit.changes)
+                let notes = CockpitStepAudit.limits(of: after, controls: audit.controls, changes: audit.changes)
                 if !found.isEmpty {
                     finalized.result.passed = false
                     finalized.result.detail += (finalized.result.detail.isEmpty ? "" : "\n\n")
