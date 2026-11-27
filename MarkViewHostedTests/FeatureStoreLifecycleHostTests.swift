@@ -647,7 +647,8 @@ private actor AttachmentAssistant {
 
 extension EditorHostTests {
     /// The files attached to a new feature become sources in their order; their facts are asked for side by side and each lands in
-    /// its own source although the answers come back in another order.
+    /// its own source although the answers come back in another order. Markdown files: the copy beside each source is its file,
+    /// not a source of its own (BUG-131).
     @MainActor func testAttachedFilesBecomeSourcesInOrderWithTheirFactsAskedSideBySide() async throws {
         let suiteName = "feature-attachments-host-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -656,8 +657,7 @@ extension EditorHostTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let files = try (1...4).map { n -> URL in
-            // Plain text: a copied Markdown attachment is read back as a source object of its own (a separate bug).
-            let url = root.appendingPathComponent("note-\(n).txt")
+            let url = root.appendingPathComponent("note-\(n).md")
             try "Attachment \(n) says the export takes \(n) minutes.\n".write(to: url, atomically: true, encoding: .utf8)
             return url
         }
@@ -677,8 +677,13 @@ extension EditorHostTests {
         for source in sources {
             let facts = (source.front["facts"]?.list ?? []).compactMap { $0["text"]?.string }
             XCTAssertEqual(facts, ["A fact from \(source.title)"], "\(source.id) holds its own file's facts")
-            XCTAssertFalse(source.front.string("file").isEmpty, "\(source.id) has its file copied in")
+            let copy = source.url.deletingLastPathComponent().appendingPathComponent(source.front.string("file"))
+            XCTAssertTrue(source.front.string("file").hasPrefix(source.id + "-")
+                          && FileManager.default.fileExists(atPath: copy.path), "\(source.id) has its file copied in beside it")
         }
+        // Read again from the files, as a relaunch or another window does: still one source per file.
+        store.reloadSync()
+        XCTAssertEqual(try XCTUnwrap(store.feature(slug)).list(.source).map(\.title).sorted(), files.map(\.lastPathComponent))
         let calls = await assistant.calls, peak = await assistant.peak
         XCTAssertEqual(calls, files.count, "one call per file")
         XCTAssertGreaterThan(peak, 1, "the files' facts are asked for at the same time")

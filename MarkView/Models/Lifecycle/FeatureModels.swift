@@ -524,9 +524,14 @@ struct Feature: Identifiable, Sendable {
         for kind in FeatureObjectKind.allCases {
             let dir = folder.appendingPathComponent(kind.folder)
             let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-            feature.objects[kind] = files
+            let objects = files
                 .filter { $0.pathExtension == "md" && $0.lastPathComponent.hasPrefix(kind.prefix + "-") }
                 .compactMap { FeatureObject.load(kind: kind, url: $0) }
+            // A Markdown file attached to a source is copied in beside it as `SRC-nnn-<name>.md` and named by the source's `file`:
+            // it is that source's file, not an object of its own (BUG-131).
+            let attached = Set(objects.map { $0.front.string("file") }.filter { !$0.isEmpty })
+            feature.objects[kind] = objects
+                .filter { !attached.contains($0.url.lastPathComponent) }
                 .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
         }
         if let plan = try? String(contentsOf: feature.planURL, encoding: .utf8) {
