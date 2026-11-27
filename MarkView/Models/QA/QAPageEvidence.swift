@@ -42,6 +42,9 @@ struct QAPageEvidence: Codable, Equatable {
     var withoutStableId = Tally()
     /// How many buttons, links and fields the page has, whatever they are named: what `withoutStableId` is a part of.
     var interactiveControls = 0
+    /// Elements that open with a mouse click (the outermost with a pointer cursor) but are no button, link or field, hold none and cannot
+    /// be focused: a keyboard cannot reach them (BUG-130).
+    var mouseOnly = Tally()
 
     /// One request, as the browser timed it. The address never carries a query string or a fragment.
     struct Request: Codable, Equatable {
@@ -62,7 +65,7 @@ struct QAPageEvidence: Codable, Equatable {
     /// Whether no visual or structural problem was flagged. Slow requests and controls without an identifier are facts for the review of an
     /// administration application, not problems of the page, and do not count here.
     var isClean: Bool {
-        horizontalScrollPixels == 0 && [smallText, lowContrast, clipped, smallTargets, beyondRightEdge, unlabeledControls, skippedHeadings].allSatisfy { $0.count == 0 }
+        horizontalScrollPixels == 0 && [smallText, lowContrast, clipped, smallTargets, beyondRightEdge, unlabeledControls, mouseOnly, skippedHeadings].allSatisfy { $0.count == 0 }
     }
 
     /// Compact lines for the prompt; empty when nothing was flagged. The load time is not a problem in itself and is left to the caller.
@@ -86,6 +89,7 @@ struct QAPageEvidence: Codable, Equatable {
             lines.append(text)
         }
         line("Controls without an accessible name or label", unlabeledControls)
+        line("Elements that open with a mouse click but are no button or link and a keyboard cannot reach", mouseOnly)
         line("Skipped heading levels", skippedHeadings)
         return lines.joined(separator: "\n")
     }
@@ -151,7 +155,8 @@ struct QAPageEvidence: Codable, Equatable {
             horizontalScrollPixels: whole(root["horizontalScrollPixels"], max: 100_000) ?? 0,
             loadMilliseconds: whole(root["loadMilliseconds"], max: 3_600_000).flatMap { $0 > 0 ? $0 : nil },
             requestCount: Swift.max(whole(root["requestCount"], max: 100_000) ?? 0, slowest.count), slowestRequests: Array(slowest),
-            withoutStableId: withoutStableId, interactiveControls: Swift.max(whole(root["interactiveControls"], max: 1_000_000) ?? 0, withoutStableId.count))
+            withoutStableId: withoutStableId, interactiveControls: Swift.max(whole(root["interactiveControls"], max: 1_000_000) ?? 0, withoutStableId.count),
+            mouseOnly: tally("mouseOnly"))
     }
 
     // MARK: The measuring script
@@ -178,7 +183,8 @@ struct QAPageEvidence: Codable, Equatable {
         smallTargets: { count: 0, samples: [] }, beyondRightEdge: { count: 0, samples: [] },
         unlabeledControls: { count: 0, samples: [] }, skippedHeadings: { count: 0, samples: [] },
         horizontalScrollPixels: 0, loadMilliseconds: null,
-        requestCount: 0, slowestRequests: [], withoutStableId: { count: 0, samples: [] }, interactiveControls: 0
+        requestCount: 0, slowestRequests: [], withoutStableId: { count: 0, samples: [] }, interactiveControls: 0,
+        mouseOnly: { count: 0, samples: [] }
       };
       var cache = new Map();
 
@@ -405,6 +411,10 @@ struct QAPageEvidence: Codable, Equatable {
             out.interactiveControls += 1;
             if (!hasStableId(el)) note('withoutStableId', el, '');
           }
+
+          // It answers a mouse click (the outermost pointer cursor), yet it is no control, holds none and takes no keyboard focus.
+          if (s.cursor === 'pointer' && el.tagName !== 'LABEL' && !(el.parentElement && info(el.parentElement).style.cursor === 'pointer') &&
+              !el.closest(CONTROLS) && !el.querySelector(CONTROLS) && el.tabIndex < 0) note('mouseOnly', el, '');
         }
 
         var heads = body.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading]'), previous = 0;
@@ -431,7 +441,8 @@ struct QAPageEvidence: Codable, Equatable {
 }
 
 extension QAPageEvidence {
-    /// Reads what was stored by an earlier version too: the request timings and the identifier tally did not exist then, and are none.
+    /// Reads what was stored by an earlier version too: the request timings, the identifier tally and the mouse-only tally did not exist
+    /// then, and are none.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         smallText = try container.decode(Tally.self, forKey: .smallText)
@@ -447,5 +458,6 @@ extension QAPageEvidence {
         slowestRequests = try container.decodeIfPresent([Request].self, forKey: .slowestRequests) ?? []
         withoutStableId = try container.decodeIfPresent(Tally.self, forKey: .withoutStableId) ?? Tally()
         interactiveControls = try container.decodeIfPresent(Int.self, forKey: .interactiveControls) ?? 0
+        mouseOnly = try container.decodeIfPresent(Tally.self, forKey: .mouseOnly) ?? Tally()
     }
 }

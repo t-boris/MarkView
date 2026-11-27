@@ -28,6 +28,8 @@ struct CockpitRun: Codable, Equatable {
         var neededInput: String? = nil
         /// 1...N when this result came from an authorized bounded recovery attempt of a prerequisite.
         var recoveryAttempt: Int? = nil
+        /// True when the step failed and the run went on to the next step (a step that is not a prerequisite, BUG-130).
+        var continuedAfterFailure: Bool? = nil
     }
     struct Revision: Codable, Equatable {
         var plan: CockpitPlan
@@ -166,8 +168,10 @@ struct CockpitRun: Codable, Equatable {
     }
 
     /// A failed prerequisite never advances; if bounded recovery is authorized in the approved plan it stays running until recovery
-    /// finishes, otherwise the run pauses so the user can respond, revise the plan, or retry.
-    mutating func completeCurrent(passed: Bool, detail: String, build: String, scenarioID: String? = nil, qaRunID: String? = nil, progress: CockpitProgress? = nil, neededInput: String? = nil, recoveryAttempt: Int? = nil, now: Date = Date()) -> Bool {
+    /// finishes, otherwise the run pauses so the user can respond, revise the plan, or retry. A failed step that is not a prerequisite
+    /// pauses too, unless the workflow went on past it (`continuedAfterFailure`, BUG-130): then the failure is recorded and the next
+    /// step begins.
+    mutating func completeCurrent(passed: Bool, detail: String, build: String, scenarioID: String? = nil, qaRunID: String? = nil, progress: CockpitProgress? = nil, neededInput: String? = nil, recoveryAttempt: Int? = nil, continuedAfterFailure: Bool = false, now: Date = Date()) -> Bool {
         guard status == .running, let index = currentIndex, steps.indices.contains(index), steps[index].status == .running else { return false }
         let normalizedNeeded = neededInput?.trimmingCharacters(in: .whitespacesAndNewlines)
         var keptNeeded = (normalizedNeeded?.isEmpty ?? true) ? nil : normalizedNeeded
@@ -177,9 +181,12 @@ struct CockpitRun: Codable, Equatable {
             keptNeeded = "CI did not pass, and Fix bugs is off, so Cockpit may not change source to repair it. Turn on Fix bugs (Open Plan) and retry this step."
                 + (keptNeeded.map { " The agent reported: \($0)" } ?? "")
         }
+        let stepPlan = plan.steps.indices.contains(index) ? plan.steps[index] : nil
+        // Only the workflow lets a run go on after a failure, and never after a prerequisite or a recovery attempt.
+        let goesOn = !passed && continuedAfterFailure && stepPlan.map { !$0.isPrerequisite } == true && recoveryAttempt == nil
         results.append(StepResult(plan: plan, stepID: steps[index].stepID, passed: passed, detail: detail, build: build,
                                   scenarioID: scenarioID, qaRunID: qaRunID, progress: progress,
-                                  neededInput: keptNeeded, recoveryAttempt: recoveryAttempt))
+                                  neededInput: keptNeeded, recoveryAttempt: recoveryAttempt, continuedAfterFailure: goesOn ? true : nil))
         if let attempt = recoveryAttempt {
             recoveryAttempts = attempt
             steps[index].detail = detail
@@ -195,8 +202,15 @@ struct CockpitRun: Codable, Equatable {
             }
             return true
         }
-        if !passed {
-            let stepPlan = plan.steps.indices.contains(index) ? plan.steps[index] : nil
+        if goesOn {
+            steps[index].status = .failed
+            steps[index].detail = detail
+            steps[index].endedAt = now
+            self.neededInput = nil
+            let next = index + 1 < steps.count ? " The run goes on with step \(index + 2)." : ""
+            log(.stepFailed, step: index, CockpitText.firstLine(detail) + next, at: now, signal: true)
+            advance(after: index, at: now)
+        } else if !passed {
             let used = recoveryAttempts ?? 0
             if let recovery = stepPlan?.recovery, stepPlan?.isPrerequisite == true, recovery.isConfigured,
                used < recovery.boundedAttempts, pendingRevision == nil {
@@ -219,15 +233,29 @@ struct CockpitRun: Codable, Equatable {
             recoveryAttempts = nil
             self.neededInput = nil
             log(.stepPassed, step: index, CockpitText.firstLine(detail), at: now, signal: true)
-            if index + 1 < steps.count {
-                currentIndex = index + 1; steps[index + 1].status = .running
-                began(index + 1, at: now)
-            } else {
-                currentIndex = nil; status = .finished
-                log(.finished, step: nil, "Every step passed.", at: now)
-            }
+            advance(after: index, at: now)
         }
         return true
+    }
+
+    /// The step after `index` begins, or the run finishes and says which steps failed on the way.
+    private mutating func advance(after index: Int, at now: Date) {
+        if index + 1 < steps.count {
+            currentIndex = index + 1; steps[index + 1].status = .running
+            began(index + 1, at: now)
+            return
+        }
+        currentIndex = nil; status = .finished
+        let failed = failedStepTitles
+        log(.finished, step: nil, failed.isEmpty ? "Every step passed."
+            : "Finished; \(failed.count) \(failed.count == 1 ? "step" : "steps") failed: " + failed.joined(separator: "; ") + ".", at: now)
+    }
+
+    /// The steps of this run that failed and that the run went on past, as "Step N: title", in order.
+    var failedStepTitles: [String] {
+        steps.indices.filter { steps[$0].status == .failed }.map { index in
+            "Step \(index + 1): " + (plan.steps.indices.contains(index) ? plan.steps[index].title : "")
+        }
     }
 
     mutating func retryPrerequisite() -> Bool {
@@ -528,9 +556,17 @@ struct CockpitNotice: Equatable {
         func notice(_ kind: Kind, _ title: String, _ body: String) -> CockpitNotice {
             CockpitNotice(kind: kind, title: title, body: String(body.prefix(200)), key: "\(after.id.uuidString)/\(kind.rawValue)/\(after.results.count)")
         }
+        // A step that failed while the run goes on is announced as it happens (REQ-008, BUG-130).
+        if let last = after.results.last, last.continuedAfterFailure == true, after.results.count > (before?.results.count ?? 0),
+           let index = after.plan.steps.firstIndex(where: { $0.id == last.stepID }) {
+            let goesOn = after.status == .finished ? "The run finished." : "The run goes on."
+            return notice(.stepFailed, "A Cockpit step failed", "\(after.plan.steps[index].title): \(CockpitText.firstLine(last.detail)) \(goesOn)")
+        }
         switch after.status {
         case .finished where before?.status != .finished:
-            return notice(.finished, "Cockpit run finished", name)
+            let failed = after.failedStepTitles
+            return notice(.finished, failed.isEmpty ? "Cockpit run finished" : "Cockpit run finished with failures",
+                          failed.isEmpty ? name : "\(name): \(failed.count) \(failed.count == 1 ? "step" : "steps") failed")
         case .paused where before?.status == .running || before == nil:
             if let index = after.currentIndex, after.steps.indices.contains(index), after.steps[index].status == .failed {
                 return notice(.stepFailed, "A Cockpit step failed", "\(after.plan.steps[index].title): \(CockpitText.firstLine(after.steps[index].detail))")

@@ -3,6 +3,8 @@ import SwiftUI
 /// Where a run stands, in words the person acts on.
 enum CockpitRunPhase: Equatable {
     case running, needsYou, paused, interrupted, stopped, finished
+    /// Finished, but some steps failed and the run went on past them (BUG-130): not a success.
+    case finishedWithFailures
 
     /// `coordinator` is the live runtime's status when this run is the one running now.
     init(run: CockpitRun, coordinator: String?) {
@@ -10,7 +12,7 @@ enum CockpitRunPhase: Equatable {
         let interrupted = run.steps.contains { $0.status == .interrupted }
         switch coordinator ?? run.status.rawValue {
         case "running": self = .running
-        case "finished": self = .finished
+        case "finished": self = run.failedStepTitles.isEmpty ? .finished : .finishedWithFailures
         case "stopped": self = interrupted ? .interrupted : .stopped
         case "interrupted": self = .interrupted
         case "paused": self = failed ? .needsYou : (interrupted ? .interrupted : .paused)
@@ -26,6 +28,7 @@ enum CockpitRunPhase: Equatable {
         case .interrupted: return "Interrupted"
         case .stopped: return "Stopped"
         case .finished: return "Finished"
+        case .finishedWithFailures: return "Finished with failures"
         }
     }
 
@@ -37,6 +40,7 @@ enum CockpitRunPhase: Equatable {
         case .interrupted: return "bolt.circle.fill"
         case .stopped: return "stop.circle.fill"
         case .finished: return "checkmark.circle.fill"
+        case .finishedWithFailures: return "exclamationmark.triangle.fill"
         }
     }
 
@@ -44,7 +48,7 @@ enum CockpitRunPhase: Equatable {
         switch self {
         case .running: return palette.accent
         case .needsYou: return palette.red
-        case .paused, .interrupted: return palette.orange
+        case .paused, .interrupted, .finishedWithFailures: return palette.orange
         case .stopped: return palette.textDim
         case .finished: return palette.green
         }
@@ -52,6 +56,7 @@ enum CockpitRunPhase: Equatable {
 
     /// A run that waits for the person comes before one that is only history.
     var needsAttention: Bool { self == .needsYou || self == .paused || self == .interrupted }
+    var isFinished: Bool { self == .finished || self == .finishedWithFailures }
 }
 
 /// The left column of the Cockpit: a new plan, and the runs of this project.
@@ -145,7 +150,7 @@ struct CockpitRunList: View {
 
     private func detail(_ run: CockpitRun, phase: CockpitRunPhase) -> String {
         let total = run.steps.count
-        let position = run.currentIndex.map { "Step \($0 + 1) of \(total)" } ?? (phase == .finished ? "\(total) of \(total) steps" : "\(total) steps")
+        let position = run.currentIndex.map { "Step \($0 + 1) of \(total)" } ?? (phase.isFinished ? "\(total) of \(total) steps" : "\(total) steps")
         guard let began = run.began else { return position }
         let end = phase == .running ? Date() : (run.lastKnownActivity ?? began)
         return position + " · " + CockpitFormat.duration(end.timeIntervalSince(began))

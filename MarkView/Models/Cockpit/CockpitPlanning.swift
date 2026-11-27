@@ -20,6 +20,10 @@ enum CockpitPlanning {
     when unsure leave it empty. The person can change any agent or model before approving.
     State outcomes you know cannot be achieved and offer alternatives; do not present them as achievable. If a prerequisite is uncertain,
     a first step may check it. Use a prerequisite step only for a check whose failure must pause later steps.
+    Every other step never pauses the run: when it fails, Cockpit records the failure and starts the next step, which sees the failure
+    and the bugs it filed in priorResults. So mark as a prerequisite each step whose failure makes later steps pointless or unsafe (the
+    build, CI, a precondition of a deployment or of a cleanup), and leave a step that discovers problems for later steps to fix (a QA
+    run, an audit) as a regular step.
     When a prerequisite check may fail for a recoverable reason that stays within the goal and controls (for example starting a local
     service, signing in with available credentials, or preparing a test precondition), you may include an optional recovery object
     (assignment and maxAttempts 1–3) on that prerequisite step so Cockpit can attempt a bounded recovery and rerun the prerequisite

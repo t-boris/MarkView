@@ -36,7 +36,8 @@ struct CockpitTemporalPlan: Codable {
             return CockpitHostEntry(stepID: result.stepID.uuidString,
                 result: CockpitHostResult(passed: result.passed, detail: result.detail, build: result.build, scenarioID: result.scenarioID,
                                           qaRunID: result.qaRunID, progress: result.progress, interrupted: result.interrupted,
-                                          neededInput: result.neededInput, recoveryAttempt: result.recoveryAttempt), planFingerprint: oldFingerprint)
+                                          neededInput: result.neededInput, recoveryAttempt: result.recoveryAttempt,
+                                          continuedAfterFailure: result.continuedAfterFailure), planFingerprint: oldFingerprint)
         }
     }
 }

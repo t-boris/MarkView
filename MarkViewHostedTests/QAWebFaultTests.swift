@@ -617,6 +617,24 @@ do {
     check("icon-only controls: the button with only a drawing and the link with an empty alt text are reported; the others have names", e?.unlabeledControls.count == 2, icons.raw)
     check("icon-only controls: the sample is the bare element and its place", e?.unlabeledControls.samples.first?.hasPrefix("button @8,") == true && e?.unlabeledControls.samples.last?.hasPrefix("a @") == true, icons.raw)
 
+    // BUG-130: a row that opens with the mouse only (a script's click handler, no role, no focus) is what a keyboard cannot reach.
+    let mouse = measure("mouse-only elements", body: """
+    <table><tr style="cursor:pointer"><td>QA Vendor A</td><td><span>added</span></td></tr></table>
+    <div style="cursor:pointer" tabindex="0">Focusable card</div>
+    <div style="cursor:pointer"><span>Card with its own control</span> <button>Open</button></div>
+    <div role="button" style="cursor:pointer">Row with a role</div>
+    <button style="cursor:pointer">Plain button</button>
+    <label style="cursor:pointer"><input type="checkbox"> Remember</label>
+    <a href="/next" style="cursor:pointer">Next</a>
+    """)
+    let m = mouse.evidence
+    check("mouse-only elements: only the row counts, not its cells, a focusable card, a card that holds a control, a role, a button, a label or a link",
+          m?.mouseOnly.count == 1 && m?.mouseOnly.samples.first?.hasPrefix("tr \"QA Vendor A added\"") == true, mouse.raw)
+    check("mouse-only elements: the summary names them and the page is not clean",
+          m?.summary.contains("- Elements that open with a mouse click but are no button or link and a keyboard cannot reach: 1") == true && m?.isClean == false, mouse.raw)
+    check("mouse-only elements: an evidence stored before the tally existed reads as none",
+          (try? JSONDecoder().decode(QAPageEvidence.self, from: Data(#"{"smallText":{"count":0,"samples":[]},"lowContrast":{"count":0,"samples":[]},"clipped":{"count":0,"samples":[]},"smallTargets":{"count":0,"samples":[]},"beyondRightEdge":{"count":0,"samples":[]},"unlabeledControls":{"count":0,"samples":[]},"skippedHeadings":{"count":0,"samples":[]},"horizontalScrollPixels":0}"#.utf8)))?.mouseOnly.count == 0)
+
     let fields = measure("fields", body: """
     <input type="text" style="height:30px;width:200px">
     <label for="a">Name</label><input id="a" type="text" style="height:30px">

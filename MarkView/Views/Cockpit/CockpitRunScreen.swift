@@ -119,7 +119,7 @@ struct CockpitRunScreen: View {
                     Button("Stop") { session.control("stop") }
                 }
             }
-            if phase == .finished { outcomeBanner(run) }
+            if phase.isFinished { outcomeBanner(run) }
             if let pending = session.pendingPlan, isLive, execution?.isActive == true {
                 let fingerprint = try? CockpitTemporalPlan(pending).fingerprint
                 banner(icon: "arrow.triangle.2.circlepath", tint: palette.orange,
@@ -253,8 +253,12 @@ struct CockpitRunScreen: View {
     @ViewBuilder private func outcomeBanner(_ run: CockpitRun) -> some View {
         let progress = run.results.last?.progress
         let outcome = CockpitOutcome.evaluate(criteria: run.plan.successCriteria, progress: progress)
-        // A managed run reports success only with every mandatory and required delivery action done (REQ-004).
-        if run.plan.feature != nil, outcome == .success, !CockpitManagedRun.deliveryComplete(run) {
+        let failed = run.failedStepTitles
+        // A run that went on past failed steps is never called a success (BUG-130).
+        if !failed.isEmpty {
+            banner(icon: "exclamationmark.triangle.fill", tint: palette.orange,
+                   title: "Finished with \(failed.count) failed \(failed.count == 1 ? "step" : "steps"): " + failed.joined(separator: "; ")) {}
+        } else if run.plan.feature != nil, outcome == .success, !CockpitManagedRun.deliveryComplete(run) {
             banner(icon: "exclamationmark.triangle.fill", tint: palette.orange, title: "Finished, but delivery is incomplete: see Delivery") {}
         } else {
         switch outcome {

@@ -141,6 +141,7 @@ final class CockpitAgentAttempt: TerminalCloseObserver {
                         : "There is no supervisor in this run and nobody to ask: decide conservatively inside the controls, say what you decided in your step report, or record a blocker.")
                     When building is disabled, do not claim checks against a newly built version were performed. Build and checks are instructions only: MarkView cannot check them.
                     If this assignment names qaScenarioID, MarkView will run that exact reviewed QA scenario after your report; do not run it separately.
+                    A prior result with continuedAfterFailure true is a step that failed and that the run went on past: take its blockers and the bugs it filed (progress.bugs) into account, and record a blocker when your assignment needs what it did not achieve.
                     If isFinalStep is true, explicitly evaluate each success criterion against evidence, report unmet criteria as blockers, and report passed only if the criteria are met.
                     Use the available MarkView project and browser tools as appropriate. Once you have finished this step, call markview_cockpit_complete_step
                     with ticket \(ticket.uuidString), passed, detail (evidence and blockers), build (the build identifier or an empty string), and neededInput (when passed is false and you need specific input, credentials, or a decision from the person before retrying).

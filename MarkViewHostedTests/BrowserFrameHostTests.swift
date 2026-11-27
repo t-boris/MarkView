@@ -35,6 +35,59 @@ private final class FrameServer: @unchecked Sendable {
     }
 }
 final class BrowserFrameHostTests: XCTestCase {
+    /// BUG-130: a table row that opens with a script's click handler has no role and no onclick attribute; the snapshot lists it as
+    /// clickable so the QA runner and the agents can do what a person with a mouse does, and a click on its reference reaches it.
+    @MainActor func testSnapshotListsRowsThatOpenWithTheMouse() async throws {
+        let server = FrameServer()
+        try server.start()
+        defer { server.stop() }
+        for _ in 0..<200 where server.port == 0 { try await Task.sleep(nanoseconds: 20_000_000) }
+        precondition(server.port != 0)
+        server.set("""
+        <!doctype html><title>Vendor applications</title><style>body{background:white} tr.row{cursor:pointer} td{padding:6px} .card{cursor:pointer;padding:8px}</style>
+        <table><tbody>
+        <tr class="row" id="rowB"><td>QA Vendor B</td><td>rejected</td></tr>
+        <tr class="row" id="rowA"><td>QA Vendor A</td><td><span>added</span></td></tr>
+        </tbody></table>
+        <div class="card"><span>Package card</span> <button>Favourite</button></div>
+        <label style="cursor:pointer"><input type="checkbox"> Remember</label>
+        <p id="out">Nothing opened</p>
+        <script>for (const row of document.querySelectorAll('tr.row')) row.addEventListener('click', () => { document.getElementById('out').textContent = 'Opened ' + row.id; });</script>
+        """)
+        let session = BrowserSession(url: nil, dataStore: .nonPersistent(), prompts: NoPrompts())
+        let window = QAWebWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1280, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.webView
+        window.orderBack(nil)
+        defer { session.close(); window.close() }
+        session.load(URL(string: "http://127.0.0.1:\(server.port)/applications")!)
+        var snapshot = ""
+        for _ in 0..<100 {
+            snapshot = (await BrowserAgentExecutor.run("browser_snapshot", [:], in: session)).text
+            if snapshot.contains("Nothing opened") { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let lines = snapshot.split(separator: "\n").map(String.init)
+        let rowA = lines.first { $0.contains("] clickable \"QA Vendor A") }
+        XCTAssertNotNil(rowA, "the row that opens with the mouse is listed as clickable:\n\(snapshot)")
+        XCTAssertTrue(lines.contains { $0.contains("] clickable \"QA Vendor B") }, snapshot)
+        XCTAssertTrue(lines.contains { $0.contains("] clickable \"Package card") } && lines.contains { $0.contains("] button \"Favourite\"") },
+                      "a clickable card is listed, and so is the button inside it:\n\(snapshot)")
+        XCTAssertFalse(lines.contains { $0.contains("] td ") || $0.contains("] span ") || $0.contains("] label ") || $0.contains("clickable \"Remember") },
+                       "the cells and text of a row, and a label, are not listed on their own:\n\(snapshot)")
+        guard let line = rowA, let end = line.firstIndex(of: "]") else { return }
+        let ref = String(line[line.index(after: line.startIndex)..<end])
+        let clicked = await BrowserAgentExecutor.run("browser_click", ["ref": ref], in: session)
+        XCTAssertFalse(clicked.isError, clicked.text)
+        var after = ""
+        for _ in 0..<50 {
+            after = (await BrowserAgentExecutor.run("browser_snapshot", [:], in: session)).text
+            if after.contains("Opened rowA") { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertTrue(after.contains("Opened rowA"), "a click on the row's reference opens it:\n\(after)")
+    }
+
     @MainActor func testCrossOriginFrames() async throws {
         var failures = 0
         var checks = 0
