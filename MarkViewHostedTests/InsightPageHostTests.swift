@@ -526,6 +526,8 @@ extension EditorHostTests {
             print("\n-- coordinator")
             rootNode.sectionStates = ["s1": SectionState(buffer: "<p>root</p>", status: .ready)]
             childNode.sectionStates = ["s1": SectionState(buffer: "<p>auth</p>", status: .ready)]
+            rootNode.status = .ready
+            childNode.status = .ready
             let snapshot = InsightTreeSnapshot(rootId: rootId, folderPath: analysed.path, nodes: [rootNode, childNode])
             check(InsightTreeSnapshot.decode(try! snapshot.encoded())?.rootId == rootId, "a saved tree reads back")
             check(InsightTreeSnapshot.decode(Data("{ \"rootId\": ".utf8)) == nil, "a saved tree that cannot be read is a miss (logged), not a crash")
@@ -651,5 +653,241 @@ extension EditorHostTests {
                   "a change of the policy drops the pages again")
         }
         await run()
+    }
+}
+
+/// The assistant of the explore-all tests. A node's skeleton (`insight-skeleton`; the prompt's "Topic / scope:" line names the
+/// node) has two sections titled after the node and, in the first, two deep-dive topics: `A` has `A.1` and `A.2`. A section
+/// (`insight-section`; the prompt's "Section title:" line names its node) streams one fragment. A skeleton waits until three nodes
+/// are in flight, or half a second, so a walk that can run that many side by side does. A node is in flight from the start of its
+/// skeleton to the end of its last section. With `holdingSections`, the second section of every node but the first one to ask
+/// for it waits until it is cancelled, so the walk can be stopped while nodes are half written.
+private actor InsightExploreFixture {
+    let holdingSections: Bool
+    private var clock = 0
+    private var inFlight = 0
+    private var sectionsLeft: [String: Int] = [:]
+    private(set) var peak = 0
+    private(set) var calls = 0
+    private(set) var skeletonCalls: [String: Int] = [:]
+    private(set) var skeletonStarted: [String: Int] = [:]
+    private(set) var skeletonEnded: [String: Int] = [:]
+    private(set) var sectionsStarted: [String: [Int]] = [:]
+    /// The node whose second section answers while the others wait (`holdingSections`), and how many wait.
+    private(set) var released: String?
+    private(set) var held = 0
+
+    init(holdingSections: Bool = false) {
+        self.holdingSections = holdingSections
+    }
+
+    func run(_ request: CLICompletion.Request, onDelta: (@Sendable (String) -> Void)?) async throws -> CLICompletion.Result {
+        calls += 1
+        if request.label == "insight-skeleton" {
+            return try await skeleton(of: Self.line("Topic / scope: ", in: request.prompt))
+        }
+        return try await section(Self.line("Section title: ", in: request.prompt), onDelta: onDelta)
+    }
+
+    private static func line(_ prefix: String, in prompt: String) -> String {
+        let found = prompt.split(separator: "\n").first { $0.hasPrefix(prefix) }
+        return found.map { String($0.dropFirst(prefix.count)) } ?? ""
+    }
+
+    private func tick() -> Int {
+        clock += 1
+        return clock
+    }
+
+    private func skeleton(of node: String) async throws -> CLICompletion.Result {
+        skeletonCalls[node, default: 0] += 1
+        skeletonStarted[node] = tick()
+        inFlight += 1
+        peak = max(peak, inFlight)
+        sectionsLeft[node] = 2
+        let deadline = Date().addingTimeInterval(0.5)
+        do {
+            while inFlight < 3 && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        } catch {
+            inFlight -= 1
+            throw error
+        }
+        skeletonEnded[node] = tick()
+        let topics: [[String: Any]] = ["1", "2"].map { index -> [String: Any] in
+            ["id": "t\(index)", "label": "\(node).\(index)", "hint": "hint \(node).\(index)", "scopeHint": [String]()]
+        }
+        let first: [String: Any] = ["id": "s1", "type": "prose", "title": "\(node) · 1", "metadata": [String: Any](), "deepDiveTopics": topics]
+        let second: [String: Any] = ["id": "s2", "type": "prose", "title": "\(node) · 2", "metadata": [String: Any]()]
+        let skeleton: [String: Any] = ["title": node, "sections": [first, second]]
+        return try CLICompletion.Result(text: "", structured: skeleton, inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
+
+    private func section(_ title: String, onDelta: (@Sendable (String) -> Void)?) async throws -> CLICompletion.Result {
+        let node = title.components(separatedBy: " · ").first ?? title
+        sectionsStarted[node, default: []].append(tick())
+        defer {
+            sectionsLeft[node, default: 0] -= 1
+            if sectionsLeft[node] == 0 { inFlight -= 1 }
+        }
+        var wait: UInt64 = 20_000_000
+        if holdingSections && title.hasSuffix(" · 2") {
+            if released == nil { released = node }
+            if released == node {
+                // Long enough for the first sections of the others to land before this node's tree is saved.
+                wait = 200_000_000
+            } else {
+                wait = 60_000_000_000
+                held += 1
+            }
+        }
+        try await Task.sleep(nanoseconds: wait)
+        let html = "<p>Body of \(title)</p>"
+        onDelta?(html)
+        return try CLICompletion.Result(text: html, structured: nil, inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
+}
+
+/// A session restored on a root page whose deep-dive topics are A to E, with A twice, over a real GraphRAG and a temporary
+/// database, so a walk runs the app's own prompts and parsing against the fixture assistant.
+@MainActor
+private func exploreAllSession(in sandbox: URL) async throws -> (session: InsightSession, cache: InsightCache, rootId: UUID) {
+    try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+    let files = [sandbox.appendingPathComponent("one.md"), sandbox.appendingPathComponent("two.md")]
+    for file in files { try "# \(file.lastPathComponent)\n".write(to: file, atomically: true, encoding: .utf8) }
+    let database = try await SemanticDatabase.open(workspacePath: sandbox)
+    let cache = try InsightCache(workspaceURL: sandbox, sessionId: UUID(), pagePolicy: InsightHTMLTemplate.policyKey)
+
+    func topics(_ labels: [String]) -> [InsightDeepDiveTopic] {
+        labels.enumerated().map { InsightDeepDiveTopic(id: "t\($0.offset)", label: $0.element, hint: "hint \($0.element)", scopeHint: []) }
+    }
+    let rootId = InsightCache.deterministicRootUUID(forFolderPath: sandbox.path)
+    let root = InsightNode(id: rootId, parentId: nil, level: 0, title: "Root", scope: .folderRoot)
+    root.skeleton = InsightSkeleton(title: "Root", suggestedTheme: nil, sections: [
+        InsightSection(id: "s1", type: .prose, title: "Overview", scopeHint: nil, metadata: [:], deepDiveTopics: topics(["A", "B", "C"])),
+        InsightSection(id: "s2", type: .prose, title: "More", scopeHint: nil, metadata: [:], deepDiveTopics: topics(["D", "E", "A"])),
+    ])
+    root.sectionStates = ["s1": SectionState(buffer: "<p>root</p>", status: .ready), "s2": SectionState(buffer: "<p>more</p>", status: .ready)]
+    root.status = .ready
+    try cache.writeSnapshotData(try InsightTreeSnapshot(rootId: rootId, folderPath: sandbox.path, nodes: [root]).encoded())
+
+    let session = InsightSession(folderURL: sandbox, mdFiles: files, graphRAG: GraphRAG(db: database), cache: cache)
+    await session.generateRoot()
+    return (session, cache, rootId)
+}
+
+extension EditorHostTests {
+    /// Explore all at depth 2 over the root's five topics: the 15 nodes run side by side, three at a time over the whole walk;
+    /// each node keeps its own order (skeleton, then sections) and each child's subtree waits for the child's skeleton; the
+    /// topic named twice gets one child; every page carries its own breadcrumbs; and the view stays on the root.
+    @MainActor func testInsightExploreAllRunsSiblingsSideBySide() async throws {
+        let sandbox = FileManager.default.temporaryDirectory.appendingPathComponent("insight-explore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let fixture = InsightExploreFixture()
+        AIAssistantRunner.setTestRunner { request, onDelta, _ in try await fixture.run(request, onDelta: onDelta) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let (session, cache, rootId) = try await exploreAllSession(in: sandbox)
+        XCTAssertEqual(session.currentNodeId, rootId, "the root comes back from its snapshot")
+
+        var shown: Set<UUID?> = []
+        var statuses: [String] = []
+        let watching = [session.$currentNodeId.sink { shown.insert($0) }, session.$statusMessage.sink { statuses.append($0) }]
+        await session.expandAllTopicsOnCurrentNode(depth: 2)
+        withExtendedLifetime(watching) {}
+
+        let peak = await fixture.peak
+        XCTAssertEqual(peak, CLICompletion.sideBySide, "three nodes are generated side by side, and never more")
+
+        let root = try XCTUnwrap(session.nodes[rootId])
+        XCTAssertEqual(root.children.compactMap { session.nodes[$0]?.title }.sorted(), ["A", "B", "C", "D", "E"],
+                       "the topic named twice on the root has one child")
+        var expectedSkeletons: [String: Int] = [:]
+        for child in ["A", "B", "C", "D", "E"] {
+            expectedSkeletons[child] = 1
+            expectedSkeletons["\(child).1"] = 1
+            expectedSkeletons["\(child).2"] = 1
+        }
+        let skeletonCalls = await fixture.skeletonCalls
+        XCTAssertEqual(skeletonCalls, expectedSkeletons, "one skeleton per node of the two levels: the duplicated topic is reused, nothing deeper is asked")
+
+        let started = await fixture.skeletonStarted
+        let ended = await fixture.skeletonEnded
+        let sections = await fixture.sectionsStarted
+        for (node, end) in ended {
+            let starts = sections[node] ?? []
+            XCTAssertEqual(starts.count, 2, "\(node) asks for both of its sections")
+            XCTAssertTrue(starts.allSatisfy { $0 > end }, "the sections of \(node) start after its own skeleton ends")
+            guard let dot = node.lastIndex(of: ".") else { continue }
+            let parent = String(node[..<dot])
+            XCTAssertGreaterThan(started[node] ?? 0, ended[parent] ?? .max, "the skeleton of \(node) starts after the skeleton of \(parent) ends")
+        }
+
+        XCTAssertEqual(session.nodes.count, 16, "the root, five children and ten grandchildren")
+        for node in session.nodes.values where node.id != rootId {
+            XCTAssertEqual(node.status, .ready, "\(node.title) is generated")
+            var chain = [node]
+            while let parentId = chain[0].parentId, let parent = session.nodes[parentId] { chain.insert(parent, at: 0) }
+            var crumbs = ""
+            for ancestor in chain.dropLast() {
+                crumbs += "<a class=\"crumb\" href=\"#\(ancestor.id.uuidString)\">\(ancestor.title)</a><span class=\"crumb-sep\"> / </span>"
+            }
+            crumbs += "<span class=\"crumb crumb-active\">\(node.title)</span>"
+            let page = (try? cache.readNode(nodeId: node.id)) ?? ""
+            XCTAssertTrue(page.contains(crumbs), "the cached page of \(node.title) carries its own breadcrumbs, not those of the page in view")
+        }
+
+        XCTAssertEqual(shown, [rootId], "the view stays on the page the walk started from")
+        XCTAssertTrue(statuses.contains { $0.hasPrefix("Explore all (depth 2): 3 running") },
+                      "the status line counts the nodes running side by side (\(statuses.suffix(4)))")
+        XCTAssertEqual(session.statusMessage, "Explore all (depth 2): done, 15/15 ready, 0 failed")
+    }
+
+    /// Stopping explore all mid-walk (closing the tab or the folder and Regenerate all come through `cancel()`): no assistant
+    /// call starts after it, and the tree saved mid-walk holds the nodes that were ready, not those still streaming their text.
+    @MainActor func testInsightExploreAllStopsOnCancel() async throws {
+        let sandbox = FileManager.default.temporaryDirectory.appendingPathComponent("insight-explore-stop-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let fixture = InsightExploreFixture(holdingSections: true)
+        AIAssistantRunner.setTestRunner { request, onDelta, _ in try await fixture.run(request, onDelta: onDelta) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let (session, cache, rootId) = try await exploreAllSession(in: sandbox)
+
+        func halfWritten() -> [InsightNode] {
+            session.nodes.values.filter { node in
+                node.status == .streamingContent && node.sectionStates.values.contains { !$0.buffer.isEmpty }
+            }
+        }
+        func saved() -> Set<UUID> {
+            let snapshot = cache.readSnapshotData().flatMap(InsightTreeSnapshot.decode)
+            return Set(snapshot?.nodes?.map(\.nodeId) ?? [])
+        }
+
+        let walking = Task { await session.expandAllTopicsOnCurrentNode(depth: 2) }
+        // One node is done and its tree saved; three others have their first section and hold their second.
+        var releasedId: UUID?
+        for _ in 0..<500 {
+            let held = await fixture.held
+            let released = await fixture.released
+            releasedId = session.nodes.values.first { $0.title == released && $0.status == .ready }?.id
+            if held == 3, halfWritten().count == 3, let releasedId, saved().contains(releasedId) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let held = await fixture.held
+        XCTAssertEqual(held, 3, "three nodes are half written side by side when the walk is stopped")
+        XCTAssertEqual(halfWritten().count, 3, "each of them has text and is not done")
+
+        await session.cancel()
+        let callsAtStop = await fixture.calls
+        try await Task.sleep(nanoseconds: 600_000_000)
+        let callsAfter = await fixture.calls
+        XCTAssertEqual(callsAfter, callsAtStop, "no assistant call starts once the walk is stopped")
+
+        var expectedSaved: Set<UUID> = [rootId]
+        if let releasedId { expectedSaved.insert(releasedId) }
+        XCTAssertEqual(saved(), expectedSaved, "the tree saved mid-walk holds the ready nodes, not the half-written ones (they would come back ready)")
+
+        // Ends the walk whatever happened above, so the test never waits on a held section.
+        walking.cancel()
+        await session.cancel()
+        await walking.value
     }
 }

@@ -29,8 +29,9 @@ struct InsightTreeSnapshot: Codable {
     // The full tree.
     let nodes: [Entry]?
 
-    /// A snapshot of `nodes`: those with a skeleton and at least one byte of content; a skeleton without content is
-    /// useless until its generation completes.
+    /// A snapshot of `nodes`: those that are ready, with a skeleton and at least one byte of content. A node still
+    /// generating is left out, since it would come back ready with half its text: explore all saves the tree each time
+    /// one of the nodes it runs side by side ends, while the others are still streaming.
     init(rootId: UUID, folderPath: String, nodes: [InsightNode], createdAt: Date = Date()) {
         self.rootId = rootId
         self.folderPath = folderPath
@@ -38,7 +39,7 @@ struct InsightTreeSnapshot: Codable {
         self.skeleton = nil
         self.sectionBuffers = nil
         self.nodes = nodes.compactMap { node in
-            guard let skeleton = node.skeleton else { return nil }
+            guard node.status == .ready, let skeleton = node.skeleton else { return nil }
             let buffers = node.sectionStates.mapValues(\.buffer)
             guard buffers.values.contains(where: { !$0.isEmpty }) else { return nil }
             return Entry(nodeId: node.id, parentId: node.parentId, level: node.level, title: node.title, scope: node.scope,

@@ -112,7 +112,7 @@ class WebViewBridge: NSObject {
         }
 
         // The Recursive Insight messages. Their schema is checked by the contract (non-empty ids, the UUID shape, the depth bounds);
-        // higher-level validation (skeleton membership, manifest membership, retry rate limit) lives in WorkspaceManager.
+        // higher-level validation (skeleton membership, manifest membership) lives in WorkspaceManager.
         messages.on(EditorMessage.InsightIframeReady.self) { [weak self] message in
             guard let self else { return }
             self.delegate?.bridge(self, didReceiveInsightIframeReady: message.payload.sessionId, nodeId: message.payload.nodeId)
@@ -413,8 +413,8 @@ protocol WebViewBridgeDelegate: AnyObject {
     //
     // V2 protocol: JS→Swift messages only the top frame may send (`mainFrameOnly` in the contract).
     // The contract validates the payload schema (presence, non-empty strings, Int bounds, UUID
-    // shape); higher-level validation (skeleton membership, manifest membership, retry rate
-    // limit) lives in WorkspaceManager (T8).
+    // shape); higher-level validation (skeleton membership, manifest membership) lives in
+    // WorkspaceManager (T8).
     func bridge(_ bridge: WebViewBridge, didReceiveInsightIframeReady sessionId: String, nodeId: String)
     func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, sectionId: String, topicIndex: Int)
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String)
