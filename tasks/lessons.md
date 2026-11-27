@@ -93,6 +93,9 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   <app build log> --log <swift test log>` and `python3 tools/ci/unused-import-changes.py --base <base> --compiler-log <app build log>`.
   Why: a grep of the xcodebuild output for warnings missed an unused `addTaskUnlessCancelled` result and an unused import in a new
   Core file, so the build job of PR #453 and main failed and needed 7.10.1. [A: SideBySide, 2026-11-26]
+  2026-11-27: "Unused-import baseline has slack in the selected files" (exit 1) means a change made an allowed import used; the CI
+  wrapper has no `--tighten`, so run `./tools/lint/swiftlint-unused-import-ratchet.py --compiler-log <log> --files <changed files>
+  --tighten` and commit the shorter `swiftlint-unused-import-allowlist.txt` with the change. [A: PR #460, 2026-11-27]
 
 - 2026-11-26: a tool added to a CLI run changes its output stream; replay a recorded stream of that tool through the provider's
   parser before shipping. Why: Claude's parser treated every tool input except the known read tools as the streamed answer, so the

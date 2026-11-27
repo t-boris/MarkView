@@ -2,7 +2,7 @@
 type: bug
 id: BUG-132
 title: With Fix bugs on, a Cockpit verification step may change source unnoticed
-status: in-review
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27

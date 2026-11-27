@@ -159,6 +159,50 @@ Branch `feat/cockpit-parallel-steps` (worktree `../MarkView-parallel-steps`), on
   hosted-build, cockpit, backdrop); rewritten in typed steps, texts unchanged; on #459 hosted-build, cockpit, backdrop and every
   hosted shard pass. Released as v7.13.1.
 
+## Phase 6: the rest of the call sites (2026-11-27)
+
+The goal's check asked for every call site, not only the ones Phases 1-5 changed. Counted on 9477785d with grep:
+51 `AIOperation` construction sites in 36 files (some are wrappers that many actions share: `FeatureAssistant.run(key)`,
+`ArchitectureStore.xrayCall`, `DiagramAI.generate`), 13 `sendToAssistant` prompts into agent sessions (every one passes a
+`ParallelWork` shape since Phase 1), 4 `ParallelWork.ask` calls, the Cockpit's own prompts (`parallelWork?.mechanism` in
+`CockpitSession` and `CockpitPlan`). Each action that makes more than one call was read along its path and put in one class:
+
+| Class | Actions |
+|---|---|
+| Already side by side before Phase 6 | Translate (sections), Book PDF (passages, paragraphs), X-Ray scenario traces, new-feature attachments (`SideBySide.map`, 3); Research map inquiries, report diagrams and translation batches (task groups, 3), Insight sections (5), codebase audit documents (3); Cockpit groups of read-only steps and a managed run's two reviews (Phase 5) |
+| Made side by side in Phase 6 (PR #460, 7.14.0) | X-Ray book parts; apply settlements (requirements + overview in one window of 4); code explainer rating beside its keyword search; audit document beside its diagram; Book PDF title and labels beside the chapters; prototype files of a cut-off answer |
+| Kept in order: the next call reads the last one's answer | X-Ray Analyze steps (scan, describe, link, rate), QA reviews (deduplication and numbering), Insight "Explore all" (one current node, levels), "Decide all" (chunks re-read the feature, one run key), the parts of one prototype file, a chapter's shortening after its translation (renderer DOM) |
+| Kept in order: shared state | UI Studio screens (the saved-scenario list needs unique names) |
+| One call per action | the rest (code question, selection action, change review, deployments ask, GitHub explain failure per run, PR review, finding, link, describe, ...) |
+
+Per CLI (probes recorded in Phase 2 above):
+- Claude Code: one-shot runs with a readable folder get the `Agent` tool; prompts into sessions ask for subagents, and for a list
+  "use a workflow".
+- Codex: one-shot runs pass `-c agents.enabled=false` because an `--ephemeral` exec cannot start a child ("no rollout"); the exec
+  already reads files as parallel tool calls. Sessions are told to start subagents with a direct request (Codex starts them only then).
+- Antigravity: `-p` already starts subagents with `invoke_subagent` (probe); sessions get its mechanism sentence.
+- Copilot CLI: skipped as Boris asked ("skip copilot agent but not markview copilot"); its one-shot tools leave out the agent tools.
+- MarkView's Cockpit ("Copilot Cockpit"): plain and managed plans delegate marked steps (DEC-038, on by default) and run groups of
+  read-only steps together (Phase 5); `Copilot Cockpit Checks` on main passed for cd49f263.
+
+Open, for Boris:
+- X-Ray Analyze: the book stage could overlap naming, but both rewrite the whole snapshot and its ratings, so it needs a merge
+  design and would run up to about 8 assistant processes at once.
+- New feature intake: the request's fact extraction could run beside the attachments', but the attachments then lose the request's
+  facts as context (a change of what they are asked).
+
+## Review (Phase 6)
+
+- Version 7.14.0 (minor). Six hosted tests hold the calls until they are in flight together; each fails on `origin/main`'s file
+  restored with `git show` (peak 1 or 2 where 2 or 3 is expected) and passes on the new one: `testXRayBookPartsAreDescribedSideBySide`,
+  `testApplyingASettlementRewritesRequirementsAndOverviewSideBySide`, `testCodeRatingRunsBesideItsKeywordSearch`,
+  `testAuditDocumentAndItsDiagramAreWrittenSideBySide`, `testBookExportTranslatesTheTitleAndLabelsWhileTheChaptersAreRewritten`,
+  the shell-file peak in `PrototypeDeadlineHostTests`.
+- Every hosted test of the touched test files (26 + 19 + 5 + 2, 0 failures), `prototype-deadline-tests`, `--tier pure` (9 suites),
+  `architecture-lint`, SwiftLint 49/49, a clean Debug build with 0 warnings, unused imports (baseline 1 lower: `PrototypeAI.swift`).
+- PR #460 merged (9477785d); v7.14.0 released from origin/main (2026-11-27): notarized, stapled, `spctl` accepted, Latest; copy in
+  `build/MarkView-7.14.0.dmg`. Not installed, not checked by hand in the app with a real assistant.
+
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
 Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot
