@@ -118,6 +118,9 @@ protocol AssistantProvider: Sendable {
     func modelOptions() -> [AIModelOption]
     /// The model the CLI runs when no flag is given, from its own configuration, or nil.
     func configuredModel() -> String?
+    /// Present when the signed-in account decides the models and the CLI lists them: `modelOptions` then offers the last list
+    /// (`AssistantModelCache`). ACP assistants list theirs over ACP.
+    var modelListing: (any AssistantModelListing)? { get }
 
     // MARK: Interactive terminal
 
@@ -200,6 +203,7 @@ extension AssistantProvider {
     var modelFlag: String { "--model" }
     var defaultXRayModel: String { "" }
     var acp: (any AssistantACPSupport)? { nil }
+    var modelListing: (any AssistantModelListing)? { acp == nil ? nil : ACPModelListing() }
     var completion: (any AssistantCompletionSupport)? { nil }
     var remote: (any AssistantRemoteSupport)? { nil }
     var updateArgs: [String] { [] }

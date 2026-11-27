@@ -318,7 +318,11 @@ enum CLIToolLocator {
 
         let authRun = await run(path, tool.authStatusArgs, timeout: 30)
         let loggedIn = tool.provider.loginState(stdout: authRun.stdout, stderr: authRun.stderr)
-        return ProbeResult(path: path, version: version, loggedIn: loggedIn)
+        // An assistant whose account decides its models lists them again, so the model menus follow the account.
+        guard let models = try? await AssistantModelCache.refresh(tool, toolPath: path) else {
+            return ProbeResult(path: path, version: version, loggedIn: loggedIn)
+        }
+        return ProbeResult(path: path, version: "\(version) · \(models.count) models", loggedIn: loggedIn)
     }
 
     /// Assistants driven over ACP (Cline, Copilot): the version, then a session over ACP (no prompt, no tokens) that
@@ -340,7 +344,7 @@ enum CLIToolLocator {
                                error: "\(tool.displayName) \(version) is too old for MarkView — update: \(probe.installCommand)")
         }
         do {
-            let models = try await ACPAssistant.refreshModels(tool, toolPath: path)
+            let models = try await AssistantModelCache.refresh(tool, toolPath: path) ?? []
             return ProbeResult(path: path, version: "\(version) · \(models.count) models",
                                loggedIn: probe.modelListImpliesSignedIn && !models.isEmpty ? true : nil)
         } catch {

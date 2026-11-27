@@ -37,13 +37,10 @@ struct AntigravityProvider: AssistantProvider {
     var completion: (any AssistantCompletionSupport)? { self }
 
     func modelOptions() -> [AIModelOption] {
-        // A few of `agy models`; any other id can be typed as a custom model name.
-        [AIModelOption(id: "", name: "Default", detail: "Antigravity's configured model"),
-         AIModelOption(id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", detail: ""),
-         AIModelOption(id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", detail: ""),
-         AIModelOption(id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", detail: ""),
-         AIModelOption(id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", detail: "")]
+        // The account's models, as `agy models` listed them at the last check (Settings, menus).
+        [AIModelOption(id: "", name: "Default", detail: "Antigravity's configured model")] + AssistantModelCache.cached(id)
     }
+    var modelListing: (any AssistantModelListing)? { AntigravityModels() }
 
     /// Antigravity keeps its servers in its own configuration, added with `agy mcp add`; a start only adds what `agy mcp
     /// list` does not show with this copy of MarkView.
@@ -162,6 +159,31 @@ private final class AntigravityStreamParser: CompletionStreamParser {
             }
         default:
             break
+        }
+    }
+}
+
+// MARK: - Models
+
+/// `agy models` (agy 1.5.18): "Fetching available models..." on stderr, then one `<id>\t<name>` line per model the signed-in
+/// account offers on stdout. Like `/usage` it runs with `--log-file /dev/null` and is cut at 25 s: a signed-out CLI waits for a
+/// pasted sign-in code, and its prompt is never kept.
+struct AntigravityModels: AssistantModelListing {
+    func listModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] {
+        let run = await CLIToolLocator.run(toolPath, ["--log-file", "/dev/null", "models"], timeout: 25)
+        let models = Self.parse(run.stdout)
+        guard run.exitCode == 0, !models.isEmpty else {
+            throw CLICompletion.Failure.failed(tool, run.exitCode == -2 ? "agy models did not answer in 25 s (signed out?)"
+                                                                        : "agy models listed no models (exit \(run.exitCode))")
+        }
+        return models
+    }
+
+    static func parse(_ output: String) -> [AIModelOption] {
+        output.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, !parts[0].isEmpty, !parts[0].contains(" "), !parts[1].isEmpty else { return nil }
+            return AIModelOption(id: parts[0], name: parts[1], detail: "")
         }
     }
 }

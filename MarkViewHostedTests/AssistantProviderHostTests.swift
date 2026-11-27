@@ -1313,3 +1313,45 @@ extension EditorHostTests {
         XCTAssertEqual(AgentActivityLog.newestCodexLog(for: folder, home: home, now: now)?.lastPathComponent, "rollout-terminal.jsonl")
     }
 }
+
+extension EditorHostTests {
+    /// Antigravity's model menu lists the account's models from `agy models` (BUG-136): the first menu asks the CLI set in Settings,
+    /// keeps the list, and the next menu reads the kept list; a CLI that lists nothing leaves the menu at Default.
+    @MainActor func testAntigravityModelMenuListsTheAccountsModels() async throws {
+        let tool = try XCTUnwrap(CLITool(rawValue: "antigravity"))
+        let settings = Settings.standard
+        let pathKey = Setting.cliPath(tool.rawValue), listKey = Setting.cliModelList(tool.rawValue)
+        let oldPath = settings.stored(pathKey), oldList = settings.stored(listKey)
+        defer {
+            settings.set(oldPath, for: pathKey)
+            settings.set(oldList, for: listKey)
+        }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("agy-models-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let agy = folder.appendingPathComponent("agy")
+        func script(_ body: String) throws {
+            try ("#!/bin/sh\n" + body).write(to: agy, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: agy.path)
+        }
+        // What agy 1.5.18 prints: a progress line on stderr, then `<id>\t<name>` per model on stdout.
+        try script("""
+        [ "$*" = "--log-file /dev/null models" ] || exit 9
+        echo "Fetching available models..." >&2
+        printf 'gemini-4-neon-high\\tGemini 4 Neon (High)\\ngemini-pro-orchestrator\\tOrchestrator (Carbon)\\ngpt-oss-120b-medium\\tGPT-OSS 120B (Medium)\\n'
+        """)
+        settings.set(agy.path, for: pathKey)
+        settings.set(Data(), for: listKey)
+
+        let listed = await AIToolbarMenu.loadOptions(for: tool)
+        XCTAssertEqual(listed.map(\.id), ["", "gemini-4-neon-high", "gemini-pro-orchestrator", "gpt-oss-120b-medium"])
+        XCTAssertEqual(listed.last?.name, "GPT-OSS 120B (Medium)")
+        XCTAssertEqual(AIAssistantPreferences.modelOptions(for: tool).map(\.id), listed.map(\.id), "the list is kept for the next menu")
+
+        // A CLI that lists nothing (signed out, an error) adds nothing.
+        settings.set(Data(), for: listKey)
+        try script("echo 'Not signed in' >&2\nexit 1\n")
+        let none = await AIToolbarMenu.loadOptions(for: tool)
+        XCTAssertEqual(none.map(\.id), [""])
+    }
+}

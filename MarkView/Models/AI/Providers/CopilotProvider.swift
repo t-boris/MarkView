@@ -30,7 +30,7 @@ struct CopilotProvider: AssistantProvider, AssistantACPSupport {
     var acp: (any AssistantACPSupport)? { self }
 
     func modelOptions() -> [AIModelOption] {
-        [AIModelOption(id: "", name: "Default", detail: "Copilot's configured model")] + ACPModelCache.cached(id)
+        [AIModelOption(id: "", name: "Default", detail: "Copilot's configured model")] + AssistantModelCache.cached(id)
     }
 
     func launchProfile(effort: String?) -> ACPLaunchProfile {
