@@ -267,8 +267,10 @@ One PR per change, one release at the end (memory: one final release for the bat
       Live (real codex 0.172, the app's own command line): three independent modules, 30 s, four `collab_tool_call` (`wait`)
       items in the stream, the session stored before `KeptSessions.delete` and gone after; through `CLICompletion.run` two runs
       (8 s and 29 s) left no rollout and an empty note folder.
-- [ ] B. UI Studio background screens: requests side by side, saves in order (DEC-014 / REQ-021 say "one at a time": update
-      them through the MarkView tools).
+- [x] B. UI Studio background screens: requests side by side, saves in order (PR #464 merged afca9072, 7.17.0). The source check
+      stays right before the write against the request-start snapshot, so an answer that waited for earlier screens is still
+      refused if its files changed (a review finding, red with the check at answer time). DEC-014 / REQ-021 reworded through the
+      MarkView tools (criterion 3 left unticked: not seen in the app).
 - [ ] C. QA run branches side by side for web and API apps. Boris (2026-11-27): one at a time for native (launch and attach) and
       for a scenario with a baseline or selected branches with a state or data condition; one Stop gives one "QA interrupted" bug
       per run naming the interrupted branches; `QAFinding.branch` (optional) in the same PR so a bug links the right video.
