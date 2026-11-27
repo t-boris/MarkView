@@ -502,14 +502,16 @@ flowchart TD
     C -- no --> E
     D --> E["Step 2: Naming components<br/>chunks of 35 clusters in parallel (xrayCall)"]
     E -. async let .-> F["mapDeployment<br/>(skipped if config signature unchanged)"]
+    E -. async let .-> BK["annotateBook beside the naming<br/>one call per chapter, 4 in flight"]
     E --> G{more than 35 clusters?}
     G -- yes --> H[one grouping call: system + subsystems]
     G -- no --> I[grouping came with the single call]
-    H --> J[applyClusters + commit]
+    H --> J["applyClusters into the live snapshot (update) + save"]
     I --> J
     J --> K["Step 3: Mapping deployment<br/>await deployment, insert view"]
-    K --> L[enrichedAt, language, commit]
-    L --> M["Step 4: Annotating the book<br/>one call per chapter, 4 in flight (xrayCall)"]
+    K --> L["enrichedAt, language, deployment view: one update + save"]
+    L --> M["Step 4: Annotating the book<br/>await the Book started in step 2; its progress shows now"]
+    BK -.-> M
     M --> N["Step 5: Indexing file contents<br/>buildOutlines (local)"]
 ```
 
@@ -520,7 +522,9 @@ flowchart TD
 2. **Naming**.
    - Each chunk prompt has `plan.overview` plus one line per cluster (`clusterLine`): folders, packages, declared names, the README line and the "name in"
      language. That language is a local Cyrillic/Latin majority vote (`XRayDigest.swift`).
-   - Each answer is applied as it lands and shown live (`snapshot = latest`, not yet saved:).
+   - Each answer is applied as it lands to the snapshot on screen through `update(save: false)` (shown live, saved when the
+     naming ends, or after a Stop or failure), never to a copy taken when the step began: the Book is annotated meanwhile
+     (since 7.19.0, PR #466). Every assistant call of one Analyze waits for one of its `SideBySide.Slots(limit: 4)`.
    - `mergeInto` chains are followed without cycles.
    - Importance for components and subsystems comes with the names, so no separate calls
      are needed.
@@ -534,7 +538,9 @@ flowchart TD
 4. **Book** (§5.11). One call per chapter whose content signature, output language or
    prompt version changed since it was annotated (`annotateBook`), windows of at most 2500
    lines for long chapters, four calls in flight, at most 150 calls per Analyze; then one
-   call per 35 parts for the parts' blurbs and the book summary. Answers land one by one.
+   call per 35 parts for the parts' blurbs and the book summary. Answers land one by one. In Analyze it starts beside the naming
+   (step 2) and step 4 awaits it; it replaces only the docs view and adds its levels to the live ratings, and its counts reach the
+   progress line in step 4 (`bookProgress`).
 5. **Contents** (§5.4).
 
 Cancelling (`cancelAnalysis`, where the JS Stop button posts `cancelAnalysis`) cancels

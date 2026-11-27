@@ -492,3 +492,15 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 - 2026-11-26: a newly filed bug can turn `done` by itself within seconds when an older PR's branch reuses its number (BUG-130 from PR #436,
   `fix/bug-130-workflow-default-process`, merged a week before the report existed). Read `markview_issue_context` right after filing; an AI
   cannot reopen it (done → ready needs regression evidence), so tell Boris and name the wrong PR. [A: BUG-130, 2026-11-26]
+- 2026-11-27: when a change defers work behind other work (answers saved in list order, a walk that queues nodes), every check
+  that guarded the old write must still run at the moment of the write, against the state the work started from. UI Studio's
+  "files changed while the assistant worked" check moved to answer time, so an answer that waited minutes behind earlier screens
+  could be saved with stale sources; the review caught it and a red test now pins it. [A: PR #464, 2026-11-27]
+- 2026-11-27: a test that times concurrency with sleeps (hold 150 ms, wait 20 ms twice) fails on a slow CI runner. Hold each run
+  on a gate the test opens (an AsyncStream) and wait for the observable state instead. [A: PR #463, 2026-11-27]
+- 2026-11-27: to learn a CLI's slash command without spending a model call, run it in a pseudo-terminal in a folder it already
+  trusts (a new folder stops at a trust prompt), type the command without Enter and read its hint from the screen; the binary's
+  strings and the vendor's source give limits (Codex: 4000-character goals). [A: PR #467, 2026-11-27]
+- 2026-11-27: before asserting a prompt's shape (one line), read how the real path assembles it: Fix with AI appends the bug's
+  lifecycle block after a blank line, so the check is "the request is inside the goal part", as the Claude case already did. And
+  never use an API without checking it exists (`URL.path(relativeTo:)` does not). [A: PR #467, 2026-11-27]

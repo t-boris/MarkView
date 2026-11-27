@@ -271,16 +271,37 @@ One PR per change, one release at the end (memory: one final release for the bat
       stays right before the write against the request-start snapshot, so an answer that waited for earlier screens is still
       refused if its files changed (a review finding, red with the check at answer time). DEC-014 / REQ-021 reworded through the
       MarkView tools (criterion 3 left unticked: not seen in the app).
-- [ ] C. QA run branches side by side for web and API apps. Boris (2026-11-27): one at a time for native (launch and attach) and
+- [x] C. QA run branches side by side for web and API apps. Boris (2026-11-27): one at a time for native (launch and attach) and
       for a scenario with a baseline or selected branches with a state or data condition; one Stop gives one "QA interrupted" bug
       per run naming the interrupted branches; `QAFinding.branch` (optional) in the same PR so a bug links the right video.
-- [ ] D. X-Ray Analyze: the book stage beside naming, each stage applying its own fields to the live snapshot; one
-      `SideBySide.Slots(limit: 4)` per Analyze (today's peak) instead of 8.
+      PR #468 merged 3b34a641, 7.21.0. Review round: feed lines carry the branch label (the player tile's) while branches run
+      side by side, and the `noBaseline` warning says the branches share the app's data. Found on main and filed, not fixed:
+      BUG-133 (a stopped run drafts its "QA interrupted" bug, but `QABugFiler.file` refuses it in the cancelled task). REQ-005 /
+      DEC-010 reworded through the MarkView tools; REQ-005's interrupted criterion is unticked until BUG-133 is fixed.
+- [x] D. X-Ray Analyze: the book stage beside naming, each stage applying its own fields to the live snapshot; one
+      `SideBySide.Slots(limit: 4)` per Analyze (today's peak) instead of 8. PR #466 merged 14fd6d2e, 7.19.0; two hosted tests
+      (both landing orders) red on the old store; the Book's counts kept in `bookProgress` until step 4.
+- [x] F. `/goal` for every agent (Boris, 2026-11-27, asked after the parallel work): PR #467 merged feaed9ca, 7.20.0. Checked
+      on the installed CLIs: Codex 0.172 `/goal` (4000-character objective, its TUI moves a longer one to `goal-objective.md`),
+      Antigravity 1.5.18 `/goal` (seen in its command list in a hidden terminal, no Enter pressed), Copilot 1.0.114 `/autopilot`.
+      Bug fixes and baskets now go as a goal to all four; Antigravity's feature and agent_send goals too; Cline keeps the plain
+      request. Not run live with a real bug.
+- [x] G. The CI failure of main at 7.15.0 (`testSlotsAreFreedOnErrorsAndCancelledWaitersLeave`, sleeps outlasted on the runner):
+      PR #463 merged 893cdffa, test-only; the Slots tests hold their runs on gates.
 - [x] E. Insight "Explore all": siblings side by side, 3 node pipelines at once across depths; Boris (2026-11-27): sections stay
       at 5 per node (up to 15 processes). PR #465 merged 2aee9349, 7.18.0: one `runPipeline` (five copies and the uncalled
       `retryCurrent` deleted), own breadcrumbs per page, ready-only snapshots, and `cancel()` now stops the walk (it went on after
       the tab closed: a bug found while reading). Not tested: the 50 MB eviction guard (needs >50 MB of buffers).
-- [ ] Release once after the last PR; records, lessons, memory; report with the PR links.
+- [x] Release once after the last PR: v7.21.0 (https://github.com/t-boris/MarkView/releases/tag/v7.21.0, Latest, notarized, DMG
+      sha256 5cd23acd…, copy in build/); records, lessons, memory; report with the PR links.
+
+### Review (Phase 8)
+
+- Delivered: #462 (7.16.0), #463 (tests), #464 (7.17.0), #465 (7.18.0), #466 (7.19.0), #467 (7.20.0), #468 (7.21.0); one release.
+- Built by four agents in parallel worktrees from design notes; each change was reviewed before its PR, and two came back:
+  UI Studio's source check had moved to answer time (an answer that waits behind earlier screens could save stale sources), and
+  QA's interleaved feed lines named no branch. Both fixed with a red test before merging.
+- Not checked in the real app: every side-by-side site, the Codex subagents through a button, the goal commands with a real bug.
 
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
