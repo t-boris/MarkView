@@ -139,6 +139,16 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   old rule with `workflow.GetVersion`. Why: the planner prompt promised "only a prerequisite pauses" while the workflow paused on every
   failure, and a vivaa run waited a day. [A: BUG-130, 2026-11-26]
 
+- 2026-11-26: most hosted test files are `extension EditorHostTests`, so `-only-testing:MarkViewHostedTests/<FileName>` silently runs
+  only the files that are real classes. Select their methods as `EditorHostTests/<method>` and compare "Executed N tests" with the
+  number you meant to run. [A: parallel work, 2026-11-26]
+- 2026-11-26: a concurrency test must fail when the work runs one at a time: assert the overlap (peak > 1, or a barrier every call
+  waits behind), never `peak == limit` (equal at limit 1); answer later items first so an order bug shows; prove it red by setting
+  the limit to 1. Why: three new tests passed with the limit at 1 until the assertion changed. [A: one-shot runs side by side, 2026-11-26]
+- 2026-11-26: a path that checks the real CLI login first (the X-Ray automatic pipeline) cannot run on CI; check it once live with
+  a temporary hosted test that wraps the real `CLICompletion.run` and logs each call's start and end, then delete it (no test-only
+  switch in the app). [A: one-shot runs side by side, 2026-11-26]
+
 ## 5. The app-probe and live checks (no visible windows, no crashes)
 
 - Never drive UI in the user's live app: automate the Debug build in `/tmp/MarkViewDerivedData` or a scratch copy, confirm first which window and folder is key, and leave
@@ -227,6 +237,10 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 - Never dispatch on `Any` downcasts of collections (an empty array matches every `as? [T]`); tell booleans from numbers with `CFGetTypeID == CFBooleanGetTypeID()` (`NSNumber` 0 and
   1 match `is Bool`); `await manager?.activate() ?? "error"` turns success into the error when nil means success.
   [A: An empty array passes, 2026-10-24 | JSONSerialization numbers, 2026-09-26 | Optional-success closures, 2026-09-27]
+
+- 2026-11-26: a helper that takes `isolation: isolated (any Actor)? = #isolation` runs its task-group body (and so its callbacks) on
+  the caller's actor only when it passes `isolation:` to `withThrowingTaskGroup` and the body uses the parameter; without that the
+  callback ran off the main thread. Assert `Thread.isMainThread` in the callback of such a helper's test. [A: SideBySide, 2026-11-26]
 
 ## 8. UI: SwiftUI and AppKit
 
@@ -378,6 +392,12 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   sandbox. [A: Verify remote edits, 2026-10-28]
 - A line protocol over a model's stream gets its breaks from events that end a text block, tried on every backend's real stream; a status written at the start of a long run needs a
   way back when the run dies with the app. [A: Real streams, real machines, 2026-11-04]
+
+- 2026-11-26: live checks per CLI: Claude Code's first run in a new folder shows the trust dialog with "No, exit" selected; a PTY
+  driver strips ANSI and spaces, matches "itrustthisfolder" and "entertoconfirm", then sends Down and Return. Copilot's configured
+  model can disappear (`claude-sonnet-4.5`) and `--model auto` may hit the monthly quota: check both first or report Copilot as not
+  run. A `claude -p` prompt after `--tools` is read as a tool name: send it on stdin. In `-p` with `--tools Read,Grep,Glob,Agent`
+  the subagents get exactly those tools. [A: parallel work, 2026-11-26]
 
 ## 12. Product areas: X-Ray, maps, Studios, workflow
 

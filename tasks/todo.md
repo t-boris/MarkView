@@ -26,22 +26,45 @@ agent create the parallel calls itself; Codex and Antigravity have their own mec
 ## Plan
 
 Phase 1 (PR 1): interactive sessions, where the agent itself can run parallel work.
-- [ ] Provider: `parallelWork` replaces `cockpitDelegation` (the mechanism in words + the sentence that asks for it for a task with
+- [x] Provider: `parallelWork` replaces `cockpitDelegation` (the mechanism in words + the sentence that asks for it for a task with
       independent parts, and a stronger one for a list of independent items: Claude "use a workflow", Codex an explicit request to
       spawn one subagent per item, Antigravity `invoke_subagent`, Copilot parallel subagents as /fleet does). Cline: none.
-- [ ] Every send: Implement with AI, Fix with AI, a goal via `markview_agent_send`, the bug basket (no more "for each bug in turn"),
+- [x] Every send: Implement with AI, Fix with AI, a goal via `markview_agent_send`, the bug basket (no more "for each bug in turn"),
       Resolve conflicts, PR "fix all" and review tasks, CI failure fix, GitHub issue implement, Deployments discovery, prototype handoff.
-- [ ] Cockpit: a plain plan honours "Delegation to subagents" and the step's `delegate` like a managed run; the planner hears the
+- [x] Cockpit: a plain plan honours "Delegation to subagents" and the step's `delegate` like a managed run; the planner hears the
       mechanisms in every plan.
-- [ ] Tests: prompt tests per provider and per send; Cockpit hosted tests; one live run per assistant in a scratch repository that
-      shows the subagents were started (Claude, Codex, Antigravity, Copilot).
+- [x] Tests: prompt tests per provider and per send; Cockpit hosted tests; one live run per assistant in a scratch repository that
+      shows the subagents were started (Claude, Codex, Antigravity; Copilot not run: quota exhausted).
 Phase 2 (PR 2): one-shot runs, where MarkView runs the independent calls itself.
-- [ ] Independent calls of one action run concurrently with a small bound (document translation chunks, QA screen reviews, UI Studio
+- [x] Independent calls of one action run concurrently with a small bound (document translation chunks, QA screen reviews, UI Studio
       screens, X-Ray book parts and scenarios, intake attachments, Book PDF chapters, Insight "Explore all"); calls that depend on
-      each other stay in order.
-- [ ] A read-only run over many files may use read-only subagents where the CLI supports them (Claude `Agent` within Read/Grep/Glob,
+      each other stay in order. Done for translation, Book PDF passages and paragraphs, X-Ray scenarios, attachments; the rest stay
+      in order or were already concurrent (see the review).
+- [ ] (Open, Boris's decision) A read-only run over many files may use read-only subagents where the CLI supports them (Claude `Agent` within Read/Grep/Glob,
       Codex explicit request in its read-only sandbox, Antigravity `invoke_subagent` under its deny list); Copilot and Cline unchanged.
-- One release at the end, minor bump.
+- [x] One release at the end, minor bump.
+
+## Review (2026-11-26)
+
+- Phase 1: PR #452 merged as 2d17c917 (7.9.0): `AssistantProvider.parallelWork` + `ParallelWork.parts/.items` in every prompt sent
+  into an agent session, built for the terminal that receives it; Cockpit plain plans delegate marked steps when the switch is on.
+  Live: Claude Code `-p` started two Agent subagents, interactive Claude Code started a workflow on "use a workflow", Codex `exec`
+  started two child threads, Antigravity `-p` started two `self` subagents. Copilot not run (monthly quota exhausted; its configured
+  model `claude-sonnet-4.5` is no longer available).
+- Phase 2: PR #453 merged as 084c192c (7.10.0): `SideBySide.map` (MarkViewCore) and `CLICompletion.sideBySide = 3`; side by side
+  now: Translate document sections, Book PDF passages and shortened paragraphs, X-Ray automatic scenario traces, new-feature
+  attachments (sources still made in order). `PrototypeAI.sideBySide` runs on the helper (its own task-group loop deleted).
+  Already concurrent before: X-Ray book chapters (4) and the parts of the X-Ray code analysis. Left in order on purpose: UI Studio
+  screens (scenario names depend on the screens written), QA reviews (already-reported findings and numbering), Insight "Explore
+  all" (one current node and task), Insight "Decide all" (chunks must agree, one key).
+- Evidence for phase 2: Core tests (157), new hosted tests that fail with the limit set to 1, 37 hosted tests of the touched files,
+  4 gui suites, `book-pdf-live` with Claude (translation 227 → 195 words, 50% shortening 227 → 126), and one live X-Ray run on a
+  fixture through a temporary uncommitted hosted check (3 scenarios traced together, +12 s → +21/22/24 s).
+- Open for Boris: (1) read-only subagents in one-shot runs. Probe: `claude -p --tools Read,Grep,Glob,Agent` started two subagents
+  at once, each had only Agent/Glob/Grep/Read and could not write a file, so it stays read-only; not switched on because the heavy
+  runs (X-Ray code analysis) are already split by MarkView and need exact `file:line` evidence that subagent summaries may lose, and
+  every run would spend more tokens. (2) DEC-033: plans made outside Build keep "Delegation to subagents" off by default.
+- Found on the way: BUG-131 (a Markdown attachment's copy is read as a second source with the same id), recorded, not fixed.
 
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
