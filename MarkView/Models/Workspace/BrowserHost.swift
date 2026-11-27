@@ -61,8 +61,9 @@ final class BrowserHost: BrowserSessionHost {
         self.window = window
     }
 
-    /// The window closes: the look for a web app and the wait for a dev server stop.
+    /// The window closes: agents no longer see it (BUG-134), and the look for a web app and the wait for a dev server stop.
     func close() {
+        AgentToolServer.unregister(controlID)
         tasks.cancelAll()
     }
 

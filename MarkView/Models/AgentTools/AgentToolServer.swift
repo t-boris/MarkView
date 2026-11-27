@@ -38,8 +38,9 @@ enum AgentToolServer {
         windows[id] = nil
     }
 
-    /// The windows that exist now, for the control tools: each with the workspace that shows it. A window whose
-    /// workspace is gone (closed) leaves the table here; one that has no host window yet (still being set up) is not listed.
+    /// The windows that are open now, for the control tools: each with the workspace that shows it. A closed window left the
+    /// table when it closed (`BrowserHost.close`), one whose workspace is gone leaves it here, and one that has no host window
+    /// yet (still being set up) is not listed.
     static func liveWindows() -> [(id: UUID, window: AgentToolWindow, workspace: any AgentControlWindow)] {
         for (id, window) in windows where window.workspace() == nil { windows[id] = nil }
         return windows.compactMap { id, window in
