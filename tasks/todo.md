@@ -16,8 +16,20 @@ Branch `fix/bug-130-cockpit-continues-past-failed-steps` (worktree `../MarkView-
       Planner prompt and step prompt say what a failed non-prerequisite means. Managed runs are unchanged (their steps are prerequisites).
 - [x] 3. `CockpitQAAttempt`: the step detail starts with the QA result; a failed QA names branch, node, block reason and reason, the
       bugs QA filed (new `QARunModel.filedBugIDs`) go into the step's progress.bugs and the needed input.
-- [ ] Tests: Go workflow tests (continue, prerequisite still pauses), hosted tests (record, phase, notice, QA text, snapshot pointer
+- [x] Tests: Go workflow tests (continue, prerequisite still pauses), hosted tests (record, phase, notice, QA text, snapshot pointer
       row, page evidence), runtime integration, pure tier, lints. Decision record for 2a (Boris's choice).
+
+## Review (2026-11-26)
+
+- PR #451 merged as e4db7aaa, version 7.8.0, released as https://github.com/t-boris/MarkView/releases/tag/v7.8.0 (Latest; signed,
+  notarized, `spctl` accepted; Build & Release of the merge commit green). DMG also in `build/MarkView-7.8.0.dmg`. Not installed.
+  DEC-029 (accepted) records 2a.
+- Verified locally: Go `go test ./...` (red first on the old workflow); 5 new hosted tests (the snapshot and evidence tests red on the old
+  scripts); all 81 Cockpit/QA/Browser hosted tests; `cockpit-runtime-integration-tests` with a new BUG-130 block through the packaged
+  worker; `qa-web-fault-tests`; `remote-browser-tests`; Debug build; pure tier (9/9); architecture lint; SwiftLint 49 = baseline.
+- Not run: `qa-native-tests` (live). Not checked by hand: a real Cockpit run in vivaa that goes past a failed QA step, and the QA runner
+  clicking the real Vendor applications row (item 4, the vivaa row fix itself, was not part of this PR).
+- BUG-130 was set `done` by MarkView 5 s after it was filed, from PR #436 (an older `bug-130` branch); only Boris can reopen it.
 
 # BUG-129: Cockpit stops at recoverable CI blockers (2026-11-25)
 

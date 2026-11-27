@@ -131,6 +131,14 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   had never saved a retried step's result (`saveHostResult` needs a running step, the record stayed paused/failed) and every retry ended
   interrupted; only the new integration check that answers an Ask me gate and retries found it.
 
+- 2026-11-26: run several GUI suites with `./tools/tests/run.sh --jobs 1 <names>`. Why: on BUG-130 two of three suites failed in the
+  build ("database is locked" on `MarkViewHostedTestsDerived/.../build.db`) because the runner started them at once in the same derived
+  data; read a red suite's first error before blaming the change. [A: BUG-130, 2026-11-26]
+- 2026-11-26: when a status or rule in two layers must agree (Temporal workflow and Swift record), let one decide and send its decision
+  to the other (`continuesAfterFailure` before the step, `continuedAfterFailure` overwritten after it), and keep running histories on the
+  old rule with `workflow.GetVersion`. Why: the planner prompt promised "only a prerequisite pauses" while the workflow paused on every
+  failure, and a vivaa run waited a day. [A: BUG-130, 2026-11-26]
+
 ## 5. The app-probe and live checks (no visible windows, no crashes)
 
 - Never drive UI in the user's live app: automate the Debug build in `/tmp/MarkViewDerivedData` or a scratch copy, confirm first which window and folder is key, and leave
@@ -418,3 +426,6 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 - 2026-11-25: when a bug or feature handoff arrives, call `markview_issue_context` first and move the status (`ready`/`fixing`) before the first edit; read it again after
   Boris changes it. Why: on BUG-129 the context said `done` (MarkView matched unrelated PRs), I noted the mismatch, Boris reset it to `backlog`, and I worked through
   a merged PR with the bug still in the backlog until he asked. [A: BUG-129, 2026-11-25]
+- 2026-11-26: a newly filed bug can turn `done` by itself within seconds when an older PR's branch reuses its number (BUG-130 from PR #436,
+  `fix/bug-130-workflow-default-process`, merged a week before the report existed). Read `markview_issue_context` right after filing; an AI
+  cannot reopen it (done → ready needs regression evidence), so tell Boris and name the wrong PR. [A: BUG-130, 2026-11-26]
