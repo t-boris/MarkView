@@ -26,7 +26,7 @@ protocol CockpitWindow: CockpitQAWindow {
 final class CockpitSession: ObservableObject {
     let root: URL
     @Published var goal = ""
-    @Published var controls = CockpitControls()
+    @Published var controls = CockpitControls.newPlan
     @Published var refinement = ""
     @Published private(set) var plan: CockpitPlan?
     /// Which of the Cockpit's two screens is open: the plan editor, the run this window is running, or a saved run.
@@ -756,10 +756,7 @@ extension CockpitSession {
             show(existing)
             return
         }
-        var controls = existing?.controls ?? CockpitControls()
-        // A new feature draft lets steps delegate where their agent supports it (DEC-033); the person can switch it off before approval.
-        if existing == nil { controls.allowDelegation = true }
-        let fresh = CockpitDraft(feature: feature, goal: existing?.goal ?? featureGoal, controls: controls, plan: nil,
+        let fresh = CockpitDraft(feature: feature, goal: existing?.goal ?? featureGoal, controls: existing?.controls ?? .newPlan, plan: nil,
                                  preparation: .preparing, blocker: nil, approved: nil, runID: existing?.runID, updated: Date())
         show(fresh)
         persistDraft()
@@ -781,7 +778,7 @@ extension CockpitSession {
         draft = nil
         plan = nil
         goal = ""
-        controls = CockpitControls()
+        controls = .newPlan
         startBlocker = nil
         evidenceNote = []
         screen = .plan

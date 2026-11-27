@@ -52,10 +52,19 @@ struct CockpitControls: Codable, Equatable {
     var supervisorAgent: String?
     var supervisorModel: String?
     /// Whether a step's agent may delegate independent work to its own subagents where its launch profile supports it (REQ-002).
-    /// Off unless the person turns it on; plans saved before it existed have it off and encode as before.
+    /// A new plan starts with it on (`newPlan`); controls that cannot be read and plans saved before it existed have it off and
+    /// encode as before.
     var allowDelegation = false
 
     init() {}
+
+    /// The controls a new plan starts with, a feature draft's or a goal of the person's own: delegation on where the agent supports
+    /// it (DEC-033, DEC-038); the person can switch it off before approving.
+    static var newPlan: CockpitControls {
+        var controls = CockpitControls()
+        controls.allowDelegation = true
+        return controls
+    }
 
     /// The controls as a step carries them (JSON text). Controls that cannot be read are replaced by the defaults, which are the
     /// restrictive ones, and the failure is logged.
