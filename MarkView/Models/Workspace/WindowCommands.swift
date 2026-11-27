@@ -22,8 +22,9 @@ protocol WindowCommands: ProjectOperationsPresenter {
     func revealStructure(_ url: URL, item: StructureOutline.Item)
     /// Open the tab of a tool of `ToolRegistry`, or return to it.
     func openTool(_ id: ToolID)
-    /// Open `url` as this window's project (another working copy, a folder to browse as the project).
-    func openFolder(_ url: URL)
+    /// Open `url` as this window's project (another working copy, a folder to browse as the project); the task ends with its setup,
+    /// true when the folder opened.
+    @discardableResult func openFolder(_ url: URL) -> Task<Bool, Never>
     /// Open a terminal in `folder` as a tab of this window.
     func openTerminal(in folder: URL)
     /// Close the current project when its work permits it.

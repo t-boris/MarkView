@@ -44,10 +44,10 @@ private enum WindowSessionSnapshotterChecks {
         var folderChosenMeanwhile: URL?
 
         func terminalDirectory(for id: UUID) -> URL? { terminals[id] }
-        func openFolder(_ url: URL, completion: (() -> Void)?) {
+        func openFolder(_ url: URL) -> Task<Bool, Never> {
             calls.append("folder:" + url.lastPathComponent)
             windowFolder = folderChosenMeanwhile ?? url
-            completion?()
+            return Task { true }
         }
         func openTool(_ tool: ToolID) {
             calls.append("tool:" + tool.rawValue)
@@ -261,4 +261,55 @@ extension TabKind {
 
 extension EditorHostTests {
     @MainActor func testWindowSessionSnapshotAndRestore() async { await WindowSessionSnapshotterChecks.run() }
+
+    /// A restore whose folder setup stops, because the window closes or another folder is chosen while the folder still loads,
+    /// ends at once, opens none of the old tabs and lets a closed window go (BUG-139).
+    @MainActor func testARestoreEndsWhenItsFolderSetupStops() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("markview-restore-" + UUID().uuidString)
+        let folder = base.appendingPathComponent("project")
+        let other = base.appendingPathComponent("other")
+        for url in [folder, other] { try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true) }
+        defer { try? FileManager.default.removeItem(at: base) }
+        let note = folder.appendingPathComponent("note.md")
+        try Data("# Note\n".utf8).write(to: note)
+        var state = WorkspaceWindowState(id: UUID(), folder: folder)
+        state.tabs = [.file(url: note, draft: nil, notes: false, scroll: 0)]
+
+        for closes in [true, false] {
+            let stop = closes ? "the window closes" : "another folder is chosen"
+            weak var released: WorkspaceManager?
+            do {
+                let workspace = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: base.appendingPathComponent("recent.json"))
+                released = workspace
+                let restore = Task { await WindowSessionSnapshotter.restore(state, into: workspace) }
+                // The setup waits 100 ms before it reads the folder: the stop comes in that time.
+                try await Task.sleep(nanoseconds: 20_000_000)
+                let chosen = closes ? nil : workspace.openFolder(other)
+                if closes { workspace.windowWillClose() }
+                let ended = await RestoreEnd.within(3, restore)
+                XCTAssertTrue(ended, "the restore ends when \(stop)")
+                if let chosen {
+                    let opened = await chosen.value
+                    XCTAssertTrue(opened && workspace.windowFolder?.lastPathComponent == "other", "the folder chosen meanwhile opens")
+                    workspace.windowWillClose()
+                }
+                XCTAssertTrue(workspace.tabs.openTabs.isEmpty, "no tab of the old session opens when \(stop)")
+            }
+            for _ in 0..<300 where released != nil { try await Task.sleep(nanoseconds: 10_000_000) }
+            XCTAssertNil(released, "nothing of the restore keeps the window once \(stop) and it closed")
+        }
+    }
+}
+
+/// Whether a restore ends in time; a restore that never ends leaves only this check's waiting task behind.
+@MainActor
+private final class RestoreEnd {
+    private var ended = false
+
+    static func within(_ seconds: Int, _ restore: Task<Void, Never>) async -> Bool {
+        let end = RestoreEnd()
+        Task { await restore.value; end.ended = true }
+        for _ in 0..<(seconds * 100) where !end.ended { try? await Task.sleep(nanoseconds: 10_000_000) }
+        return end.ended
+    }
 }

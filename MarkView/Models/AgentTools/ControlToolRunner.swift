@@ -17,7 +17,7 @@ protocol AgentControlWindow: AnyObject {
     func controlActivity(for session: TerminalSession) -> AgentActivity?
     func openControlTerminal(_ profile: TerminalProfile, resuming: Bool) -> TerminalSession?
     func showAIConsole()
-    func openFolder(_ url: URL)
+    @discardableResult func openFolder(_ url: URL) -> Task<Bool, Never>
     func controlIntakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome)
     func controlStartImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession)
     func controlFixBug(_ url: URL, in terminal: TerminalSession)
