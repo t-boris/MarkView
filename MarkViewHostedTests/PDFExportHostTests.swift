@@ -593,4 +593,59 @@ extension PDFExportHostTests {
         XCTAssertLessThanOrEqual(gauge.peak, CLICompletion.sideBySide, "never more than CLICompletion.sideBySide at once")
         XCTAssertEqual(steps.last, "Shortening paragraph \(paragraphs.count) of \(paragraphs.count)…")
     }
+
+    /// When the calls of a book export start and end, by label kind.
+    final class ExportTimes: @unchecked Sendable { // unchecked Sendable: every field is read and written under `lock`.
+        private let lock = NSLock()
+        private var started: [String: Date] = [:]
+        private var lastPassageEnd = Date.distantPast
+        func start(_ kind: String) { lock.lock(); started[kind] = started[kind] ?? Date(); lock.unlock() }
+        func passageEnded() { lock.lock(); lastPassageEnd = max(lastPassageEnd, Date()); lock.unlock() }
+        func startedBeforeTheLastPassageEnded(_ kind: String) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            return started[kind].map { $0 < lastPassageEnd } ?? false
+        }
+    }
+
+    /// The cover title and the labels are translated from the options alone: their calls start while the chapters are still with the
+    /// assistant, not after them, through the model's own export.
+    @MainActor func testBookExportTranslatesTheTitleAndLabelsWhileTheChaptersAreRewritten() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("book-export-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let chapterFile = folder.appendingPathComponent("01-notes.md")
+        try "# Notes\n\nA field guide needs short, clear chapters.\n\nEvery chapter is translated before it is printed.\n"
+            .write(to: chapterFile, atomically: true, encoding: .utf8)
+        let times = ExportTimes()
+        AIAssistantRunner.setTestRunner { request, _, _ in
+            switch request.label {
+            case "pdf-book:cover-title":
+                times.start("title")
+                return try CLICompletion.Result(text: "", structured: ["text": "FIELD NOTES"], inputTokens: 1, outputTokens: 1, costUSD: nil)
+            case "pdf-book:labels":
+                times.start("labels")
+                let labels = ["contents": "CONTENTS", "book": "BOOK", "edition": "EDITION"]
+                return try CLICompletion.Result(text: "", structured: labels, inputTokens: 1, outputTokens: 1, costUSD: nil)
+            default:
+                defer { times.passageEnded() }
+                try await Task.sleep(nanoseconds: 200_000_000)
+                let text = request.prompt.uppercased()
+                return try CLICompletion.Result(text: text, structured: ["text": text], inputTokens: 1, outputTokens: 1, costUSD: nil)
+            }
+        }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let model = BookPDFExportModel(project: folder, drafts: [:], database: nil)
+        model.add([chapterFile])
+        for _ in 0..<500 where model.isBusy || model.chapters.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(model.chapters.count, 1)
+        model.options.title = "Field Notes"
+        model.options.language = "Klingon"
+        let output = folder.appendingPathComponent("book.pdf")
+        model.export(to: output)
+        for _ in 0..<6000 where model.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(model.error)
+        XCTAssertEqual(model.savedURL, output)
+        XCTAssertTrue(times.startedBeforeTheLastPassageEnded("title"), "the title is with the assistant while a chapter still is")
+        XCTAssertTrue(times.startedBeforeTheLastPassageEnded("labels"), "the labels are with the assistant while a chapter still is")
+    }
 }

@@ -77,6 +77,60 @@ private actor XRayCancellationFixture {
     }
 }
 
+/// Answers the book's chapter calls at once and holds each "parts" call until a second one is running (or a few seconds have
+/// passed), so a run that makes the parts calls one after another never has two of them in flight.
+private actor XRayBookPartsFixture {
+    private var running = 0
+    private(set) var peak = 0
+    private(set) var partsCalls = 0
+
+    func run(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        guard request.label == "xray-book:parts" else {
+            let object: [String: Any] = ["chapter": ["summary": "What \(request.label) says."], "sections": []]
+            return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+        }
+        partsCalls += 1
+        running += 1
+        peak = max(peak, running)
+        for _ in 0..<150 where running < 2 { try await Task.sleep(nanoseconds: 20_000_000) }
+        running -= 1
+        let ids = request.prompt.split(separator: "\n").compactMap { line -> String? in
+            guard line.hasPrefix("- ") else { return nil }
+            return line.dropFirst(2).split(separator: " ").first.map(String.init)
+        }
+        var object: [String: Any] = ["parts": ids.map { ["id": $0, "summary": "Blurb of \($0)"] }]
+        if request.systemPrompt?.contains("the BOOK itself") == true { object["book"] = ["summary": "The whole book."] }
+        return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
+}
+
+/// Explains a file at once, then holds the keyword search and the rating of a topic filter until both are with it (or a few
+/// seconds have passed), so a rating that waits for the search never has both in flight.
+private actor CodeRatingFixture {
+    private var running = 0
+    private(set) var peak = 0
+
+    func run(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        if request.label == "explain-file" {
+            let sections: [[String: Any]] = [
+                ["startLine": 1, "endLine": 1, "title": "Model", "explanation": "The model.", "importance": "normal"],
+                ["startLine": 2, "endLine": 2, "title": "Value", "explanation": "A value.", "importance": "normal"],
+            ]
+            return try CLICompletion.Result(text: "", structured: ["summary": "A model file.", "sections": sections],
+                                            inputTokens: 0, outputTokens: 0, costUSD: nil)
+        }
+        running += 1
+        peak = max(peak, running)
+        for _ in 0..<150 where running < 2 { try await Task.sleep(nanoseconds: 20_000_000) }
+        running -= 1
+        let object: [String: Any] = request.prompt.hasPrefix("Criterion:")
+            ? ["terms": ["model", "struct"]]
+            : ["ratings": [["key": "s1", "level": "strong", "reason": "Declares the model."],
+                           ["key": "s2", "level": "none", "reason": "A plain value."]]]
+        return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
+}
+
 private final class XRayNavigationEvents: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String] = []
@@ -806,5 +860,84 @@ extension EditorHostTests {
         }
         let cancelled = await fixture.cancellations("code-question")
         XCTAssertEqual(cancelled, 3)
+    }
+
+    /// The parts of a book are described by calls that do not depend on each other: they run side by side, and every part gets
+    /// the blurb of its own call.
+    @MainActor func testXRayBookPartsAreDescribedSideBySide() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xray-book-parts-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // More parts than one call lists (`BookAnnotator.partsPerCall`), so the parts need two calls.
+        let partCount = BookAnnotator.partsPerCall + 5
+        for index in 1...partCount {
+            let folder = root.appendingPathComponent(String(format: "part-%02d", index), isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try "Plain notes about part \(index).\n".write(to: folder.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+        }
+        let settings = Settings.standard
+        let oldAuto = settings.stored(Setting.autoAnalyze)
+        let oldGitHub = settings.stored(Setting.gitHubEnabled)
+        settings.set(false, for: Setting.autoAnalyze)
+        settings.set(false, for: Setting.gitHubEnabled)
+        defer {
+            settings.set(oldAuto, for: Setting.autoAnalyze)
+            settings.set(oldGitHub, for: Setting.gitHubEnabled)
+        }
+        let fixture = XRayBookPartsFixture()
+        AIAssistantRunner.setTestRunner { request, _, _ in try await fixture.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let store = ArchitectureStore()
+        defer { store.reset() }
+        store.open(root: root, db: nil)
+        for _ in 0..<1000 {
+            if store.snapshot?.view("docs") != nil && !store.isBusy { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertNotNil(store.snapshot?.view("docs"))
+        store.describeBook(path: nil, root: root, db: nil)
+        for _ in 0..<3000 {
+            if !store.isBusy, await fixture.partsCalls > 0 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let calls = await fixture.partsCalls
+        let peak = await fixture.peak
+        XCTAssertEqual(calls, 2, "two calls describe the parts")
+        XCTAssertEqual(peak, 2, "the parts calls run at the same time")
+        let nodes = store.snapshot?.view("docs")?.nodes ?? []
+        let parts = nodes.filter { $0.kind == "dir" }
+        XCTAssertEqual(parts.count, partCount)
+        XCTAssertTrue(parts.allSatisfy { $0.summary == "Blurb of \($0.id)" }, "every part has the blurb of its own call")
+        XCTAssertEqual(nodes.first { $0.kind == "root" }?.summary, "The whole book.")
+        XCTAssertNil(store.error)
+    }
+
+    /// A topic filter's rating is built from the sections alone: it runs while the keyword search does, and its levels replace the
+    /// search's provisional ones.
+    @MainActor func testCodeRatingRunsBesideItsKeywordSearch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xray-rate-" + UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = CodeRatingFixture()
+        AIAssistantRunner.setTestRunner { request, _, _ in try await fixture.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let store = CodeExplainStore()
+        defer { store.reset() }
+        let path = "Sources/Model.swift"
+        let content = "struct Model {}\nvar value = 1\n"
+        store.explain(path: path, content: content, root: root, directory: directory, db: nil)
+        for _ in 0..<500 where store.explanations[path] == nil || store.working.contains(path) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(store.explanations[path]?.sections.count, 2)
+        let filter = ImportanceRater.Filter(id: "topic", name: "Topic", criterion: "where is the model", levels: ["strong", "none"])
+        store.rate(path: path, content: content, filter: filter, root: root, directory: directory, db: nil)
+        for _ in 0..<1000 where store.working.contains(path) { try await Task.sleep(nanoseconds: 10_000_000) }
+        let peak = await fixture.peak
+        XCTAssertEqual(peak, 2, "the rating is with the assistant while the keyword search is")
+        let ratings = store.explanations[path]?.ratings["topic"]
+        XCTAssertEqual(ratings?["s1"]?.level, "strong")
+        XCTAssertEqual(ratings?["s1"]?.reason, "Declares the model.", "the rating replaces the provisional level")
+        XCTAssertEqual(ratings?["s2"]?.level, "none")
     }
 }

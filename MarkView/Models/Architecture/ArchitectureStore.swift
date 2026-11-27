@@ -1889,15 +1889,21 @@ final class ArchitectureStore: ObservableObject {
         // The parts and the book itself, from the chapter summaries.
         if only == nil || jobs.count > 0 {
             progress?.current = "Describing the parts"
-            let parts = BookAnnotator.partsRequests(view: work, language: language)
-            for (index, built) in parts.enumerated() {
-                try Task.checkCancellation()
+            // Every call is built from the chapter summaries alone and names parts of its own, so the calls run side by side;
+            // their answers are applied in the order of the calls.
+            let requests = BookAnnotator.partsRequests(view: work, language: language).map { built -> CLICompletion.Request in
                 var request = CLICompletion.Request(project: project, prompt: built.prompt, systemPrompt: built.system, jsonSchema: built.schema)
                 request.timeout = 180
                 request.label = "xray-book:parts"
-                if let answer = try? await xrayCall(request, root: root, db: db, call: 90 + index) {
-                    work = BookAnnotator.applyParts(answer, to: work)
-                }
+                return request
+            }
+            let answers = try await SideBySide.map(Array(requests.indices), limit: CLICompletion.sideBySide, work: { @MainActor [weak self] index -> AIRawJSONObject? in
+                guard let self else { throw CancellationError() }
+                guard let answer = try? await self.xrayCall(requests[index], root: root, db: db, call: 90 + index) else { return nil }
+                return try? AIRawJSONObject(answer)
+            })
+            for answer in answers.compactMap({ $0 }) {
+                work = BookAnnotator.applyParts(answer.dictionary, to: work)
             }
         }
         publish(save: true)

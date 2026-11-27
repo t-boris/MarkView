@@ -1461,34 +1461,28 @@ final class FeatureAssistant: ObservableObject {
         defer { preparing.remove(key) }
         let requirements = feature.activeRequirements
         guard let targets = await decisionTargets(feature, decisions: decisions, requirements: requirements) else { return }
-        var rewritten: [String] = []
-        var failed = false
-        // A few requirements at a time: each is one assistant process.
+        // Every rewrite is one assistant process, a few at a time. None reads another's answer (each prompt has the overview and its
+        // requirement as they were before this apply) and each writes its own file, so the overview's rewrite runs among the
+        // requirements' ones. The outcome is what was written (nil when nothing was) and whether the call succeeded.
+        enum Rewrite: Sendable { case requirement(Int), overview([String]) }
         let work = requirements.filter { targets[$0.id] != nil }
-        for start in stride(from: 0, to: work.count, by: 4) {
-            let batch = Array(work[start..<min(start + 4, work.count)])
-            let outcomes = await withTaskGroup(of: (String, Bool).self) { group in
-                for requirement in batch {
-                    let ids = targets[requirement.id] ?? []
-                    let selected = decisions.filter { ids.contains($0.id) }
-                    group.addTask {
-                        (requirement.id, await self.rewriteRequirement(requirement, with: selected, in: feature))
-                    }
-                }
-                var out: [(String, Bool)] = []
-                for await outcome in group { out.append(outcome) }
-                return out
+        var rewrites = work.indices.map { Rewrite.requirement($0) }
+        if let ids = targets[Self.overviewTarget] { rewrites.append(.overview(ids)) }
+        let outcomes = try? await SideBySide.map(rewrites, limit: 4, work: { @MainActor [weak self] rewrite -> (written: String?, ok: Bool) in
+            guard let self else { throw CancellationError() }
+            switch rewrite {
+            case .requirement(let index):
+                let requirement = work[index]
+                let ids = targets[requirement.id] ?? []
+                let ok = await self.rewriteRequirement(requirement, with: decisions.filter { ids.contains($0.id) }, in: feature)
+                return (ok ? requirement.id : nil, ok)
+            case .overview(let ids):
+                guard let edits = await self.rewriteOverview(feature, with: decisions.filter { ids.contains($0.id) }) else { return (nil, false) }
+                return (edits > 0 ? "the overview" : nil, true)
             }
-            for (id, ok) in outcomes { if ok { rewritten.append(id) } else { failed = true } }
-        }
-        if let ids = targets[Self.overviewTarget] {
-            if let edits = await rewriteOverview(feature, with: decisions.filter { ids.contains($0.id) }) {
-                if edits > 0 { rewritten.append("the overview") }
-            } else {
-                failed = true
-            }
-        }
-        guard !failed else { return }
+        })
+        guard let outcomes, outcomes.allSatisfy(\.ok) else { return }
+        let rewritten = outcomes.compactMap(\.written)
         markApplied(decisions, in: slug)
         if !rewritten.isEmpty {
             store.appendDiscussion(slug, speaker: "AI updated the requirements",

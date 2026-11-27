@@ -145,3 +145,71 @@ extension EditorHostTests {
         check(unbounded.0 == chainOf(14) && unbounded.1 == 1, "without a budget the usual limit applies")
     }
 }
+
+/// The assistant of a codebase audit with one document that needs a diagram: plans it, then holds the document's text and its
+/// diagram until both are with it (or a few seconds have passed), so an audit that draws the diagram after the text never has
+/// both in flight.
+private actor AuditAssistant {
+    private var running = 0
+    private(set) var peak = 0
+
+    func run(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        switch request.label {
+        case "audit:plan":
+            let documents = [["file": "01-overview.md", "title": "Overview", "brief": "What the app is made of.", "diagram": "architecture"]]
+            return try CLICompletion.Result(text: "", structured: ["documents": documents], inputTokens: 0, outputTokens: 0, costUSD: nil)
+        case "audit:01-overview.md", "audit:diagram:01-overview.md":
+            running += 1
+            peak = max(peak, running)
+            for _ in 0..<150 where running < 2 { try await Task.sleep(nanoseconds: 20_000_000) }
+            running -= 1
+            guard request.label == "audit:diagram:01-overview.md" else {
+                return try CLICompletion.Result(text: "# Overview\n\nThe app has a store and a view.", structured: nil,
+                                                inputTokens: 0, outputTokens: 0, costUSD: nil)
+            }
+            let spec = DiagramSpec(title: "Parts", question: "What calls what?", takeaway: "The view reads the store.", direction: "LR",
+                                   nodes: [.init(id: "view", label: "View", kind: "service", group: nil, source: nil, note: nil),
+                                           .init(id: "store", label: "Store", kind: "service", group: nil, source: nil, note: nil)],
+                                   edges: [.init(from: "view", to: "store", label: "reads", evidence: nil)], omitted: nil)
+            let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(spec))
+            return try CLICompletion.Result(text: "", structured: object, inputTokens: 0, outputTokens: 0, costUSD: nil)
+        default:
+            throw CLICompletion.Failure.invalidOutput(try XCTUnwrap(CLITool(rawValue: "claude")), "not part of the audit: \(request.label)")
+        }
+    }
+}
+
+extension EditorHostTests {
+    /// An audit document's diagram is drawn from its brief, not its text: both calls run at the same time, and the document holds
+    /// the diagram.
+    @MainActor func testAuditDocumentAndItsDiagramAreWrittenSideBySide() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("audit-" + UUID().uuidString, isDirectory: true)
+        let project = folder.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try "struct Store {}\n".write(to: project.appendingPathComponent("Store.swift"), atomically: true, encoding: .utf8)
+        let settings = Settings.standard
+        let oldAuto = settings.stored(Setting.autoAnalyze)
+        let oldGitHub = settings.stored(Setting.gitHubEnabled)
+        settings.set(false, for: Setting.autoAnalyze)
+        settings.set(false, for: Setting.gitHubEnabled)
+        defer {
+            settings.set(oldAuto, for: Setting.autoAnalyze)
+            settings.set(oldGitHub, for: Setting.gitHubEnabled)
+        }
+        let assistant = AuditAssistant()
+        AIAssistantRunner.setTestRunner { request, _, _ in try await assistant.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let workspace = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: folder.appendingPathComponent("recent.json"))
+        workspace.openFolder(project)
+        for _ in 0..<500 where workspace.project.root == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotNil(workspace.project.root)
+        workspace.runAudit()
+        for _ in 0..<1500 where workspace.aiJobs.isRunning(title: "Codebase audit") { try await Task.sleep(nanoseconds: 10_000_000) }
+        let peak = await assistant.peak
+        XCTAssertEqual(peak, 2, "the document and its diagram are with the assistant at the same time")
+        let document = try String(contentsOf: project.appendingPathComponent("docs/generated-architecture/01-overview.md"), encoding: .utf8)
+        XCTAssertTrue(document.hasPrefix("# Overview"), "the document is written")
+        XCTAssertTrue(document.contains("## Diagram") && document.contains("```mermaid"), "and holds its diagram")
+    }
+}

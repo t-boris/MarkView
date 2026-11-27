@@ -311,8 +311,13 @@ final class CodeExplainStore: ObservableObject {
         tasks.store(Task {
             // A task cancelled by `reset` finds this state cleared and leaves it alone.
             defer { if !Task.isCancelled { working.remove(path); activity[path] = nil; revision += 1 } }
-            // A topic filter: sections get a provisional level from a keyword search at once,
-            // then the AI confirms them (Importance comes with the explanation itself).
+            // The AI rating is built from the sections alone, not from the keyword search: it starts at once.
+            let request = ImportanceRater.request(subject: .code, filter: filter, context: "File: \(path)\n\(explanation.summary)",
+                                                  items: items,
+                                                  language: Self.reasonLanguage, project: root)
+            async let rating = ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
+            // A topic filter: while it runs, sections get a provisional level from a keyword search, which the rating replaces
+            // (Importance comes with the explanation itself).
             if filter.id != ImportanceRater.importance.id,
                let terms = try? await FilterSearch.terms(for: filter, cache: directory.appendingPathComponent("terms"), project: root) {
                 var scores: [String: Double] = [:]
@@ -335,11 +340,8 @@ final class CodeExplainStore: ObservableObject {
                     revision += 1
                 }
             }
-            let request = ImportanceRater.request(subject: .code, filter: filter, context: "File: \(path)\n\(explanation.summary)",
-                                                  items: items,
-                                                  language: Self.reasonLanguage, project: root)
             do {
-                let (ratings, result) = try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
+                let (ratings, result) = try await rating
                 result.record(in: db)
                 guard !Task.isCancelled, var current = explanations[path] else { return }
                 current.ratings[filter.id] = ratings

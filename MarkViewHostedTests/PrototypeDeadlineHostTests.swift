@@ -53,6 +53,8 @@ enum PrototypeDeadlineChecks {
         let labels = await PrototypeAssistantFixture.audit.labels
         XCTAssertTrue(labels.contains("prototype:foundation:data:part:data.js:3"), "A large data file requires multiple bounded responses.")
         XCTAssertTrue(labels.contains("prototype:component:src-index-html:part:components/src-index-html.html:1"))
+        let shellPeak = await PrototypeAssistantFixture.audit.shellFilesPeak
+        XCTAssertEqual(shellPeak, 2, "The shell's two files are rebuilt in parts at the same time.")
 
         for variant in ["fragments-fail", "fragments-cancel"] {
             await PrototypeAssistantFixture.audit.set(variant: variant)
