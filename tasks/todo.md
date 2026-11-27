@@ -87,6 +87,15 @@ agent create the parallel calls itself"); probes on 2026-11-26 decided each CLI:
   (temporary hosted check, not committed): Claude asked for subagents 14 s, not asked 7 s, Codex 8 s with three `cat`s started
   together and no spawn attempt; in the red run the streamed answer showed "Starting three subagents in parallel" and their tasks.
   Antigravity unchanged (already starts subagents under its deny list, verified); Copilot unchanged and not run (quota).
+- Phase 4: PR #456 merged as 1bc1ec99 (7.12.0): every new Cockpit plan starts with "Delegation to subagents" on
+  (`CockpitControls.newPlan`; DEC-038 proposed, extends DEC-033); unreadable controls keep the restrictive default. Evidence: the
+  real-window routing test asserts it and fails with the old default; 21 Cockpit managed-run hosted tests.
+- Release: v7.11.0/v7.12.0 not published. The `markview-notary` profile left the login keychain between 21:30 (v7.10.1 notarized)
+  and 21:40 ("No Keychain password item found"); Boris must store it again, then `./release.sh --publish` from a clean origin/main
+  worktree publishes 7.12.0 (it contains 7.11.0).
+- Copilot (open, quota): its subagent tool is `task` (with `read_agent`/`write_agent` for background agents, all marked `safe` in
+  its session records), but no recorded session ever ran it, so how its subagents obey `--available-tools` and ACP permission
+  requests is unknown; add `task` to the ACP one-shot profile only after a live run once the monthly quota resets.
 - CI: PR #453's build job failed on a new warning (unused `addTaskUnlessCancelled` result) and an unused import in `SideBySide.swift`;
   fixed in PR #454 (ba250238, 7.10.1). PR #452's build job timed out in the unused-import step (107 recompiled files, 35 min); the
   same check run locally over every changed source of both PRs finds nothing.
