@@ -1071,9 +1071,15 @@ final class ArchitectureStore: ObservableObject {
         return (modules, scenarios, files)
     }
 
-    /// Trace the scenarios the code analysis chose (`codeModel.scenarios`) one after
-    /// another through the same path as a manual trace, then replace the automatic
-    /// sequences with the result; manual traces are kept (DEC-002). A cancelled run
+    /// What tracing one automatic scenario gave: its sequence, or why it could not be traced.
+    private enum TraceOutcome {
+        case traced(CodeSequence)
+        case failed(String)
+    }
+
+    /// Trace the scenarios the code analysis chose (`codeModel.scenarios`), `CLICompletion.sideBySide`
+    /// at a time and kept in their order, through the same path as a manual trace, then replace the
+    /// automatic sequences with the result; manual traces are kept (DEC-002). A cancelled run
     /// changes nothing. A run in which every scenario failed keeps the previous automatic
     /// sequences and, like a successful one, records the source signature it traced
     /// (`tracedSignature`) with the failures (`traceNotes`, repeated by the coverage
@@ -1083,27 +1089,39 @@ final class ArchitectureStore: ObservableObject {
         guard let auto = Self.autoScenarios(in: snapshot) else { return }
         let (modules, scenarios, files) = auto
         let started = Date()
-        var traced: [CodeSequence] = []
-        var failures: [(title: String, reason: String)] = []
-        for (index, scenario) in scenarios.enumerated() {
-            if Task.isCancelled { break }
-            beginStep(index + 1, "Tracing " + scenario.title, started: started, steps: scenarios.count)
-            setProgressScope(scenario.question)
+        // No scenario's trace depends on another's.
+        beginStep(1, "Tracing \(scenarios.count) scenario\(scenarios.count == 1 ? "" : "s")", started: started, steps: 1)
+        setProgressScope(scenarios.map(\.title).joined(separator: ", "))
+        progress?.total = scenarios.count
+        progress?.unit = "scenarios"
+        var finished = 0
+        let outcomes = try? await SideBySide.map(scenarios, limit: CLICompletion.sideBySide, work: { @MainActor [weak self] scenario -> TraceOutcome in
+            guard let self else { throw CancellationError() }
             let paths = files.filter { $0 == scenario.scope || $0.hasPrefix(scenario.scope + "/") }.sorted()
-            guard !paths.isEmpty else {
-                failures.append((scenario.title, "no source files under \(scenario.scope)"))
-                continue
-            }
+            guard !paths.isEmpty else { return .failed("no source files under \(scenario.scope)") }
             do {
-                let diagram = try await traceSequence(name: scenario.scope, question: scenario.question, paths: paths,
-                                                      modules: modules, root: root, db: db)
+                let diagram = try await self.traceSequence(name: scenario.scope, question: scenario.question, paths: paths,
+                                                           modules: modules, root: root, db: db)
                 // A file scope has a Code-view node of its own; a directory is traced at the root.
                 let scope = paths == [scenario.scope] ? "code:f:" + scenario.scope : "code:"
-                traced.append(CodeSequence(scope: scope, diagram: diagram, modules: modules, auto: true))
+                return .traced(CodeSequence(scope: scope, diagram: diagram, modules: modules, auto: true))
             } catch is CancellationError {
-                break
+                throw CancellationError()
             } catch {
-                failures.append((scenario.title, error.localizedDescription))
+                return .failed(error.localizedDescription)
+            }
+        }, done: { [weak self] _, _ in
+            finished += 1
+            self?.progress?.done = finished
+        })
+        // A cancelled run changes nothing.
+        guard let outcomes else { return }
+        var traced: [CodeSequence] = []
+        var failures: [(title: String, reason: String)] = []
+        for (scenario, outcome) in zip(scenarios, outcomes) {
+            switch outcome {
+            case .traced(let sequence): traced.append(sequence)
+            case .failed(let reason): failures.append((scenario.title, reason))
             }
         }
         guard !Task.isCancelled, rootPath == root.standardizedFileURL.path, var next = snapshot, var model = next.codeModel else { return }

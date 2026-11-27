@@ -310,29 +310,16 @@ enum PrototypeAI {
     private static func sideBySide<Item: Sendable>(_ items: [Item], concurrency: Int,
                                                    work: @escaping @Sendable (Item) async throws -> Void,
                                                    done: (Item, String?) -> Void) async throws {
-        try await withThrowingTaskGroup(of: (Item, String?).self) { group in
-            var next = 0
-            func launch() {
-                guard next < items.count else { return }
-                let item = items[next]
-                next += 1
-                group.addTask {
-                    do {
-                        try await work(item)
-                        return (item, nil)
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        return (item, error.localizedDescription)
-                    }
-                }
+        _ = try await SideBySide.map(items, limit: concurrency, work: { item -> String? in
+            do {
+                try await work(item)
+                return nil
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                return error.localizedDescription
             }
-            for _ in 0..<max(1, concurrency) { launch() }
-            while let (item, problem) = try await group.next() {
-                done(item, problem)
-                launch()
-            }
-        }
+        }, done: { index, problem in done(items[index], problem) })
     }
 
     /// Builds the first versions into `site` in three stages: the plan (reads the requirements, or in code mode

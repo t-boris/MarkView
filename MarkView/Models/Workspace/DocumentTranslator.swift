@@ -106,58 +106,49 @@ final class DocumentTranslator: ObservableObject {
         return outcome
     }
 
-    /// Translates the sections one after the other into the job's tab. Returns the message for a translation that was stopped.
+    /// Translates the sections into the job's tab, `CLICompletion.sideBySide` at a time: no section's prompt depends on another's
+    /// answer. After each section the tab shows the whole document, the sections finished so far translated and the others still in
+    /// the original language. Returns the message for a translation that was stopped.
     private func run(_ job: Job) async -> String? {
-        var parts: [String] = []
+        // The translatable sections in document order; a section's number is its place among them, as the banner counts them.
+        // Front matter and fenced code go through verbatim: never sent to the model, so code can't come back "helpfully" rewritten.
+        let translatable = job.chunks.indices.filter { job.chunks[$0].isTranslatable }
+        var translated: [Int: String] = [:]
         var failedChunks: [Int] = []
         var lastError: String?
-        var done = 0
-        var stopped = false
-
-        for (i, chunk) in job.chunks.enumerated() {
-            guard chunk.isTranslatable else {
-                // Front matter and fenced code go through verbatim — never sent to the model, so code can't come back
-                // "helpfully" rewritten.
-                parts.append(chunk.text + chunk.separator)
-                write(job.banner(done) + job.prefix + parts.joined(), to: job.tabID)
-                continue
-            }
-
-            done += 1
-            // A stopped translation keeps the sections it has not reached in the original language.
-            if Task.isCancelled { stopped = true }
-            if stopped {
-                failedChunks.append(done)
-                parts.append(chunk.text + chunk.separator)
-                continue
-            }
-            lines[job.tabID] = "Translating \(done)/\(job.translatableCount) (\(job.engine.label))..."
-
-            let expected = MarkdownDocumentChunker.skeleton(of: chunk.text)
-            var translated = await translateChunk(chunk.text, job: job, strict: false, error: &lastError)
-
-            // Structural check, then one stricter retry. This is what keeps tables intact when a small local model reflows them.
-            if let candidate = translated, MarkdownDocumentChunker.skeleton(of: candidate) != expected {
-                AppLog.workspace.notice("Translation chunk \(i + 1): structure mismatch, retrying strictly")
-                translated = await translateChunk(chunk.text, job: job, strict: true, error: &lastError)
-            }
-
-            if Task.isCancelled { stopped = true }
-            if !stopped, let candidate = translated, MarkdownDocumentChunker.skeleton(of: candidate) == expected {
-                parts.append(candidate + chunk.separator)
+        var finished = 0
+        func document() -> String {
+            job.prefix + job.chunks.indices.map { (translated[$0] ?? job.chunks[$0].text) + job.chunks[$0].separator }.joined()
+        }
+        func showProgress() {
+            lines[job.tabID] = "Translating \(finished)/\(job.translatableCount) (\(job.engine.label))..."
+        }
+        showProgress()
+        write(job.banner(0) + document(), to: job.tabID)
+        // A run never throws: a failed or stopped section keeps its source text, so the others go on.
+        _ = try? await SideBySide.map(translatable, limit: CLICompletion.sideBySide, work: { [weak self] index in
+            await self?.translateSection(job.chunks[index].text, job: job) ?? Outcome(text: nil, error: nil)
+        }, done: { position, outcome in
+            finished += 1
+            let index = translatable[position]
+            if !Task.isCancelled, let text = outcome.text {
+                translated[index] = text
             } else {
                 // Keep the source text rather than emit corrupted markdown.
-                failedChunks.append(done)   // numbered as the banner counts them
-                parts.append(chunk.text + chunk.separator)
+                failedChunks.append(position + 1)
+                if let error = outcome.error { lastError = error }
             }
+            showProgress()
+            write(job.banner(finished) + document(), to: job.tabID)
+        })
+        // A stopped translation keeps the sections it has not reached in the original language.
+        let stopped = Task.isCancelled
+        if stopped { failedChunks = translatable.indices.filter { translated[translatable[$0]] == nil }.map { $0 + 1 } }
 
-            write(job.banner(done) + job.prefix + parts.joined(), to: job.tabID)
-        }
-
-        var result = job.prefix + parts.joined()
+        var result = document()
         if !failedChunks.isEmpty {
             // Silent fallbacks previously made a partly-translated document look finished. Say so, in the document itself.
-            let list = failedChunks.map(String.init).joined(separator: ", ")
+            let list = failedChunks.sorted().map(String.init).joined(separator: ", ")
             let reason = stopped ? "(the translation was stopped)"
                 : lastError.map { "(\($0))" } ?? "(the model's output did not preserve their structure)"
             result = "> ⚠️ Translation incomplete — section(s) \(list) kept in the original language "
@@ -168,6 +159,28 @@ final class DocumentTranslator: ObservableObject {
         lines[job.tabID] = nil
         AppLog.workspace.notice("Translation complete: \(job.chunks.count) chunks, engine \(job.engine.label)")
         return stopped ? "The translation was stopped before it finished." : nil
+    }
+
+    /// What became of one section: its translation, or nil to keep the source, with the error of the last call that failed.
+    private struct Outcome: Sendable {
+        var text: String?
+        var error: String?
+    }
+
+    /// One section: a translation whose Markdown skeleton must match the source's, asked again once, strictly, when it does not.
+    private func translateSection(_ text: String, job: Job) async -> Outcome {
+        var lastError: String?
+        let expected = MarkdownDocumentChunker.skeleton(of: text)
+        var translated = await translateChunk(text, job: job, strict: false, error: &lastError)
+        // Structural check, then one stricter retry. This is what keeps tables intact when a small local model reflows them.
+        if let candidate = translated, MarkdownDocumentChunker.skeleton(of: candidate) != expected, !Task.isCancelled {
+            AppLog.workspace.notice("Translation section: structure mismatch, retrying strictly")
+            translated = await translateChunk(text, job: job, strict: true, error: &lastError)
+        }
+        guard let candidate = translated, MarkdownDocumentChunker.skeleton(of: candidate) == expected else {
+            return Outcome(text: nil, error: lastError)
+        }
+        return Outcome(text: candidate, error: lastError)
     }
 
     /// Re-resolve the tab by id on every write: the awaits take real time and the person may open or close tabs meanwhile, which would

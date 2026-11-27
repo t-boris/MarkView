@@ -622,3 +622,66 @@ extension EditorHostTests {
         XCTAssertNil(second.activeSlug)
     }
 }
+
+/// The assistant of the attachment check: answers each source's facts, later sources first, and counts the calls with it at once.
+private actor AttachmentAssistant {
+    private var running = 0
+    private(set) var peak = 0
+    private(set) var calls = 0
+
+    func run(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        running += 1
+        calls += 1
+        peak = max(peak, running)
+        defer { running -= 1 }
+        // The prompt names the source as "## New source SRC-…: <file name>".
+        let line = request.prompt.components(separatedBy: "\n").first { $0.hasPrefix("## New source ") } ?? ""
+        let name = line.components(separatedBy: ": ").dropFirst().joined(separator: ": ")
+        let number = Int(name.filter(\.isNumber)) ?? 0
+        try await Task.sleep(nanoseconds: UInt64(max(1, 10 - number)) * 20_000_000)
+        let answer: [String: Any] = ["role": FeatureVocabulary.sourceRoles[0], "summary": "About \(name).",
+                                     "facts": [["text": "A fact from \(name)", "certainty": "stated"]]]
+        return try CLICompletion.Result(text: "", structured: answer, inputTokens: 1, outputTokens: 1, costUSD: nil)
+    }
+}
+
+extension EditorHostTests {
+    /// The files attached to a new feature become sources in their order; their facts are asked for side by side and each lands in
+    /// its own source although the answers come back in another order.
+    @MainActor func testAttachedFilesBecomeSourcesInOrderWithTheirFactsAskedSideBySide() async throws {
+        let suiteName = "feature-attachments-host-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("feature-attachments-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = try (1...4).map { n -> URL in
+            // Plain text: a copied Markdown attachment is read back as a source object of its own (a separate bug).
+            let url = root.appendingPathComponent("note-\(n).txt")
+            try "Attachment \(n) says the export takes \(n) minutes.\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let store = FeatureStore(settings: Settings(defaults))
+        store.setup(root: root)
+        store.reloadSync()
+        defer { store.reset() }
+        let slug = try XCTUnwrap(store.createFeature(title: "Attachments", idea: "Files come with the request"))
+        let assistant = AttachmentAssistant()
+        AIAssistantRunner.setTestRunner { request, _, _ in try await assistant.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+
+        await store.assistant.ingestFiles(files, into: slug)
+
+        let sources = try XCTUnwrap(store.feature(slug)).list(.source).sorted { $0.id < $1.id }
+        XCTAssertEqual(sources.map(\.title), files.map(\.lastPathComponent), "the sources are numbered in the order of the files")
+        for source in sources {
+            let facts = (source.front["facts"]?.list ?? []).compactMap { $0["text"]?.string }
+            XCTAssertEqual(facts, ["A fact from \(source.title)"], "\(source.id) holds its own file's facts")
+            XCTAssertFalse(source.front.string("file").isEmpty, "\(source.id) has its file copied in")
+        }
+        let calls = await assistant.calls, peak = await assistant.peak
+        XCTAssertEqual(calls, files.count, "one call per file")
+        XCTAssertGreaterThan(peak, 1, "the files' facts are asked for at the same time")
+        XCTAssertLessThanOrEqual(peak, CLICompletion.sideBySide, "never more than CLICompletion.sideBySide at once")
+    }
+}

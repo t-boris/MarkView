@@ -14,6 +14,10 @@ import MarkViewCore
 /// bounded by the argument-list limit.
 enum CLICompletion {
 
+    /// How many runs one action starts at the same time when their answers do not depend on each other (`SideBySide.map`): the
+    /// sections of a translation, the passages of a book chapter, the scenarios of an X-Ray trace, the attachments of an intake.
+    static let sideBySide = 3
+
     /// A window's assistant captured when an operation starts, including the CLI default model (nil).
     struct Assistant: Sendable {
         let tool: CLITool
