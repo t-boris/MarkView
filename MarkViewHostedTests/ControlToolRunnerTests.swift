@@ -45,6 +45,42 @@ final class ControlToolRunnerTests: XCTestCase {
         let missing = await ControlToolRunner.run("markview_agents", ["window": "missing-window"], caller: caller)
         XCTAssertTrue(missing.isError)
     }
+    /// A closed window leaves the control tools' list when it closes, even while something still holds its workspace (BUG-134):
+    /// `markview_windows` no longer shows it, and `markview_open_project` no longer answers that its folder is already open.
+    @MainActor
+    func testAClosedWindowLeavesTheWindowList() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-closed-window-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let workspace = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: folder.appendingPathComponent("recent.json"))
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 100, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.title = "Closed window " + UUID().uuidString
+        workspace.hostWindow = window
+        // Opening the folder offers the window to agents (`BrowserHost.register`).
+        workspace.openFolder(folder)
+        for _ in 0..<500 where workspace.projectFolder == nil || workspace.rootNode == nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let project = try XCTUnwrap(workspace.projectFolder).path
+        let id = workspace.browser.controlID
+        defer { AgentToolServer.unregister(id) }
+        let caller = ControlToolRunner.Caller(pids: [], folder: folder.path)
+        let open = await ControlToolRunner.run("markview_windows", [:], caller: caller)
+        XCTAssertTrue(open.text.contains(window.title), open.text)
+        let reopenWhileOpen = await ControlToolRunner.run("markview_open_project", ["path": project, "window": id.uuidString], caller: caller)
+        XCTAssertTrue(reopenWhileOpen.text.contains("already open"), reopenWhileOpen.text)
+
+        // What closing the window runs (`WindowSessionController`'s willClose handler).
+        workspace.windowWillClose()
+        let listed = await ControlToolRunner.run("markview_windows", [:], caller: caller)
+        XCTAssertFalse(listed.text.contains(window.title), listed.text)
+        XCTAssertFalse(AgentToolServer.liveWindows().contains { $0.id == id })
+        let reopen = await ControlToolRunner.run("markview_open_project", ["path": project, "window": id.uuidString], caller: caller)
+        XCTAssertFalse(reopen.text.contains("already open"), reopen.text)
+        withExtendedLifetime((workspace, window)) {}
+    }
+
     func testStaleSocketCleanupKeepsLiveAndUnrelatedFiles() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-stale-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
