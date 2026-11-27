@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import MarkViewCore
+import SwiftUI
 import XCTest
 @testable import MarkView
 
@@ -250,5 +251,39 @@ extension EditorHostTests {
         }
         for _ in 0..<300 where released != nil { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertNil(released, "the closed window's workspace is still alive")
+    }
+
+    /// The window's own view, shown in a window and closed, lets go of that window and of its workspace. The view kept its window
+    /// in a strong `@State`, which lives in the window's own view graph: the closed window, the graph and the workspace with its
+    /// project database stayed alive (BUG-138).
+    @MainActor func testAClosedWorkspaceWindowLetsGoOfItsView() async throws {
+        weak var closedWindow: NSWindow?
+        weak var closedWorkspace: AnyObject?
+        do {
+            let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 900, height: 600),
+                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            let hosting = NSHostingView(rootView: ContentView())
+            window.contentView = hosting
+            // The view offers its workspace to the control tools once it knows its window.
+            var shown: (any AgentControlWindow)?
+            for _ in 0..<500 {
+                hosting.layoutSubtreeIfNeeded()
+                shown = AgentToolServer.liveWindows().first { $0.workspace.hostWindow === window }?.workspace
+                if shown != nil { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            let workspace = try XCTUnwrap(shown, "the window's view never showed its workspace")
+            // A person closes a window that its session has taken: its close is handled from then on.
+            for _ in 0..<500 where !(window.delegate is WindowCloseDelegate) { try await Task.sleep(nanoseconds: 10_000_000) }
+            XCTAssertTrue(window.delegate is WindowCloseDelegate, "the window's session never took the window")
+            closedWindow = window
+            closedWorkspace = workspace
+            window.close()
+        }
+        for _ in 0..<300 where closedWindow != nil || closedWorkspace != nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(closedWindow, "the closed window is still alive")
+        XCTAssertNil(closedWorkspace, "the closed window's workspace is still alive")
     }
 }
