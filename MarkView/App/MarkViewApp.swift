@@ -497,6 +497,7 @@ enum DDESettingsWindow {
     private static var window: NSWindow?
     /// The workspace whose settings the window shows.
     private static weak var shownWorkspace: WorkspaceManager?
+    private static var closeObserver: (any NSObjectProtocol)?
 
     static func show(workspace: WorkspaceManager?) {
         let window = self.window ?? makeWindow()
@@ -525,7 +526,17 @@ enum DDESettingsWindow {
         window.contentMinSize = NSSize(width: min(600, size.width), height: min(440, size.height))
         window.center()
         self.window = window
+        // Closed, it lets go of the window whose settings it showed, which may close too (BUG-138); the next show binds again.
+        closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            MainActor.assumeIsolated { release() }
+        }
         return window
+    }
+
+    private static func release() {
+        if let window { shownWorkspace?.theme.detach(window) }
+        shownWorkspace = nil
+        window?.contentView = nil
     }
 
     /// Show `workspace`'s settings: opened from another window, the content is rebuilt for it.

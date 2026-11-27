@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MarkViewCore
 import XCTest
@@ -219,4 +220,35 @@ private enum WindowSessionChecks {
 
 extension EditorHostTests {
     func testWindowSessionPersistence() async throws { try await WindowSessionChecks.run() }
+
+    /// A closed window's workspace is freed (BUG-138): nothing it made keeps it once its close has run, with its folder and a
+    /// file open.
+    @MainActor func testAClosedWindowsWorkspaceIsFreed() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("markview-freed-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let note = folder.appendingPathComponent("note.md")
+        try Data("# Note\n".utf8).write(to: note)
+        weak var released: WorkspaceManager?
+        do {
+            let workspace = WorkspaceManager(prompts: QAPlayerPrompts(), recentFilesURL: folder.appendingPathComponent("recent.json"))
+            let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 100, height: 100),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            workspace.hostWindow = window
+            workspace.openFolder(folder)
+            for _ in 0..<500 where workspace.projectFolder == nil || workspace.rootNode == nil {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            XCTAssertNotNil(workspace.rootNode)
+            workspace.openFile(note)
+            for _ in 0..<500 where workspace.tabs.openTabs.isEmpty { try await Task.sleep(nanoseconds: 10_000_000) }
+            XCTAssertEqual(workspace.tabs.openTabs.map(\.url.lastPathComponent), ["note.md"])
+            released = workspace
+            // What closing the window runs (`WindowSessionController`'s willClose handler).
+            workspace.windowWillClose()
+            withExtendedLifetime(window) {}
+        }
+        for _ in 0..<300 where released != nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(released, "the closed window's workspace is still alive")
+    }
 }

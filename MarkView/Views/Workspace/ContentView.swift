@@ -818,7 +818,9 @@ private struct WorkspaceWindow: View {
         guard let window = hostWindow, !sessionAttached else { return }
         sessionAttached = true
         workspaceManager.taskBag.store(Task { @MainActor in
-            await WindowSessionController.shared.attach(id: windowSessionID, window: window, workspace: workspaceManager) { id in
+            // The controller keeps this action for every window it opens later: it captures the action only, not this view and
+            // its window (BUG-138).
+            await WindowSessionController.shared.attach(id: windowSessionID, window: window, workspace: workspaceManager) { [openWindow] id in
                 openWindow(id: WindowSessionController.sceneID, value: id)
             }
             restorationComplete = true

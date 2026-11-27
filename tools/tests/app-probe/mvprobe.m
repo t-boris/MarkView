@@ -5,6 +5,9 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <fcntl.h>
+#import <sys/param.h>
+#import <unistd.h>
 
 static NSString *OutDir;
 static FILE *LogF;
@@ -249,7 +252,7 @@ static void Later(NSTimeInterval s) {
 /// exception in the probed app is a crash with a system dialog on the screen of whoever runs the probe.
 static NSDictionary<NSString *, NSNumber *> *StepArguments(void) {
     return @{ @"wait": @1, @"pick": @1, @"picktitle": @1, @"size": @2, @"snap": @1, @"frame": @1, @"motion": @1, @"menuchoose": @1,
-             @"move": @2, @"click": @2, @"hit": @2, @"clicklabel": @1, @"clickcontains": @1, @"cmdkey": @1, @"drag": @4, @"openurl": @1, @"sheet": @1 };
+             @"move": @2, @"click": @2, @"hit": @2, @"clicklabel": @1, @"clickcontains": @1, @"cmdkey": @1, @"drag": @4, @"openurl": @1, @"sheet": @1, @"fds": @1 };
 }
 
 static void RunNext(void) {
@@ -401,6 +404,19 @@ static void RunNext(void) {
             L(@"openurl %@", path);
             [d application:NSApp openURLs:@[[NSURL fileURLWithPath:path]]];
         } else L(@"openurl: delegate %@ does not respond", NSStringFromClass([d class]));
+    } else if ([cmd isEqualToString:@"close"]) {
+        if (w) { L(@"close '%@'", w.title); [w performClose:nil]; } else L(@"close: no window");
+        // The probe's app gets no events of its own, so the last one (which names this window) would stay NSApp.currentEvent and
+        // keep the closed window alive: one empty event replaces it.
+        [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:0
+                                         windowNumber:0 context:nil subtype:0 data1:0 data2:0] atStart:NO];
+    } else if ([cmd isEqualToString:@"fds"]) {
+        NSString *part = [[line substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        int count = 0, limit = getdtablesize();
+        char path[MAXPATHLEN];
+        for (int fd = 0; fd < limit; fd++)
+            if (fcntl(fd, F_GETPATH, path) == 0 && strstr(path, part.UTF8String)) { count++; L(@"  fd %d %s", fd, path); }
+        L(@"fds '%@': %d open", part, count);
     } else if ([cmd isEqualToString:@"abortmodal"]) {
         if (NSApp.modalWindow) { L(@"aborting modal %@", NSStringFromClass([NSApp.modalWindow class])); [NSApp abortModal]; }
     } else if ([cmd isEqualToString:@"quit"]) {

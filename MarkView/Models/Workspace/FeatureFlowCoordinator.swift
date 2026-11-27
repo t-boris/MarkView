@@ -39,7 +39,9 @@ final class FeatureFlowCoordinator: ObservableObject {
 
     private let project: any ProjectProviding
     private let assistants: any AssistantProviding & AssistantPrompting
-    private let tabs: any FeatureFlowTabs
+    /// The window, held weakly as the other coordinators hold theirs: it owns this coordinator, so a strong hold would keep a
+    /// closed window alive (BUG-138).
+    private weak var tabs: (any FeatureFlowTabs)?
     private let requests: WindowRequests
     private let layout: PanelLayout
     private let chrome: WindowChrome
@@ -130,7 +132,7 @@ final class FeatureFlowCoordinator: ObservableObject {
 
     /// Shows `url` in a tab of the window: the document that a feature, a bug, an object or an issue row points at.
     func open(_ url: URL) {
-        tabs.openFile(url)
+        tabs?.openFile(url)
     }
 
     /// Keep the selected task visible beside its documents in the right column.
@@ -165,7 +167,7 @@ final class FeatureFlowCoordinator: ObservableObject {
         chrome.showTOC = true
         chrome.showFileTree = true
         layout.navigatorTab = .feature
-        tabs.openFile(root.appendingPathComponent(FeatureStore.folderName).appendingPathComponent(slug).appendingPathComponent("overview.md"))
+        tabs?.openFile(root.appendingPathComponent(FeatureStore.folderName).appendingPathComponent(slug).appendingPathComponent("overview.md"))
     }
 
     /// A feature was written by the app itself (the prototype hand-off): open it at its Build stage, ready for "Implement with AI", with
@@ -173,7 +175,7 @@ final class FeatureFlowCoordinator: ObservableObject {
     func featureWritten(_ slug: String, overview: URL) {
         showFeature(slug, stage: .build)
         project.refreshFileTree()
-        tabs.openFile(overview)
+        tabs?.openFile(overview)
     }
 
     /// An intake finished: open what it made, and for a feature show its workspace.
@@ -186,7 +188,7 @@ final class FeatureFlowCoordinator: ObservableObject {
             layout.navigatorTab = .feature
         }
         project.refreshFileTree()
-        if let file = outcome.file { tabs.openFile(file) }
+        if let file = outcome.file { tabs?.openFile(file) }
     }
 
     /// A contextual action on text selected in the editor: the answer (or the created
@@ -194,13 +196,14 @@ final class FeatureFlowCoordinator: ObservableObject {
     func runFeatureAction(_ name: String, text: String, question: String) {
         // A comment on a research document: the AI revises that section (DEC-017).
         if name == "comment" {
-            guard let url = tabs.activeTab?.url, tabs.activeTab?.isFileBacked == true, project.root != nil else { return }
+            guard let tab = tabs?.activeTab, tab.isFileBacked, project.root != nil else { return }
+            let url = tab.url
             research.jobs.comment(on: text, comment: question, in: url)
             return
         }
         guard let action = FeatureAction(rawValue: name) else { return }
         guard project.root != nil else { return }
-        let url = tabs.activeTab?.url
+        let url = tabs?.activeTab?.url
         let located = url.flatMap { features.locate($0) }
         let slug = located?.feature.slug ?? features.active?.slug
         let document = url.map { features.relativePath($0) }
@@ -219,7 +222,7 @@ final class FeatureFlowCoordinator: ObservableObject {
             guard let self, !Task.isCancelled, self.features.root == root else { return }
             self.requests.handoffResume = HandoffResume(slug: slug, title: title,
                                                         linkedFiles: linkedFiles, missingFiles: checked.missing)
-            for url in checked.available { self.tabs.openFile(url) }
+            for url in checked.available { self.tabs?.openFile(url) }
             self.layout.workspaceArea = .files
         }, for: "resumeHandoff:" + slug)
     }
@@ -324,7 +327,7 @@ final class FeatureFlowCoordinator: ObservableObject {
 
     /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
     var researchDefaultTargets: [URL] {
-        guard let root = project.root, let tab = tabs.activeTab, tab.isFileBacked,
+        guard let root = project.root, let tab = tabs?.activeTab, tab.isFileBacked,
               ResearchJobs.relative(tab.url, to: root) != nil else { return [] }
         return [tab.url]
     }
@@ -497,7 +500,7 @@ final class FeatureFlowCoordinator: ObservableObject {
         case .run: layout.gitSection = .actions
         }
         chrome.showCenter = true
-        tabs.showGitHubTab(item, root: root)
+        tabs?.showGitHubTab(item, root: root)
     }
 
     /// Work on a pull request's code: check its branch out, refusing when the working tree has changes (nothing is stashed or
@@ -533,7 +536,7 @@ final class FeatureFlowCoordinator: ObservableObject {
     /// The working copy now holds another branch's files: show them in the tree and open tabs.
     private func branchChanged() {
         project.refreshFileTree()
-        tasks.store(Task { [weak self] in await self?.tabs.reloadChangedOpenFiles(all: true) }, for: "reloadAfterBranchChange")
+        tasks.store(Task { [weak self] in await self?.tabs?.reloadChangedOpenFiles(all: true) }, for: "reloadAfterBranchChange")
     }
 
     /// The branch a pull request comes from, when it is the one checked out.
