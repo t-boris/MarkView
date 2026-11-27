@@ -134,7 +134,11 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
         AppLog.workspace.debug("\(msg)")
     }
 
-    func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
+    /// Opens `url` as the window's project. The task ends with the folder's setup: true when the folder opened, false when the
+    /// setup stopped first (another folder chosen, the window closed, a tree that could not be read), so whoever waits for it goes
+    /// on either way (BUG-139).
+    @discardableResult
+    func openFolder(_ url: URL) -> Task<Bool, Never> {
         projectOperations = ProjectOperationsStore.forRoot(url, prompts: prompts)
         project.beginOpening(url)
         // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
@@ -147,9 +151,9 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
         Self.debugLog("openFolder START: \(url.path)")
 
         // Run setup steps asynchronously — sleep briefly to let SwiftUI render each step
-        let setupTask = Task {
+        let setupTask = Task { () -> Bool in
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms — let UI render progress
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             Self.debugLog("Task started, building tree...")
 
             // Prototypes made before DEC-006 move from .dde/prototypes to docs/prototypes once, before the
@@ -157,11 +161,11 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
             let migration = await Task.detached { PrototypeFiles.migrateLegacy(root: url) }.value
             if !migration.isEmpty { Self.debugLog("Prototype storage migration: \(migration.summary)") }
 
-            guard await project.loadTree(of: url) else { return }
+            guard await project.loadTree(of: url) else { return false }
 
             project.indexingProgress = "Setting up workspace..."
             try? await Task.sleep(nanoseconds: 100_000_000)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
 
             project.startWatching(url)
             Self.debugLog("File watcher started, calling initDDEWorkspaceAsync...")
@@ -175,9 +179,10 @@ class WorkspaceManager: ObservableObject, FeatureFlowTabs, WindowSessionWindow, 
             if project.root == url, isCode {
                 codeXRay.architecture.startAutomaticCodeAnalysis(root: url, db: project.database)
             }
-            completion?()
+            return !Task.isCancelled
         }
         taskBag.store(setupTask, for: "openFolder")
+        return setupTask
     }
 
     /// Opens the folder's database and connects the services that work on it — async to keep UI responsive.
@@ -601,8 +606,6 @@ extension WorkspaceManager: WindowCommands {
     func openHTML(_ url: URL) { browser.openHTML(url) }
     func startInsight(at url: URL) { insight.start(at: url) }
     func discuss(about url: URL) { toolTabs.discussions.discuss(about: url) }
-    func openFolder(_ url: URL) { openFolder(url, completion: nil) }
-
     func openTerminal(in folder: URL) { openTerminal(in: folder, startupCommand: nil, title: nil, activate: true) }
 
     func showSettings() { DDESettingsWindow.show(workspace: self) }

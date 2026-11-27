@@ -209,7 +209,11 @@ struct NewProjectSheet: View {
     private func create() {
         flow.startCreate { url, slug in
             let features = workspaceManager.flow
-            workspaceManager.openFolder(url) { features.showCreatedProject(url, specification: slug) }
+            let opening = workspaceManager.openFolder(url)
+            // The specification shows once the new folder has opened; the window's close or another folder ends the wait.
+            workspaceManager.taskBag.store(Task {
+                if await opening.value { features.showCreatedProject(url, specification: slug) }
+            }, for: "show-created-project")
         }
     }
 
