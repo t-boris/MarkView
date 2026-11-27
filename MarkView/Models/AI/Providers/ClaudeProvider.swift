@@ -186,14 +186,17 @@ private struct ClaudeMCPConfigAdapter: AssistantMCPConfigAdapter {
 /// `claude -p` with stream-json output: no tools unless the request reads files (read-only ones) or searches the web.
 extension ClaudeProvider: AssistantCompletionSupport {
     /// The read-only tools of a run that may read files. `Agent` lets Claude hand independent reads to subagents running side
-    /// by side; a subagent gets only the tools of the run, so it cannot write either.
+    /// by side; a subagent gets only the tools of the run, so it cannot write either. A run asked to start none
+    /// (`CompletionLaunchRequest.subagents`) has the first three.
     static let readingTools = ["Read", "Grep", "Glob", "Agent"]
 
     func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
+        var tools: [String] = []
+        if request.readableFolder != nil { tools += request.subagents ? Self.readingTools : Self.readingTools.filter { $0 != "Agent" } }
+        if request.allowWeb { tools += ["WebSearch", "WebFetch"] }
         var arguments = ["-p", "--safe-mode", "--no-session-persistence",
                          "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                         "--tools", ((request.readableFolder == nil ? [] : Self.readingTools)
-                                        + (request.allowWeb ? ["WebSearch", "WebFetch"] : [])).joined(separator: ",")]
+                         "--tools", tools.joined(separator: ",")]
         // Headless runs cannot ask for permission: web tools must be pre-approved, or the
         // CLI refuses every search (and fetches outside its built-in allowlist).
         if request.allowWeb { arguments += ["--allowedTools", "WebSearch,WebFetch"] }

@@ -71,6 +71,9 @@ enum CLICompletion {
         /// Further folders the CLI may read (a folder X-Ray's whole project); paths in the answer
         /// stay relative to `readableFolder`.
         var extraReadableFolders: [URL] = []
+        /// A run that reads `readableFolder` may start subagents for independent parts. False for a call whose answer is one model
+        /// built from the whole folder, where each subagent reads the same code again (X-Ray's code analysis and traces, BUG-135).
+        var subagents = true
         /// Wall-clock limit; nil for long-running user-controlled work with explicit cancellation.
         var timeout: TimeInterval? = 180
         /// Set only to force a CLI (translation); otherwise `tool` is the project's assistant.
@@ -237,7 +240,7 @@ enum CLICompletion {
             readableFolder: request.readableFolder, extraReadableFolders: request.extraReadableFolders,
             linkedFolders: { request.readableFolder.map { LinkedFolders.load(project: $0).map(\.url) } ?? [] },
             allowWeb: request.allowWeb, images: request.images, effort: request.effort, model: model,
-            workDir: workDir, scratchDirectory: scratchDirectory))
+            workDir: workDir, scratchDirectory: scratchDirectory, subagents: request.subagents))
         defer { launch.schemaFile.map { try? FileManager.default.removeItem(at: $0) } }
 
         // The session a run keeps (`CompletionLaunch.keepsSession`) is written down while the CLI runs and deleted when it ends.

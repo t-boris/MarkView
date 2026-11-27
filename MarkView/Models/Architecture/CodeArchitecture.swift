@@ -441,11 +441,14 @@ enum CodeArchitecture {
         components when present, even when they share a Models folder with application code.
         Consumers of storage remain in application/domain components; do not lump every
         service and database into one application component. Only show layers the source supports.
-        Each component has a layer, a short purpose and owned source files/directories. A child
-        may narrow its parent's paths. A file belongs to the deepest, most specific match.
+        Each component has a layer, a short purpose and the source it owns, given as paths.
+        Own directories: name the directory that holds a component's code, not its files one by
+        one. List a single file only when its directory holds the code of several components; a
+        child may narrow its parent's directory to such files, and a file belongs to the deepest,
+        most specific match. Keep each component to a few paths (at most 8).
         Every path MUST be an exact inventory file path or an existing directory containing
-        inventory files. No wildcard/glob patterns or brace expansions. List non-contiguous
-        files individually. Cover all first-party source code without inventing paths or services.
+        inventory files. No wildcard/glob patterns or brace expansions. Cover all first-party
+        source code without inventing paths or services.
         Every component MUST cite a definition or implementation line demonstrating its purpose,
         within its owned paths. Write the citation as `path:line`: an exact inventory path, a colon
         and a line number that really exists in that file — check the file before citing it, and
@@ -494,7 +497,7 @@ enum CodeArchitecture {
                         "required": ["id", "name", "purpose", "parent", "layer", "paths", "evidence"], "properties": [
                             "id": string(), "name": string(), "purpose": string(), "parent": string(),
                             "layer": ["type": "string", "enum": layers.map(\.id)],
-                            "paths": ["type": "array", "items": ["type": "string", "description": "Exact project-relative source file or directory. No glob patterns or brace expansions."]],
+                            "paths": ["type": "array", "items": ["type": "string", "description": "Project-relative source directory (preferred) or exact file. No glob patterns or brace expansions."]],
                             "evidence": ["type": "string", "description": "Owned source file and substantive definition/implementation :line; not an import/header or whole-file :1 placeholder."]
                         ]]]
                 ]]
@@ -543,10 +546,8 @@ enum CodeArchitecture {
                 cursor = parents[cursor] ?? ""
             }
             if component.paths.isEmpty { problems.append("\(component.name) must own source paths") }
-            for path in component.paths {
-                if path.isEmpty || path.hasPrefix("/") || path.split(separator: "/").contains("..") || !files.contains(where: { $0 == path || $0.hasPrefix(path + "/") }) {
-                    problems.append("\(component.name) has an unknown source path: \(path). Use exact inventory files or existing directories; wildcard patterns are not supported")
-                }
+            for path in component.paths where !isOwnablePath(path, files: files) {
+                problems.append("\(component.name) has an unknown source path: \(path). Use exact inventory files or existing directories; wildcard patterns are not supported")
             }
             // The citation must be in the code this component actually owns, and must say why
             // when it is not: a repair turn that is only told "invalid" repeats the same answer.
@@ -644,10 +645,50 @@ enum CodeArchitecture {
         return nil
     }
 
+    /// An inventory file, or an existing directory that holds one, given as a relative path inside the project.
+    static func isOwnablePath(_ path: String, files: Set<String>) -> Bool {
+        !path.isEmpty && !path.hasPrefix("/") && !path.split(separator: "/").contains("..")
+            && files.contains { $0 == path || $0.hasPrefix(path + "/") }
+    }
+
+    /// What a path the check cannot take as written may mean: without "./" or a trailing "/", and a wildcard pattern cut to the
+    /// directory before its first wildcard ("Sources/App/*.swift" is "Sources/App").
+    private static func pathMeant(by path: String) -> String {
+        var parts = path.split(separator: "/").map(String.init)
+        if parts.first == "." { parts.removeFirst() }
+        if let wildcard = parts.firstIndex(where: { part in part.contains { "*?[{".contains($0) } }) { parts = Array(parts[..<wildcard]) }
+        return parts.joined(separator: "/")
+    }
+
+    /// The answer with what a local step can fix fixed, before it is judged (BUG-135), so the assistant is asked again only for
+    /// what is left instead of rewriting a whole answer over one path or line: a path that is not ownable is replaced by the one
+    /// it means when that one is (`pathMeant(by:)`), else dropped, and every citation that cannot be used is read from the code
+    /// the component or the dependency's endpoint owns (`groundEvidence`). A component with no ownable path keeps its paths, so
+    /// the check names them for the assistant.
+    static func repairLocally(_ model: CodeArchitectureModel, modules: ArchView, root: URL) -> CodeArchitectureModel {
+        let files = Set(modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path))
+        var fixed = model
+        for index in fixed.components.indices {
+            var paths: [String] = []
+            for path in fixed.components[index].paths {
+                let meant = isOwnablePath(path, files: files) ? path : pathMeant(by: path)
+                if isOwnablePath(meant, files: files), !paths.contains(meant) { paths.append(meant) }
+            }
+            if !paths.isEmpty { fixed.components[index].paths = paths }
+        }
+        return groundEvidence(fixed, modules: modules, root: root)
+    }
+
+    /// The answer as the JSON shown to a repair turn, so it repairs the answer the check judged.
+    static func answerText(_ model: CodeArchitectureModel) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(model)).map { String(decoding: $0, as: UTF8.self) }
+    }
+
     /// The model with every citation that cannot be used replaced by a real definition line in the
-    /// code the component (or the dependency's endpoint) already owns. A last resort for an answer
-    /// that is sound everywhere else: the structure stays the assistant's, the citation is read
-    /// from the source, and the result is validated again before it is used.
+    /// code the component (or the dependency's endpoint) already owns: the structure stays the
+    /// assistant's, the citation is read from the source, and the result is validated before it is used.
     static func groundEvidence(_ model: CodeArchitectureModel, modules: ArchView, root: URL) -> CodeArchitectureModel {
         let files = Set(modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path))
         var grounded = model

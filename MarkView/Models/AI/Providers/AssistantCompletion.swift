@@ -74,6 +74,9 @@ struct CompletionLaunchRequest {
     var workDir: URL
     /// An empty folder for files that live for one run.
     var scratchDirectory: () -> URL
+    /// The run may start subagents while it reads `readableFolder` (`CLICompletion.Request.subagents`). Claude and Codex follow it;
+    /// Antigravity's `-p` has no switch for its own.
+    var subagents = true
 }
 
 /// A built command line.
