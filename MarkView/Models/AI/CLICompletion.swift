@@ -16,7 +16,8 @@ import MarkViewCore
 enum CLICompletion {
 
     /// How many runs one action starts at the same time when their answers do not depend on each other (`SideBySide.map`): the
-    /// sections of a translation, the passages of a book chapter, the scenarios of an X-Ray trace, the attachments of an intake.
+    /// sections of a translation, the passages of a book chapter, the scenarios of an X-Ray trace, the attachments of an intake, the
+    /// web and API branches of an End-to-End QA run (`QARunner.branchLimit`).
     static let sideBySide = 3
 
     /// A window's assistant captured when an operation starts, including the CLI default model (nil).

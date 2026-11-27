@@ -166,7 +166,11 @@ enum QAPlanner {
                                                      detail: baseline.establish, branch: branch.id, changesData: .yes, manual: baseline.isManual))
             }
         } else if branches.count > 1 && changesData {
-            problem(.noBaseline, scenario.id, "The checks change data and the scenario does not say how to restore the baseline between them: a check starts from what the one before left.", blocks: false)
+            // What the checks find depends on how the run orders them (QARunner.branchLimit), so the warning says which it is.
+            let consequence = QARunner.branchLimit(scenario: scenario, branches: branches) > 1
+                ? "the branches run side by side and share the application's data, so one check can change what another finds."
+                : "a check starts from what the one before left."
+            problem(.noBaseline, scenario.id, "The checks change data and the scenario does not say how to restore the baseline between them: \(consequence)", blocks: false)
         }
         for branch in branches {
             for (node, condition) in scenario.conditions(of: branch) {

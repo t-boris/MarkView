@@ -1115,9 +1115,12 @@ final class QAScenarioHostTests: XCTestCase {
             func close() async { closed = true }
         }
 
-        // unchecked Sendable: the fixture is configured before one run and inspected only after that run finishes.
+        // unchecked Sendable: the fixture is configured before one run and inspected only after that run finishes; `lock` guards the
+        // drivers, which branches running side by side make at the same time.
         final class FakeFactory: QADriverFactory, @unchecked Sendable {
-            var drivers: [FakeDriver] = []
+            private let lock = NSLock()
+            private var made: [FakeDriver] = []
+            var drivers: [FakeDriver] { lock.withLock { made } }
             var tagScopes = false
             var failFor: Set<String> = []
             var failing: Set<String> = []
@@ -1128,13 +1131,15 @@ final class QAScenarioHostTests: XCTestCase {
             func makeDriver(_ request: QADriverRequest) async throws -> QAActorDriver {
                 if failFor.contains(request.actor?.id ?? "setup") { throw RunTestError.refused }
                 let driver = FakeDriver(request)
-                if tagScopes { driver.scopeMarker = "\nscope-\(drivers.count)" }
                 driver.viewportOnly = viewportOnly
                 driver.scrollLimit = scrollLimit
                 driver.failing = failing
                 driver.evidence = evidence
                 driver.hits = hits
-                drivers.append(driver)
+                lock.withLock {
+                    if tagScopes { driver.scopeMarker = "\nscope-\(made.count)" }
+                    made.append(driver)
+                }
                 return driver
             }
             func driver(_ actor: String?) -> FakeDriver? { drivers.first { $0.request.actor?.id == actor } }
@@ -1343,7 +1348,7 @@ final class QAScenarioHostTests: XCTestCase {
             check("run: pictures can be left out", run(config: { var c = QARunner.Config(); c.captureFrames = false; return c }()).recorder.screens.allSatisfy { $0.png == nil })
 
             let inputEvents = ok.recorder.events.compactMap { event -> (String?, QAInputMark, Data?)? in
-                if case .input(let actor, let mark, let png) = event { return (actor, mark, png) }; return nil
+                if case .input(_, let actor, let mark, let png) = event { return (actor, mark, png) }; return nil
             }
             check("input: every executed action has a pre-input picture and the correct player", !inputEvents.isEmpty && inputEvents.allSatisfy { $0.2 == Data([1,2,3]) && $0.0 != nil })
             check("input: markers carry semantics without typed values", inputEvents.contains { $0.1.kind == .fill && $0.1.label == "Type text" })
@@ -1369,19 +1374,19 @@ final class QAScenarioHostTests: XCTestCase {
             var sawPause = false
             let resumed = run(control: pauseControl, observe: { event in
                 if case .nodeStarted(_, "n1", _, _) = event { pauseControl.pause() }
-                if case .paused(true) = event { sawPause = true; DispatchQueue.global().async { pauseControl.resume() } }
+                if case .paused(_, true) = event { sawPause = true; DispatchQueue.global().async { pauseControl.resume() } }
             })
-            check("pause: execution acknowledges pause and resumes all steps", sawPause && resumed.result?.verdict.outcome == .passed && resumed.recorder.events.contains { if case .paused(false) = $0 { return true }; return false })
+            check("pause: execution acknowledges pause and resumes all steps", sawPause && resumed.result?.verdict.outcome == .passed && resumed.recorder.events.contains { if case .paused(_, false) = $0 { return true }; return false })
             let jumpControl = QARunControl()
             let jumped = run(control: jumpControl, observe: { event in
                 if case .nodeStarted(_, "n1", _, _) = event { jumpControl.pause() }
-                if case .paused(true) = event { DispatchQueue.global().async { jumpControl.resume(at: "n4") } }
+                if case .paused(_, true) = event { DispatchQueue.global().async { jumpControl.resume(at: "n4") } }
             })
             check("pause: continuing at another step uses the same run and marks omissions", jumped.result?.nodesMet == ["n4", "n5"] && jumped.result?.verdict.outcome == .uncovered && !jumped.assistant.asked("Add a product to the cart"))
             let stopControl = QARunControl()
             let stoppedPaused = run(control: stopControl, observe: { event in
                 if case .nodeStarted(_, "n1", _, _) = event { stopControl.pause() }
-                if case .paused(true) = event { DispatchQueue.global().async { stopControl.stop() } }
+                if case .paused(_, true) = event { DispatchQueue.global().async { stopControl.stop() } }
             })
             check("pause: Stop wakes a paused runner without executing input", stoppedPaused.result?.verdict.outcome == .interrupted && stoppedPaused.factory.drivers.allSatisfy { $0.performed.isEmpty && $0.closed })
 
@@ -1425,7 +1430,7 @@ final class QAScenarioHostTests: XCTestCase {
             // Actions that fail, answers that cannot be used
             let giveUp = run(script: ["Add a product to the cart": Array(repeating: move("click", "e9"), count: 6)], prepare: { factory, _ in factory.failing = ["click [e9]"] })
             check("run: an action that keeps failing blocks the step as an element that is not there", giveUp.result?.verdict.blockReason == .elementNotFound && giveUp.result?.verdict.node == "n1" && giveUp.result?.steps.first?.effort.clicks == 0 && giveUp.result?.verdict.reason.contains("failed 3 times") == true)
-            let failedInputs = giveUp.recorder.events.compactMap { event -> QAInputMark? in if case .input(_, let mark, _) = event { return mark }; return nil }
+            let failedInputs = giveUp.recorder.events.compactMap { event -> QAInputMark? in if case .input(_, _, let mark, _) = event { return mark }; return nil }
             check("input: failed attempts have explicit failure annotations", failedInputs.filter(\.failed).count == 3 && failedInputs.filter { !$0.failed }.count == 3)
             check("run: a screen that did not change is not new the second time", giveUp.recorder.screens.contains { !$0.isNew } && giveUp.recorder.screens.first?.isNew == true)
             check("run: and the assistant was told each time it failed", giveUp.assistant.prompts.contains { $0.contains("click [e9] → failed: refused") })

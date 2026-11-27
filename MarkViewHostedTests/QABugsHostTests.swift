@@ -858,11 +858,14 @@ private enum QAAPIHostChecks {
         check("missing executable request blocks approval", !QAPlanner.make(incomplete, targetID: "local", savedLogins: []).canBeApproved)
         var changed = good; changed.nodes[0].api?.statuses = [200]
         check("request changes invalidate approval fingerprint", QAPlanner.fingerprint(good, target: good.targets[0], branches: good.selectedBranches().found) != QAPlanner.fingerprint(changed, target: changed.targets[0], branches: changed.selectedBranches().found))
+        // API branches run side by side, three at a time: the three slow ones are in flight when the run is stopped, the fourth waits.
         let interruptible = scenario(url, nodes: [
             QANode(id: "fork", kind: .alternative, title: "Choose flow", changesData: .no),
-            node("slow", .init(path: "/slow"), kind: .check),
+            node("slowa", .init(path: "/slow"), kind: .check),
+            node("slowb", .init(path: "/slow"), kind: .check),
+            node("slowc", .init(path: "/slow"), kind: .check),
             node("later", .init(path: "/types"), kind: .check)
-        ], edges: [.init(from: "fork", to: "slow"), .init(from: "fork", to: "later")])
+        ], edges: [.init(from: "fork", to: "slowa"), .init(from: "fork", to: "slowb"), .init(from: "fork", to: "slowc"), .init(from: "fork", to: "later")])
         let stopPlan = QAPlanner.make(interruptible, targetID: "local", savedLogins: [])
         var stopGate = QAGate(plan: stopPlan); stopGate.approve(acknowledgedProduction: false)
         let stopRunner = QARunner(scenario: interruptible, plan: stopPlan, gate: stopGate, factory: FixtureFactory(), assistant: NoAssistant(),
@@ -871,8 +874,8 @@ private enum QAAPIHostChecks {
         try await Task.sleep(nanoseconds: 100_000_000)
         running.cancel()
         let stopped = await running.value
-        check("Stop interrupts the API branch in flight", stopped.count(.interrupted) == 1)
-        check("Stop leaves later API branches uncovered", stopped.count(.uncovered) == 1)
+        check("Stop interrupts every API branch in flight", stopped.count(.interrupted) == 3)
+        check("Stop leaves the API branch not started uncovered", stopped.count(.uncovered) == 1 && stopped.results.last?.branch == "fork>later")
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         try QAStore.saveScenario(good, root: folder)

@@ -47,6 +47,9 @@ struct QAFinding: Codable, Equatable, Identifiable {
     var id: String
     /// The step of the scenario the screen belongs to.
     var node: String?
+    /// The branch whose screen it was, so its bug links that branch's recording. Absent in run files written before branches ran
+    /// side by side.
+    var branch: String? = nil
     /// The application the screen belongs to.
     var app: String?
     var kind: QAFindingKind

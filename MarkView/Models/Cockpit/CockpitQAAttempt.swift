@@ -70,7 +70,8 @@ final class CockpitQAAttempt {
                 var finalProgress = previous.result.progress ?? CockpitProgress(passNumber: 1, activity: "", scenarioCoverage: [], bugs: [], fixes: [], latestChange: "", blockers: [], buildLogPath: nil)
                 while qa.run.isRunning {
                     try Task.checkCancellation()
-                    let activity = "QA \(scenarioID): " + (qa.run.currentNode ?? qa.run.currentBranch ?? "preparing")
+                    let running = qa.run.running.isEmpty ? "preparing" : qa.run.running.joined(separator: ", ")
+                    let activity = "QA \(scenarioID): " + (qa.run.currentNode ?? running)
                     let coverage = qa.run.results.map { "\(scenarioID)/\($0.branch): \($0.verdict.outcome.rawValue)" }
                     let blockers = qa.run.question.map { ["Waiting for confirmation: " + $0.title] } ?? []
                     if activity != previousActivity || coverage != previousCoverage || blockers != previousBlockers {
