@@ -61,6 +61,25 @@ final class ControlToolRunnerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path))
     }
 
+    /// A send is pasted as it was written (an answer, a follow-up); a task with `work` and a goal get the agent's own request to run
+    /// independent work at the same time, and an unknown shape is refused.
+    @MainActor
+    func testAgentSendAsksForParallelWorkOnlyForATaskOrAGoal() async throws {
+        let claude = try XCTUnwrap(CLITool(rawValue: "claude"))
+        let parts = try XCTUnwrap(ParallelWork.parts.request(for: claude.provider))
+        let items = try XCTUnwrap(ParallelWork.items.request(for: claude.provider))
+        XCTAssertEqual(try ControlToolRunner.agentPrompt("yes", goal: false, work: nil, tool: claude), "yes")
+        XCTAssertEqual(try ControlToolRunner.agentPrompt("Fix the build", goal: false, work: .parts, tool: claude), "Fix the build " + parts)
+        XCTAssertEqual(try ControlToolRunner.agentPrompt("Review a.swift and b.swift", goal: false, work: .items, tool: claude),
+                       "Review a.swift and b.swift " + items)
+        XCTAssertEqual(try ControlToolRunner.agentPrompt("tests pass", goal: true, work: nil, tool: claude), "/goal tests pass " + parts)
+        XCTAssertEqual(try ControlToolRunner.agentPrompt("all fixed", goal: true, work: .items, tool: claude), "/goal all fixed " + items)
+        XCTAssertEqual(try ControlToolRunner.agentPrompt("ls", goal: false, work: .parts, tool: nil), "ls", "a shell gets the text as it is")
+        XCTAssertThrowsError(try ControlToolRunner.agentPrompt("tests pass", goal: true, work: nil, tool: nil), "a goal needs an agent")
+        XCTAssertNil(try ControlToolRunner.parallelWork([:]))
+        XCTAssertEqual(try ControlToolRunner.parallelWork(["work": "items"]), .items)
+        XCTAssertThrowsError(try ControlToolRunner.parallelWork(["work": "everything"]))
+    }
 }
 
 

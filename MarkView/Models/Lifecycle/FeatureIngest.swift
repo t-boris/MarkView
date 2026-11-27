@@ -128,7 +128,9 @@ extension FeatureAssistant {
                                                     "summary": ["type": "string"],
                                                     "facts": ["type": "array", "items": factSchema]],
                                      "required": ["role", "summary", "facts"]]
-        guard let object = await structured("ingest:" + id, prompt: prompt, schema: schema) else { return }
+        // Sources added one by one (each file chosen on the Sources panel is its own job) and a new feature's attachments share the
+        // assistant's slots instead of all asking at once.
+        guard let object = try? await factSlots.run({ await structured("ingest:" + id, prompt: prompt, schema: schema) }) else { return }
         // The user's own words (the intake text, a voice note) state facts nobody needs to accept;
         // material from elsewhere stays pending until the user accepts it.
         let own = ["intake", "voice"].contains(source.front.string("origin"))

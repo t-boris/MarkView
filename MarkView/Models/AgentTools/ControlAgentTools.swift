@@ -83,9 +83,11 @@ enum ControlAgentTools {
         tool("markview_agent_start", "Open an agent in the window's AI panel (a new terminal) and wait until it runs. tool: claude, codex, cline, copilot or antigravity; default: the project's assistant. A first run in a folder may ask to trust it: see markview_agent_read and markview_agent_key.",
              ["window": window, "tool": ["type": "string", "enum": agentTools],
               "resume": ["type": "boolean", "description": "Continue the assistant's last session in the folder instead of starting a fresh one"]]),
-        tool("markview_agent_send", "Give an agent terminal a prompt, as if pasted and sent; it is delivered once the agent has come up and is quiet. With goal: true the prompt is sent as the agent's goal (/goal for Claude Code and Codex, /autopilot for Copilot). A terminal that is working is refused unless force: true. Never your own terminal.",
+        tool("markview_agent_send", "Give an agent terminal a prompt, as if pasted and sent; it is delivered once the agent has come up and is quiet. With goal: true the prompt is sent as the agent's goal (/goal for Claude Code and Codex, /autopilot for Copilot). work: parts or items adds the agent's own request to run independent work at the same time (subagents, a workflow). A terminal that is working is refused unless force: true. Never your own terminal.",
              ["window": window, "terminal": terminal, "text": ["type": "string"],
               "goal": ["type": "boolean", "description": "Send it as a goal"],
+              "work": ["type": "string", "enum": ["parts", "items"],
+                       "description": "For a task: parts (its parts may be independent) or items (a list of independent items) adds the agent's request to run them at the same time; a goal gets parts unless items is given. Leave it out for an answer or a follow-up"],
               "submit": ["type": "boolean", "description": "Press Enter after pasting (default true)"],
               "force": ["type": "boolean", "description": "Send even though the agent is working (it takes it as a follow-up)"]],
              required: ["text"]),
@@ -350,8 +352,10 @@ enum ControlAgentTools {
 
     markview_agent_send pastes a prompt and presses Enter once the agent has come up and is quiet (up to 45 s after \
     start). goal: true makes it the agent's goal: /goal <text> for Claude Code and Codex (the agent keeps working until \
-    the condition holds), /autopilot for Copilot, plain text for the others. A terminal that printed in the last seconds \
-    is working and is refused unless force: true. You cannot send to the terminal you run in.
+    the condition holds), /autopilot for Copilot, plain text for the others; a goal also asks the agent to run its \
+    independent parts at the same time in its own way (subagents, a workflow). work: "parts" or "items" adds that request \
+    to a plain task (items for a list of independent items); leave it out for an answer or a follow-up. A terminal that \
+    printed in the last seconds is working and is refused unless force: true. You cannot send to the terminal you run in.
 
     markview_agent_wait returns when the terminal has been quiet for quiet_s seconds or the time is up (the reason is \
     in the reply); markview_agent_read shows the last lines of the screen. A new folder may ask the agent to trust it, \

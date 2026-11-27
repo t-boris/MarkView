@@ -10,11 +10,12 @@ enum BookPDFAssistant {
     /// Translates and shortens one chapter in `renderer`. The passages of a pass, and the paragraphs that are shortened, do not depend
     /// on each other: they run `CLICompletion.sideBySide` at a time and come back in their order. A run that fails stops the chapter.
     static func rewriteChapter(renderer: BookPDFRenderer, id: String, html: String,
-                               language: String, reduction: Int, project: URL?, tool: CLITool? = nil,
+                               language: String, reduction: Int, project: URL?, tool: CLITool? = nil, slots: SideBySide.Slots,
                                usage: @escaping (CLICompletion.Result) -> Void = { _ in },
                                progress: (String, Double) -> Void = { _, _ in }) async throws {
         if language != "document" {
-            let translated = try await rewrite(html, language: language, reduction: 0, project: project, tool: tool, usage: usage) { message, fraction in
+            let translated = try await rewrite(html, language: language, reduction: 0, project: project, tool: tool, slots: slots,
+                                               usage: usage) { message, fraction in
                 progress(message, reduction > 0 ? fraction * 0.5 : fraction)
             }
             try await renderer.setChapter(id, html: translated)
@@ -24,8 +25,8 @@ enum BookPDFAssistant {
             var finished = 0
             // A paragraph is short: its own passages run one at a time, so the side-by-side runs are the paragraphs.
             let shortened = try await SideBySide.map(passages.map(\.html), limit: CLICompletion.sideBySide, work: { @MainActor passage in
-                try await rewrite(passage, language: "document", reduction: reduction, project: project, tool: tool, concurrency: 1,
-                                  usage: usage)
+                try await rewrite(passage, language: "document", reduction: reduction, project: project, tool: tool, slots: slots,
+                                  concurrency: 1, usage: usage)
             }, done: { _, _ in
                 finished += 1
                 let part = Double(finished) / Double(max(1, passages.count))
@@ -38,8 +39,9 @@ enum BookPDFAssistant {
     }
 
     /// `html` translated into `language` and/or shortened by `reduction` percent, one pass after the other. The passages of a pass
-    /// run `concurrency` at a time; a passage that fails its checks after its attempts stops the rewrite.
-    static func rewrite(_ html: String, language: String, reduction: Int, project: URL?, tool: CLITool? = nil,
+    /// run `concurrency` at a time, each call holding one of `slots` (shared by the chapters of one book); a passage that fails its
+    /// checks after its attempts stops the rewrite.
+    static func rewrite(_ html: String, language: String, reduction: Int, project: URL?, tool: CLITool? = nil, slots: SideBySide.Slots,
                         concurrency: Int = CLICompletion.sideBySide,
                         usage: @escaping (CLICompletion.Result) -> Void = { _ in },
                         progress: (String, Double) -> Void = { _, _ in }) async throws -> String {
@@ -56,7 +58,7 @@ enum BookPDFAssistant {
             progress("\(pass.1 > 0 ? "Shortening" : "Translating") \(count) passage\(count == 1 ? "" : "s")…", Double(phase) / Double(passes.count))
             let answers = try await SideBySide.map(Array(protected.chunks.indices), limit: concurrency, work: { @MainActor index in
                 try await passage(protected.chunks[index], index: index, of: protected, phase: phase, language: pass.0, reduction: pass.1,
-                                  project: project, tool: tool, usage: usage)
+                                  project: project, tool: tool, slots: slots, usage: usage)
             }, done: { _, _ in
                 finished += 1
                 let fraction = (Double(phase) + Double(finished) / Double(max(1, count))) / Double(passes.count)
@@ -71,7 +73,7 @@ enum BookPDFAssistant {
     /// One passage of a pass: asked again with what was wrong when the answer breaks its structure or misses its length, up to two
     /// runs in all for a translation and three for shortening.
     private static func passage(_ chunk: BookPDFTransform.Chunk, index: Int, of protected: BookPDFTransform.Prepared, phase: Int,
-                                language: String, reduction: Int, project: URL?, tool: CLITool?,
+                                language: String, reduction: Int, project: URL?, tool: CLITool?, slots: SideBySide.Slots,
                                 usage: @escaping (CLICompletion.Result) -> Void) async throws -> String {
         let words = chunk.wordCount
         if words == 0 { return chunk.text }
@@ -122,7 +124,7 @@ enum BookPDFAssistant {
             repair: { context in request(attempt: context.attempt.number) },
             onResult: { result in usage(result) })
         do {
-            return try await writing.execute(()).output
+            return try await slots.run { try await writing.execute(()).output }
         } catch is NoPassage {
             throw BookPDFError.invalid("The assistant did not return the requested passage.")
         }

@@ -70,6 +70,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// Running jobs, e.g. "explore:<slug>", "answer:Q-003", "review:<slug>".
     @Published private(set) var running: Set<String> = []
+    /// The fact extractions of sources run `CLICompletion.sideBySide` at a time, however many are started together.
+    let factSlots = SideBySide.Slots(limit: CLICompletion.sideBySide)
     @Published var results: [FeatureResult] = []
     @Published var error: String?
 

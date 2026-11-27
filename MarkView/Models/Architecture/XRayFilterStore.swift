@@ -23,6 +23,8 @@ final class XRayFilterStore {
     /// show a streamed answer as it grows: "live-search:<filter>" and "live-ratings:<filter>". A new start of a key replaces the old
     /// one, deleting a filter ends its jobs, and `reset` (a project switch, the window's close) ends them all.
     private let tasks = TaskBag()
+    /// The importance ratings asked for as the map is zoomed run `CLICompletion.sideBySide` at a time; the rest wait their turn.
+    private let ratingSlots = SideBySide.Slots(limit: CLICompletion.sideBySide)
 
     /// A new workspace, or the window's close: answers, ratings and live text of the old one are dropped and their jobs stopped, and
     /// nothing of them is written after. The window's one-off filter, the code elements of a search and the filter to switch to belong
@@ -134,7 +136,10 @@ final class XRayFilterStore {
                                                   context: context, items: items,
                                                   language: ArchitectureStore.reasonLanguage, project: host.project)
             do {
-                let (ratings, result) = try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
+                // A zoom draws many containers at once; their ratings share the store's slots instead of all starting together.
+                let (ratings, result) = try await ratingSlots.run {
+                    try await ImportanceRater.operation(keys: Set(items.map(\.key)), filter: filter).execute(request)
+                }
                 result.record(in: db)
                 guard var next = host.snapshot else { return }
                 for (k, var value) in ratings {

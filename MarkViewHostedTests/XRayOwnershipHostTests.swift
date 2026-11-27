@@ -79,6 +79,30 @@ private actor XRayCancellationFixture {
 
 /// Answers the book's chapter calls at once and holds each "parts" call until a second one is running (or a few seconds have
 /// passed), so a run that makes the parts calls one after another never has two of them in flight.
+/// Rates every item of an importance call as "high" after a short wait, counting the calls with the assistant at once: a zoom that
+/// starts every container's rating together has them all in flight.
+private actor XRayZoomRatingFixture {
+    private var running = 0
+    private(set) var peak = 0
+    private(set) var calls = 0
+
+    func run(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        guard request.label == "importance" else {
+            return try CLICompletion.Result(text: "", structured: [String: Any](), inputTokens: 0, outputTokens: 0, costUSD: nil)
+        }
+        calls += 1
+        running += 1
+        peak = max(peak, running)
+        defer { running -= 1 }
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let keys = request.prompt.split(separator: "\n").compactMap { line -> String? in
+            line.hasPrefix("### key: ") ? String(line.dropFirst("### key: ".count)) : nil
+        }
+        let ratings: [[String: Any]] = keys.map { ["key": $0, "level": "high", "reason": "Rated by the fixture."] }
+        return try CLICompletion.Result(text: "", structured: ["ratings": ratings], inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
+}
+
 private actor XRayBookPartsFixture {
     private var running = 0
     private(set) var peak = 0
@@ -939,5 +963,55 @@ extension EditorHostTests {
         XCTAssertEqual(ratings?["s1"]?.level, "strong")
         XCTAssertEqual(ratings?["s1"]?.reason, "Declares the model.", "the rating replaces the provisional level")
         XCTAssertEqual(ratings?["s2"]?.level, "none")
+    }
+
+    /// Zooming out over many containers asks for every container's importance at once; the ratings run `CLICompletion.sideBySide`
+    /// at a time and every container still gets its own.
+    @MainActor func testZoomRatingsShareTheStoreSlots() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xray-zoom-" + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for module in 1...6 {
+            let folder = root.appendingPathComponent(String(format: "Sources/Module%02d", module), isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for file in ["Model", "View"] {
+                try "struct \(file)\(module) { var value = \(module) }\n"
+                    .write(to: folder.appendingPathComponent("\(file)\(module).swift"), atomically: true, encoding: .utf8)
+            }
+        }
+        let settings = Settings.standard
+        let oldAuto = settings.stored(Setting.autoAnalyze)
+        let oldGitHub = settings.stored(Setting.gitHubEnabled)
+        settings.set(false, for: Setting.autoAnalyze)
+        settings.set(false, for: Setting.gitHubEnabled)
+        defer {
+            settings.set(oldAuto, for: Setting.autoAnalyze)
+            settings.set(oldGitHub, for: Setting.gitHubEnabled)
+        }
+        let fixture = XRayZoomRatingFixture()
+        AIAssistantRunner.setTestRunner { request, _, _ in try await fixture.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let store = ArchitectureStore()
+        defer { store.reset() }
+        store.open(root: root, db: nil)
+        for _ in 0..<1000 where store.snapshot?.view("modules") == nil || store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        let view = try XCTUnwrap(store.snapshot?.view("modules"))
+        let kinds: Set<String> = ["component", "dir", "package", "file"]
+        let parents = Set(view.nodes.filter { kinds.contains($0.kind) }.compactMap(\.parent)).sorted()
+        XCTAssertGreaterThan(parents.count, CLICompletion.sideBySide + 1, "more containers than slots: \(parents)")
+        for parent in parents {
+            store.filters.rateImportance(viewId: "modules", parentId: parent, filterId: "importance", root: root, db: nil)
+        }
+        for _ in 0..<1000 {
+            let calls = await fixture.calls
+            let rated = store.snapshot?.ratings["importance"]?.count ?? 0
+            if calls == parents.count, rated >= view.nodes.filter({ kinds.contains($0.kind) && $0.parent != nil }).count { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let calls = await fixture.calls, peak = await fixture.peak
+        XCTAssertEqual(calls, parents.count, "one rating per container")
+        XCTAssertEqual(peak, CLICompletion.sideBySide, "never more than CLICompletion.sideBySide ratings at once")
+        let ratings = store.snapshot?.ratings["importance"] ?? [:]
+        XCTAssertFalse(ratings.isEmpty)
+        XCTAssertTrue(ratings.values.allSatisfy { $0.level == "high" }, "every container's items hold their rating")
     }
 }
