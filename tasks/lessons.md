@@ -553,6 +553,24 @@ named to Boris) before the next push, even when it looks unrelated. Adding a hos
 parts, so two tests that share a setting can start running at the same time in a CI pair: a new failure next to a new test
 is first checked for that.
 
+## A probe copy never keeps the installed app's bundle id (2026-11-27)
+
+For BUG-138 I copied a fresh Debug build as `app-now.app` and skipped the README's `PlistBuddy ... com.markview.MarkViewProbe`
+step. The copy shared the installed MarkView's preferences (cfprefsd ignores the probe's empty home): it restored Boris's
+`broker-fabric` window from `workspace.lastFolder`, wrote into that project's `.dde/state.db` (quick_check ok) and put the probe
+folder into `workspace.recentProjects` and `workspace.lastFolder`. I told Boris, and with his approval removed the two
+entries and restored `lastFolder`. `tools/tests/app-probe/run.sh` now refuses a copy with `com.markview.MarkView`. Every copy:
+re-identify it first, then check `PlistBuddy -c "Print :CFBundleIdentifier"` before the first run.
+
+## Prove an isolation mechanism before recommending it (2026-11-27)
+
+I recommended "a home of its own per paired CI host" (`CFFIXED_USER_HOME`) to separate the hosts' preferences, and Boris chose
+it. A five-minute check afterwards showed the host's `UserDefaults` still landed in the real
+`~/Library/Preferences/com.markview.tests.apphost.plist`: preferences go through `cfprefsd`, which a Cocoa home does not
+move (only `NSHomeDirectory()` and files under it do). The app probe had already shown it (its prefs file has to be deleted by
+hand). Before offering a mechanism as the fix, run the smallest check that it does what the option says, and put that
+evidence in the question.
+
 ## Finding what keeps a closed window alive in the real app (2026-11-27)
 
 A hosted test proves one holder at a time; the real app has more. Use the app probe (`tools/tests/app-probe`, `close` and

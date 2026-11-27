@@ -2,7 +2,7 @@
 type: bug
 id: BUG-137
 title: Closing a window leaves its terminals and agents running out of sight
-status: in-review
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-134
 title: A closed window stays listed by markview_windows, so it looks open but is not saved
-status: in-review
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27

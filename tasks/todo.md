@@ -367,15 +367,13 @@ One release at the end (7.21.4 or later).
 - [x] BUG-139: `openFolder` returns its setup task (true when the folder opened); the restore waits for it, so a setup stopped
       by a close or another folder ends the restore, and the completion callback is gone. Hosted test; the same scenario fails
       on main without the fix. PR #477 merged (23038a8e, 7.21.8).
-- [ ] CI flake found on PR #476: `hosted-tests (4)` runs `qa-editor-0` and `qa-editor-1` at the same time
-      (`tools/ci/run-hosted-pair.sh`), and both hosts share the app's `UserDefaults.standard`. X-Ray tests in part 0 set
-      `Setting.gitHubEnabled` to false while `testRealFeatureFlowGitHubCheckoutWithLocalFixture` in part 1 expects it on (failed
-      at `FeatureFlowCoordinatorHostTests.swift:175`). Part 1's 49 tests in order pass locally. The new hosted test of BUG-138
-      moved the split so they now overlap. The fix (separate preferences per paired host, or no pairs) is Boris's decision.
-- [x] CI: the unused-import step analyzed changed files plus up to 120 recompiled dependants and hit its 35 minutes on 8 runs
-      (35-71 min each instead of 12-26). Boris chose changed files only: PR #472 merged (d2310063). Other failures of the day
-      were fixed earlier (SideBySide timing, a build warning) or ran once (`testPersistentRemoteSessions` on PR #469,
-      `ResearchMapTranslationHostTests` at 04:00); watch whether they recur.
+- [x] CI flake found on PR #476 and #477: `run-hosted-pair.sh` ran two hosted parts at once, and both app hosts share
+      `UserDefaults.standard` and the CPU. X-Ray tests in `qa-editor-0` turned `gitHubEnabled` off under
+      `testRealFeatureFlowGitHubCheckoutWithLocalFixture` (`qa-editor-1`; its 49 tests in order pass locally); `testPageEvidence`'s
+      request timings failed beside `qa-general-0` (3/3 locally). Boris first chose "own preferences per process"; a local check
+      showed that a temporary `CFFIXED_USER_HOME` does not move the host's preferences (cfprefsd writes the real
+      `~/Library/Preferences/com.markview.tests.apphost.plist`), so I asked again and he chose "pairs in sequence": PR #478 merged
+      (7255a860), CI only: the lanes run every part one after another and the pair script is gone.
 - [x] One release: v7.21.8 published 2026-11-27 from origin/main 23038a8e (Latest, signed, notarized, `spctl` accepts the DMG,
       app version 7.21.8), https://github.com/t-boris/MarkView/releases/tag/v7.21.8; copy at `build/MarkView-7.21.8.dmg`.
       It carries 7.21.3-7.21.8 (BUG-131, 136, 134, 137, 138 step 1, 139). Not installed: install only when Boris says.

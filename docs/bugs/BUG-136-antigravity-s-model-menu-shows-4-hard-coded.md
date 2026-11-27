@@ -2,7 +2,7 @@
 type: bug
 id: BUG-136
 title: Antigravity's model menu shows 4 hard-coded models instead of the account's list
-status: in-review
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27
