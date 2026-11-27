@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MarkViewCore)
+import MarkViewCore
+#endif
 import PDFKit
 import UniformTypeIdentifiers
 
@@ -17,6 +20,25 @@ extension FeatureAssistant {
     /// Add a source and extract its facts. Returns the source id.
     @discardableResult
     func ingest(_ origin: SourceOrigin, into slug: String) async -> String? {
+        guard let added = await addSource(origin, into: slug) else { return nil }
+        await extractFacts(slug, source: added.id, content: added.content)
+        return added.id
+    }
+
+    /// The files attached to a new feature. Each becomes a source in the order given, so their ids follow it; then their facts are
+    /// extracted `CLICompletion.sideBySide` at a time, since no file's facts depend on another's.
+    func ingestFiles(_ urls: [URL], into slug: String) async {
+        var added: [(id: String, content: String)] = []
+        for url in urls {
+            if let source = await addSource(.file(url), into: slug) { added.append(source) }
+        }
+        _ = try? await SideBySide.map(added, limit: CLICompletion.sideBySide, work: { @MainActor [weak self] source in
+            await self?.extractFacts(slug, source: source.id, content: source.content)
+        })
+    }
+
+    /// The source object of `origin` (a file is copied in under its id), with the text its facts are extracted from.
+    private func addSource(_ origin: SourceOrigin, into slug: String) async -> (id: String, content: String)? {
         guard store.feature(slug) != nil else { return nil }
         var title = ""
         var originText = ""
@@ -70,8 +92,7 @@ extension FeatureAssistant {
                 }
             }
         }
-        await extractFacts(slug, source: source.id, content: content)
-        return source.id
+        return (source.id, content)
     }
 
     private static func provenance(_ origin: SourceOrigin) -> String {

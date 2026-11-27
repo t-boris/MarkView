@@ -508,3 +508,89 @@ extension PDFExportHostTests {
         try FileManager.default.removeItem(at: longFile)
     }
 }
+
+/// The assistant's side of the book rewrite: the passages and paragraphs of a chapter go to it `CLICompletion.sideBySide` at a time and
+/// come back in their order, even when a later one answers first.
+extension PDFExportHostTests {
+    /// How many calls were with the scripted assistant at once, and how many it got.
+    final class RewriteGauge: @unchecked Sendable { // unchecked Sendable: every field is read and written under `lock`.
+        private let lock = NSLock()
+        private var running = 0
+        private var peakValue = 0
+        private var callCount = 0
+        func begin() { lock.lock(); running += 1; callCount += 1; peakValue = max(peakValue, running); lock.unlock() }
+        func end() { lock.lock(); running -= 1; lock.unlock() }
+        var peak: Int { lock.lock(); defer { lock.unlock() }; return peakValue }
+        var calls: Int { lock.lock(); defer { lock.unlock() }; return callCount }
+    }
+
+    /// Installs an assistant that answers each passage with `transform` of it. Earlier passages answer later, so an answer put in
+    /// the order the calls end would put the passages out of place.
+    static func scriptAssistant(_ gauge: RewriteGauge, _ transform: @escaping @Sendable (String) -> String) {
+        AIAssistantRunner.setTestRunner { request, _, _ in
+            gauge.begin()
+            defer { gauge.end() }
+            // The label is "pdf-book:<pass>:<passage>:<attempt>".
+            let passage = Int(request.label.split(separator: ":").dropFirst(2).first ?? "") ?? 0
+            try await Task.sleep(nanoseconds: UInt64(max(1, 10 - passage)) * 15_000_000)
+            let text = transform(request.prompt)
+            return try CLICompletion.Result(text: text, structured: ["text": text], inputTokens: 1, outputTokens: 1, costUSD: nil)
+        }
+    }
+
+    @MainActor func testBookRewriteTranslatesItsPassagesSideBySideInTheirOrder() async throws {
+        let gauge = RewriteGauge()
+        // Structural tokens are capitals already, so capitals keep them.
+        Self.scriptAssistant(gauge) { $0.uppercased() }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let texts = (1...5).map { String(repeating: "Paragraph \($0) words that need a translation. ", count: 140) }
+        let html = texts.map { "<p>\($0)</p>" }.joined()
+        let passages = BookPDFTransform.prepare(html).chunks.count
+        XCTAssertGreaterThan(passages, 3, "the chapter is more passages than run at once")
+        var steps: [String] = []
+        let result = try await BookPDFAssistant.rewrite(html, language: "German", reduction: 0, project: nil) { message, _ in steps.append(message) }
+        XCTAssertEqual(result, texts.map { "<p>\($0.uppercased())</p>" }.joined(), "every passage comes back translated, in its place")
+        XCTAssertEqual(gauge.calls, passages, "one call per passage")
+        XCTAssertGreaterThan(gauge.peak, 1, "the passages are with the assistant at the same time")
+        XCTAssertLessThanOrEqual(gauge.peak, CLICompletion.sideBySide, "never more than CLICompletion.sideBySide at once")
+        XCTAssertEqual(steps.last, "Translating passage \(passages) of \(passages)…")
+    }
+
+    @MainActor func testBookChapterShortensItsParagraphsSideBySideInTheirPlaces() async throws {
+        let gauge = RewriteGauge()
+        // Shortening by half: every other word, every structural token kept.
+        Self.scriptAssistant(gauge) { prompt in
+            var keep = false
+            return prompt.split(whereSeparator: \.isWhitespace).filter { word in
+                if word.hasPrefix("MVBOOK_") { return true }
+                keep.toggle()
+                return keep
+            }.joined(separator: " ")
+        }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("book-shorten-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let paragraphs = (1...6).map { n in (1...60).map { "p\(n)w\($0)" }.joined(separator: " ") }
+        let chapter = PDFExportTests.chapter("# Chapter\n\n" + paragraphs.joined(separator: "\n\n") + "\n", in: folder)
+        let entry = try XCTUnwrap(Bundle.main.url(forResource: "book", withExtension: "html", subdirectory: "Editor"))
+        let renderer = try BookPDFRenderer(entry: entry)
+        let prepared = try await renderer.prepare([chapter], options: BookPDFOptions())
+        let html = try XCTUnwrap(prepared.html.first?.text)
+        let before = try await renderer.prosePassages(chapter.id)
+        XCTAssertEqual(before.count, paragraphs.count, "each paragraph is a passage")
+        var steps: [String] = []
+        try await BookPDFAssistant.rewriteChapter(renderer: renderer, id: chapter.id, html: html, language: "document", reduction: 50,
+                                                  project: nil) { message, _ in steps.append(message) }
+        let after = try await renderer.prosePassages(chapter.id)
+        let expected = paragraphs.map { paragraph in
+            paragraph.split(separator: " ").enumerated().filter { $0.offset.isMultiple(of: 2) }.map(\.element).joined(separator: " ")
+        }
+        XCTAssertEqual(after.map { $0.html.trimmingCharacters(in: .whitespacesAndNewlines) }, expected,
+                       "each paragraph is shortened in its own place")
+        XCTAssertEqual(gauge.calls, paragraphs.count, "one call per paragraph")
+        XCTAssertGreaterThan(gauge.peak, 1, "the paragraphs are with the assistant at the same time")
+        XCTAssertLessThanOrEqual(gauge.peak, CLICompletion.sideBySide, "never more than CLICompletion.sideBySide at once")
+        XCTAssertEqual(steps.last, "Shortening paragraph \(paragraphs.count) of \(paragraphs.count)…")
+    }
+}

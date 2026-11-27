@@ -19,6 +19,9 @@ private enum DocumentTranslatorChecks {
         /// The text of every section the translator sent, in order.
         var sent: [String] = []
         var systemPrompts: [String] = []
+        /// The most calls that were with the assistant at once.
+        var peak = 0
+        private var running = 0
         /// What to answer for the section received; throws to fail the call.
         var answer: (_ text: String, _ call: Int) async throws -> String = { text, _ in Assistant.translate(text) }
 
@@ -30,6 +33,9 @@ private enum DocumentTranslatorChecks {
                  _ onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
             sent.append(request.prompt)
             systemPrompts.append(request.systemPrompt ?? "")
+            running += 1
+            peak = max(peak, running)
+            defer { running -= 1 }
             let reply = try await answer(request.prompt, sent.count)
             return try CLICompletion.Result(text: reply, structured: nil, inputTokens: 1, outputTokens: 1, costUSD: nil)
         }
@@ -127,11 +133,23 @@ private enum DocumentTranslatorChecks {
             let sourceText = window.tabs.activeTab?.content
             var lines: [String] = []
             var banners: [String] = []
-            let translator = window.translator, tabs = window.tabs
+            var whileThirdWaited = ""
+            let translator = window.translator, tabs = window.tabs, assistant = window.assistant
             window.assistant.answer = { text, call in
                 lines.append(translator.progress ?? "none")
                 banners.append(tabs.openTabs.last?.content.components(separatedBy: "\n").first ?? "")
-                return "[\(call)] " + Assistant.translate(text)
+                // No section answers before all three are with the assistant: sent one after the other, they would wait in vain.
+                var together = 0
+                while assistant.sent.count < 3, together < 400 { try await Task.sleep(nanoseconds: 10_000_000); together += 1 }
+                // The third answers once the other two are in the tab.
+                if text.hasPrefix("Third") {
+                    var waited = 0
+                    while !(tabs.openTabs.last?.content.contains("2/3 sections") ?? false), waited < 400 {
+                        try await Task.sleep(nanoseconds: 10_000_000); waited += 1
+                    }
+                    whileThirdWaited = tabs.openTabs.last?.content ?? ""
+                }
+                return Assistant.translate(text)
             }
 
             let message = await window.translator.translate(markdown: body, targetLang: "German")
@@ -149,13 +167,18 @@ private enum DocumentTranslatorChecks {
             check(content.contains("```swift\nlet untouched = 1\n```"), "fenced code stays as it was")
             check(window.assistant.sent.allSatisfy { !$0.contains("let untouched") && !$0.contains("title: Guide") },
                   "code and front matter are never sent to the assistant")
-            check(content.contains("[1] FIRST SECTION") && content.contains("[2] SECOND SECTION") && content.contains("[3] THIRD SECTION"),
-                  "every translatable section is replaced by its translation, in order")
+            let places = ["FIRST SECTION", "SECOND SECTION", "THIRD SECTION"].compactMap { content.range(of: $0)?.lowerBound }
+            check(places.count == 3 && places == places.sorted(), "every translatable section is replaced by its translation, in order")
+            check(window.assistant.peak == 3 && CLICompletion.sideBySide >= 3,
+                  "the three sections are with the assistant at the same time, got \(window.assistant.peak)")
+            check(whileThirdWaited.contains("FIRST SECTION") && whileThirdWaited.contains("SECOND SECTION")
+                  && whileThirdWaited.contains("Third section words") && whileThirdWaited.contains("```swift\nlet untouched = 1\n```"),
+                  "while a section is out, the tab shows the whole document: the finished sections translated, the rest as it was")
             check(!content.contains("Translating to") && !content.contains("Translation incomplete"), "a finished translation carries no banner")
 
-            check(lines.count == 3 && lines[0].hasPrefix("Translating 1/3") && lines[2].hasPrefix("Translating 3/3"), "the file tree line counts the sections: \(lines)")
+            check(lines.count == 3 && lines.allSatisfy { $0.hasPrefix("Translating 0/3") }, "the file tree line counts the finished sections: \(lines)")
             check(banners.count == 3 && banners[0].contains("Translating to German") && banners[0].contains("0/3"), "the tab shows the banner while it works: \(banners.first ?? "")")
-            check(banners.count == 3 && banners[2].contains("2/3"), "the banner advances: \(banners.last ?? "")")
+            check(whileThirdWaited.hasPrefix("> 🌐 **Translating to German**") && whileThirdWaited.contains("2/3 sections"), "the banner advances")
             check(window.translator.progress == nil, "the progress line is gone when the job ends")
             check(window.tasks.activeCount == 0, "the finished job leaves nothing in the task bag")
         }
@@ -206,28 +229,29 @@ private enum DocumentTranslatorChecks {
     static func closingTheWindowStopsTheJob() async {
         await folder { dir in
             let window = Window(folder: dir)
-            let body = section("First") + section("Second") + section("Third")
+            let body = section("First") + section("Second") + section("Third") + section("Fourth") + section("Fifth")
             _ = try? await window.open(body)
-            // The first section never answers by itself: the window closes while it waits.
+            // No section answers by itself: the window closes while the first three wait.
             window.assistant.answer = { text, call in
                 try await Task.sleep(nanoseconds: 60_000_000_000)
                 return Assistant.translate(text)
             }
             let job = Task { await window.translator.translate(markdown: body, targetLang: "German") }
             var waited = 0
-            while window.assistant.sent.isEmpty && waited < 400 { try? await Task.sleep(nanoseconds: 25_000_000); waited += 1 }
-            check(window.assistant.sent.count == 1, "the first section is with the assistant")
-            check(window.translator.progress?.hasPrefix("Translating 1/3") == true, "the file tree line shows the job while it runs")
+            while window.assistant.sent.count < 3 && waited < 400 { try? await Task.sleep(nanoseconds: 25_000_000); waited += 1 }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            check(window.assistant.sent.count == 3, "three sections are with the assistant at once, got \(window.assistant.sent.count)")
+            check(window.translator.progress?.hasPrefix("Translating 0/5") == true, "the file tree line shows the job while it runs")
             check(window.tasks.activeCount == 1, "the running job is a task of the window's bag")
 
             window.tasks.cancelAll()      // what closing the window or the folder does
             let message = await job.value
             check(message == "The translation was stopped before it finished.", "a stopped translation says so, got \(message ?? "nil")")
-            check(window.assistant.sent.count == 1, "the sections after the stop are never sent, got \(window.assistant.sent.count)")
+            check(window.assistant.sent.count == 3, "the sections after the stop are never sent, got \(window.assistant.sent.count)")
             let content = window.translatedTab?.content ?? ""
-            check(content.hasPrefix("> ⚠️ Translation incomplete — section(s) 1, 2, 3 kept in the original language (the translation was stopped)."),
+            check(content.hasPrefix("> ⚠️ Translation incomplete — section(s) 1, 2, 3, 4, 5 kept in the original language (the translation was stopped)."),
                   "the tab says what was left: \(content.prefix(140))")
-            check(content.contains("First section words") && content.contains("Third section words"), "the sections that were not translated keep their text")
+            check(content.contains("First section words") && content.contains("Fifth section words"), "the sections that were not translated keep their text")
             check(window.translator.progress == nil, "a stopped job leaves no progress line")
         }
     }
@@ -250,7 +274,7 @@ private enum DocumentTranslatorChecks {
             let other = await window.translator.translate(markdown: second, targetLang: "French")
             check(other == nil, "a second translation completes while the first waits")
             check(window.tasks.activeCount == 1, "the second job did not replace or stop the first")
-            check(window.translator.progress?.hasPrefix("Translating 1/1") == true, "the first job still shows its line")
+            check(window.translator.progress?.hasPrefix("Translating 0/1") == true, "the first job still shows its line")
             release?.resume()
             _ = await one.value
             let names = window.tabs.openTabs.map { $0.url.lastPathComponent }

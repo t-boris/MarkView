@@ -101,7 +101,7 @@ extension FeatureAssistant {
         // A board has no Ready of its own in every flow; where it has none the quick feature stays at the entry of the flow.
         if store.lifecycle.workflow.feature.isKnown("ready") { store.moveFeature(slug, to: "ready", by: .system("Quick feature")) }
         _ = await ingest(.text(title: "Original request", text: dump, kind: "intake"), into: slug)
-        for url in attachments { await ingest(.file(url), into: slug) }
+        await ingestFiles(attachments, into: slug)
         var issueRef = linkedIssue.map { "#\($0)" }
         if let linkedIssue {
             store.updateFeature(slug) { front, _ in front.set("issue", "#\(linkedIssue)") }
@@ -212,7 +212,7 @@ extension FeatureAssistant {
         // The AI's estimate of the questions needed in all; never below the ones just asked.
         let left = max(object["questions_left"] as? Int ?? 0, asked.count)
         store.updateFeature(slug) { front, _ in front.set("questions_left", String(left)) }
-        for url in attachments { await ingest(.file(url), into: slug) }
+        await ingestFiles(attachments, into: slug)
         // Its GitHub issue: the one it came from, or a new one when the integration is on.
         var issueRef: String?
         if let linkedIssue {
