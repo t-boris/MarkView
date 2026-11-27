@@ -96,6 +96,15 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   2026-11-27: "Unused-import baseline has slack in the selected files" (exit 1) means a change made an allowed import used; the CI
   wrapper has no `--tighten`, so run `./tools/lint/swiftlint-unused-import-ratchet.py --compiler-log <log> --files <changed files>
   --tighten` and commit the shorter `swiftlint-unused-import-allowlist.txt` with the change. [A: PR #460, 2026-11-27]
+- 2026-11-27: hosted tests that open the control socket need a short `MARKVIEW_SOCKET_DIR` (`mktemp -d /tmp/mvhost.XXXXXX`, as the
+  suites do): a socket under the session scratchpad is 134 characters, over the 104 a Unix socket path may have, and
+  `testRemoteRelayAndControlSocket` stops with "the control socket is not listening". [A: PR #461, 2026-11-27]
+- 2026-11-27: a test appended at the end of a test file can land in another class (`ControlToolRunnerTests.swift` ends with
+  `RemoteBrowserHostTests`); an `-only-testing:` selector with the wrong class runs 0 tests and still "passes". List the file's classes
+  (`grep -n "^final class"`) before adding, and check that the test name appears in the "Test Case" lines. [A: PR #461, 2026-11-27]
+- 2026-11-27: CI's unused-import analyzer takes about 300 s for `ArchitectureStore.swift` (87 s on this Mac, the same before and after
+  PR #460), the per-file limit: a run that analyzes it can time out whatever changed (main 9477785d). Time the file locally against
+  the old content with the same compiler log before blaming a change. [A: PR #460 main run, 2026-11-27]
 
 - 2026-11-26: a tool added to a CLI run changes its output stream; replay a recorded stream of that tool through the provider's
   parser before shipping. Why: Claude's parser treated every tool input except the known read tools as the streamed answer, so the

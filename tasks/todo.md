@@ -203,6 +203,54 @@ Open, for Boris:
 - PR #460 merged (9477785d); v7.14.0 released from origin/main (2026-11-27): notarized, stapled, `spctl` accepted, Latest; copy in
   `build/MarkView-7.14.0.dmg`. Not installed, not checked by hand in the app with a real assistant.
 
+## Phase 7: a per-site audit and the limits it found (2026-11-27)
+
+Three read-only agents put every call site in a row (site, the button behind it, calls per action, readable folder, verdict,
+file:line evidence): 44 rows for X-Ray/Book/Workspace, 82 for Lifecycle/Insight/Research/QA/Prototype, 15 one-shot rows for UI
+Studio/Cockpit/GitHub/Deployments/ProjectOps and every prompt into a session (11 `sendToAssistant` starts, 4 `ParallelWork.ask`,
+the Cockpit step prompt, 7 other paths). Findings beyond Phase 6:
+- Unbounded: X-Ray zoom importance rating starts one call per drawn container with no limit (`XRayFilterStore.swift:126-149`);
+  files dropped or chosen on the Sources panel start one fact extraction each (`FeaturePanelSourceViews.swift:103`).
+- Sequential although independent: Book PDF chapters (`BookPDFExportModel.swift:101-109`; each chapter already runs 3 at a time).
+- Gap: `markview_agent_send` adds the parallel-work sentence only with `goal: true` (`ControlToolRunner+Agents.swift:154-161`).
+- Codex probe (0.172, 2026-11-27): a non-ephemeral `exec` starts subagents that run at the same time (children 45.7-56.0 s and
+  49.5-67.2 s); `codex delete --force <parent>` removes the parent and its children (files and state rows); `resume --last` skips
+  exec sessions unless `--include-non-interactive`. Needs Boris: one-shot runs would write a session for the run's length.
+
+Plan (one PR, 7.15.0):
+- [x] `SideBySide.Slots` (MarkViewCore): one limit shared by runs that start at different times, waiting in order, a cancelled
+      waiter leaves without a slot; package tests.
+- [x] X-Ray zoom rating through the store's slots (`CLICompletion.sideBySide`); hosted test red on the old file.
+- [x] Fact extraction through the feature assistant's slots, so the Sources panel and attachments share 3; hosted test red on old.
+- [x] Book PDF chapters side by side, every passage call through one export's slots (3 in all); hosted test red on old.
+- [x] `markview_agent_send` `work: parts|items` appends the agent's parallel-work sentence to a task prompt.
+- [x] Bump, build, lints, tests, PR, merge, release; then ask Boris the open decisions.
+- [x] The per-site tables are in `docs/architecture/assistant-call-sites.md`.
+
+## Review (Phase 7)
+
+- Version 7.15.0 (minor). `Slots` runs on `OSAllocatedUnfairLock`: the first version cancelled a waiter through an unowned `Task`,
+  which the `unowned-task` lint refuses. Package: 159 tests, the two `Slots` tests six times in a row.
+- Red on the old behavior, green now: `testZoomRatingsShareTheStoreSlots` (old peak 8), `testSourcesAddedTogetherShareTheFactSlots`
+  (old peak 5), `testBookExportRewritesShortChaptersSideBySide` (chapters one at a time: peak 1); new
+  `testAgentSendAsksForParallelWorkOnlyForATaskOrAGoal`. Every hosted test of the touched files plus `XRayContentHostTests`,
+  `ControlToolRunnerTests`, `RemoteBrowserHostTests`: 41, 0 failures; `remote-browser-tests`, `--tier pure` (9), `architecture-lint`,
+  SwiftLint 49/49, clean build 0 warnings, unused imports at baseline. Not run: `book-pdf-live` (real assistant).
+- PR #461 merged (c3e69c69). 7.14.0's CI: PR #460 `hosted-tests (1)` (`UIStudioSessionHostTests.testSession`, 181 s, "SIM-05") and
+  `(3)` (`testRealFeatureFlowGitHubCheckoutWithLocalFixture`, "Every blocked fixture process must end") failed and both pass here
+  (136 s and 1 s); main's `build` timed out in the unused-import analyzer on `ArchitectureStore.swift` (300 s limit; 87 s here, the
+  same before #460, about 298 s on the PR's runner).
+- Released https://github.com/t-boris/MarkView/releases/tag/v7.15.0 (Latest, notarized, `spctl` accepted, `codesign` ok, version
+  7.15.0); DMG `build/MarkView-7.15.0.dmg` (sha256 633af917...). Not installed; not checked by hand in the app (zooming with the
+  Importance overlay, adding several sources at once, a book export with short chapters).
+
+Kept in order, with the evidence the agents found: UI Studio refill batches (the next batch's prompt is built from the seed the
+last one wrote, `UIStudioEnvironmentMapper.swift:819`, `:836`), "Fix problems" (each fix reloads the page, `UIStudioRepairing.swift:141`),
+project-operations discovery (the web call is built from the first answer's unknowns, `ProjectOperationDiscoveryService.swift:76-83`),
+Decide all (`FeatureAI.swift:1302-1327`), QA reviews (`QARunModel.swift:535`, `:556`), Explore all levels (`InsightSession.swift:351`),
+intake request facts (accepted facts reach the attachments' context, `FeatureIngest.swift:110-113`), prototype thin-screen repairs
+(each prompt holds the site with the previous repair, `PrototypeAI.swift:901`).
+
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
 Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot

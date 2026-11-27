@@ -23,6 +23,7 @@ Feature specs and bug reports produced *by* the app live in [`docs/features`](..
 | 9 | [Architecture and code review, November 2026](./architecture-review-2026-11.md) | Review of 6.25.0 and implementation in 6.26.0: findings AR-01..AR-49 with severity and effort, target structure, extensibility (registries and data files, no plugins), roadmap (Phases 0–7 & Continuous completed), owner decisions (DEC-001..DEC-010) |
 | 10 | [Operations runbook](./operations-runbook.md) | Build, run, debug a hang, logs, reset state, release |
 | 11 | [Glossary](./glossary.md) | Project vocabulary |
+| 12 | [Assistant call sites](./assistant-call-sites.md) | Every assistant call, the button behind it, and which calls run side by side (2026-11-27) |
 
 ## Module docs
 
