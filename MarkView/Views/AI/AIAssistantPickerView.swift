@@ -133,9 +133,9 @@ struct AIAssistantPickerView: View {
             Dictionary(uniqueKeysWithValues: CLITool.allCases.map { ($0, AIAssistantPreferences.modelOptions(for: $0)) })
         }.value
         options = loaded
-        // ACP assistants list the account's models; fetch them when none are cached.
-        for tool in CLITool.allCases where tool.usesACP && (loaded[tool]?.count ?? 0) <= 1 {
-            if let path = CLIToolLocator.resolve(tool), let models = try? await ACPAssistant.refreshModels(tool, toolPath: path) {
+        // Assistants whose account decides the models list them through their CLI; fetch them when none are kept.
+        for tool in CLITool.allCases where tool.provider.modelListing != nil && (loaded[tool]?.count ?? 0) <= 1 {
+            if let path = CLIToolLocator.resolve(tool), let models = try? await AssistantModelCache.refresh(tool, toolPath: path) {
                 options[tool] = [loaded[tool]?.first].compactMap { $0 } + models
             }
         }

@@ -1,10 +1,7 @@
 import Foundation
-#if canImport(MarkViewCore)
-import MarkViewCore
-#endif
 
 // What an assistant driven over the Agent Client Protocol (`<cli> --acp`, `ACPAssistant`) brings besides its provider:
-// how it is started, what its probe checks, and the models its account offers. Foundation only.
+// how it is started and what its probe checks (its account's models: `ACPModelListing`). Foundation only.
 
 /// How one ACP assistant is started and what it needs around the protocol.
 struct ACPLaunchProfile: Sendable {
@@ -36,23 +33,4 @@ protocol AssistantACPSupport: Sendable {
 
 extension AssistantACPSupport {
     var killedMessage: String? { nil }
-}
-
-/// The models an ACP assistant's account offers, as last listed over ACP (Settings, menus); `ACPAssistant.refreshModels` fills it.
-enum ACPModelCache {
-    static func cached(_ id: String) -> [AIModelOption] {
-        guard let data = Settings.standard.stored(Setting.cliModelList(id)),
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { return [] }
-        return rows.compactMap { row in
-            guard let modelID = row["id"], !modelID.isEmpty else { return nil }
-            return AIModelOption(id: modelID, name: row["name"] ?? modelID, detail: row["detail"] ?? "")
-        }
-    }
-
-    static func store(_ models: [AIModelOption], for id: String) {
-        guard !models.isEmpty,
-              let data = try? JSONSerialization.data(withJSONObject: models.map { ["id": $0.id, "name": $0.name, "detail": $0.detail] })
-        else { return }
-        Settings.standard.set(data, for: Setting.cliModelList(id))
-    }
 }

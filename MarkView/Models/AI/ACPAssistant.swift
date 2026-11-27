@@ -385,8 +385,8 @@ enum ACPAssistant {
 
     // MARK: - Models
 
-    /// Start the assistant, open a session (no prompt, no tokens) and remember its model list.
-    static func refreshModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] {
+    /// Start the assistant, open a session (no prompt, no tokens) and return the models it offers (`ACPModelListing`).
+    static func listModels(_ tool: CLITool, toolPath: String) async throws -> [AIModelOption] {
         // Listing models runs no tool and needs no updates.
         let connection = ACPConnection(tool: tool, executable: toolPath, arguments: profile(tool, effort: nil).arguments,
                                        workDir: FileManager.default.temporaryDirectory,
@@ -407,7 +407,6 @@ enum ACPAssistant {
             let usage = ((row["_meta"] as? [String: Any])?["copilotUsage"] as? String).map { " · \($0) premium requests" } ?? ""
             return AIModelOption(id: id, name: row["name"] as? String ?? id, detail: (row["description"] as? String ?? id) + usage)
         }
-        ACPModelCache.store(models, for: tool.rawValue)
         return models
     }
 

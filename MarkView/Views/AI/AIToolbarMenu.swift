@@ -120,12 +120,12 @@ extension AIToolbarMenu {
         return "\(scope) — the AI terminal, features and research. X-Ray model: \(xrayName)."
     }
 
-    /// The models `tool` offers. ACP assistants list the account's models only over ACP:
-    /// they are fetched the first time.
+    /// The models `tool` offers. An assistant whose account decides its models lists them through its CLI
+    /// (`AssistantProvider.modelListing`): they are fetched the first time.
     static func loadOptions(for tool: CLITool) async -> [AIModelOption] {
         var loaded = await Task.detached { AIAssistantPreferences.modelOptions(for: tool) }.value
-        if tool.usesACP, loaded.count <= 1, let path = CLIToolLocator.resolve(tool),
-           let models = try? await ACPAssistant.refreshModels(tool, toolPath: path) {
+        if tool.provider.modelListing != nil, loaded.count <= 1, let path = CLIToolLocator.resolve(tool),
+           let models = try? await AssistantModelCache.refresh(tool, toolPath: path) {
             loaded = [loaded.first].compactMap { $0 } + models
         }
         return loaded

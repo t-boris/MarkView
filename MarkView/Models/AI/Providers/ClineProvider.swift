@@ -19,7 +19,7 @@ struct ClineProvider: AssistantProvider, AssistantACPSupport {
 
     func modelOptions() -> [AIModelOption] {
         // The account's models, as Cline listed them at the last check (Settings, menus).
-        [AIModelOption(id: "", name: "Default", detail: "Cline's configured model (cline auth)")] + ACPModelCache.cached(id)
+        [AIModelOption(id: "", name: "Default", detail: "Cline's configured model (cline auth)")] + AssistantModelCache.cached(id)
     }
 
     func launchProfile(effort: String?) -> ACPLaunchProfile {

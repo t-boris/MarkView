@@ -545,6 +545,7 @@
 		5AB29D0E6D378BCA103C73C2 /* LayoutMenuItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */; };
 		E214BB0F603274CB34B904C6 /* AssistantProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */; };
 		595704AE086B1FF35FFFE3E5 /* AssistantACP.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */; };
+		F756603A27DBB63E1CF6881A /* AssistantModelList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8868F634EDC64BDCB0E89B70 /* AssistantModelList.swift */; };
 		72741F90DD9AA197E5F1572A /* CLITool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43ECB118C66665AF67859B9E /* CLITool.swift */; };
 		8C6A0C17FA47ED5CC0F35838 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */; };
 		D998013CAF7149E26FED3B23 /* CodexProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */; };
@@ -1334,6 +1335,7 @@
 		7414D561557EDF1F97CF4217 /* LayoutMenuItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutMenuItems.swift; sourceTree = "<group>"; };
 		47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantProvider.swift; sourceTree = "<group>"; };
 		C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantACP.swift; sourceTree = "<group>"; };
+		8868F634EDC64BDCB0E89B70 /* AssistantModelList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantModelList.swift; sourceTree = "<group>"; };
 		43ECB118C66665AF67859B9E /* CLITool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITool.swift; sourceTree = "<group>"; };
 		7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProvider.swift; sourceTree = "<group>"; };
 		E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProvider.swift; sourceTree = "<group>"; };
@@ -2566,6 +2568,7 @@
 				A6E0167483A13431C669BD12 /* AssistantProviderRegistry.swift */,
 				47FD117E3B89CF8F4644E36D /* AssistantProvider.swift */,
 				C0EC2B7C74F5B960CB9E79B7 /* AssistantACP.swift */,
+				8868F634EDC64BDCB0E89B70 /* AssistantModelList.swift */,
 				43ECB118C66665AF67859B9E /* CLITool.swift */,
 				7D8B7A04C3640E99F6F0BDDE /* ClaudeProvider.swift */,
 				E3F182FAF95368EABFB9D3E8 /* CodexProvider.swift */,
@@ -3051,6 +3054,7 @@
 				8C6A0C17FA47ED5CC0F35838 /* ClaudeProvider.swift in Sources */,
 				72741F90DD9AA197E5F1572A /* CLITool.swift in Sources */,
 				595704AE086B1FF35FFFE3E5 /* AssistantACP.swift in Sources */,
+				F756603A27DBB63E1CF6881A /* AssistantModelList.swift in Sources */,
 				E214BB0F603274CB34B904C6 /* AssistantProvider.swift in Sources */,
 				45E882A9EAE673E382F7EDC1 /* AICallLog.swift in Sources */,
 				3824EA89779E6F8AD2B05497 /* AIPrompts.swift in Sources */,
