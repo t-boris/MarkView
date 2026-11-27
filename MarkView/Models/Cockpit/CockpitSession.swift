@@ -412,11 +412,11 @@ final class CockpitSession: ObservableObject {
         let managedStep = reviewed.plan.feature != nil ? reviewed.plan.steps.first { $0.id.uuidString == task.step.id } : nil
         attempt.delegation = reviewed.plan.delegation(forStep: task.step.id)
         attempt.managedBrief = nil
-        attempt.changesAllowed = false
+        attempt.changes = .fixBugsControl
         if let feature = reviewed.plan.feature, let step = managedStep {
             if let early = await managedGate(step: step, feature: feature) { return early }
             attempt.managedBrief = Self.managedBrief(step, branch: feature.branch, repairing: task.recoveryAttempt != nil)
-            attempt.changesAllowed = CockpitManagedRun.changesAllowed(for: step.kind ?? .work, recoveryAttempt: task.recoveryAttempt)
+            attempt.changes = CockpitManagedRun.changeRule(for: step.kind ?? .work, recoveryAttempt: task.recoveryAttempt)
             markImplementationStarted(feature: feature, agent: step.agent)
         }
         var result = await attempt.run(task)

@@ -29,20 +29,41 @@ enum CockpitStepAudit {
             .sorted()
     }
 
-    /// What the step did that its controls forbid; empty when nothing was found. Source changes are looked for only when
-    /// fixing is off and scenarios only when creating them is off. `changesAllowed`: a managed run's step that writes or delivers the
-    /// change may change source and commit whatever fixing says (agent-aware-implementation-runs DEC-036).
-    static func violations(before: Snapshot, after: Snapshot, controls: CockpitControls, changesAllowed: Bool = false) -> [String] {
+    /// Who decides whether a step may change source and commit.
+    enum ChangeRule: Equatable, Sendable {
+        /// A step of a plan made outside Build: the Fix bugs control decides.
+        case fixBugsControl
+        /// A managed run's step that writes or delivers the change, or a repair attempt: it may, whatever Fix bugs says
+        /// (agent-aware-implementation-runs DEC-036, DEC-037).
+        case allowed
+        /// A managed run's verification step: it may not, whatever Fix bugs says (BUG-132).
+        case forbidden
+
+        /// Whether the step's source changes and commits are looked for.
+        func checksSources(_ controls: CockpitControls) -> Bool {
+            switch self {
+            case .fixBugsControl: !controls.fixBugs
+            case .allowed: false
+            case .forbidden: true
+            }
+        }
+
+        var reason: String { self == .forbidden ? "This step only checks the change" : "Fix bugs is off" }
+    }
+
+    /// What the step did that its controls forbid; empty when nothing was found. Source changes are looked for when `changes`
+    /// says so, and scenarios only when creating them is off.
+    static func violations(before: Snapshot, after: Snapshot, controls: CockpitControls, changes: ChangeRule = .fixBugsControl) -> [String] {
         var found: [String] = []
-        if !controls.fixBugs, !changesAllowed, before.isGitRepository, after.isGitRepository {
+        if changes.checksSources(controls), before.isGitRepository, after.isGitRepository {
             let paths = changedSources(before: before, after: after)
             if !paths.isEmpty {
                 let shown = paths.prefix(listed).joined(separator: ", ")
-                found.append("Fix bugs is off, but the step changed \(paths.count) source file(s): \(shown)"
+                found.append("\(changes.reason), but the step changed \(paths.count) source file(s): \(shown)"
                              + (paths.count > listed ? " and \(paths.count - listed) more" : "") + ".")
             }
             if let was = before.head, let now = after.head, was != now {
-                found.append("Fix bugs is off, but a commit was made (\(was.prefix(7)) to \(now.prefix(7))).")
+                found.append("\(changes.reason), but a commit was made (\(was.prefix(7)) to \(now.prefix(7))).")
             }
         }
         if !controls.createScenarios {
@@ -55,8 +76,8 @@ enum CockpitStepAudit {
     }
 
     /// What this audit could not look at, so a clean result is not read as more than it is.
-    static func limits(of snapshot: Snapshot, controls: CockpitControls, changesAllowed: Bool = false) -> [String] {
-        !controls.fixBugs && !changesAllowed && !snapshot.isGitRepository
+    static func limits(of snapshot: Snapshot, controls: CockpitControls, changes: ChangeRule = .fixBugsControl) -> [String] {
+        changes.checksSources(controls) && !snapshot.isGitRepository
             ? ["Source changes were not checked: the project is not a git repository."] : []
     }
 }

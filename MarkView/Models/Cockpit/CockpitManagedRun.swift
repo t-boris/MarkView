@@ -219,8 +219,11 @@ enum CockpitStepSupport: Equatable {
 
 enum CockpitManagedRun {
     /// Whether a step's agent may change source and commit: the steps that write or deliver the change (DEC-036), and the bounded
-    /// recovery attempt of any step, which is the repair its verification then checks again (DEC-037).
-    static func changesAllowed(for kind: CockpitStepKind, recoveryAttempt: Int?) -> Bool { !kind.isVerification || recoveryAttempt != nil }
+    /// recovery attempt of any step, which is the repair its verification then checks again (DEC-037). A verification step may not,
+    /// whatever Fix bugs says (BUG-132).
+    static func changeRule(for kind: CockpitStepKind, recoveryAttempt: Int?) -> CockpitStepAudit.ChangeRule {
+        !kind.isVerification || recoveryAttempt != nil ? .allowed : .forbidden
+    }
 
     // MARK: Composing the plan
 

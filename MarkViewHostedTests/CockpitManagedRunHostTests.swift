@@ -156,10 +156,43 @@ final class CockpitManagedRunHostTests: XCTestCase {
         let controls = CockpitControls()
         XCTAssertFalse(controls.fixBugs)
         XCTAssertEqual(CockpitStepAudit.violations(before: before, after: after, controls: controls).count, 2, "a source change and a commit")
-        XCTAssertTrue(CockpitStepAudit.violations(before: before, after: after, controls: controls, changesAllowed: true).isEmpty)
+        XCTAssertTrue(CockpitStepAudit.violations(before: before, after: after, controls: controls, changes: .allowed).isEmpty)
         let kinds = Set(managedPlan(done()).steps.map { $0.kind ?? .work })
         for kind in kinds { XCTAssertEqual(kind.isVerification, [.tests, .review, .reverify, .checks, .final].contains(kind), kind.rawValue) }
         XCTAssertTrue(kinds.contains(.review) && kinds.contains(.work) && kinds.contains(.merge))
+    }
+
+    // BUG-132: a verification step's brief says MarkView fails it when it changes source or commits; Fix bugs must not switch that off.
+    func testVerificationStepsAreAuditedWhateverFixBugsSays() {
+        let before = CockpitStepAudit.Snapshot(isGitRepository: true, head: "aaa", files: [:], scenarios: [])
+        let after = CockpitStepAudit.Snapshot(isGitRepository: true, head: "bbb", files: ["src/app.py": "h1"], scenarios: [])
+        for fixBugs in [false, true] {
+            var controls = CockpitControls()
+            controls.fixBugs = fixBugs
+            for step in managedPlan(done()).steps {
+                let kind = step.kind ?? .work
+                let found = CockpitStepAudit.violations(before: before, after: after, controls: controls,
+                                                        changes: CockpitManagedRun.changeRule(for: kind, recoveryAttempt: nil))
+                let label = "\(kind.rawValue), Fix bugs \(fixBugs)"
+                if kind.isVerification {
+                    XCTAssertEqual(found.count, 2, label)
+                    XCTAssertTrue(found.allSatisfy { $0.hasPrefix("This step only checks the change") }, label)
+                } else {
+                    XCTAssertTrue(found.isEmpty, label)
+                }
+                let repair = CockpitManagedRun.changeRule(for: kind, recoveryAttempt: 1)
+                XCTAssertTrue(CockpitStepAudit.violations(before: before, after: after, controls: controls, changes: repair).isEmpty,
+                              "a repair attempt may write (\(label))")
+            }
+            let plain = CockpitStepAudit.violations(before: before, after: after, controls: controls)
+            XCTAssertEqual(plain.isEmpty, fixBugs, "a plain plan's step follows Fix bugs")
+        }
+        var fixing = CockpitControls()
+        fixing.fixBugs = true
+        let outsideGit = CockpitStepAudit.Snapshot(isGitRepository: false, head: nil, files: [:], scenarios: [])
+        XCTAssertEqual(CockpitStepAudit.limits(of: outsideGit, controls: fixing, changes: .forbidden).count, 1,
+                       "outside git a verification step says what it could not check")
+        XCTAssertTrue(CockpitStepAudit.limits(of: outsideGit, controls: fixing).isEmpty)
     }
 
     // BUG-129: the CI step of a managed run repairs a failing check through a bounded recovery that may write; the step itself only checks.
@@ -170,10 +203,10 @@ final class CockpitManagedRunHostTests: XCTestCase {
         XCTAssertTrue(ci.recovery?.assignment.contains("feat/sample") == true, "the repair is on the feature branch")
         XCTAssertTrue(ci.assignment.contains("do not change files in this step"), "the step's instruction no longer says to fix inside a verification")
         XCTAssertTrue(plan.structuralBlockers.isEmpty, "the composed plan is valid with the recovery")
-        XCTAssertFalse(CockpitManagedRun.changesAllowed(for: .checks, recoveryAttempt: nil), "the check itself stays independent (DEC-036)")
-        XCTAssertTrue(CockpitManagedRun.changesAllowed(for: .checks, recoveryAttempt: 1), "its recovery attempt is the repair")
-        XCTAssertTrue(CockpitManagedRun.changesAllowed(for: .work, recoveryAttempt: nil))
-        XCTAssertFalse(CockpitManagedRun.changesAllowed(for: .review, recoveryAttempt: nil))
+        XCTAssertEqual(CockpitManagedRun.changeRule(for: .checks, recoveryAttempt: nil), .forbidden, "the check itself stays independent (DEC-036)")
+        XCTAssertEqual(CockpitManagedRun.changeRule(for: .checks, recoveryAttempt: 1), .allowed, "its recovery attempt is the repair")
+        XCTAssertEqual(CockpitManagedRun.changeRule(for: .work, recoveryAttempt: nil), .allowed)
+        XCTAssertEqual(CockpitManagedRun.changeRule(for: .review, recoveryAttempt: nil), .forbidden)
         XCTAssertEqual(plan.steps.filter { $0.recovery != nil }.count, 1, "no other managed step gets a recovery")
     }
 
