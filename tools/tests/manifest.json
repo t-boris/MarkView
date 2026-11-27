@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "suiteCount": 32,
+  "suiteCount": 33,
   "suites": [
     {
       "name": "process-graph-layout-tests",
@@ -1587,6 +1587,19 @@
         "tools/ci/run-hosted-lane.sh"
       ],
       "timeoutSeconds": 600
+    },
+    {
+      "name": "xray-code-live",
+      "script": "tools/tests/xray-code-live.sh",
+      "tier": "live",
+      "sources": [
+        "MarkView/Models/Architecture/CodeArchitecture.swift",
+        "MarkView/Models/Architecture/ArchitectureStore.swift",
+        "MarkView/Models/AI/DiagramAI.swift",
+        "MarkView/Models/AI/Providers/CodexProvider.swift",
+        "MarkView/Models/AI/Providers/ClaudeProvider.swift",
+        "MarkViewHostedTests/ManualProviderLiveHostTests.swift"
+      ]
     }
   ]
 }

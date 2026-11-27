@@ -1183,6 +1183,27 @@ extension EditorHostTests {
 }
 
 extension EditorHostTests {
+    /// A run that reads the folder but is asked to start no subagents (X-Ray's code analysis, BUG-135) reads it itself: Claude has
+    /// the read-only tools without Agent; Codex keeps no session, its subagent tools are off and it is not asked to start any.
+    func testAOneShotRunAskedForNoSubagentsReadsTheFolderItself() throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("no-subagents-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        var request = CompletionLaunchRequest(prompt: "Check.", systemPrompt: nil, jsonSchema: nil, readableFolder: scratch,
+                                              extraReadableFolders: [], linkedFolders: { [] }, allowWeb: false, images: [], effort: nil,
+                                              model: nil, workDir: scratch, scratchDirectory: { scratch })
+        request.subagents = false
+        let claude = try ClaudeProvider().launch(request)
+        let tools = try XCTUnwrap(claude.arguments.firstIndex(of: "--tools"))
+        XCTAssertEqual(claude.arguments[tools + 1], "Read,Grep,Glob")
+        let codex = try CodexProvider().launch(request)
+        XCTAssertFalse(codex.keepsSession)
+        XCTAssertTrue(codex.arguments.contains("--ephemeral"))
+        let off = try XCTUnwrap(codex.arguments.firstIndex(of: "agents.enabled=false"))
+        XCTAssertLessThan(off, try XCTUnwrap(codex.arguments.firstIndex(of: "exec")))
+        XCTAssertFalse(codex.input.contains(CodexProvider.oneShotSubagents))
+    }
+
     /// A one-shot run that may read files lets the assistant start its own read-only subagents: Claude gets the Agent tool, Codex
     /// keeps its session (a subagent loads it) and is asked to start them. A run without files gets none.
     func testOneShotRunsLetTheAssistantStartItsOwnReadOnlySubagents() throws {

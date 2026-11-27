@@ -932,3 +932,122 @@ extension XRayContentHostTests {
         check(text.contains("No runnable procedure is known for this project.") && !text.contains("Deploy ("), "empty project: the empty-state text is unchanged and no group heading shows", text)
     }
 }
+
+/// Answers X-Ray's code analysis from a list (one answer per call, the last one again after that) and refuses every other call;
+/// records each request.
+private actor CodeAnalysisAssistant {
+    struct Asked: Sendable {
+        let label: String
+        let prompt: String
+        let subagents: Bool
+    }
+    struct Refused: Error {}
+    private var answers: [Data]
+    private(set) var asked: [Asked] = []
+
+    init(answers: [Data]) { self.answers = answers }
+
+    func run(_ request: CLICompletion.Request) throws -> CLICompletion.Result {
+        asked.append(Asked(label: request.label, prompt: request.prompt, subagents: request.subagents))
+        guard request.label == "code-architecture", let first = answers.first else { throw Refused() }
+        if answers.count > 1 { answers.removeFirst() }
+        return try CLICompletion.Result(text: "", structured: try JSONSerialization.jsonObject(with: first),
+                                        inputTokens: 0, outputTokens: 0, costUSD: nil)
+    }
+}
+
+/// The order shop of `tools/tests/fixtures/code-architecture` as an assistant writes it: sound, apart from what a local step can
+/// fix (a path that does not exist next to a real one, a "./" path, a wildcard for a directory, a citation past the end of its
+/// file), and with `apiParent` as the parent of the API component.
+private func orderShopAnswer(apiParent: String = "server") -> Data {
+    func component(_ id: String, _ name: String, _ parent: String, _ layer: String, _ paths: [String], _ evidence: String) -> [String: Any] {
+        ["id": id, "name": name, "purpose": name + ".", "parent": parent, "layer": layer, "paths": paths, "evidence": evidence]
+    }
+    let answer: [String: Any] = [
+        "name": "Order shop", "purpose": "Places orders through a web API and saves them in SQLite.",
+        "components": [
+            component("server", "Order backend", "", "application", ["api.py", "service.py", "repository.py"], "api.py:8"),
+            component("api", "Order API", apiParent, "application", ["api.py", "missing.py"], "api.py:999"),
+            component("service", "Order rules", "server", "domain", ["./service.py"], "service.py:5"),
+            component("data", "Order storage", "server", "data", ["repository.py", "schema.sql"], "repository.py:8"),
+            component("web", "Order client", "", "presentation", ["web/*.js"], "web/app.js:2")
+        ],
+        "dependencies": [
+            ["source": "web", "target": "api", "label": "posts order", "evidence": "web/app.js:2"],
+            ["source": "api", "target": "service", "label": "validates order", "evidence": "api.py:16"],
+            ["source": "service", "target": "data", "label": "saves order", "evidence": "service.py:9"]
+        ],
+        "scenarios": [[String: Any]]()
+    ]
+    return (try? JSONSerialization.data(withJSONObject: answer)) ?? Data()
+}
+
+extension XRayContentHostTests {
+    /// One code analysis of a copy of the order shop through `ArchitectureStore.analyzeCode`, answered from `answers`, then a
+    /// trace of the whole project when `trace` (refused by the assistant): the model it kept, the requests and the store's error.
+    @MainActor private func runCodeAnalysis(answers: [Data], trace: Bool) async throws
+        -> (model: CodeArchitectureModel?, asked: [CodeAnalysisAssistant.Asked], error: String?) {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tools/tests/fixtures/code-architecture", isDirectory: true)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xray-code-analysis-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = Settings.standard
+        let oldAuto = settings.stored(Setting.autoAnalyze)
+        let oldGitHub = settings.stored(Setting.gitHubEnabled)
+        settings.set(false, for: Setting.autoAnalyze)
+        settings.set(false, for: Setting.gitHubEnabled)
+        defer {
+            settings.set(oldAuto, for: Setting.autoAnalyze)
+            settings.set(oldGitHub, for: Setting.gitHubEnabled)
+        }
+        let assistant = CodeAnalysisAssistant(answers: answers)
+        AIAssistantRunner.setTestRunner { request, _, _ in try await assistant.run(request) }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let store = ArchitectureStore()
+        defer { store.reset() }
+        store.open(root: root, db: nil)
+        for _ in 0..<1000 where store.snapshot?.view("modules") == nil || store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        store.analyzeCode(root: root, db: nil)
+        for _ in 0..<1500 where store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        let model = store.snapshot?.codeModel
+        let error = store.error
+        if trace {
+            store.traceCode(scope: "code:", question: "How is an order placed?", root: root, db: nil)
+            for _ in 0..<1500 where store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        return (model, await assistant.asked, error)
+    }
+
+    /// An answer whose only problems are paths and citation lines is fixed in the app and kept after one call: the paths it
+    /// meant, a real citation, and neither the analysis nor a trace lets the assistant start subagents (BUG-135).
+    @MainActor func testCodeAnalysisFixesPathsAndCitationsWithoutAskingAgain() async throws {
+        let run = try await runCodeAnalysis(answers: [orderShopAnswer()], trace: true)
+        XCTAssertEqual(run.asked.filter { $0.label == "code-architecture" }.count, 1, "what a local step fixes is not asked again")
+        let model = try XCTUnwrap(run.model, run.error ?? "the analysis kept no model")
+        func paths(_ id: String) -> [String]? { model.components.first { $0.id == id }?.paths }
+        XCTAssertEqual(paths("api"), ["api.py"], "the path that does not exist is dropped")
+        XCTAssertEqual(paths("service"), ["service.py"], "a ./ path is the file it names")
+        XCTAssertEqual(paths("web"), ["web"], "a wildcard is the directory before it")
+        let api = try XCTUnwrap(model.components.first { $0.id == "api" })
+        XCTAssertTrue(api.evidence.hasPrefix("api.py:") && api.evidence != "api.py:999", "the citation is read from api.py: \(api.evidence)")
+        XCTAssertEqual(run.asked.filter { $0.label == "code-sequence" }.count, 1, "the trace asked the assistant")
+        for request in run.asked { XCTAssertFalse(request.subagents, "\(request.label) reads the code itself") }
+    }
+
+    /// What the app cannot fix (a parent that does not exist) is asked once more; that request names only what is left and shows
+    /// the answer with the local fixes, and its answer is kept.
+    @MainActor func testCodeAnalysisAsksAgainOnlyForWhatIsLeft() async throws {
+        let run = try await runCodeAnalysis(answers: [orderShopAnswer(apiParent: "nowhere"), orderShopAnswer()], trace: false)
+        let calls = run.asked.filter { $0.label == "code-architecture" }
+        XCTAssertEqual(calls.count, 2)
+        let repair = try XCTUnwrap(calls.last).prompt
+        let listed = repair.components(separatedBy: "return the complete corrected JSON model.\n").last?
+            .components(separatedBy: "\n\nPrevious answer").first
+        XCTAssertEqual(listed, "- Unknown parent for api", "only the problem the app could not fix is named")
+        let shown = repair.components(separatedBy: "Previous answer (data to repair):\n").last ?? ""
+        XCTAssertTrue(shown.contains("\"web\""), "the answer shown has the fixed paths")
+        XCTAssertFalse(shown.contains("missing.py") || shown.contains("web/*.js") || shown.contains("api.py:999"))
+        XCTAssertNotNil(run.model, run.error ?? "the second answer was not kept")
+    }
+}

@@ -917,6 +917,8 @@ final class ArchitectureStore: ObservableObject {
                                                     jsonSchema: CodeArchitecture.schema, readableFolder: root)
                 request.timeout = 900; request.effort = "medium"; request.label = "code-architecture"
                 request.model = xrayModel
+                // One model of the whole code: subagents would read the same code again (BUG-135).
+                request.subagents = false
                 return request
             }
             // The same prompt over the same source was answered before: no CLI call.
@@ -928,44 +930,34 @@ final class ArchitectureStore: ObservableObject {
                (try? await Task.detached { try CodeArchitecture.validateModel(cached, modules: modules, root: root) }.value) != nil {
                 model = cached
             }
-            // The most recent answer that decoded, kept for the grounding fallback below.
-            var lastParsed: CodeArchitectureModel?
             if model == nil {
                 try Task.checkCancellation()
                 fromCache = false
-                // Asked twice at most: the second time with the problems of the first answer and the answer itself.
+                // Each answer is fixed locally before it is judged (`CodeArchitecture.repairLocally`), so the assistant is asked a
+                // second time only for what that cannot fix, and is shown the fixed answer (BUG-135).
+                var lastFixed: CodeArchitectureModel?
                 let operation = AIOperation<String, CodeArchitectureModel>(
                     name: "code-architecture",
                     maxRepairAttempts: 1,
                     buildRequest: request,
-                    parse: { _, result, _ in try CodeArchitecture.decode(result) },
+                    parse: { _, result, _ in
+                        let answer = try CodeArchitecture.decode(result)
+                        let fixed = await Task.detached { CodeArchitecture.repairLocally(answer, modules: modules, root: root) }.value
+                        lastFixed = fixed
+                        return fixed
+                    },
                     validate: { _, parsed, _ in
-                        lastParsed = parsed
                         try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
                     },
                     repair: { [weak self] context in
                         self?.progress?.current = "Refining component ownership and source evidence"
-                        return request(CodeArchitecture.repairPrompt(base: prompt, answer: context.previousAnswer, error: context.error))
+                        let shown = lastFixed.flatMap(CodeArchitecture.answerText) ?? context.previousAnswer
+                        return request(CodeArchitecture.repairPrompt(base: prompt, answer: shown, error: context.error))
                     },
                     onResult: { result in await MainActor.run { result.record(in: db) } })
-                do {
-                    let (parsed, _) = try await operation.execute(prompt, onActivity: activityHandler(root: root))
-                    Self.cache(parsed, at: answerFile)
-                    model = parsed
-                } catch let error as DiagramAI.Failure where lastParsed != nil {
-                    // Last resort for an answer that is sound apart from its citations: keep the
-                    // assistant's structure and read a real definition line out of the code each
-                    // component already owns, then validate again. A whole analysis is not thrown
-                    // away over a line number the model could not get right twice (BUG-046).
-                    let previous = lastParsed!
-                    let grounded = await Task.detached { () -> CodeArchitectureModel? in
-                        let repaired = CodeArchitecture.groundEvidence(previous, modules: modules, root: root)
-                        return (try? CodeArchitecture.validateModel(repaired, modules: modules, root: root)) == nil ? nil : repaired
-                    }.value
-                    guard let grounded else { throw error }
-                    Self.cache(grounded, at: answerFile)
-                    model = grounded
-                }
+                let (parsed, _) = try await operation.execute(prompt, onActivity: activityHandler(root: root))
+                Self.cache(parsed, at: answerFile)
+                model = parsed
             }
             try Task.checkCancellation()
             guard var model, rootPath == root.standardizedFileURL.path, var next = snapshot else { return .cancelled }
@@ -1086,7 +1078,7 @@ final class ArchitectureStore: ObservableObject {
             return cached
         }
         let diagram = try await DiagramAI.generate(prompt: prompt, root: root, label: "code-sequence",
-            project: project, model: model, onStage: { [weak self] stage in
+            project: project, model: model, subagents: false, onStage: { [weak self] stage in
             Task { @MainActor in
                 guard let self, self.rootPath == root.standardizedFileURL.path else { return }
                 self.progress?.current = "Tracing \(name): \(stage)"

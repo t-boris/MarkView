@@ -337,9 +337,10 @@ enum DiagramAI {
     }
 
     /// Asks the agent for a diagram, validates it against the project and, when it has problems,
-    /// asks again with the problems listed (twice at most). Returns the checked diagram.
+    /// asks again with the problems listed (twice at most). Returns the checked diagram. `subagents`
+    /// false: the agent reads the project itself (`CLICompletion.Request.subagents`).
     static func generate(prompt: String, root: URL, label: String,
-                         project: URL? = nil, model: String? = nil, system: String = DiagramAI.system,
+                         project: URL? = nil, model: String? = nil, subagents: Bool = true, system: String = DiagramAI.system,
                          expectedLanguage: String? = nil, maxNodes: Int? = nil,
                          onStage: @escaping @Sendable (String) -> Void,
                          record: @escaping @Sendable (CLICompletion.Result) -> Void,
@@ -348,6 +349,7 @@ enum DiagramAI {
             var request = CLICompletion.Request(project: project ?? root, prompt: asked, systemPrompt: system,
                                                 jsonSchema: schema, readableFolder: root)
             request.model = model
+            request.subagents = subagents
             request.effort = "medium"
             request.timeout = 600
             request.label = label

@@ -263,8 +263,8 @@ extension CodexProvider: AssistantCompletionSupport {
     func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
         // A run that may read the folder keeps its session, so the subagents it starts for independent parts can load it (an
         // `--ephemeral` run keeps none, and every spawn fails with "no rollout"); `CLICompletion` deletes the session when the run
-        // ends. A run without files has nothing to hand out: it keeps no session and its subagent tools are off.
-        let keepsSession = request.readableFolder != nil
+        // ends. A run without files, or one asked to start none, keeps no session and its subagent tools are off.
+        let keepsSession = request.readableFolder != nil && request.subagents
         // Explicitly disable web search when `allowWeb` is false so user config.toml cannot bypass repository opt-out.
         var arguments = request.allowWeb ? ["--search"] : ["-c", "web_search=\"disabled\""]
         if !keepsSession { arguments += ["-c", "agents.enabled=false"] }

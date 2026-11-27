@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import MarkViewCore
+import os
 import PDFKit
 import XCTest
 @testable import MarkView
@@ -73,6 +74,54 @@ final class ManualProviderLiveHostTests: XCTestCase {
         }
         let after = try String(contentsOf: path, encoding: .utf8); XCTAssertEqual(after, source)
         print("Live book artifacts: \(root.path)")
+    }
+
+    /// One automatic-size code analysis of a real project (`MARKVIEW_MANUAL_XRAY_ROOT`) through `ArchitectureStore.analyzeCode`
+    /// with the chosen provider and X-Ray model: prints each call's seconds and tokens and the size of the kept model (BUG-135).
+    func testManualXRayCodeAnalysis() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard env["MARKVIEW_MANUAL_XRAY_CODE"] == "1" else { throw XCTSkip("Manual X-Ray code analysis is not enabled.") }
+        let provider = try XCTUnwrap(CLITool(rawValue: try XCTUnwrap(env["MARKVIEW_MANUAL_XRAY_PROVIDER"])))
+        let root = URL(fileURLWithPath: try XCTUnwrap(env["MARKVIEW_MANUAL_XRAY_ROOT"]), isDirectory: true)
+        let model = env["MARKVIEW_MANUAL_XRAY_MODEL"] ?? ""
+        let settings = Settings.standard
+        let oldAuto = settings.stored(Setting.autoAnalyze)
+        let oldGitHub = settings.stored(Setting.gitHubEnabled)
+        let oldChoices = settings.stored(Setting.projectAI)
+        settings.set(false, for: Setting.autoAnalyze)
+        settings.set(false, for: Setting.gitHubEnabled)
+        ProjectAIChoice.update(root) { choice in
+            choice.backend = provider.rawValue
+            if !model.isEmpty { choice.xrayModels[provider.rawValue] = model }
+        }
+        defer {
+            settings.set(oldAuto, for: Setting.autoAnalyze)
+            settings.set(oldGitHub, for: Setting.gitHubEnabled)
+            settings.set(oldChoices, for: Setting.projectAI)
+        }
+        let calls = OSAllocatedUnfairLock(initialState: [String]())
+        AIAssistantRunner.setTestRunner { request, delta, activity in
+            let started = Date()
+            let result = try await CLICompletion.run(request, onDelta: delta, onActivity: activity)
+            let line = "\(request.label): \(Int(Date().timeIntervalSince(started))) s, \(result.inputTokens) in, \(result.outputTokens) out"
+            calls.withLock { $0.append(line) }
+            print("X-Ray call " + line)
+            return result
+        }
+        defer { AIAssistantRunner.setTestRunner(nil) }
+        let store = ArchitectureStore()
+        defer { store.reset() }
+        store.open(root: root, db: nil)
+        for _ in 0..<12_000 where store.snapshot?.view("modules") == nil || store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        let started = Date()
+        store.analyzeCode(root: root, db: nil)
+        for _ in 0..<180_000 where store.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        let kept = try XCTUnwrap(store.snapshot?.codeModel, store.error ?? "the analysis kept no model")
+        let paths = kept.components.reduce(0) { $0 + $1.paths.count }
+        let seconds = Int(Date().timeIntervalSince(started))
+        let count = calls.withLock { $0.count }
+        let dependencies = kept.dependencies?.count ?? 0
+        print("X-Ray analysis: \(seconds) s, \(count) calls, \(kept.components.count) components, \(paths) paths, \(dependencies) dependencies")
     }
 
     func testManualCopilot() async throws {
