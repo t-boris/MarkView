@@ -2,12 +2,13 @@
 type: bug
 id: BUG-132
 title: With Fix bugs on, a Cockpit verification step may change source unnoticed
-status: backlog
+status: in-review
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27
 provenance: Created by an AI agent through MarkView
 related: agent-aware-implementation-runs
+schema: 1
 ---
 
 # With Fix bugs on, a Cockpit verification step may change source unnoticed

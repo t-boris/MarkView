@@ -2,7 +2,7 @@
 type: feature
 id: cockpit-runs-independent-plan-steps-side-by-side
 title: Cockpit runs independent plan steps side by side
-status: backlog
+status: in-review
 owner: Boris Tsekinovsky
 created: 2026-11-27
 provenance: Created by an AI agent through MarkView from Boris's goal of 2026-11-26 and his answer of 2026-11-27 ("Spec first, then build"); code research of Cockpit (workflow.go, CockpitRun, CockpitSession, CockpitAgentAttempt) on 2026-11-27

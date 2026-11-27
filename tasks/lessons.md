@@ -160,6 +160,14 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
   a temporary hosted test that wraps the real `CLICompletion.run` and logs each call's start and end, then delete it (no test-only
   switch in the app). [A: one-shot runs side by side, 2026-11-26]
 
+- 2026-11-27: many Cockpit hosted tests are `extension EditorHostTests` in files named after another class (`CockpitPolicyHostTests.swift`,
+  `CockpitHostBridgeHostTests.swift`, `CockpitChildHostTests.swift`): `-only-testing:MarkViewHostedTests/CockpitPolicyHostTests` selects
+  nothing and still reports success. Select `EditorHostTests/<method>` and check the "Executed N tests" count. A suite script that names
+  its test methods (`cockpit-runtime-integration-tests.sh`) runs a new method only when it is added there. [A: parallel steps, 2026-11-27]
+- 2026-11-27: in zsh an unquoted `$sel` holding several `-only-testing:` flags is one argument (xcodebuild: "Unknown build action"); build
+  the list as a bash array inside `bash -c`. `XCTAssert*(await …)` does not compile (autoclosure): bind the value to a `let` first.
+  [A: parallel steps, 2026-11-27]
+
 ## 5. The app-probe and live checks (no visible windows, no crashes)
 
 - Never drive UI in the user's live app: automate the Debug build in `/tmp/MarkViewDerivedData` or a scratch copy, confirm first which window and folder is key, and leave
@@ -252,6 +260,10 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 - 2026-11-26: a helper that takes `isolation: isolated (any Actor)? = #isolation` runs its task-group body (and so its callbacks) on
   the caller's actor only when it passes `isolation:` to `withThrowingTaskGroup` and the body uses the parameter; without that the
   callback ran off the main thread. Assert `Thread.isMainThread` in the callback of such a helper's test. [A: SideBySide, 2026-11-26]
+
+- 2026-11-27: a struct whose methods call a `@MainActor` class must be `@MainActor` itself, or the call is "main actor-isolated in a
+  synchronous nonisolated context". A barrier that members wait behind (`CockpitGroupAudit`) needs a way out for every member that
+  will not arrive: an `abandon()` on early returns (a `defer`) and on cancellation, or the others wait forever. [A: parallel steps, 2026-11-27]
 
 ## 8. UI: SwiftUI and AppKit
 
