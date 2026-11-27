@@ -307,8 +307,8 @@ final class QARunModel: ObservableObject {
             self?.finishReviewQueues()
             await self?.reviewer?.value
             // Stop cancels this task to end the checks in progress, but what the run found is still saved and its bugs filed
-            // (BUG-133): the finish runs in a task of its own, which that cancellation does not reach.
-            await Task { [weak self] in await self?.finishRun() }.value
+            // (BUG-133): the finish runs detached from this task, so that cancellation does not reach it.
+            await Task.detached { [weak self] in await self?.finishRun() }.value
         }
     }
 
