@@ -110,7 +110,10 @@ struct CodexProvider: AssistantProvider {
             return root.appendingPathComponent(String(format: "%04d/%02d/%02d", y, m, d), isDirectory: true)
         }
         for file in AssistantSessionLog.recentFiles(in: folders, since: since) {
-            for object in AssistantSessionLog.lines(of: file) where object["type"] as? String == "turn_context" {
+            let lines = AssistantSessionLog.lines(of: file)
+            // A one-shot run in the same folder (X-Ray, a feature's assistant) is not the terminal's reply.
+            if let meta = lines.first, Self.isOneShotRollout(meta) { continue }
+            for object in lines where object["type"] as? String == "turn_context" {
                 guard let date = AssistantSessionLog.timestamp(object), date >= since,
                       let payload = object["payload"] as? [String: Any],
                       (payload["cwd"] as? String).map({ URL(fileURLWithPath: $0).standardizedFileURL.path }) == path,
@@ -249,14 +252,24 @@ private struct CodexMCPConfigAdapter: AssistantMCPConfigAdapter {
 
 /// `codex exec --json` in its read-only sandbox; a schema answer comes back as the message text.
 extension CodexProvider: AssistantCompletionSupport {
+    /// What a run that may read the folder is told: Codex starts subagents only when it is asked to (codex 0.172).
+    static let oneShotSubagents = "Where answering needs independent parts of the folder read (different files, modules or "
+        + "questions), start subagents to read them at the same time and answer from what they return; read the files yourself "
+        + "when a few are enough."
+
     func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch {
+        // A run that may read the folder keeps its session, so the subagents it starts for independent parts can load it (an
+        // `--ephemeral` run keeps none, and every spawn fails with "no rollout"); `CLICompletion` deletes the session when the run
+        // ends. A run without files has nothing to hand out: it keeps no session and its subagent tools are off.
+        let keepsSession = request.readableFolder != nil
         // Explicitly disable web search when `allowWeb` is false so user config.toml cannot bypass repository opt-out.
-        // Subagent tools are off: an `--ephemeral` run keeps no rollout for a child to load, so every spawn fails and costs a turn
-        // (codex 0.172). Codex runs independent reads as parallel tool calls of its own.
-        var arguments = (request.allowWeb ? ["--search"] : ["-c", "web_search=\"disabled\""])
-            + ["-c", "agents.enabled=false", "exec"]
-            + request.images.flatMap { ["-i", $0.path] } + ["--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
-                     "--json", "--color", "never", "-C", request.workDir.path]
+        var arguments = request.allowWeb ? ["--search"] : ["-c", "web_search=\"disabled\""]
+        if !keepsSession { arguments += ["-c", "agents.enabled=false"] }
+        arguments.append("exec")
+        arguments += request.images.flatMap { ["-i", $0.path] }
+        arguments += ["--sandbox", "read-only", "--skip-git-repo-check"]
+        if !keepsSession { arguments.append("--ephemeral") }
+        arguments += ["--json", "--color", "never", "-C", request.workDir.path]
         arguments += modelArgs(request.model)
         if let effort = request.effort { arguments += ["-c", "model_reasoning_effort=\(effort)"] }
         var schemaFile: URL?
@@ -268,14 +281,35 @@ extension CodexProvider: AssistantCompletionSupport {
         }
         arguments.append("-")  // read the prompt from stdin
         // Codex has no system-prompt flag; the instructions lead the prompt.
+        let instructions = [request.systemPrompt, keepsSession ? Self.oneShotSubagents : nil].compactMap { $0 }
         var input = request.prompt
-        if let system = request.systemPrompt {
-            input = "<instructions>\n\(system)\n</instructions>\n\n\(request.prompt)"
+        if !instructions.isEmpty {
+            input = "<instructions>\n\(instructions.joined(separator: "\n\n"))\n</instructions>\n\n\(request.prompt)"
         }
-        return CompletionLaunch(arguments: arguments, input: input, schemaFile: schemaFile)
+        return CompletionLaunch(arguments: arguments, input: input, schemaFile: schemaFile, keepsSession: keepsSession)
     }
 
     func makeParser() -> any CompletionStreamParser { CodexStreamParser() }
+
+    /// `codex delete --force` removes the session with the sessions of its subagents (files and state rows; it asks for a
+    /// confirmation without `--force`).
+    func deleteSessionArguments(_ id: String) -> [String]? { ["delete", "--force", id] }
+
+    /// A rollout `rollout-<time>-<id>.jsonl` under `~/.codex/sessions` or `archived_sessions`.
+    func storesSession(_ id: String) -> Bool {
+        let suffix = "-\(id).jsonl"
+        return ["sessions", "archived_sessions"].contains { folder in
+            let root = Self.home.appendingPathComponent(folder, isDirectory: true)
+            guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return false }
+            return files.contains { ($0 as? URL)?.lastPathComponent.hasSuffix(suffix) == true }
+        }
+    }
+
+    /// A rollout written by `codex exec` (a one-shot run or one of its subagents), not by the interactive CLI of a terminal: its
+    /// first line, `session_meta`, names the `codex_exec` originator.
+    static func isOneShotRollout(_ sessionMeta: [String: Any]) -> Bool {
+        (sessionMeta["payload"] as? [String: Any])?["originator"] as? String == "codex_exec"
+    }
 
     /// Codex (OpenAI structured outputs) accepts only strict schemas: every object
     /// closes `additionalProperties` and lists all of its properties as required.
@@ -305,6 +339,8 @@ private final class CodexStreamParser: CompletionStreamParser {
     func handle(_ json: [String: Any], output: inout CompletionOutput, sink: CompletionSink) {
         guard let type = json["type"] as? String else { return }
         switch type {
+        case "thread.started":
+            if let id = json["thread_id"] as? String { sink.onSession?(id) }
         case "item.started":
             guard let item = json["item"] as? [String: Any] else { return }
             if item["type"] as? String == "command_execution", let command = item["command"] as? String {

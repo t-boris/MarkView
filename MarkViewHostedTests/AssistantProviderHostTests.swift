@@ -1183,8 +1183,8 @@ extension EditorHostTests {
 }
 
 extension EditorHostTests {
-    /// A one-shot run that may read files lets the assistant start its own read-only subagents where they can run (Claude), and
-    /// leaves out the ones that cannot start in such a run (Codex).
+    /// A one-shot run that may read files lets the assistant start its own read-only subagents: Claude gets the Agent tool, Codex
+    /// keeps its session (a subagent loads it) and is asked to start them. A run without files gets none.
     func testOneShotRunsLetTheAssistantStartItsOwnReadOnlySubagents() throws {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("subagents-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -1201,11 +1201,27 @@ extension EditorHostTests {
         // Claude: subagents only next to the read-only tools (a subagent gets the run's tools), never in a run without files.
         XCTAssertEqual(try tools(ClaudeProvider().launch(request(readable: scratch))), ["Read", "Grep", "Glob", "Agent"])
         XCTAssertEqual(try tools(ClaudeProvider().launch(request(readable: nil))), [])
-        // Codex: an ephemeral run keeps nothing a child could load, so its subagent tools are off (a global option, before `exec`).
-        let codex = try CodexProvider().launch(request(readable: scratch)).arguments
-        let off = try XCTUnwrap(codex.firstIndex(of: "agents.enabled=false"))
-        XCTAssertEqual(codex[off - 1], "-c")
-        XCTAssertLessThan(off, try XCTUnwrap(codex.firstIndex(of: "exec")))
+        // Codex: a run that may read files keeps its session and is asked to start subagents for independent parts; a run without
+        // files keeps none (`--ephemeral`) and its subagent tools are off (a global option, before `exec`).
+        let reading = try CodexProvider().launch(request(readable: scratch))
+        XCTAssertTrue(reading.keepsSession)
+        XCTAssertFalse(reading.arguments.contains("--ephemeral") || reading.arguments.contains("agents.enabled=false"))
+        XCTAssertTrue(reading.input.contains(CodexProvider.oneShotSubagents))
+        let textOnly = try CodexProvider().launch(request(readable: nil))
+        XCTAssertFalse(textOnly.keepsSession)
+        XCTAssertTrue(textOnly.arguments.contains("--ephemeral"))
+        let off = try XCTUnwrap(textOnly.arguments.firstIndex(of: "agents.enabled=false"))
+        XCTAssertEqual(textOnly.arguments[off - 1], "-c")
+        XCTAssertLessThan(off, try XCTUnwrap(textOnly.arguments.firstIndex(of: "exec")))
+        XCTAssertFalse(textOnly.input.contains(CodexProvider.oneShotSubagents))
+        // The session id the run deletes at its end comes from Codex's first event.
+        let sessions = OSAllocatedUnfairLock(initialState: [String]())
+        var sessionSink = CompletionSink(onDelta: nil, onActivity: nil)
+        sessionSink.onSession = { id in sessions.withLock { $0.append(id) } }
+        var codexOutput = CompletionOutput()
+        CodexProvider().makeParser().handle(["type": "thread.started", "thread_id": "01a21c45-6bef-7123-8273-4b2043bd31c1"],
+                                            output: &codexOutput, sink: sessionSink)
+        XCTAssertEqual(sessions.withLock { $0 }, ["01a21c45-6bef-7123-8273-4b2043bd31c1"])
 
         // A Claude run that starts two subagents (the stream's shape as claude 2.1.332 writes it): the subagents' tasks are not
         // part of the answer, their reads show as the run's activity, and the schema answer arrives as before.
@@ -1245,5 +1261,34 @@ extension EditorHostTests {
         XCTAssertEqual(reads, [first, second])
         XCTAssertEqual(output.structured as? [String: String], ["a": "alpha", "b": "beta"])
         XCTAssertNil(output.errorMessage)
+    }
+}
+
+extension EditorHostTests {
+    /// The AI panel's Codex activity follows the terminal's own session in a folder, not a one-shot run (or one of its subagents)
+    /// that reads the same folder at the same time and wrote its rollout later.
+    func testCodexActivityFollowsTheTerminalSessionNotAOneShotRun() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory.appendingPathComponent("codex-activity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: home) }
+        let folder = home.appendingPathComponent("project", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let now = Date()
+        let day = Calendar.current.dateComponents([.year, .month, .day], from: now)
+        let logs = home.appendingPathComponent(String(format: ".codex/sessions/%04d/%02d/%02d", day.year ?? 0, day.month ?? 0,
+                                                      day.day ?? 0), isDirectory: true)
+        try fm.createDirectory(at: logs, withIntermediateDirectories: true)
+        func rollout(_ name: String, originator: String, source: Any, age: TimeInterval) throws {
+            let meta: [String: Any] = ["type": "session_meta",
+                                       "payload": ["cwd": folder.path, "originator": originator, "source": source]]
+            let file = logs.appendingPathComponent(name)
+            try (try JSONSerialization.data(withJSONObject: meta) + Data("\n".utf8)).write(to: file)
+            try fm.setAttributes([.modificationDate: now.addingTimeInterval(-age)], ofItemAtPath: file.path)
+        }
+        try rollout("rollout-terminal.jsonl", originator: "codex-tui", source: "cli", age: 60)
+        try rollout("rollout-one-shot.jsonl", originator: "codex_exec", source: "exec", age: 5)
+        try rollout("rollout-subagent.jsonl", originator: "codex_exec",
+                    source: ["subagent": ["thread_spawn": ["parent_thread_id": "one-shot", "depth": 1]]], age: 1)
+        XCTAssertEqual(AgentActivityLog.newestCodexLog(for: folder, home: home, now: now)?.lastPathComponent, "rollout-terminal.jsonl")
     }
 }

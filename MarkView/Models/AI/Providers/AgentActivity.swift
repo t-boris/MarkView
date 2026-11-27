@@ -455,7 +455,8 @@ enum AgentActivityLog {
         return nil
     }
 
-    /// The newest Codex rollout from the last two days whose first line names this folder.
+    /// The newest Codex rollout from the last two days whose first line names this folder, leaving out the rollouts of one-shot
+    /// runs (`codex exec` and its subagents), which are not the terminal's session.
     static func newestCodexLog(for directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                now: Date = Date()) -> URL? {
         let root = home.appendingPathComponent(".codex/sessions")
@@ -468,7 +469,8 @@ enum AgentActivityLog {
         let paths = Set(spellings(directory).map(\.path))
         return newest(in: folders, matching: { url in
             guard let first = firstLine(of: url), let object = try? JSONSerialization.jsonObject(with: first) as? [String: Any],
-                  let payload = object["payload"] as? [String: Any], let cwd = payload["cwd"] as? String else { return false }
+                  let payload = object["payload"] as? [String: Any], let cwd = payload["cwd"] as? String,
+                  !CodexProvider.isOneShotRollout(object) else { return false }
             return paths.contains(URL(fileURLWithPath: cwd).path)
         })
     }

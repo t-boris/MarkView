@@ -106,6 +106,8 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         }
         // Listen for agents from the start, not when the first folder opens: an agent that drives the app opens it.
         _ = AgentToolServer.socketPath
+        // task: one sweep at launch of the sessions one-shot runs of a MarkView that crashed left on disk; it touches no window
+        Task.detached(priority: .utility) { await KeptSessions.deleteLeftovers() }
         // One app-wide poll for Finder Quick Action requests (`AR-19`): started with the app, so a request is taken with or without a
         // window; `enqueueOpen` holds it until a window shows it.
         FinderOpenRequests.shared.start { MarkViewApp.enqueueOpen($0) }

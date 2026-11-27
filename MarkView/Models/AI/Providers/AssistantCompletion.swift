@@ -38,6 +38,8 @@ struct CompletionOutput {
 struct CompletionSink {
     let onDelta: (@Sendable (String) -> Void)?
     let onActivity: (@Sendable (CompletionActivity) -> Void)?
+    /// The id of the session the CLI keeps on disk for this run (Codex's `thread.started`), so it can be deleted when the run ends.
+    var onSession: (@Sendable (String) -> Void)? = nil
 }
 
 /// Reads one CLI run, line by line. One parser per run: it keeps the state of the stream (the tool being streamed, the
@@ -81,12 +83,25 @@ struct CompletionLaunch {
     var input: String
     /// A file the run created and the caller removes when the run ends.
     var schemaFile: URL?
+    /// The CLI keeps a session on disk for this run (its subagents load it): the run reports its id (`CompletionSink.onSession`)
+    /// and deletes it with `AssistantCompletionSupport.deleteSessionArguments` when it ends, however it ends.
+    var keepsSession = false
 }
 
 /// How one assistant runs once: the command line and the reading of its output stream.
 protocol AssistantCompletionSupport: Sendable {
     func launch(_ request: CompletionLaunchRequest) throws -> CompletionLaunch
     func makeParser() -> any CompletionStreamParser
+    /// The arguments, after the executable, of the command that deletes session `id` of a run that kept one; nil when the
+    /// assistant keeps none.
+    func deleteSessionArguments(_ id: String) -> [String]?
+    /// Session `id` is still stored (a run stopped before the CLI wrote it keeps nothing to delete).
+    func storesSession(_ id: String) -> Bool
+}
+
+extension AssistantCompletionSupport {
+    func deleteSessionArguments(_ id: String) -> [String]? { nil }
+    func storesSession(_ id: String) -> Bool { false }
 }
 
 enum CompletionJSON {
