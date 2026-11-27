@@ -2,12 +2,13 @@
 type: bug
 id: BUG-133
 title: A stopped QA run drafts its "QA interrupted" bug but never files it
-status: backlog
+status: in-review
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27
 provenance: Created by an AI agent through MarkView
 related: end-to-end-qa
+schema: 1
 ---
 
 # A stopped QA run drafts its "QA interrupted" bug but never files it

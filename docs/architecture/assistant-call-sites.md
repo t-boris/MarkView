@@ -12,8 +12,8 @@ without it the call is text in, text out, with no tools, and nothing inside the 
 
 | Assistant | One-shot run with a readable folder | Prompt into an agent session |
 |---|---|---|
-| Claude Code | `--tools Read,Grep,Glob,Agent`: it may start subagents (probe: two Explore subagents at once) | `ParallelWork`: subagents with the Agent tool; for a list, "use a workflow" |
-| Codex | read-only sandbox; since 7.16.0 the run keeps its session and is asked to start subagents for independent parts, and the session is deleted when the run ends (`codex delete --force`); without a folder `--ephemeral`, subagents off | an explicit request to start subagents (Codex starts them only when asked) |
+| Claude Code | `--tools Read,Grep,Glob,Agent`: it may start subagents (probe: two Explore subagents at once); X-Ray's code analysis and traces run without `Agent` (7.21.1) | `ParallelWork`: subagents with the Agent tool; for a list, "use a workflow" |
+| Codex | read-only sandbox; since 7.16.0 the run keeps its session and is asked to start subagents for independent parts, and the session is deleted when the run ends (`codex delete --force`); without a folder `--ephemeral`, subagents off; except X-Ray's code analysis and traces (7.21.1, BUG-135: `subagents = false`, `--ephemeral`, agents off), whose subagents re-read the code (1.3M input tokens instead of 60-300k) | an explicit request to start subagents (Codex starts them only when asked) |
 | Antigravity | `read_file` allowed; `-p` starts `invoke_subagent` subagents (probe) | its `invoke_subagent` mechanism |
 | Copilot CLI | not changed (Boris: "skip copilot agent") | not changed |
 

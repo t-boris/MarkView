@@ -115,11 +115,17 @@ same most-specific-path/deepest-owner rule as the diagram. A repair call receive
 and up to 40 validation problems, preserving valid component identities. A citation may be written
 as `path:line`, `path:line-end` or `path:line:column`, and each problem names its own reason — no
 citation, a path outside the project, a line past the real end of the file, or a file the component
-does not own — together with a usable citation from the component's own code. If the repair round
-still fails, `groundEvidence` replaces only the unusable citations with real definition lines from
-files the component already owns and the model is validated again, so a sound structure is not
-discarded over a line number; a component whose paths do not exist is still rejected. CRLF line numbers
-match the editor. Shared `CodePathTags` makes Code filtering available without a Logical pass.
+does not own — together with a usable citation from the component's own code. Since 7.21.1
+(BUG-135) every answer is first fixed in the app (`CodeArchitecture.repairLocally`) and only then
+judged: a path that is not an inventory file or directory is replaced by the one it means (no "./",
+no trailing "/", a wildcard cut to the directory before it) or dropped, and `groundEvidence`
+replaces every unusable citation with a real definition line from the code the component, or the
+dependency's endpoint, owns. The assistant is asked again only for what that cannot fix (a parent
+that does not exist, a cycle, a component without any real path), and the repair turn is shown the
+fixed answer. Before, two analyses in three needed a second full call (12-16k output tokens again).
+The prompt asks each component to own directories, listing single files only where a directory is
+shared, and both the analysis and the traces run without subagents (`CLICompletion.Request.subagents`),
+which re-read the same code. CRLF line numbers match the editor. Shared `CodePathTags` makes Code filtering available without a Logical pass.
 The Code overview is a layered diagram: the layers of the flow are full-width bands stacked
 presentation → application → domain → data, the cross-cutting ones (integration, infrastructure,
 shared platform, tooling, tests) run as columns beside them, Users sit above the stack and the
@@ -128,7 +134,9 @@ stays a plain band until it is opened. Selecting a box reveals its arrows.
 Tests start hidden on mixed projects and remain available through Show all. Tests-only folders
 start visible, and revealing a hidden file clears the Code filter.
 Analysis failure or cancellation preserves previous results. The sequence and architecture
-calls use the project's assistant and X-Ray model. Tests: `tools/tests/code-architecture-tests.sh`.
+calls use the project's assistant and X-Ray model. Tests: `XRayContentHostTests` in
+`MarkViewHostedTests/CodeArchitectureHostTests.swift`; one real analysis of this repository with a real assistant:
+`tools/tests/xray-code-live.sh [codex|claude] [model]` (manual, live tier).
 
 Screenshots: `docs/images/xray-overview.png` (Logical view with the details panel),
 `docs/images/xray-component.png` and `docs/images/xray-contents.png`.

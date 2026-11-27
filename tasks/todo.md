@@ -303,6 +303,43 @@ One PR per change, one release at the end (memory: one final release for the bat
   QA's interleaved feed lines named no branch. Both fixed with a red test before merging.
 - Not checked in the real app: every side-by-side site, the Codex subagents through a button, the goal commands with a real bug.
 
+# BUG-135: X-Ray code analysis takes 5-10 minutes (2026-11-27)
+
+Boris: "code in X-Ray became much slower". Evidence (ai-calls.jsonl, MarkView project, Codex gpt-6-luna): 31 of 45 analyses today
+needed a second full call; the answer swings between 35-39 components / ~100 paths (~100 s) and 75-87 components / 485-640 paths
+(200-320 s); the first 7.21.0 call read 1.3M input tokens (Codex subagents, 7.16.0). Boris chose all three fixes (2026-11-27).
+Branch `fix/bug-135-xray-code-analysis-speed`, worktree `MarkView-xray-speed`.
+
+- [x] 1. Fix locally first: every attempt's answer drops unknown paths (a glob becomes its existing directory) and grounds its
+      citations (`groundEvidence`) before `validateModel`; the model is asked again only for what is left, and the repair prompt
+      carries the locally fixed model. The BUG-046 fallback after the last rejection is deleted (it is now every attempt's step).
+- [x] 2. Directories instead of file lists in `CodeArchitecture.prompt`: a component owns the directories of its code and lists a
+      file only where a directory is shared.
+- [x] 3. `subagents: false` on X-Ray's code-architecture and code-sequence requests: Codex back to `--ephemeral` with agents off
+      and no subagent instruction; Claude without `Agent`. Antigravity has no verified switch (left as is).
+- [x] Tests through `ArchitectureStore.analyzeCode` with the test runner: one call when only paths/citations are wrong; one
+      repair naming only the remaining problem; both X-Ray requests carry `subagents == false`; provider launch for `false`.
+      Done: `testCodeAnalysisFixesPathsAndCitationsWithoutAskingAgain`, `testCodeAnalysisAsksAgainOnlyForWhatIsLeft`,
+      `testAOneShotRunAskedForNoSubagentsReadsTheFolderItself`; all three fail with the old lines put back (2 calls / no model,
+      the repair also names the path and the citation, `Read,Grep,Glob,Agent` and a kept Codex session).
+- [x] Live: one real code analysis of MarkView with Codex on the app's path, time and tokens against today's numbers.
+      Done twice (`tools/tests/xray-code-live.sh codex gpt-6-luna`): 116 s, 110k in / 6.1k out, 1 call, 50 components / 107
+      paths; 103 s, 233k in / 5.2k out, 1 call, 38 components / 85 paths. Before: 200-320 s and a second call in 31 of 45.
+- [x] Version bump (patch) 7.21.1, PR #469 merged (f8a7fe8b).
+- [x] Released together with BUG-133: v7.21.2 (Latest, notarized). Not installed: install only when Boris says.
+
+# BUG-133: a stopped QA run never files its "QA interrupted" bug (2026-11-27)
+
+Branch `fix/bug-133-stopped-qa-run-files-its-bug`, worktree `MarkView-qa-stop-filing`.
+
+- [x] The run's finish (save, file bugs) runs in a task of its own that Stop's cancellation does not reach (`QARunModel.start`).
+- [x] A project change during a run (`releaseSessions`) files nothing on purpose (the window's filer would file into the new
+      project) and says so in the notice.
+- [x] Tests: `testQAStopWithBranchesInFlight` now checks the bug is written and named in the notice;
+      `testQAProjectChangeDuringARunFilesNoBugs`; both fail on the old code ("Filing was cancelled.").
+- [x] Version 7.21.2, PR #470 merged (13955c32), one release v7.21.2 for BUG-135 + BUG-133; REQ-005's interrupted criterion
+      ticked through the tools. Not installed, not checked by hand in the app.
+
 # BUG-130: a whole Cockpit run stops at a discovery QA step (2026-11-26)
 
 Boris asked for items 1, 2a and 3 of the analysis of run CF9C64A9 (vivaa-platform) in one PR. Cause chain: the QA runner's snapshot

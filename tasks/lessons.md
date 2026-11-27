@@ -504,3 +504,18 @@ Rule book by topic, distilled 2026-11-16. The verbatim chronological text up to 
 - 2026-11-27: before asserting a prompt's shape (one line), read how the real path assembles it: Fix with AI appends the bug's
   lifecycle block after a blank line, so the check is "the request is inside the goal part", as the Claude case already did. And
   never use an API without checking it exists (`URL.path(relativeTo:)` does not). [A: PR #467, 2026-11-27]
+- 2026-11-27: every message to Boris is in Russian, however long the session and however English the material (logs, code,
+  records); only code, comments and documentation are in English. After the context was summarized I drifted into English
+  status messages for a whole release and an investigation until Boris said "All explanations in russion only code, commments and
+  documentation in english". Check the language of each reply before sending it. [A: session 2026-11-27]
+- 2026-11-27: a check that rejects a whole AI answer over details the app could fix itself (an unknown path next to real ones, a
+  wildcard, a line past the end of a file) costs a second full call each time: X-Ray's code analysis asked again in 31 of 45
+  runs, 12-16k output tokens each. Fix what is mechanical before judging, ask again only for what is left, and show the fixed
+  answer. And look at what a call reads before turning on subagents for it: for one model of the whole code every subagent
+  re-reads the same files (1.3M input tokens instead of 110-230k). Measure on the app's path (`tools/tests/xray-code-live.sh`)
+  before and after. [A: BUG-135, 2026-11-27]
+- 2026-11-27: work that must happen after a Stop (saving a run, filing its bugs) must not run inside the task the Stop cancels: a
+  cancellation check further down (`QABugFiler.file` refuses while `Task.isCancelled`) quietly turned "stop the checks" into "drop
+  what they found", and the existing Stop test only counted the keys looked up, never the reports written. Run the finish detached
+  (`await Task.detached { ... }.value`; an awaited `Task { }` is the task-ownership lint's pointless hop), decide on purpose what a
+  project change files, and assert the written result. [A: BUG-133, PR #470, 2026-11-27]
