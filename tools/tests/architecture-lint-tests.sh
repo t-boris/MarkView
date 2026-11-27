@@ -147,7 +147,7 @@ try:
     close = ("final class WindowComposition {\n    func close() {\n"
              "        tabs.shutdown()\n        project.close()\n        polling.stopAll()\n"
              "        codeXRay.close()\n        flow.close()\n        browser.close()\n"
-             "        toolTabs.close()\n        gitClient.close()\n        taskBag.cancelAll()\n"
+             "        toolTabs.close()\n        terminals.stopAll()\n        gitClient.close()\n        taskBag.cancelAll()\n"
              "        connections.removeAll()\n    }\n}\n")
     write(root, composition, close)
     project(root, app_swift(root))
