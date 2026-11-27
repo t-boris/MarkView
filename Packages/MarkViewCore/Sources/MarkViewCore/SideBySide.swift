@@ -1,5 +1,3 @@
-import Foundation
-
 /// Independent pieces of work that run at the same time, a bounded number at once: the runs of one action whose answers do not
 /// depend on each other (the sections of a translation, the passages of a book chapter, the scenarios of an X-Ray trace).
 public enum SideBySide {
@@ -22,7 +20,8 @@ public enum SideBySide {
                 guard next < items.count else { return }
                 let index = next, item = items[index]
                 next += 1
-                group.addTaskUnlessCancelled { (index, try await work(item)) }
+                // A cancelled caller starts no more runs: the item keeps no output, so the call throws below.
+                guard group.addTaskUnlessCancelled(operation: { (index, try await work(item)) }) else { return }
             }
             for _ in 0..<min(max(1, limit), items.count) { launch() }
             while let (index, output) = try await group.next() {
