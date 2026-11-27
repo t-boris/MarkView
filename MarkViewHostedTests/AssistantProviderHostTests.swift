@@ -1181,3 +1181,69 @@ extension EditorHostTests {
         XCTAssertEqual(decoded[0].rejectionReason, "missing required key")
     }
 }
+
+extension EditorHostTests {
+    /// A one-shot run that may read files lets the assistant start its own read-only subagents where they can run (Claude), and
+    /// leaves out the ones that cannot start in such a run (Codex).
+    func testOneShotRunsLetTheAssistantStartItsOwnReadOnlySubagents() throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("subagents-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        func request(readable: URL?) -> CompletionLaunchRequest {
+            CompletionLaunchRequest(prompt: "Check.", systemPrompt: nil, jsonSchema: nil, readableFolder: readable,
+                                    extraReadableFolders: [], linkedFolders: { [] }, allowWeb: false, images: [], effort: nil,
+                                    model: nil, workDir: scratch, scratchDirectory: { scratch })
+        }
+        func tools(_ launch: CompletionLaunch) throws -> [String] {
+            let index = try XCTUnwrap(launch.arguments.firstIndex(of: "--tools"))
+            return launch.arguments[index + 1].split(separator: ",").map(String.init)
+        }
+        // Claude: subagents only next to the read-only tools (a subagent gets the run's tools), never in a run without files.
+        XCTAssertEqual(try tools(ClaudeProvider().launch(request(readable: scratch))), ["Read", "Grep", "Glob", "Agent"])
+        XCTAssertEqual(try tools(ClaudeProvider().launch(request(readable: nil))), [])
+        // Codex: an ephemeral run keeps nothing a child could load, so its subagent tools are off (a global option, before `exec`).
+        let codex = try CodexProvider().launch(request(readable: scratch)).arguments
+        let off = try XCTUnwrap(codex.firstIndex(of: "agents.enabled=false"))
+        XCTAssertEqual(codex[off - 1], "-c")
+        XCTAssertLessThan(off, try XCTUnwrap(codex.firstIndex(of: "exec")))
+
+        // A Claude run that starts two subagents (the stream's shape as claude 2.1.332 writes it): the subagents' tasks are not
+        // part of the answer, their reads show as the run's activity, and the schema answer arrives as before.
+        let first = scratch.appendingPathComponent("a.txt").path, second = scratch.appendingPathComponent("b.txt").path
+        func block(_ index: Int, tool: String, id: String, input: [String]) -> [[String: Any]] {
+            [["type": "stream_event", "event": ["type": "content_block_start", "index": index,
+                                                "content_block": ["type": "tool_use", "id": id, "name": tool, "input": [String: Any]()]]]]
+                + input.map { part in
+                    ["type": "stream_event", "event": ["type": "content_block_delta", "index": index,
+                                                       "delta": ["type": "input_json_delta", "partial_json": part]]]
+                }
+        }
+        var events = block(1, tool: "Agent", id: "toolu_a", input: [#"{"description": "Read a.txt", "#, #""prompt": "Read a.txt"}"#])
+            + block(2, tool: "Agent", id: "toolu_b", input: [#"{"description": "Read b.txt", "#, #""prompt": "Read b.txt"}"#])
+        events += [("toolu_a", first), ("toolu_b", second)].map { parent, path in
+            ["type": "assistant", "parent_tool_use_id": parent,
+             "message": ["content": [["type": "tool_use", "id": "read-\(parent)", "name": "Read", "input": ["file_path": path]]]]]
+        }
+        events += block(0, tool: "StructuredOutput", id: "toolu_s", input: [#"{"a": "al"#, #"pha", "b": "beta"}"#])
+        events.append(["type": "result", "result": "", "structured_output": ["a": "alpha", "b": "beta"], "is_error": false])
+
+        let seen = OSAllocatedUnfairLock(initialState: [CompletionActivity]())
+        let sink = CompletionSink(onDelta: nil, onActivity: { activity in seen.withLock { $0.append(activity) } })
+        let parser = ClaudeProvider().makeParser()
+        var output = CompletionOutput()
+        for event in events { parser.handle(event, output: &output, sink: sink) }
+        let activities = seen.withLock { $0 }
+        let answer = activities.compactMap { activity -> String? in
+            if case .answerDelta(let part) = activity { return part }
+            return nil
+        }
+        XCTAssertEqual(answer.joined(), #"{"a": "alpha", "b": "beta"}"#)
+        let reads = activities.compactMap { activity -> String? in
+            if case .read(let path) = activity { return path }
+            return nil
+        }
+        XCTAssertEqual(reads, [first, second])
+        XCTAssertEqual(output.structured as? [String: String], ["a": "alpha", "b": "beta"])
+        XCTAssertNil(output.errorMessage)
+    }
+}
