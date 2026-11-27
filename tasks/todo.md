@@ -40,9 +40,24 @@ Phase 2 (PR 2): one-shot runs, where MarkView runs the independent calls itself.
       screens, X-Ray book parts and scenarios, intake attachments, Book PDF chapters, Insight "Explore all"); calls that depend on
       each other stay in order. Done for translation, Book PDF passages and paragraphs, X-Ray scenarios, attachments; the rest stay
       in order or were already concurrent (see the review).
-- [ ] (Open, Boris's decision) A read-only run over many files may use read-only subagents where the CLI supports them (Claude `Agent` within Read/Grep/Glob,
-      Codex explicit request in its read-only sandbox, Antigravity `invoke_subagent` under its deny list); Copilot and Cline unchanged.
+- [x] A read-only run over many files may use read-only subagents where the CLI supports them: moved to phase 3 (the goal asks for
+      it; the probes show it stays read-only).
 - [x] One release at the end, minor bump.
+Phase 3 (PR 3): a one-shot run that may read files can hand independent reads to the CLI's own subagents (the goal's "or let the
+agent create the parallel calls itself"); probes on 2026-11-26 decided each CLI:
+- [ ] Claude: `Agent` joins Read/Grep/Glob when the run may read files (probe: two Explore subagents at once, only the session's
+      tools, a schema answer still arrives); the stream parser keeps the Agent tool's input out of the answer and still shows the
+      subagents' reads.
+- [ ] Codex: subagent tools off in one-shot runs (`-c agents.enabled=false`): an `--ephemeral` exec has no rollout for a child to
+      load ("collab spawn failed ... no rollout", v1 and v2), so every spawn fails and costs a turn; Codex already runs independent
+      reads as parallel tool calls (probe: both `cat`s started before either ended). Dropping `--ephemeral` would store document
+      contents in `~/.codex/sessions` and make `resume --last` in the AI panel open a one-shot run.
+- [ ] Antigravity: no change; print mode already starts `invoke_subagent` subagents side by side and the deny list holds inside
+      them (probe: a subagent's `write_file` was denied, no file written).
+- [ ] Copilot: unchanged (`--available-tools view grep glob` leaves out its subagent tool); the quota is exhausted for every model, so
+      adding it cannot be verified; after the quota resets. Cline: no mechanism.
+- [ ] Tests: hosted launch and parser tests (a recorded Claude stream with two subagents); one live run of the app's own path per
+      changed CLI. Minor bump, one release.
 
 ## Review (2026-11-26)
 
