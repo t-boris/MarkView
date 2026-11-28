@@ -388,6 +388,16 @@ One release at the end (7.21.4 or later).
 - [x] Release v7.21.9 published 2026-11-27 from origin/main 28218475 (Latest, notarized, codesign ok, `spctl` accepts the DMG,
       app version 7.21.9), https://github.com/t-boris/MarkView/releases/tag/v7.21.9; copy at `build/MarkView-7.21.9.dmg`;
       `Build & Release` of the merge commit passed. Not installed.
+- [x] The new test failed on the macOS 26 CI runner three times (PR #479, main, PR #480; macOS 27.2 here passes it in every
+      variant, and it fails on 7.21.8's view). Boris chose, after the second failure, "guard the test, one run" (PR #480:
+      window out of the key focus, event queue taken; still failed), then "expected failure plus diagnostics": PR #481 merged
+      (4a9ae254, test only) makes it an expected failure below macOS 27 and logs the closed window's direct holders from
+      `leaks --traceTree`. Its CI: lane 4 green; the holders on 26 are the window's views, an autorelease pool, task frames, no
+      MarkView code. Open: whether the real app on macOS 26 frees a closed window (recorded in BUG-138). Lane 0 of the same run
+      failed on `BrowserFrameHostTests.testQAOffscreenWebWindows` (requestAnimationFrame in an offscreen web window), not touched.
+- [x] Boris asked to move every task to done (2026-11-28): MarkView refused the AI for BUG-131/133/135/138/139 (a failed check
+      on each PR: the CI-pair race, and #479's test); Boris chose to set them in the MarkView window himself. Now no bug or
+      feature is in-review.
 
 Review (2026-11-27):
 - CI: the unused-import step now takes about a minute (55 s on PR #474) instead of timing out at 35 minutes.

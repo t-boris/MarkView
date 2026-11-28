@@ -2,7 +2,7 @@
 type: bug
 id: BUG-133
 title: A stopped QA run drafts its "QA interrupted" bug but never files it
-status: in-review
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27

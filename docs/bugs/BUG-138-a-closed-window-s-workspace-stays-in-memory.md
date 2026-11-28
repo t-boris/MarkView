@@ -2,14 +2,14 @@
 type: bug
 id: BUG-138
 title: A closed window's workspace stays in memory for as long as the app runs
-status: in-review
+status: done
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-27
 provenance: Created by an AI agent through MarkView
 related: BUG-134
 schema: 1
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 
 # A closed window's workspace stays in memory for as long as the app runs
@@ -20,7 +20,9 @@ After a window closes, its NSWindow and WorkspaceManager are not freed. On 2026-
 
 Step 1 (PR #476, 7.21.7, merged 2026-11-27) removed three holders found by reading the code and a hosted test: `FeatureFlowCoordinator` held the window strongly (`tabs`), a loop through the window that `close()` never broke; the Settings window kept the last workspace it showed after it closed; the window-opening action kept by `WindowSessionController` captured the last attached `ContentView`. A hosted test (`testAClosedWindowsWorkspaceIsFreed`) proves the workspace is freed once those are gone. A restore that never ends (BUG-139, PR #477) was a fourth holder.
 
-Step 2 (PR #479, 7.21.9, merged 2026-11-27) removed the last one. `WorkspaceWindow` (`ContentView.swift`) kept its NSWindow in a strong `@State hostWindow`; that state lives in the window's own SwiftUI view graph, so window, graph and the WorkspaceManager the graph owns held one another. The view now keeps a weak reference (`WeakWindowRef`). The SwiftUI structures `leaks --traceTree` listed earlier (focused values, menu items) were parts of that same graph, not separate holders. Evidence, invisible real app (app probe: open a folder, close its window): origin/main 7.21.8 keeps 2 windows, 2 WorkspaceManagers, 2 ProjectContexts and 4 open files of the closed project (`.dde/state.db`, -wal, -shm, folder); 7.21.9 keeps 1, 1, 1 and 0. New hosted test `testAClosedWorkspaceWindowLetsGoOfItsView` shows the real `ContentView` in a window, closes it and checks that the window and its workspace are freed: fails on 7.21.8's view, passes with the fix. Not checked by hand in the installed app.
+Step 2 (PR #479, 7.21.9, merged 2026-11-27) removed the last one. `WorkspaceWindow` (`ContentView.swift`) kept its NSWindow in a strong `@State hostWindow`; that state lives in the window's own SwiftUI view graph, so window, graph and the WorkspaceManager the graph owns held one another. The view now keeps a weak reference (`WeakWindowRef`). The SwiftUI structures `leaks --traceTree` listed earlier (focused values, menu items) were parts of that same graph, not separate holders. Evidence, invisible real app (app probe: open a folder, close its window): origin/main 7.21.8 keeps 2 windows, 2 WorkspaceManagers, 2 ProjectContexts and 4 open files of the closed project (`.dde/state.db`, -wal, -shm, folder); 7.21.9 keeps 1, 1, 1 and 0. New hosted test `testAClosedWorkspaceWindowLetsGoOfItsView` shows the real `ContentView` in a window, closes it and checks that the window and its workspace are freed: fails on 7.21.8's view, passes with the fix on macOS 27.2. Not checked by hand in the installed app.
+
+Open on macOS 26: on the CI runner (macos-26-arm64) the same hosted test still sees the closed window and its workspace alive (PR #479, main, PR #480), with the window out of the key focus and the event queue taken. PR #481 (2026-11-28, test only) makes it an expected failure below macOS 27 and logs the window's direct holders from `leaks --traceTree`: the window's own views (back pointers), two references from an autorelease pool, two async task frames, a SwiftUI popup button host and the `WeakWindowRef` storage (weak). No strong holder from MarkView's code is named; the autorelease pool and task frames may be the test host's own (it runs no event loop), so whether the real app on macOS 26 frees a closed window is not known. Not checked on a macOS 26 Mac.
 
 Seen on the way, not changed: if a window closes before its session `attach` task has started, `attach` still takes the closed window (and can bring it back to the front).
 

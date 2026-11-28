@@ -553,6 +553,20 @@ named to Boris) before the next push, even when it looks unrelated. Adding a hos
 parts, so two tests that share a setting can start running at the same time in a CI pair: a new failure next to a new test
 is first checked for that.
 
+## A failed CI check keeps a record from done (2026-11-28)
+
+MarkView lets an AI session move a bug or feature to done only when every linked pull request's checks passed. A CI flake on a
+merged PR (the hosted-pair race of PR #468-#477) or a failing new test therefore leaves the record in-review, and Boris's "move
+everything to done" was refused for five bugs. When a PR's CI fails, name it in the report at once and say it will block done;
+a flake fixed later (like #478) does not clear the old PRs' failed checks.
+
+## A hosted test that passes on one macOS may fail on the CI runner's (2026-11-28)
+
+`testAClosedWorkspaceWindowLetsGoOfItsView` passed on macOS 27.2 and failed on the macos-26 runner three times. Check the
+runner's image (`Image: macos-26-arm64` at the top of a job log) before guessing, and make a failure that cannot be reproduced
+here carry its own evidence (the test runs `leaks --traceTree` on itself and logs the window's direct holders), so one CI run
+answers instead of a series of guesses.
+
 ## A view's @State that holds its own window is a loop (2026-11-27)
 
 BUG-138: `@State private var hostWindow: NSWindow?` in the window's root view kept the closed window, its whole SwiftUI view

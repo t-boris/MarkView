@@ -2,7 +2,7 @@
 type: bug
 id: BUG-131
 title: A Markdown file attached to a feature shows up as a second source with the same id
-status: in-review
+status: done
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-27

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-135
 title: "X-Ray code analysis takes 5-10 minutes: every analysis asks twice, the answer lists hundreds of files, Codex subagents re-read the code"
-status: in-review
+status: done
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-27

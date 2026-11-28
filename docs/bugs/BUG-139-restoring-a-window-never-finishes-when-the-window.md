@@ -2,7 +2,7 @@
 type: bug
 id: BUG-139
 title: Restoring a window never finishes when the window closes while its folder is still loading
-status: in-review
+status: done
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-27
